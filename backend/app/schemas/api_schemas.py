@@ -268,51 +268,6 @@ class RCARecordOut(BaseModel):
     updated_at: datetime
 
 
-class SubcontractorAuditIn(BaseModel):
-    plant_id: int = 1
-    contractor_id: str
-    subcontractor_name: str
-    scope_of_work: str
-    active_work_orders: int = 1
-    workmanship_score_pct: float = 92.0
-    engineering_std_compliance_pct: float = 95.0
-    safety_she_compliance_pct: float = 98.0
-    on_time_sla_pct: float = 92.0
-    open_ncrs: int = 0
-    torque_seal_verified: str = "Pass"
-    calibrated_tools_cert: str = "Valid"
-    overall_rating: str = "Approved - Grade A"
-
-
-class SubcontractorAuditOut(SubcontractorAuditIn):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    updated_at: datetime
-
-
-class PQTestEvaluateRequest(BaseModel):
-    plant_id: int = 1
-    voltage_thd_pct: float = 2.10
-    current_thd_pct: float = 3.40
-    power_factor: float = 0.992
-    voltage_unbalance_pct: float = 0.85
-    flicker_plt: float = 0.42
-    grid_frequency_hz: float = 50.02
-    dc_injection_pct: float = 0.18
-    min_riso_mohm: float = 42.5
-
-
-class PQTestOut(PQTestEvaluateRequest):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    pq_results_json: List[Dict[str, Any]]
-    commissioning_results_json: List[Dict[str, Any]]
-    overall_compliant: bool
-    created_at: datetime
-
-
 class PTWPermitIn(BaseModel):
     plant_id: int = 1
     ptw_number: str

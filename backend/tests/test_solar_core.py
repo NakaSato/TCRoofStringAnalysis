@@ -21,12 +21,9 @@ from solar_core.ingestion import (
 from solar_core.models import CANONICAL_COLUMNS
 from solar_core.om_management import (
     compute_period_generation_summary,
-    evaluate_commissioning_and_power_quality,
     generate_cm_work_orders_from_analysis,
     get_default_pm_schedule,
     get_default_rca_records,
-    get_default_subcontractor_audits,
-    get_qaqc_engineering_checklist,
     get_she_dashboard_data,
 )
 from solar_core.reporting import (
@@ -120,32 +117,21 @@ def test_om_engineering_pillars_and_reports():
     eq_cats = set(rca_df["Equipment_Category"].tolist())
     assert {"Inverter", "Transformer", "Switchgear", "PV String / DC Combiner"}.issubset(eq_cats)
 
-    # 4. Subcontractor QA/QC
-    sub_df = get_default_subcontractor_audits()
-    qaqc_df = get_qaqc_engineering_checklist()
-    assert len(sub_df) == 3
-    assert len(qaqc_df) == 4
-
-    # 5. Commissioning & Power Quality Testing
-    pq_df, comm_df = evaluate_commissioning_and_power_quality()
-    assert (pq_df["Compliant"] == "Pass").all()
-    assert len(comm_df) == 5
-
     # 6. SH&E Compliance
     she_kpis, ptw_df, she_chk_df = get_she_dashboard_data()
     assert she_kpis["lti_count"] == 0
     assert len(ptw_df) >= 3
     assert len(she_chk_df) == 4
 
-    # 7. Management Reports (PDF, 11-sheet Excel, HTML)
-    pdf_bytes = generate_pdf_report(results, config, pm_df, cm_df, rca_df, sub_df, pq_df)
+    # 7. Management Reports (PDF, Excel, HTML)
+    pdf_bytes = generate_pdf_report(results, config, pm_df, cm_df, rca_df)
     assert pdf_bytes.startswith(b"%PDF")
 
-    excel_bytes = generate_excel_report(results, config, pm_df, cm_df, rca_df, sub_df, pq_df, comm_df, ptw_df)
+    excel_bytes = generate_excel_report(results, config, pm_df, cm_df, rca_df, ptw_df=ptw_df)
     assert len(excel_bytes) > 2000
 
     html_report = generate_html_report(results, config)
-    assert "Root Cause Analysis" in html_report and "Subcontractor" in html_report
+    assert "Root Cause Analysis" in html_report and "Subcontractor Supervision" not in html_report
 
 
 def test_sqlite_om_database(tmp_path):

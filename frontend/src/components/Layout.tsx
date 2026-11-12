@@ -5,9 +5,7 @@ import {
   TrendingUp,
   Activity,
   Wrench,
-  ClipboardCheck,
   ShieldAlert,
-  FileSpreadsheet,
   Settings,
   Save,
   LayoutDashboard,
@@ -25,6 +23,7 @@ import {
   AlertTriangle,
   Search,
   Users,
+  BellRing,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
@@ -55,15 +54,9 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Operations",
     items: [
+      { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
       { to: "/maintenance", label: "Maintenance & RCA", icon: Wrench, description: "PM schedule, CM work orders & root cause analysis" },
-      { to: "/quality", label: "Quality & Power Quality", icon: ClipboardCheck, description: "Subcontractor QA/QC, commissioning & IEEE 519 PQ" },
       { to: "/she", label: "Safety (SH&E)", icon: ShieldAlert, description: "Permit-to-work, LOTO & ISO 45001 compliance" },
-    ],
-  },
-  {
-    title: "Reports",
-    items: [
-      { to: "/reports", label: "Reports", icon: FileSpreadsheet, description: "PDF, Excel, HTML & CSV management exports" },
     ],
   },
   {

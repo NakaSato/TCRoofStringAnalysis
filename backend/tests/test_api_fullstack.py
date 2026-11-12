@@ -190,29 +190,6 @@ def test_om_crud_pq_she_and_reports_streaming(client: TestClient):
     cm_list = client.get("/api/cm-work-orders").json()
     assert len(cm_list) >= 5
 
-    # Subcontractors & QA/QC
-    sub_list = client.get("/api/subcontractor-audits").json()
-    assert len(sub_list) == 3
-    qaqc = client.get("/api/qaqc-checklist").json()
-    assert len(qaqc) == 4
-
-    # PQ Evaluation
-    pq_eval = client.post(
-        "/api/pq-tests/evaluate",
-        json={
-            "plant_id": 1,
-            "voltage_thd_pct": 2.0,
-            "current_thd_pct": 3.1,
-            "power_factor": 0.995,
-            "voltage_unbalance_pct": 0.7,
-            "flicker_plt": 0.35,
-            "grid_frequency_hz": 50.01,
-            "dc_injection_pct": 0.15,
-            "min_riso_mohm": 48.0,
-        },
-    )
-    assert pq_eval.status_code == 200
-    assert pq_eval.json()["overall_compliant"] is True
 
     # SH&E Dashboard & PTW
     she = client.get("/api/she/dashboard").json()

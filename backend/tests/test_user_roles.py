@@ -102,7 +102,7 @@ def test_engineer_cannot_reach_admin_areas(client):
     assert client.post("/api/growatt/sync/history", headers=eng).status_code == 403
     assert client.get("/api/growatt/sync/status", headers=eng).status_code == 403
     assert client.put("/api/growatt/fleet-module", json={}, headers=eng).status_code in (403, 422)
-    for path in ("/plants", "/pm-tasks", "/cm-work-orders", "/rca", "/ptw", "/subcontractor-audits"):
+    for path in ("/plants", "/pm-tasks", "/cm-work-orders", "/rca", "/ptw"):
         assert client.get(f"/api{path}", headers=eng).status_code == 403, path
 
 

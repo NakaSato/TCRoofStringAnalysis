@@ -94,6 +94,44 @@ const MiniStat: React.FC<{ icon: LucideIcon; label: string; value: React.ReactNo
 /* -------------------------------------------------------------------------- */
 /* Rain at 09 / 12 / 17 (Google Weather, modelled; stored hours only)          */
 /* -------------------------------------------------------------------------- */
+/** PR on a 0–100 % track with a tick at the target; no tick when the target is unknown. */
+const PrTargetBar: React.FC<{ pr: number | null; target: number | null; note: string | null }> = ({ pr, target, note }) => {
+  const clamp = (v: number) => Math.max(0, Math.min(100, v));
+  const met = pr != null && target != null && pr >= target;
+  const gap = pr != null && target != null ? pr - target : null;
+  return (
+    <div className="mt-1 space-y-1.5">
+      <div className="relative h-1.5 w-full rounded-full bg-white/[0.06]">
+        {pr != null && (
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${
+              target == null ? "bg-sky-400" : met ? "bg-emerald-400" : "bg-amber-400"
+            }`}
+            style={{ width: `${clamp(pr)}%` }}
+          />
+        )}
+        {target != null && (
+          <div
+            className="absolute -top-1 h-3.5 w-0.5 -translate-x-1/2 rounded-full bg-white/80"
+            style={{ left: `${clamp(target)}%` }}
+            title={`Target ${fmt(target, 1)}%`}
+          />
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
+        <span>Target {target == null ? "—" : `${fmt(target, 1)}%`}</span>
+        {gap != null && (
+          <span className={met ? "text-emerald-400" : "text-amber-400"}>
+            {gap >= 0 ? "+" : ""}
+            {fmt(gap, 1)} pts
+          </span>
+        )}
+      </div>
+      {note && <div className="text-[10px] text-slate-600">{note}</div>}
+    </div>
+  );
+};
+
 const RAIN_SLOTS = ["09", "12", "17"] as const;
 
 const WeatherSlotsTile: React.FC<{ plantId: number; day: string | null }> = ({ plantId, day }) => {
@@ -248,9 +286,11 @@ export const OverviewPage: React.FC = () => {
                   value={fmt(shownPr, 1)}
                   unit="%"
                   hint={
-                    iecPr != null
-                      ? `Target ${fmt(kpis?.target_pr_pct, 1)}% · IEC 61724-1, measured irradiance`
-                      : `Strings vs. peers · not IEC (${selectedPlantOverview.weather?.iec_pr.reason ?? "no irradiance"})`
+                    <PrTargetBar
+                      pr={shownPr}
+                      target={kpis?.target_pr_pct ?? null}
+                      note={iecPr != null ? "IEC 61724-1, measured irradiance" : null}
+                    />
                   }
                 />
                 <KpiTile

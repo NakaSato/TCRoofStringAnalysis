@@ -1,4 +1,4 @@
-"""SQLite persistence layer for Solar O&M Management tables (PM, CM, RCA, Subcontractors, SH&E PTW)."""
+"""SQLite persistence layer for Solar O&M Management tables (PM, CM, RCA, SH&E PTW)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import pandas as pd
 from solar_core.om_management import (
     get_default_pm_schedule,
     get_default_rca_records,
-    get_default_subcontractor_audits,
     get_she_dashboard_data,
 )
 
@@ -35,8 +34,6 @@ class OMDatabase:
                 get_default_pm_schedule().to_sql("pm_schedule", conn, index=False, if_exists="replace")
             if not self._table_exists(conn, "rca_register"):
                 get_default_rca_records().to_sql("rca_register", conn, index=False, if_exists="replace")
-            if not self._table_exists(conn, "subcontractor_audits"):
-                get_default_subcontractor_audits().to_sql("subcontractor_audits", conn, index=False, if_exists="replace")
             if not self._table_exists(conn, "she_ptw_register"):
                 _, ptw_df, _ = get_she_dashboard_data()
                 ptw_df.to_sql("she_ptw_register", conn, index=False, if_exists="replace")
@@ -60,6 +57,5 @@ class OMDatabase:
         with self._connect() as conn:
             get_default_pm_schedule().to_sql("pm_schedule", conn, index=False, if_exists="replace")
             get_default_rca_records().to_sql("rca_register", conn, index=False, if_exists="replace")
-            get_default_subcontractor_audits().to_sql("subcontractor_audits", conn, index=False, if_exists="replace")
             _, ptw_df, _ = get_she_dashboard_data()
             ptw_df.to_sql("she_ptw_register", conn, index=False, if_exists="replace")

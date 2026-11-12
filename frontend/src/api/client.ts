@@ -152,41 +152,6 @@ export interface RCARecord {
   updated_at: string;
 }
 
-export interface SubcontractorAudit {
-  id: number;
-  plant_id: number;
-  contractor_id: string;
-  subcontractor_name: string;
-  scope_of_work: string;
-  active_work_orders: number;
-  workmanship_score_pct: number;
-  engineering_std_compliance_pct: number;
-  safety_she_compliance_pct: number;
-  on_time_sla_pct: number;
-  open_ncrs: number;
-  torque_seal_verified: string;
-  calibrated_tools_cert: string;
-  overall_rating: string;
-  updated_at: string;
-}
-
-export interface PQTestResult {
-  id: number;
-  plant_id: number;
-  voltage_thd_pct: number;
-  current_thd_pct: number;
-  power_factor: number;
-  voltage_unbalance_pct: number;
-  flicker_plt: number;
-  grid_frequency_hz: number;
-  dc_injection_pct: number;
-  min_riso_mohm: number;
-  pq_results_json: Record<string, any>[];
-  commissioning_results_json: Record<string, any>[];
-  overall_compliant: boolean;
-  created_at: string;
-}
-
 export interface PTWPermit {
   id: number;
   plant_id: number;
@@ -1092,18 +1057,6 @@ export const api = {
   updateRcaRecord: (id: number, payload: Partial<RCARecord>) =>
     apiFetch<RCARecord>(`/rca/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteRcaRecord: (id: number) => apiFetch<void>(`/rca/${id}`, { method: "DELETE" }),
-
-  // Subcontractors, QA/QC, Power Quality
-  listSubcontractors: (plantId: number) =>
-    apiFetch<SubcontractorAudit[]>(`/subcontractor-audits?plant_id=${plantId}`),
-  createSubcontractor: (payload: Partial<SubcontractorAudit>) =>
-    apiFetch<SubcontractorAudit>("/subcontractor-audits", { method: "POST", body: JSON.stringify(payload) }),
-  updateSubcontractor: (id: number, payload: Partial<SubcontractorAudit>) =>
-    apiFetch<SubcontractorAudit>(`/subcontractor-audits/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  getQaqcChecklist: () => apiFetch<Record<string, any>[]>("/qaqc-checklist"),
-  getLatestPqTest: (plantId: number) => apiFetch<PQTestResult>(`/pq-tests/latest?plant_id=${plantId}`),
-  evaluatePqTest: (payload: Record<string, any>) =>
-    apiFetch<PQTestResult>("/pq-tests/evaluate", { method: "POST", body: JSON.stringify(payload) }),
 
   // SH&E & PTW
   getSheDashboard: (plantId: number) =>

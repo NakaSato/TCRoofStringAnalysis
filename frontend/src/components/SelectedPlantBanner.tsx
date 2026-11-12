@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Building2,
@@ -11,8 +11,6 @@ import {
   LayoutDashboard,
   TrendingUp,
   Wrench,
-  ShieldCheck,
-  FileSpreadsheet,
   RefreshCw,
   Search,
   X,
@@ -128,14 +126,6 @@ export const SelectedPlantBanner: React.FC = () => {
       icon: Wrench,
       active: location.pathname === "/maintenance",
       onClick: () => navigate("/maintenance"),
-    },
-    {
-      step: "7",
-      label: "Power Quality & Reports",
-      to: "/quality",
-      icon: ShieldCheck,
-      active: location.pathname === "/quality" || location.pathname === "/reports",
-      onClick: () => navigate("/quality"),
     },
   ];
 
@@ -274,13 +264,6 @@ export const SelectedPlantBanner: React.FC = () => {
           })}
         </div>
 
-        <Link
-          to="/reports"
-          className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
-        >
-          <FileSpreadsheet className="h-3 w-3 text-solar-400" />
-          Export Plant Report
-        </Link>
       </div>
     </section>
   );

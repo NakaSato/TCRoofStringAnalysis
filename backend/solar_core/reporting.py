@@ -10,10 +10,8 @@ Exports:
    - PM_Schedule
    - CM_Work_Orders
    - Equipment_RCA_Log
-   - Subcontractor_QAQC
-   - Commissioning_PowerQuality
    - SHE_Safety_Log
-2. Executive & Technical PDF Report (.pdf) built with fpdf2 (String + O&M + RCA + PQ + SH&E)
+2. Executive & Technical PDF Report (.pdf) built with fpdf2 (String + O&M + RCA + SH&E)
 3. Standalone Printable HTML Management & Engineering Report (.html)
 """
 
@@ -30,11 +28,9 @@ from solar_core.analysis import AnalysisResults
 from solar_core.models import PlantConfig
 from solar_core.om_management import (
     compute_period_generation_summary,
-    evaluate_commissioning_and_power_quality,
     generate_cm_work_orders_from_analysis,
     get_default_pm_schedule,
     get_default_rca_records,
-    get_default_subcontractor_audits,
     get_she_dashboard_data,
 )
 
@@ -45,9 +41,6 @@ def generate_excel_report(
     pm_df: Optional[pd.DataFrame] = None,
     cm_df: Optional[pd.DataFrame] = None,
     rca_df: Optional[pd.DataFrame] = None,
-    sub_df: Optional[pd.DataFrame] = None,
-    pq_df: Optional[pd.DataFrame] = None,
-    comm_df: Optional[pd.DataFrame] = None,
     ptw_df: Optional[pd.DataFrame] = None,
 ) -> bytes:
     """Generate a comprehensive multi-sheet O&M and String Engineering Excel (.xlsx) workbook."""
@@ -60,10 +53,6 @@ def generate_excel_report(
         cm_df = generate_cm_work_orders_from_analysis(results)
     if rca_df is None:
         rca_df = get_default_rca_records()
-    if sub_df is None:
-        sub_df = get_default_subcontractor_audits()
-    if pq_df is None or comm_df is None:
-        pq_df, comm_df = evaluate_commissioning_and_power_quality()
     if ptw_df is None:
         _, ptw_df, _ = get_she_dashboard_data()
 
@@ -130,14 +119,7 @@ def generate_excel_report(
         # Sheet 7: Equipment Failure RCA
         rca_df.to_excel(writer, sheet_name="Equipment_RCA", index=False)
 
-        # Sheet 8: Subcontractor QA/QC
-        sub_df.to_excel(writer, sheet_name="Subcontractor_QAQC", index=False)
-
-        # Sheet 9: Commissioning & Power Quality
-        pq_df.to_excel(writer, sheet_name="Power_Quality", index=False)
-        comm_df.to_excel(writer, sheet_name="Commissioning_Tests", index=False)
-
-        # Sheet 10: SH&E Permit-to-Work Log
+        # Sheet 8: SH&E Permit-to-Work Log
         ptw_df.to_excel(writer, sheet_name="SHE_Safety_PTW", index=False)
 
     return buffer.getvalue()
@@ -197,8 +179,6 @@ def generate_pdf_report(
     pm_df: Optional[pd.DataFrame] = None,
     cm_df: Optional[pd.DataFrame] = None,
     rca_df: Optional[pd.DataFrame] = None,
-    sub_df: Optional[pd.DataFrame] = None,
-    pq_df: Optional[pd.DataFrame] = None,
 ) -> bytes:
     """Generate a multi-page Landscape A4 Engineering & O&M Management PDF Report."""
     _, _, _, opportunities_df = compute_period_generation_summary(results.enriched_df, config)
@@ -208,10 +188,6 @@ def generate_pdf_report(
         cm_df = generate_cm_work_orders_from_analysis(results)
     if rca_df is None:
         rca_df = get_default_rca_records()
-    if sub_df is None:
-        sub_df = get_default_subcontractor_audits()
-    if pq_df is None:
-        pq_df, _ = evaluate_commissioning_and_power_quality()
     she_kpis, _, _ = get_she_dashboard_data()
 
     pdf = _SolarPDFReport(plant_name=config.plant_name)
@@ -340,7 +316,7 @@ def generate_pdf_report(
         pdf.multi_cell(0, 5, line, new_x="LMARGIN", new_y="NEXT")
 
     # -----------------------------------------------------------------------
-    # PAGE 2: O&M (PM/CM), Equipment RCA, Subcontractor QA, PQ & SH&E
+    # PAGE 2: O&M (PM/CM), Equipment RCA & SH&E
     # -----------------------------------------------------------------------
     pdf.add_page()
 
@@ -381,27 +357,13 @@ def generate_pdf_report(
 
     pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(20, 50, 90)
-    pdf.cell(0, 7, "6. Subcontractor QA/QC, Power Quality Compliance & SH&E Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 7, "6. SH&E Summary", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(30, 30, 30)
 
-    for _, sub in sub_df.iterrows():
-        pdf.cell(
-            0,
-            5.5,
-            _pdf_safe(
-                f"Subcontractor: {sub['Subcontractor_Name']} | Workmanship: {sub['Workmanship_Score_Pct']:.0f}% | "
-                f"Eng. Std: {sub['Engineering_Std_Compliance_Pct']:.0f}% | SH&E: {sub['Safety_SHE_Compliance_Pct']:.0f}% | Rating: {sub['Overall_Rating']}"
-            ),
-            new_x="LMARGIN",
-            new_y="NEXT",
-        )
-
-    pq_pass_cnt = int((pq_df["Compliant"] == "Pass").sum())
     pdf.cell(
         0,
         5.5,
-        f"Power Quality & Grid Code (IEEE 519 / PEA-MEA): {pq_pass_cnt}/{len(pq_df)} Parameters Compliant | "
         f"SH&E Performance: {she_kpis['days_without_lti']} Days Zero LTI, 100% PTW & LOTO Compliance.",
         new_x="LMARGIN",
         new_y="NEXT",
@@ -416,8 +378,6 @@ def generate_html_report(results: AnalysisResults, config: PlantConfig) -> str:
     _, _, _, opportunities_df = compute_period_generation_summary(results.enriched_df, config)
     cm_df = generate_cm_work_orders_from_analysis(results)
     rca_df = get_default_rca_records()
-    sub_df = get_default_subcontractor_audits()
-    pq_df, _ = evaluate_commissioning_and_power_quality()
     she_kpis, _, _ = get_she_dashboard_data()
 
     min_ts = pd.to_datetime(results.enriched_df["timestamp"].min()).strftime("%Y-%m-%d %H:%M")
@@ -478,22 +438,6 @@ def generate_html_report(results: AnalysisResults, config: PlantConfig) -> str:
                 <td>{rca['Why_5_Root_Cause']}</td>
                 <td>{rca['CAPA_Corrective_Action']}<br><small><strong>Preventive:</strong> {rca['CAPA_Preventive_Action']}</small></td>
                 <td><span class="badge badge-ok">{rca['RCA_Status']}</span></td>
-            </tr>
-            """
-        )
-
-    sub_rows_html = []
-    for _, sub in sub_df.iterrows():
-        sub_rows_html.append(
-            f"""
-            <tr>
-                <td><strong>{sub['Subcontractor_Name']}</strong></td>
-                <td>{sub['Scope_of_Work']}</td>
-                <td class="num">{sub['Workmanship_Score_Pct']:.0f}%</td>
-                <td class="num">{sub['Engineering_Std_Compliance_Pct']:.0f}%</td>
-                <td class="num">{sub['Safety_SHE_Compliance_Pct']:.0f}%</td>
-                <td>{sub['Torque_Seal_Verified']}</td>
-                <td><strong>{sub['Overall_Rating']}</strong></td>
             </tr>
             """
         )
@@ -685,23 +629,6 @@ def generate_html_report(results: AnalysisResults, config: PlantConfig) -> str:
         </tbody>
     </table>
 
-    <h2>4. Subcontractor Supervision & Engineering QA/QC Compliance</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Subcontractor</th>
-                <th>Scope of Work</th>
-                <th>Workmanship</th>
-                <th>Eng. Standards</th>
-                <th>SH&E Safety</th>
-                <th>Torque & QA Verification</th>
-                <th>Rating</th>
-            </tr>
-        </thead>
-        <tbody>
-            {''.join(sub_rows_html)}
-        </tbody>
-    </table>
 </div>
 </body>
 </html>

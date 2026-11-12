@@ -12,11 +12,9 @@ from app.auth import hash_password, verify_password
 from app.config import DATA_DIR, Settings, settings as app_settings
 from app.db.models import (
     PMTask,
-    PQTestRecord,
     PTWPermit,
     Plant,
     RCARecord,
-    SubcontractorAudit,
     User,
 )
 from app.db.session import Base, engine, ensure_schema
@@ -27,10 +25,8 @@ from app.services.solar_service import (
 )
 from solar_core.ingestion import generate_simulated_string_data
 from solar_core.om_management import (
-    evaluate_commissioning_and_power_quality,
     get_default_pm_schedule,
     get_default_rca_records,
-    get_default_subcontractor_audits,
     get_she_dashboard_data,
 )
 
@@ -227,27 +223,6 @@ def ensure_seeded(db: Session, cfg: Settings | None = None) -> Plant:
             )
         )
 
-    # 5. Seed default Subcontractor audits
-    sub_df = _load_legacy_or_default("subcontractor_audits", get_default_subcontractor_audits())
-    for row in sub_df.to_dict(orient="records"):
-        db.add(
-            SubcontractorAudit(
-                plant_id=plant.id,
-                contractor_id=str(row["Contractor_ID"]),
-                subcontractor_name=str(row["Subcontractor_Name"]),
-                scope_of_work=str(row["Scope_of_Work"]),
-                active_work_orders=int(row["Active_Work_Orders"]),
-                workmanship_score_pct=float(row["Workmanship_Score_Pct"]),
-                engineering_std_compliance_pct=float(row["Engineering_Std_Compliance_Pct"]),
-                safety_she_compliance_pct=float(row["Safety_SHE_Compliance_Pct"]),
-                on_time_sla_pct=float(row["On_Time_SLA_Pct"]),
-                open_ncrs=int(row["Open_NCRs"]),
-                torque_seal_verified=str(row["Torque_Seal_Verified"]),
-                calibrated_tools_cert=str(row["Calibrated_Tools_Cert"]),
-                overall_rating=str(row["Overall_Rating"]),
-            )
-        )
-
     # 6. Seed default SH&E PTW register
     _, default_ptw_df, _ = get_she_dashboard_data()
     ptw_df = _load_legacy_or_default("she_ptw_register", default_ptw_df)
@@ -267,24 +242,6 @@ def ensure_seeded(db: Session, cfg: Settings | None = None) -> Plant:
             )
         )
 
-    # 7. Seed default Commissioning & Power Quality test
-    pq_df, comm_df = evaluate_commissioning_and_power_quality()
-    db.add(
-        PQTestRecord(
-            plant_id=plant.id,
-            voltage_thd_pct=2.1,
-            current_thd_pct=3.4,
-            power_factor=0.992,
-            voltage_unbalance_pct=0.85,
-            flicker_plt=0.42,
-            grid_frequency_hz=50.02,
-            dc_injection_pct=0.18,
-            min_riso_mohm=42.5,
-            pq_results_json=df_to_records(pq_df),
-            commissioning_results_json=df_to_records(comm_df),
-            overall_compliant=bool((pq_df["Compliant"] == "Pass").all()),
-        )
-    )
     db.flush()
 
     # 8. Seed initial 7-day simulated dataset & initial analysis run

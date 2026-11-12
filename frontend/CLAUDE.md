@@ -25,7 +25,7 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
 - **`src/context/AppContext.tsx`**: shared state through `useAppContext()`.
   - Holds the user/auth, the analysis plant and dataset, and the Growatt fleet list and selected plant.
   - Data loading uses `useEffect` and `setInterval`. `@tanstack/react-query` is installed but **not used**, so don't mix in a second fetching style without migrating the context.
-- **`src/pages/*`**: one page per route (`App.tsx`). The routes are `/`, `growatt`, `generation`, `strings`, `maintenance`, `quality`, `she`, `reports` and `settings`, all inside `components/Layout.tsx`.
+- **`src/pages/*`**: one page per route (`App.tsx`). The routes are `/`, `growatt`, `generation`, `strings`, `alarms`, `maintenance`, `she` and `settings`, all inside `components/Layout.tsx`.
 - **`src/components/ui.tsx`**: shared UI pieces.
   - Components: `PageHeader`, `Panel`, `KpiTile`, `StatusBadge`, `Led`, `Meter`, `EmptyState`, `LoadingState`.
   - Formatters `fmt` and `fmtInt` return `"—"` for null or non-finite values.

@@ -262,32 +262,6 @@ class RCARecord(Base):
     )
 
 
-class SubcontractorAudit(Base):
-    """Subcontractor QA/QC supervision scorecard record."""
-
-    __tablename__ = "subcontractor_audits"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    plant_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("plants.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    contractor_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    subcontractor_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    scope_of_work: Mapped[str] = mapped_column(Text, nullable=False)
-    active_work_orders: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    workmanship_score_pct: Mapped[float] = mapped_column(Float, nullable=False, default=90.0)
-    engineering_std_compliance_pct: Mapped[float] = mapped_column(Float, nullable=False, default=90.0)
-    safety_she_compliance_pct: Mapped[float] = mapped_column(Float, nullable=False, default=95.0)
-    on_time_sla_pct: Mapped[float] = mapped_column(Float, nullable=False, default=90.0)
-    open_ncrs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    torque_seal_verified: Mapped[str] = mapped_column(String(128), nullable=False)
-    calibrated_tools_cert: Mapped[str] = mapped_column(String(255), nullable=False)
-    overall_rating: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
-    )
-
-
 class PTWPermit(Base):
     """Safety, Health & Environment (SH&E) Permit-to-Work (PTW) & LOTO register row."""
 
@@ -309,29 +283,6 @@ class PTWPermit(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
-
-
-class PQTestRecord(Base):
-    """Commissioning (IEC 62446-1) & Power Quality (IEEE 519 / Grid Code) evaluation record."""
-
-    __tablename__ = "pq_tests"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    plant_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("plants.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    voltage_thd_pct: Mapped[float] = mapped_column(Float, nullable=False, default=2.1)
-    current_thd_pct: Mapped[float] = mapped_column(Float, nullable=False, default=3.4)
-    power_factor: Mapped[float] = mapped_column(Float, nullable=False, default=0.992)
-    voltage_unbalance_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.85)
-    flicker_plt: Mapped[float] = mapped_column(Float, nullable=False, default=0.42)
-    grid_frequency_hz: Mapped[float] = mapped_column(Float, nullable=False, default=50.02)
-    dc_injection_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.18)
-    min_riso_mohm: Mapped[float] = mapped_column(Float, nullable=False, default=42.5)
-    pq_results_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
-    commissioning_results_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
-    overall_compliant: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 # ---------------------------------------------------------------------------

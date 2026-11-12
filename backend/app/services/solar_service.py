@@ -16,19 +16,16 @@ from app.db.models import (
     CMWorkOrder,
     Dataset,
     PMTask,
-    PQTestRecord,
     PTWPermit,
     Plant,
     RCARecord,
     StringSpecModel,
-    SubcontractorAudit,
     TelemetryRow,
 )
 from solar_core.analysis import AnalysisResults, run_pv_string_analysis
 from solar_core.models import CANONICAL_COLUMNS, PlantConfig, StringSpec
 from solar_core.om_management import (
     compute_period_generation_summary,
-    evaluate_commissioning_and_power_quality,
     generate_cm_work_orders_from_analysis,
 )
 
@@ -369,29 +366,6 @@ def get_om_dataframes_for_plant(
         ]
     )
 
-    sub_rows = db.scalars(
-        select(SubcontractorAudit).where(SubcontractorAudit.plant_id == plant_id).order_by(SubcontractorAudit.id)
-    ).all()
-    sub_df = pd.DataFrame(
-        [
-            {
-                "Contractor_ID": r.contractor_id,
-                "Subcontractor_Name": r.subcontractor_name,
-                "Scope_of_Work": r.scope_of_work,
-                "Active_Work_Orders": r.active_work_orders,
-                "Workmanship_Score_Pct": r.workmanship_score_pct,
-                "Engineering_Std_Compliance_Pct": r.engineering_std_compliance_pct,
-                "Safety_SHE_Compliance_Pct": r.safety_she_compliance_pct,
-                "On_Time_SLA_Pct": r.on_time_sla_pct,
-                "Open_NCRs": r.open_ncrs,
-                "Torque_Seal_Verified": r.torque_seal_verified,
-                "Calibrated_Tools_Cert": r.calibrated_tools_cert,
-                "Overall_Rating": r.overall_rating,
-            }
-            for r in sub_rows
-        ]
-    )
-
     ptw_rows = db.scalars(select(PTWPermit).where(PTWPermit.plant_id == plant_id).order_by(PTWPermit.id)).all()
     ptw_df = pd.DataFrame(
         [
@@ -410,16 +384,4 @@ def get_om_dataframes_for_plant(
         ]
     )
 
-    latest_pq = db.scalar(
-        select(PQTestRecord)
-        .where(PQTestRecord.plant_id == plant_id)
-        .order_by(PQTestRecord.id.desc())
-        .limit(1)
-    )
-    if latest_pq is not None:
-        pq_df = pd.DataFrame(latest_pq.pq_results_json)
-        comm_df = pd.DataFrame(latest_pq.commissioning_results_json)
-    else:
-        pq_df, comm_df = evaluate_commissioning_and_power_quality()
-
-    return pm_df, cm_df, rca_df, sub_df, pq_df, comm_df, ptw_df
+    return pm_df, cm_df, rca_df, ptw_df

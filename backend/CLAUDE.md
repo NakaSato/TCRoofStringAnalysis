@@ -36,7 +36,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - Every router is mounted twice, at `/api` and at `/`.
   - Auth is JWT (`app/auth.py`) with two roles. **admin**: everything. **engineer**: only the Growatt plants in `user_plant_assignments` (set by an admin via `/users/{id}/plants`).
     - Every `/growatt/…/plants/{plant_id}/…` route depends on `require_plant_read` / `require_plant_write`; an unassigned plant answers **404** (ids are not revealed). Lists (`/growatt/plants`, `/growatt/live/plants`) are filtered with `allowed_plant_ids` (None = admin = all); the live cache stays fleet-wide.
-    - Admin only (`require_admin`): `/users`, fleet module PUT, `/growatt/sync/*`, and the legacy routers (`plants`, `datasets`, `analysis`, `maintenance`, `rca`, `quality`, `she`, `reports`), which use the local `plants` table with no link to Growatt plants.
+    - Admin only (`require_admin`): `/users`, fleet module PUT, `/growatt/sync/*`, and the legacy routers (`plants`, `datasets`, `analysis`, `maintenance`, `rca`, `she`, `reports`), which use the local `plants` table with no link to Growatt plants.
     - Assignments are read from the DB per request, so changes apply without a new login. Any other stored role (the former `viewer`) becomes `engineer` at startup.
 
 **Analysis pipeline** (`services/solar_service.py`):

@@ -13,7 +13,6 @@ from app.api.routes import (
     growatt,
     maintenance,
     plants,
-    quality,
     rca,
     reports,
     she,
@@ -38,7 +37,7 @@ def create_app() -> FastAPI:
         version=settings.app_version,
         description=(
             "Full-Stack REST API for Solar PV String Performance, IEC 61724 PR & Loss Waterfall, "
-            "PM/CM Maintenance, Equipment Failure RCA, Subcontractor QA/QC, Commissioning/IEEE 519 Power Quality, "
+            "PM/CM Maintenance, Equipment Failure RCA, "
             "SH&E Compliance, and Management Reporting."
         ),
         lifespan=lifespan,
@@ -60,7 +59,7 @@ def create_app() -> FastAPI:
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
     # Growatt plants an engineer is assigned, so they are admin only.
     admin_only = [Depends(require_admin)]
-    for module in (plants, datasets, analysis, maintenance, rca, quality, she, reports, users):
+    for module in (plants, datasets, analysis, maintenance, rca, she, reports, users):
         api_router.include_router(module.router, dependencies=admin_only)
 
     # Mount at both `/api` and `/` for compatibility

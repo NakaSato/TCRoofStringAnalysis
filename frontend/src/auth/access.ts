@@ -8,7 +8,7 @@ import type { UserProfile } from "../api/client";
 export const isAdmin = (user: UserProfile | null | undefined): boolean => user?.role === "admin";
 
 /** Pages on the legacy O&M modules or user management: admin only. */
-export const ADMIN_ONLY_PATHS = ["/maintenance", "/quality", "/she", "/reports", "/users"];
+export const ADMIN_ONLY_PATHS = ["/maintenance", "/she", "/users"];
 
 export const canAccessPath = (user: UserProfile | null | undefined, path: string): boolean =>
   isAdmin(user) || !ADMIN_ONLY_PATHS.some((p) => path === p || path.startsWith(`${p}/`));

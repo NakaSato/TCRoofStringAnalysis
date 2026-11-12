@@ -35,7 +35,7 @@ def export_report(
         raise HTTPException(status_code=404, detail=f"Analysis run {run_id} not found")
 
     results, config = reconstruct_analysis_results(db, run)
-    pm_df, cm_df, rca_df, sub_df, pq_df, comm_df, ptw_df = get_om_dataframes_for_plant(db, run.plant_id)
+    pm_df, cm_df, rca_df, ptw_df = get_om_dataframes_for_plant(db, run.plant_id)
     slug = datetime.now().strftime("%Y%m%d_%H%M")
     fmt = report_format.lower().strip()
 
@@ -46,8 +46,6 @@ def export_report(
             pm_df=pm_df if not pm_df.empty else None,
             cm_df=cm_df if not cm_df.empty else None,
             rca_df=rca_df if not rca_df.empty else None,
-            sub_df=sub_df if not sub_df.empty else None,
-            pq_df=pq_df if not pq_df.empty else None,
         )
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
@@ -64,9 +62,6 @@ def export_report(
             pm_df=pm_df if not pm_df.empty else None,
             cm_df=cm_df if not cm_df.empty else None,
             rca_df=rca_df if not rca_df.empty else None,
-            sub_df=sub_df if not sub_df.empty else None,
-            pq_df=pq_df if not pq_df.empty else None,
-            comm_df=comm_df if not comm_df.empty else None,
             ptw_df=ptw_df if not ptw_df.empty else None,
         )
         return StreamingResponse(
