@@ -39,7 +39,8 @@ class Settings(BaseSettings):
     growatt_token_phase4: str = ""
     growatt_base_url: str = "https://openapi.growatt.com/v1/"
     growatt_live_ttl_s: int = 120  # realtime cache TTL (memory only, never persisted)
-    growatt_live_latest_ttl_s: int = 300  # per-inverter newest max_data record (~one upload period)
+    growatt_live_night_ttl_s: int = 1800  # max live cache life outside daylight (0 = off); ends at dawn
+    growatt_live_latest_ttl_s: int = 300  # per-inverter cap when no upload rhythm applies (no record today / silent)
     # Firestore (daily summaries + registry only; realtime data is never written)
     firebase_credentials_file: str = ""  # service-account JSON path, backend only
     firebase_project_id: str = ""

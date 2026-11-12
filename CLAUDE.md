@@ -23,7 +23,7 @@ Seeded logins (username / password): `admin` / `admin123`, `engineer` / `enginee
 ## How data flows (Growatt)
 
 ```
-Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /growatt/live/* ─► UI polls every 60 s
+Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /growatt/live/* ─► UI polls when refresh_in_s says
                  │              (never stored anywhere)
                  └─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
                                                                          └─► daily summaries ─► Firestore

@@ -221,6 +221,8 @@ export interface GrowattLive<T> {
   fetched_at: string;
   stale: boolean;
   error: string | null;
+  /** Seconds until polling again can return anything new (cache expiry / cooldown end). */
+  refresh_in_s?: number;
   data: T;
 }
 

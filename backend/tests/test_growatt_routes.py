@@ -150,6 +150,9 @@ class _FakeClient:
         return [{"device_sn": SN_A, "status": 1}]
 
 
+_LATE = __import__("datetime").datetime(2026, 11, 12, 18, 0)  # hours after the fakes' records
+
+
 def _service(fake, clock):
     return GrowattLiveService(client_factory=lambda phase: fake, ttl_s=60, cooldown_s=30, clock=lambda: clock[0])
 
@@ -178,6 +181,36 @@ def test_live_service_cache_stale_fallback_and_rate_limit_cooldown():
     fake.fail = None
     assert svc.plants()["stale"] is False
     assert fake.calls == 3
+
+
+def test_refresh_in_follows_cache_expiry_and_cooldown():
+    from datetime import date as _date
+
+    fake, clock = _FakeClient(), [0.0]
+    svc = _service(fake, clock)  # ttl 60 s, cooldown 30 s
+
+    assert svc.plants()["refresh_in_s"] == 60  # fresh fetch: full TTL
+    clock[0] = 40.0
+    assert svc.plants()["refresh_in_s"] == 20  # cache hit: time left
+    clock[0] = 55.0
+    assert svc.plants()["refresh_in_s"] == 15  # never below the floor
+
+    clock[0] = 61.0
+    fake.fail = GrowattAPIError("rate limited", error_code=10012)
+    env = svc.plants()
+    assert env["stale"] is True and env["refresh_in_s"] == 30  # end of the cooldown
+    clock[0] = 76.0
+    assert svc.plants()["refresh_in_s"] == 15
+
+    # plant_latest: the earliest inverter to expire decides
+    mfake, mclock = _ScriptedMaxClient(), [0.0]
+    msvc = GrowattLiveService(
+        client_factory=lambda phase: mfake, latest_ttl_s=300, clock=lambda: mclock[0], now_local=lambda: _LATE
+    )
+    day = _date(2026, 11, 12)
+    msvc.plant_latest(PLANT, ["A"], day)
+    mclock[0] = 100.0
+    assert msvc.plant_latest(PLANT, ["A", "B"], day)["refresh_in_s"] == 200  # A at 0 s, B at 100 s
 
 
 def test_live_service_without_cache_raises():
@@ -276,7 +309,10 @@ def test_rate_limit_cooldown_is_per_key_and_latest_is_per_inverter():
     from datetime import date as _date
 
     fake, clock = _ScriptedMaxClient(), [0.0]
-    svc = GrowattLiveService(client_factory=lambda phase: fake, ttl_s=60, latest_ttl_s=300, cooldown_s=60, clock=lambda: clock[0])
+    svc = GrowattLiveService(
+        client_factory=lambda phase: fake, ttl_s=60, latest_ttl_s=300, cooldown_s=60, clock=lambda: clock[0],
+        now_local=lambda: _LATE,
+    )
     day = _date(2026, 11, 12)
 
     first = svc.plant_latest(PLANT, ["A", "B"], day)
@@ -303,6 +339,117 @@ def test_rate_limit_cooldown_is_per_key_and_latest_is_per_inverter():
     env = svc.plant_latest(PLANT, ["A", "B"], day)
     assert fake.calls[n:] == []  # A cached (fresh at 301), B in cooldown
     assert {i["device_sn"]: i["stale"] for i in env["data"]["inverters"]} == {"A": False, "B": True}
+
+
+class _RhythmClient:
+    """One inverter uploading every `step` seconds from 12:00:00; `records` = how many exist so far."""
+
+    def __init__(self, step=300, records=2):
+        from datetime import datetime as _dt, timedelta as _td
+
+        self.step, self.records, self.calls = step, records, 0
+        self._t = lambda i: (_dt(2026, 11, 12, 12, 0) + _td(seconds=i * step)).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _request(self, method, path, params):
+        self.calls += 1
+        return {"datas": [{"time": self._t(i), "pac": 1000, "ppv": 1100} for i in reversed(range(self.records))]}
+
+
+def test_latest_expires_when_the_next_record_is_due():
+    from datetime import date as _date, datetime as _dt, timedelta as _td
+
+    fake, clock = _RhythmClient(step=300, records=2), [0.0]  # newest record 12:05:00, interval 300 s
+    now = [_dt(2026, 11, 12, 12, 6, 0)]
+    svc = GrowattLiveService(
+        client_factory=lambda phase: fake, latest_ttl_s=300, cooldown_s=60,
+        clock=lambda: clock[0], now_local=lambda: now[0],
+    )
+    day = _date(2026, 11, 12)
+
+    env = svc.plant_latest(PLANT, ["A"], day)
+    inv = env["data"]["inverters"][0]
+    assert inv["timestamp"] == "2026-11-12 12:05:00" and inv["interval_s"] == 300
+    assert env["refresh_in_s"] == 300  # due 12:10:00 + 60 s grace, now 12:06:00
+
+    clock[0], now[0] = 299.0, now[0] + _td(seconds=299)
+    svc.plant_latest(PLANT, ["A"], day)
+    assert fake.calls == 1  # still cached
+
+    # due time passed but Growatt has no new record yet: retry after LATE_RETRY_S
+    clock[0], now[0] = 301.0, _dt(2026, 11, 12, 12, 11, 1)
+    assert svc.plant_latest(PLANT, ["A"], day)["refresh_in_s"] == 60
+    assert fake.calls == 2
+
+    # the 12:10:00 record lands: back on the rhythm (due 12:16:00)
+    fake.records = 3
+    clock[0], now[0] = 362.0, _dt(2026, 11, 12, 12, 12, 2)
+    env = svc.plant_latest(PLANT, ["A"], day)
+    assert fake.calls == 3 and env["data"]["inverters"][0]["timestamp"] == "2026-11-12 12:10:00"
+    assert env["refresh_in_s"] == 238
+
+    # silent for more than two intervals (offline / evening): fall back to latest_ttl_s
+    clock[0], now[0] = 1000.0, _dt(2026, 11, 12, 12, 40, 0)
+    assert svc.plant_latest(PLANT, ["A"], day)["refresh_in_s"] == 300
+
+
+def test_latest_ttl_edge_cases():
+    from datetime import datetime as _dt
+
+    now = _dt(2026, 11, 12, 12, 0, 0)
+    svc = GrowattLiveService(client_factory=lambda phase: None, latest_ttl_s=300, now_local=lambda: now)
+    row = lambda ts, iv: {"timestamp": ts, "interval_s": iv}
+    assert svc._latest_ttl(None) == 300  # no record today
+    assert svc._latest_ttl(row("2026-11-12 11:59:00", 60)) == 60  # 1-min inverter: due 12:00 + grace
+    assert svc._latest_ttl(row("2026-11-12 11:59:00", None)) == 300 + 60 - 60  # unmeasured: 5 min default
+    assert svc._latest_ttl(row("2026-11-12 11:59:00", 3600)) == 300  # gap was an outage, not the rhythm
+    assert svc._latest_ttl(row("2026-11-12 12:10:00", 300)) == 360  # record ahead of our clock: capped
+
+
+def test_sun_times_bangkok():
+    from datetime import date as _date, datetime as _dt
+    from solar_core.sun import sun_times
+
+    rise, sset = sun_times(_date(2026, 11, 12), 13.7563, 100.5018, 7)
+    assert abs((rise - _dt(2026, 11, 12, 6, 16)).total_seconds()) < 180
+    assert abs((sset - _dt(2026, 11, 12, 17, 48)).total_seconds()) < 180
+
+
+def test_night_mode_stretches_ttl_until_dawn():
+    from datetime import date as _date, datetime as _dt
+
+    fake, clock = _FakeClient(), [0.0]
+    now = [_dt(2026, 11, 12, 12, 0)]
+    bkk = [(13.7563, 100.5018)]  # sunrise ~06:16, sunset ~17:48; margins 30 min
+    svc = GrowattLiveService(
+        client_factory=lambda phase: fake, ttl_s=60, clock=lambda: clock[0],
+        now_local=lambda: now[0], night_ttl_s=1800,
+    )
+    assert svc.plants(coords=bkk)["refresh_in_s"] == 60  # midday: normal TTL
+
+    clock[0], now[0] = 100.0, _dt(2026, 11, 12, 18, 10)  # dusk window still open (until ~18:18)
+    assert svc.plants(coords=bkk)["refresh_in_s"] == 60
+
+    clock[0], now[0] = 200.0, _dt(2026, 11, 12, 22, 0)  # night: capped at night_ttl_s
+    assert svc.plants(coords=bkk)["refresh_in_s"] == 1800
+    clock[0] = 1000.0
+    svc.plants(coords=bkk)
+    assert fake.calls == 3  # still cached at night
+
+    clock[0], now[0] = 2100.0, _dt(2026, 11, 13, 5, 40)  # ~6 min before dawn window (~05:46)
+    r = svc.plants(coords=bkk)["refresh_in_s"]
+    assert 60 <= r <= 600  # ends at dawn, not 30 min later
+
+    # latest: a silent inverter at night is not asked every 5 min
+    mfake, mclock = _RhythmClient(records=2), [0.0]
+    msvc = GrowattLiveService(
+        client_factory=lambda phase: mfake, latest_ttl_s=300, clock=lambda: mclock[0],
+        now_local=lambda: _dt(2026, 11, 12, 21, 0), night_ttl_s=1800,
+    )
+    assert msvc.plant_latest(PLANT, ["A"], _date(2026, 11, 12), coords=bkk)["refresh_in_s"] == 1800
+
+    # night mode off (default): unchanged
+    off = GrowattLiveService(client_factory=lambda phase: fake, ttl_s=60, now_local=lambda: _dt(2026, 11, 12, 22, 0))
+    assert off.plants(coords=bkk)["refresh_in_s"] == 60
 
 
 def test_plant_latest_all_unavailable_raises():

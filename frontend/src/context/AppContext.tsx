@@ -15,6 +15,7 @@ import {
   clearAuthSession,
   AUTH_EXPIRED_EVENT,
 } from "../api/client";
+import { useLivePoll } from "./useLivePoll";
 
 interface AppContextValue {
   user: UserProfile | null;
@@ -51,7 +52,6 @@ interface AppContextValue {
   plantLiveLoading: boolean;
 }
 
-const LIVE_POLL_MS = 60_000; // realtime overlay (backend caches Growatt for 120 s)
 const OVERVIEW_REFRESH_MS = 5 * 60_000; // DB history refresh (worker syncs every 30 min)
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
@@ -132,15 +132,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [refreshGrowattLive]
   );
 
-  // Poll realtime values while logged in and the tab is visible.
-  useEffect(() => {
-    if (!user) return;
-    refreshGrowattLive();
-    const id = window.setInterval(() => {
-      if (!document.hidden) refreshGrowattLive();
-    }, LIVE_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [user, refreshGrowattLive]);
+  // Poll realtime values while logged in and the tab is visible, when the backend
+  // cache can next change (`refresh_in_s`) rather than on a fixed timer.
+  useLivePoll(
+    Boolean(user),
+    user?.id,
+    api.getGrowattLivePlants,
+    (r) => {
+      setGrowattLive(r);
+      setGrowattLiveError(null);
+    },
+    (err) => setGrowattLiveError(err instanceof Error ? err.message : String(err))
+  );
 
   const livePlantMap = useMemo(
     () => new Map((growattLive?.data ?? []).map((p) => [p.plant_id, p])),
@@ -287,36 +290,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [selectedGrowattPlantId]);
 
-  // Realtime: newest record per inverter of the selected plant, every minute while visible.
+  // Realtime: newest record per inverter of the selected plant, polled when the backend
+  // says a newer record can exist, while visible.
   useEffect(() => {
     setSelectedPlantLive(null);
     setPlantLiveFailed(false);
-    if (!user || selectedGrowattPlantId == null) return;
-    const plantId = selectedGrowattPlantId;
-    let cancelled = false;
-    const load = () => {
-      api
-        .getGrowattLivePlantLatest(plantId)
-        .then((r) => {
-          if (!cancelled) {
-            setSelectedPlantLive(r);
-            setPlantLiveFailed(false);
-          }
-        })
-        .catch(() => {
-          // live unavailable: DB values remain, status keeps showing "Loading…" until a retry succeeds
-          if (!cancelled) setPlantLiveFailed(true);
-        });
-    };
-    load();
-    const id = window.setInterval(() => {
-      if (!document.hidden) load();
-    }, LIVE_POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [user, selectedGrowattPlantId]);
+  }, [user?.id, selectedGrowattPlantId]);
+  useLivePoll(
+    Boolean(user) && selectedGrowattPlantId != null,
+    `${user?.id}:${selectedGrowattPlantId}`,
+    () => api.getGrowattLivePlantLatest(selectedGrowattPlantId!),
+    (r) => {
+      setSelectedPlantLive(r);
+      setPlantLiveFailed(false);
+    },
+    // live unavailable: DB values remain, status keeps showing "Loading…" until a retry succeeds
+    () => setPlantLiveFailed(true)
+  );
 
   // Persisted history: re-read the DB overview so today's curve/yield grow as the worker syncs.
   useEffect(() => {

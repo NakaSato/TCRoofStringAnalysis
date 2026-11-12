@@ -52,7 +52,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 
 | Path | Code | Rule |
 |---|---|---|
-| `/growatt/live/*` | `services/growatt_live.py` | Memory only (TTL `GROWATT_LIVE_TTL_S`, 120 s). On failure it serves the last value marked `stale`; on error 10012 it waits 60 s. **Never write live values to SQL or Firestore.** |
+| `/growatt/live/*` | `services/growatt_live.py` | Memory only (TTL `GROWATT_LIVE_TTL_S`, 120 s). On failure it serves the last value marked `stale`; on error 10012 it waits 60 s. Every envelope carries `refresh_in_s` (cache expiry or cooldown end, ≥ 15 s); the UI (`useLivePoll`) polls on that, not a fixed timer. `/live/plants/{id}/latest` caches each inverter until its next record is due (last record time + measured interval + 60 s grace; 60 s retries while late; `GROWATT_LIVE_LATEST_TTL_S` once silent > 2 intervals). Night mode: outside the plants' daylight window (NOAA sunrise/sunset from `growatt_plants` lat/lon, `solar_core/sun.py`, ±30 min) live caches last up to `GROWATT_LIVE_NIGHT_TTL_S` (1800 s, 0 = off), never past dawn. **Never write live values to SQL or Firestore.** |
 | `/growatt/plants*` | `services/growatt_overview.py` | DB only, `?day=`, `meta.source = "db"`. Never calls Growatt. |
 | SQL history | `services/growatt_sync.py` | Idempotent upserts. Started by the worker or the CLI. |
 | Firestore | `services/daily_summary.py` | Daily summaries and the static registry only, about 250 writes a day. |

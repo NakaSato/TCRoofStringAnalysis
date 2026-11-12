@@ -100,6 +100,16 @@ def plant_phase(db: Session, plant_id: int) -> Optional[int]:
     return db.scalar(select(GrowattPlant.phase).where(GrowattPlant.plant_id == plant_id))
 
 
+def plant_coords(db: Session, plant_id: Optional[int] = None) -> List[Tuple[float, float]]:
+    """(lat, lon) of one plant, or of every plant; plants without coordinates are left out."""
+    q = select(GrowattPlant.latitude, GrowattPlant.longitude).where(
+        GrowattPlant.latitude.is_not(None), GrowattPlant.longitude.is_not(None)
+    )
+    if plant_id is not None:
+        q = q.where(GrowattPlant.plant_id == plant_id)
+    return [(float(lat), float(lon)) for lat, lon in db.execute(q).all() if lat is not None and lon is not None]
+
+
 def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
     """Registry fields. Status, lost and last upload time are realtime: null here, the UI
     fills them from `/growatt/live/plants/{id}/inverters`."""

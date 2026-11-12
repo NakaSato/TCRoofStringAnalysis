@@ -38,12 +38,13 @@ DAY_QUERY = Query(None, description="Plant-local date (YYYY-MM-DD); default = la
 
 @router.get("/live/plants")
 def live_plants(
+    db: Session = Depends(get_db),
     live: GrowattLiveService = Depends(get_live_service),
     _user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Realtime plant power/status for the whole fleet. Not persisted."""
     try:
-        return live.plants()
+        return live.plants(coords=ov.plant_coords(db))
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
@@ -57,7 +58,7 @@ def live_inverters(
 ) -> Dict[str, Any]:
     """Realtime inverter status for one plant. Not persisted."""
     try:
-        return live.inverters(plant_id, phase=ov.plant_phase(db, plant_id))
+        return live.inverters(plant_id, phase=ov.plant_phase(db, plant_id), coords=ov.plant_coords(db, plant_id))
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
@@ -77,7 +78,13 @@ def live_plant_latest(
     if not sns:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no inverters")
     try:
-        return live.plant_latest(plant_id, sns, datetime.now(jobs.PLANT_TZ).date(), phase=ov.plant_phase(db, plant_id))
+        return live.plant_latest(
+            plant_id,
+            sns,
+            datetime.now(jobs.PLANT_TZ).date(),
+            phase=ov.plant_phase(db, plant_id),
+            coords=ov.plant_coords(db, plant_id),
+        )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 

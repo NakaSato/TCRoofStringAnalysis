@@ -170,15 +170,14 @@ class GrowattClient:
             page += 1
 
 
-def latest_max_record(client: "GrowattClient", device_sn: str, day: date) -> Optional[Dict[str, Any]]:
-    """Newest `max_data` record of the day (first page, newest first) — one API call, no paging."""
+def newest_max_records(client: "GrowattClient", device_sn: str, day: date, n: int = 1) -> List[Dict[str, Any]]:
+    """The day's `n` newest `max_data` records, newest first (first page only) — one API call, no paging."""
     data = client._request(
         "POST",
         "device/max/max_data",
         {"max_sn": device_sn, "start_date": day.strftime("%Y-%m-%d"), "end_date": day.strftime("%Y-%m-%d"), "page": 1, "perpage": 100},
     ) or {}
-    batch = data.get("datas") or []
-    return batch[0] if batch else None
+    return (data.get("datas") or [])[:n]
 
 
 def _record_time(r: Dict[str, Any]) -> Optional[datetime]:
