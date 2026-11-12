@@ -4,15 +4,19 @@ import { AppProvider, useAppContext } from "./context/AppContext";
 import { LoginPage } from "./pages/LoginPage";
 import { LoadingState } from "./components/ui";
 import { Layout } from "./components/Layout";
-import { OverviewPage } from "./pages/OverviewPage";
-import { GenerationPrPage } from "./pages/GenerationPrPage";
-import { StringAnalysisPage } from "./pages/StringAnalysisPage";
-import { MaintenanceRcaPage } from "./pages/MaintenanceRcaPage";
-import { SubcontractorPqPage } from "./pages/SubcontractorPqPage";
-import { SheSafetyPage } from "./pages/SheSafetyPage";
-import { ReportsPage } from "./pages/ReportsPage";
-import { PlantSettingsPage } from "./pages/PlantSettingsPage";
-import { GrowattFleetPage } from "./pages/GrowattFleetPage";
+
+// Each page is its own chunk, fetched on first visit (Layout shows a fallback meanwhile).
+const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
+  React.lazy(() => load().then((m) => ({ default: m[name] })));
+const OverviewPage = page(() => import("./pages/OverviewPage"), "OverviewPage");
+const GenerationPrPage = page(() => import("./pages/GenerationPrPage"), "GenerationPrPage");
+const StringAnalysisPage = page(() => import("./pages/StringAnalysisPage"), "StringAnalysisPage");
+const MaintenanceRcaPage = page(() => import("./pages/MaintenanceRcaPage"), "MaintenanceRcaPage");
+const SubcontractorPqPage = page(() => import("./pages/SubcontractorPqPage"), "SubcontractorPqPage");
+const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage");
+const ReportsPage = page(() => import("./pages/ReportsPage"), "ReportsPage");
+const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
+const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
 
 /** Every page needs a signed-in user: splash while the stored token is checked, else the login page. */
 const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {

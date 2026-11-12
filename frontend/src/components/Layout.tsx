@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { Suspense, useState, useEffect, useMemo } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Sun,
@@ -27,7 +27,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
-import { Led } from "./ui";
+import { Led, LoadingState } from "./ui";
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
 
@@ -386,7 +386,9 @@ export const Layout: React.FC = () => {
 
         <main className="flex-1 px-4 py-6 sm:px-6">
           <div className="mx-auto max-w-[1600px]">
-            <Outlet />
+            <Suspense fallback={<LoadingState label="Loading page…" />}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>

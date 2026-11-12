@@ -484,6 +484,11 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   if (res.status === 204) {
     return undefined as T;
   }
+  // Without a backend, hosting answers /api/* with index.html; res.json() would then fail with a
+  // cryptic browser message (Safari: "The string did not match the expected pattern.").
+  if (!(res.headers.get("Content-Type") || "").includes("json")) {
+    throw new Error("The API server is not reachable. Please try again later or contact your administrator.");
+  }
   return res.json();
 }
 

@@ -1,6 +1,20 @@
-import React, { useEffect, useRef } from "react";
-// @ts-ignore - plotly.js-dist-min provides prebuilt bundle
-import Plotly from "plotly.js-dist-min";
+import React, { useEffect, useRef, useState } from "react";
+
+/** Plotly is ~4.5 MB, so it is fetched as its own chunk the first time a chart renders. */
+let plotlyPromise: Promise<any> | null = null;
+function loadPlotly(): Promise<any> {
+  if (!plotlyPromise) {
+    // @ts-ignore - plotly.js-dist-min provides prebuilt bundle without types
+    plotlyPromise = import("plotly.js-dist-min").then(
+      (m: any) => m.default ?? m,
+      (err: unknown) => {
+        plotlyPromise = null; // allow a retry after a failed chunk fetch
+        throw err;
+      },
+    );
+  }
+  return plotlyPromise;
+}
 
 interface PlotlyChartProps {
   figure?: {
@@ -149,10 +163,20 @@ function themeData(data: any[]) {
 
 export const PlotlyChart: React.FC<PlotlyChartProps> = ({ figure, loading, height = 390, bare = false }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [Plotly, setPlotly] = useState<any>(null);
+
+  useEffect(() => {
+    if (Plotly || !figure) return;
+    let active = true;
+    loadPlotly().then((p) => active && setPlotly(() => p), () => undefined);
+    return () => {
+      active = false;
+    };
+  }, [Plotly, figure]);
 
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || !figure || !figure.data) return;
+    if (!Plotly || !el || !figure || !figure.data) return;
 
     Plotly.react(el, themeData(figure.data), themeLayout(figure.layout || {}, height), {
       responsive: true,
@@ -169,11 +193,11 @@ export const PlotlyChart: React.FC<PlotlyChartProps> = ({ figure, loading, heigh
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [figure, height]);
+  }, [Plotly, figure, height]);
 
   const shell = bare ? "w-full" : "panel w-full overflow-hidden p-2";
 
-  if (loading || !figure) {
+  if (loading || !figure || !Plotly) {
     return (
       <div style={{ height }} className={`${shell} flex items-center justify-center`}>
         <div className="flex items-center gap-2.5 text-xs text-slate-500">
