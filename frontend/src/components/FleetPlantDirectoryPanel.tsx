@@ -35,13 +35,15 @@ import {
 import { api } from "../api/client";
 import type { GrowattPlant } from "../api/client";
 import { useAppContext } from "../context/AppContext";
-import { StatusBadge, Led, fmt, fmtInt } from "./ui";
+import { StatusBadge, Led, fmt, fmtInt, LOADING_STATUS } from "./ui";
 import type { StatusLevel } from "./ui";
 
 export interface UnifiedPlantItem {
   uid: string;
   source: "local" | "growatt";
   id: number;
+  /** project phase (Growatt account); null = not yet tagged */
+  phase: number | null;
   name: string;
   location: string;
   capacityKwp: number;
@@ -50,7 +52,7 @@ export interface UnifiedPlantItem {
   totalEnergyKwh: number | null;
   specificEnergyKwhPerKwp: number;
   prPct: number | null;
-  statusLabel: "Normal" | "Faulty" | "Disconnected" | "Unknown";
+  statusLabel: "Normal" | "Faulty" | "Disconnected" | "Unknown" | "Loading…";
   statusLevel: StatusLevel;
   stringsCount: number | null;
   modulesCount: number | null;
@@ -219,6 +221,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
     selectedGrowattPlantId,
     selectGrowattPlant,
     refreshGrowattPlants,
+    growattLiveStatus,
   } = useAppContext();
   const [loadingCloud, setLoadingCloud] = useState(false);
   const [cloudNotice, setCloudNotice] = useState<string | null>(null);
@@ -227,6 +230,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
   const [plantNameFilter, setPlantNameFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState("ALL");
+  const [phaseFilter, setPhaseFilter] = useState<"ALL" | "NONE" | number>("ALL");
   const [deviceSnFilter, setDeviceSnFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "Normal" | "Faulty" | "Disconnected">("ALL");
   const [expandedFilters, setExpandedFilters] = useState(false);
@@ -260,6 +264,8 @@ export const FleetPlantDirectoryPanel: React.FC<{
     for (const gp of growattPlants) {
       // status / power are realtime (live overlay only); null means live data is unavailable
       const isUnknown = gp.status == null;
+      // no status yet because the first live poll is still running
+      const isLoading = isUnknown && growattLiveStatus.loading;
       const isNormal = gp.status === 1;
       const isDisconnected = gp.status === 0 || gp.status === 4;
       const capKwp = Number(gp.peak_power_kwp || 0);
@@ -273,6 +279,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
         uid: `growatt-${gp.plant_id}`,
         source: "growatt",
         id: gp.plant_id,
+        phase: gp.phase ?? null,
         name: gp.name || `Growatt Plant #${gp.plant_id}`,
         location: [gp.city, gp.country].filter(Boolean).join(", ") || "Thailand",
         capacityKwp: capKwp,
@@ -281,7 +288,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
         totalEnergyKwh: totalKwh,
         specificEnergyKwhPerKwp: capKwp > 0 ? estTodayKwh / capKwp : 0,
         prPct: null,
-        statusLabel: isUnknown ? "Unknown" : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
+        statusLabel: isLoading ? LOADING_STATUS : isUnknown ? "Unknown" : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
         statusLevel: isUnknown ? "neutral" : isNormal ? "ok" : isDisconnected ? "info" : "crit",
         stringsCount: invCnt,
         modulesCount: null,
@@ -294,7 +301,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
     }
 
     return items;
-  }, [activePlant, activeDataset, analysisRun, growattPlants]);
+  }, [activePlant, activeDataset, analysisRun, growattPlants, growattLiveStatus.loading]);
 
   // Compute Fleet KPIs, Plant Status breakdown, and Active Alarms breakdown for the 3-column Hero Banner
   const heroMetrics = useMemo(() => {
@@ -357,6 +364,9 @@ export const FleetPlantDirectoryPanel: React.FC<{
       if (deviceTypeFilter !== "ALL" && p.deviceType !== deviceTypeFilter) {
         return false;
       }
+      if (phaseFilter === "NONE" ? p.phase != null : phaseFilter !== "ALL" && p.phase !== phaseFilter) {
+        return false;
+      }
       if (snQ && !p.deviceSnList.some((sn) => sn.toLowerCase().includes(snQ))) {
         return false;
       }
@@ -376,7 +386,18 @@ export const FleetPlantDirectoryPanel: React.FC<{
         ? String(av).localeCompare(String(bv))
         : String(bv).localeCompare(String(av));
     });
-  }, [unifiedPlants, plantNameFilter, regionFilter, deviceTypeFilter, deviceSnFilter, statusFilter, sortField, sortAsc]);
+  }, [unifiedPlants, plantNameFilter, regionFilter, deviceTypeFilter, phaseFilter, deviceSnFilter, statusFilter, sortField, sortAsc]);
+
+  // Phases present in the registry (one Growatt account each), with plant counts
+  const phaseOptions = useMemo(() => {
+    const counts = new Map<number, number>();
+    let untagged = 0;
+    for (const p of unifiedPlants) {
+      if (p.phase == null) untagged += 1;
+      else counts.set(p.phase, (counts.get(p.phase) ?? 0) + 1);
+    }
+    return { phases: [...counts.entries()].sort((a, b) => a[0] - b[0]), untagged };
+  }, [unifiedPlants]);
 
   const handleSort = (
     field:
@@ -402,6 +423,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
     setPlantNameFilter("");
     setRegionFilter("");
     setDeviceTypeFilter("ALL");
+    setPhaseFilter("ALL");
     setDeviceSnFilter("");
     setStatusFilter("ALL");
     setCurrentPage(1);
@@ -852,6 +874,32 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 </select>
               </div>
 
+              {/* Project phase (one Growatt account per phase) */}
+              <div className="flex items-center gap-1.5">
+                <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
+                  Phase
+                </label>
+                <select
+                  value={String(phaseFilter)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setPhaseFilter(v === "ALL" || v === "NONE" ? v : Number(v));
+                    setCurrentPage(1);
+                  }}
+                  className="select input-sm w-28"
+                >
+                  <option value="ALL">All phases</option>
+                  {phaseOptions.phases.map(([ph, n]) => (
+                    <option key={ph} value={ph}>
+                      Phase {ph} ({n})
+                    </option>
+                  ))}
+                  {phaseOptions.untagged > 0 && (
+                    <option value="NONE">Untagged ({phaseOptions.untagged})</option>
+                  )}
+                </select>
+              </div>
+
               {/* Device SN */}
               <div className="flex items-center gap-1.5">
                 <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
@@ -1074,7 +1122,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     >
                       {/* 1. Status */}
                       <td className="px-2.5 py-2.5">
-                        <StatusBadge status={p.statusLabel} level={p.statusLevel} dot />
+                        <StatusBadge status={p.statusLabel} level={p.statusLevel} loading={p.statusLabel === LOADING_STATUS} dot />
                       </td>
 
                       {/* 2. Plant Image */}
@@ -1093,6 +1141,12 @@ export const FleetPlantDirectoryPanel: React.FC<{
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-500">
                           <span className="num">#{p.id}</span>
+                          {p.phase != null && (
+                            <>
+                              <span>·</span>
+                              <span className="whitespace-nowrap">Phase {p.phase}</span>
+                            </>
+                          )}
                           <span>·</span>
                           <span className="truncate">{p.source === "local" ? "SCADA" : "Growatt MAX"}</span>
                           {p.prPct != null && (

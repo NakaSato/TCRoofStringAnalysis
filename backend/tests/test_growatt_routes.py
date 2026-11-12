@@ -151,7 +151,7 @@ class _FakeClient:
 
 
 def _service(fake, clock):
-    return GrowattLiveService(client_factory=lambda: fake, ttl_s=60, cooldown_s=30, clock=lambda: clock[0])
+    return GrowattLiveService(client_factory=lambda phase: fake, ttl_s=60, cooldown_s=30, clock=lambda: clock[0])
 
 
 def test_live_service_cache_stale_fallback_and_rate_limit_cooldown():
@@ -229,7 +229,7 @@ class _FakeMaxClient:
 
 def test_live_latest_route_overlays_newest_record_without_writing(client):
     fake, clock = _FakeMaxClient(), [0.0]
-    svc = GrowattLiveService(client_factory=lambda: fake, ttl_s=60, clock=lambda: clock[0])
+    svc = GrowattLiveService(client_factory=lambda phase: fake, ttl_s=60, clock=lambda: clock[0])
     client.app_ref.dependency_overrides[get_live_service] = lambda: svc
 
     before = client.get(f"/api/growatt/plants/{PLANT}/overview", params={"day": "2026-11-11"}).json()
@@ -276,7 +276,7 @@ def test_rate_limit_cooldown_is_per_key_and_latest_is_per_inverter():
     from datetime import date as _date
 
     fake, clock = _ScriptedMaxClient(), [0.0]
-    svc = GrowattLiveService(client_factory=lambda: fake, ttl_s=60, latest_ttl_s=300, cooldown_s=60, clock=lambda: clock[0])
+    svc = GrowattLiveService(client_factory=lambda phase: fake, ttl_s=60, latest_ttl_s=300, cooldown_s=60, clock=lambda: clock[0])
     day = _date(2026, 11, 12)
 
     first = svc.plant_latest(PLANT, ["A", "B"], day)
@@ -310,7 +310,7 @@ def test_plant_latest_all_unavailable_raises():
 
     fake, clock = _ScriptedMaxClient(), [0.0]
     fake.fail = {"A": 10012}
-    svc = GrowattLiveService(client_factory=lambda: fake, clock=lambda: clock[0])
+    svc = GrowattLiveService(client_factory=lambda phase: fake, clock=lambda: clock[0])
     with pytest.raises(LiveUnavailable):
         svc.plant_latest(PLANT, ["A"], _date(2026, 11, 12))
 

@@ -20,7 +20,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { api } from "../api/client";
+import { api, downloadApiFile } from "../api/client";
 import { StatusBadge, Led, statusLevel, fmt } from "./ui";
 
 /* -------------------------------------------------------------------------- */
@@ -191,7 +191,9 @@ export const CommandPaletteModal: React.FC<{
         subtitle: `Analysis Run #${analysisRun.id} landscape executive report`,
         icon: FileSpreadsheet,
         onSelect: () => {
-          window.open(api.getReportUrl(analysisRun.id, "pdf"), "_blank");
+          downloadApiFile(api.reportPath(analysisRun.id, "pdf"), `analysis_${analysisRun.id}_report.pdf`).catch((e) =>
+            alert(`Could not download the report: ${e instanceof Error ? e.message : e}`)
+          );
           onClose();
         },
       });

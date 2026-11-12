@@ -30,6 +30,9 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Login name, stored lowercase. Nullable only for rows created before usernames existed;
+    # `ensure_seeded` fills those in from the email's local part.
+    username: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False, default="O&M Lead Engineer")
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -345,6 +348,9 @@ class GrowattPlant(Base):
     __tablename__ = "growatt_plants"
 
     plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    # Project phase = the Growatt account (token) that lists this plant. NULL until the
+    # fleet job has seen it under a phase token; treated as the first configured phase.
+    phase: Mapped[Optional[int]] = mapped_column(Integer, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     city: Mapped[Optional[str]] = mapped_column(String(255))
     country: Mapped[Optional[str]] = mapped_column(String(100))

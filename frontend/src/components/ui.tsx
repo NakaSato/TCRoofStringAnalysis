@@ -144,16 +144,21 @@ export function statusLevel(raw: unknown): StatusLevel {
   return "info";
 }
 
-export const StatusBadge: React.FC<{ status: unknown; level?: StatusLevel; className?: string; dot?: boolean }> = ({
-  status,
-  level,
-  className = "",
-  dot = true,
-}) => {
-  const lvl = level ?? statusLevel(status);
+/** Label for a realtime status whose live request has not answered yet. */
+export const LOADING_STATUS = "Loading…" as const;
+
+export const StatusBadge: React.FC<{
+  status: unknown;
+  level?: StatusLevel;
+  className?: string;
+  dot?: boolean;
+  /** live request in flight: neutral badge with a pulsing dot */
+  loading?: boolean;
+}> = ({ status, level, className = "", dot = true, loading = false }) => {
+  const lvl = loading ? "neutral" : level ?? statusLevel(status);
   return (
-    <span className={`badge badge-${lvl} ${className}`}>
-      {dot && <span className={`h-1.5 w-1.5 rounded-full ${lvl === "ok" ? "bg-emerald-400" : lvl === "warn" ? "bg-amber-400" : lvl === "crit" ? "bg-red-400" : lvl === "info" ? "bg-sky-400" : "bg-slate-500"}`} />}
+    <span className={`badge badge-${lvl} ${className}`} aria-busy={loading || undefined}>
+      {dot && <span className={`h-1.5 w-1.5 rounded-full ${loading ? "animate-pulse " : ""}${lvl === "ok" ? "bg-emerald-400" : lvl === "warn" ? "bg-amber-400" : lvl === "crit" ? "bg-red-400" : lvl === "info" ? "bg-sky-400" : "bg-slate-500"}`} />}
       {String(status ?? "—")}
     </span>
   );

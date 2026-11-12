@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
@@ -18,6 +18,7 @@ from app.api.routes import (
     reports,
     she,
 )
+from app.auth import get_current_user
 from app.config import settings
 from app.db.seed import ensure_seeded
 from app.db.session import SessionLocal
@@ -51,16 +52,11 @@ def create_app() -> FastAPI:
     )
 
     api_router = APIRouter()
-    api_router.include_router(auth.router)
-    api_router.include_router(plants.router)
-    api_router.include_router(datasets.router)
-    api_router.include_router(analysis.router)
-    api_router.include_router(maintenance.router)
-    api_router.include_router(rca.router)
-    api_router.include_router(quality.router)
-    api_router.include_router(she.router)
-    api_router.include_router(reports.router)
-    api_router.include_router(growatt.router)
+    api_router.include_router(auth.router)  # /auth/login is the only route open without a token
+    # Every data route needs a signed-in user (writes additionally check the role per route).
+    signed_in = [Depends(get_current_user)]
+    for module in (plants, datasets, analysis, maintenance, rca, quality, she, reports, growatt):
+        api_router.include_router(module.router, dependencies=signed_in)
 
     # Mount at both `/api` and `/` for compatibility
     app.include_router(api_router, prefix="/api")

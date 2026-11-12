@@ -8,8 +8,8 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import hash_password
-from app.config import DATA_DIR
+from app.auth import hash_password, verify_password
+from app.config import DATA_DIR, Settings, settings as app_settings
 from app.db.models import (
     PMTask,
     PQTestRecord,
@@ -19,7 +19,7 @@ from app.db.models import (
     SubcontractorAudit,
     User,
 )
-from app.db.session import Base, engine
+from app.db.session import Base, engine, ensure_schema
 from app.services.solar_service import (
     df_to_records,
     execute_and_store_analysis,
@@ -49,28 +49,84 @@ def _load_legacy_or_default(table_name: str, default_df: pd.DataFrame) -> pd.Dat
     return default_df
 
 
-def ensure_seeded(db: Session) -> Plant:
-    """Create tables if needed and seed default users, plant, telemetry dataset, analysis run, and O&M registers."""
-    Base.metadata.create_all(bind= db.get_bind())
+def _backfill_usernames(db: Session) -> None:
+    """Give users created before usernames existed one from their email's local part."""
+    missing = list(db.scalars(select(User).where(User.username.is_(None)).order_by(User.id)))
+    if not missing:
+        return
+    taken = set(db.scalars(select(User.username).where(User.username.is_not(None))))
+    for user in missing:
+        base = (user.email.split("@", 1)[0] or f"user{user.id}").strip().lower()[:60]
+        name, n = base, 2
+        while name in taken:
+            name, n = f"{base}{n}", n + 1
+        user.username = name
+        taken.add(name)
+    # commit here: on an already-seeded DB ensure_seeded returns before any later commit
+    db.commit()
 
-    # 1. Seed users
-    existing_user = db.scalar(select(User).limit(1))
-    if existing_user is None:
+
+# Demo accounts seeded in dev: (username, password). In prod they are never created, and any
+# that still has its demo password (e.g. a DB first started in dev) is disabled at startup.
+DEMO_ACCOUNTS = {"admin": "admin123", "engineer": "engineer123", "viewer": "viewer123"}
+DEFAULT_JWT_SECRET = "tc-roof-solar-super-secret-jwt-key-2026-engineering"
+
+
+def check_production_config(cfg: Settings) -> None:
+    """Refuse to start in prod with settings that would leave the public site open."""
+    if not cfg.is_prod:
+        return
+    problems = []
+    if not cfg.admin_password:
+        problems.append("ADMIN_PASSWORD is not set")
+    elif len(cfg.admin_password) < 12 or cfg.admin_password in DEMO_ACCOUNTS.values():
+        problems.append("ADMIN_PASSWORD must be at least 12 characters and not a demo password")
+    if cfg.jwt_secret_key == DEFAULT_JWT_SECRET or len(cfg.jwt_secret_key) < 32:
+        problems.append("JWT_SECRET_KEY is the default or shorter than 32 characters")
+    if problems:
+        raise RuntimeError("Unsafe production config (APP_ENV=prod): " + "; ".join(problems))
+
+
+def _seed_users(db: Session, cfg: Settings) -> None:
+    if cfg.admin_password:
+        # The configured admin is the source of truth: created if missing, password reset if changed.
+        name = cfg.admin_username.strip().lower()
+        admin = db.scalar(select(User).where(User.username == name))
+        if admin is None:
+            db.add(User(username=name, email=cfg.admin_email.strip().lower(), full_name="Administrator",
+                        hashed_password=hash_password(cfg.admin_password), role="admin"))
+        else:
+            if not verify_password(cfg.admin_password, admin.hashed_password):
+                admin.hashed_password = hash_password(cfg.admin_password)
+            admin.role, admin.is_active = "admin", True
+        db.flush()
+    if cfg.is_prod:
+        for user in db.scalars(select(User).where(User.username.in_(list(DEMO_ACCOUNTS)), User.is_active.is_(True))):
+            if user.username != cfg.admin_username.strip().lower() and verify_password(
+                DEMO_ACCOUNTS[user.username], user.hashed_password
+            ):
+                user.is_active = False  # demo password on a public site
+        db.flush()
+        return
+    if db.scalar(select(User).limit(1)) is None:
         db.add_all(
             [
                 User(
+                    username="admin",
                     email="admin@tcroofsolar.com",
                     full_name="Chanthawat W. (O&M Lead Engineer)",
                     hashed_password=hash_password("admin123"),
                     role="admin",
                 ),
                 User(
+                    username="engineer",
                     email="engineer@tcroofsolar.com",
                     full_name="Anucha P. (Senior O&M Engineer)",
                     hashed_password=hash_password("engineer123"),
                     role="engineer",
                 ),
                 User(
+                    username="viewer",
                     email="viewer@tcroofsolar.com",
                     full_name="Executive Management Viewer",
                     hashed_password=hash_password("viewer123"),
@@ -79,6 +135,19 @@ def ensure_seeded(db: Session) -> Plant:
             ]
         )
         db.flush()
+
+
+def ensure_seeded(db: Session, cfg: Settings | None = None) -> Plant:
+    """Create tables if needed and seed users and the default plant; in dev (or SEED_DEMO_DATA=true)
+    also the demo telemetry dataset, analysis run and O&M registers."""
+    cfg = cfg or app_settings
+    check_production_config(cfg)
+    ensure_schema(db.get_bind())
+
+    # 1. Users
+    _backfill_usernames(db)
+    _seed_users(db, cfg)
+    db.commit()
 
     # 2. Seed default plant
     plant = db.scalar(select(Plant).order_by(Plant.id.asc()).limit(1))
@@ -103,6 +172,10 @@ def ensure_seeded(db: Session) -> Plant:
     )
     db.add(plant)
     db.flush()
+    if not cfg.demo_data:
+        # prod: plant configuration only — no invented registers, telemetry or analysis runs
+        db.commit()
+        return plant
 
     # 3. Seed default PM schedule
     pm_df = _load_legacy_or_default("pm_schedule", get_default_pm_schedule())

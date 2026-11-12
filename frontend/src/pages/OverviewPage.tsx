@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { PlotlyChart } from "../components/PlotlyChart";
-import { Panel, KpiTile, StatusBadge, Led, Meter, EmptyState, LoadingState, statusLevel, fmt } from "../components/ui";
+import { Panel, StatusBadge, Led, Meter, EmptyState, LoadingState, statusLevel, fmt, LOADING_STATUS } from "../components/ui";
 import { FleetPlantDirectoryPanel } from "../components/FleetPlantDirectoryPanel";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 
@@ -98,6 +98,7 @@ export const OverviewPage: React.FC = () => {
     setDashboardMode,
     setInspectedStringId,
     growattPlants,
+    plantLiveLoading,
   } = useAppContext();
 
   const [selectedInverterSn, setSelectedInverterSn] = useState<string>("ALL");
@@ -282,29 +283,15 @@ export const OverviewPage: React.FC = () => {
 
                     {/* Right: Comprehensive High-Level Power Plant Command View */}
                     <div className="min-w-0 space-y-3.5">
-                      {/* 1. Plant Header & Live Status */}
+                      {/* 1. Section Header & Operational Status */}
                       <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-white/[0.06] pb-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-base font-bold text-white sm:text-lg">
-                              {plant?.name || "Solar Power Plant"}
-                            </h3>
-                            <span className="num rounded bg-white/[0.05] px-1.5 py-0.5 text-xs text-slate-400">
-                              #{plant?.plant_id}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                            <span className="inline-flex items-center gap-1 text-slate-400">
-                              <MapPin className="h-3.5 w-3.5 text-slate-500" />
-                              {[plant?.city, plant?.country].filter(Boolean).join(", ") || "Thailand"}
-                            </span>
-                            {plant?.create_date && (
-                              <>
-                                <span className="text-slate-600">·</span>
-                                <span>Connected: {plant.create_date}</span>
-                              </>
-                            )}
-                          </div>
+                        <div>
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-white sm:text-base">
+                            Realtime Generation & SCADA Topology
+                          </h3>
+                          <p className="mt-0.5 text-xs text-slate-400">
+                            Live telemetry flow from DC solar array through inverters to AC grid
+                          </p>
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -462,18 +449,14 @@ export const OverviewPage: React.FC = () => {
 
                         <div className="rounded-lg border border-white/[0.05] bg-ink-950/50 p-2.5">
                           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                            <HeartPulse className="h-3 w-3 text-emerald-400" />
-                            String Health ({totalStrings})
+                            <Coins className="h-3 w-3 text-amber-400" />
+                            Today's Revenue
                           </div>
                           <div className="num mt-1 text-sm font-bold text-white sm:text-base">
-                            {availability.toFixed(1)}%
+                            ฿{fmt(revenueToday, 0)}
                           </div>
-                          <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate">
-                            <span className="font-semibold text-emerald-400">{healthy} OK</span>
-                            <span>·</span>
-                            <span className="font-semibold text-amber-400">{warning} W</span>
-                            <span>·</span>
-                            <span className="font-semibold text-red-400">{critical} C</span>
+                          <div className="text-[10px] text-slate-500 truncate">
+                            Tariff: ฿{tariff.toFixed(2)}/kWh
                           </div>
                         </div>
                       </div>
@@ -552,58 +535,6 @@ export const OverviewPage: React.FC = () => {
                     </div>
                   </div>
                 </Panel>
-              </div>
-
-              {/* 6 Selected-Plant KPI Strip */}
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-                <KpiTile
-                  label="Yield Today"
-                  value={fmt(yieldTodayKwh, 1)}
-                  unit="kWh"
-                  icon={Zap}
-                  tone="solar"
-                  hint={`Specific: ${fmt(specificYield, 2)} kWh/kWp`}
-                  hintTone="ok"
-                />
-                <KpiTile
-                  label="Current / Peak Power"
-                  value={fmt(currentKw > 0 ? currentKw : peakKw, 1)}
-                  unit="kW"
-                  icon={Gauge}
-                  tone="energy"
-                  hint={`Peak ${fmt(peakKw, 1)} kW (${capacity > 0 ? ((peakKw / capacity) * 100).toFixed(0) : 0}% cap)`}
-                />
-                <KpiTile
-                  label="Lifetime Yield"
-                  value={fmt(totalYieldKwh / 1000, 2)}
-                  unit="MWh"
-                  icon={Activity}
-                  tone="info"
-                  hint={`${fmt(totalYieldKwh, 0)} kWh total`}
-                />
-                <KpiTile
-                  label="Inverter Temp & Grid"
-                  value={fmt(kpis?.avg_temp_c, 1)}
-                  unit="°C"
-                  icon={Thermometer}
-                  tone={Number(kpis?.max_temp_c || 0) > 65 ? "warn" : "ok"}
-                  hint={`Max ${fmt(kpis?.max_temp_c, 1)}°C · ${fmt(kpis?.avg_freq_hz, 2)} Hz`}
-                />
-                <KpiTile
-                  label="Revenue Today"
-                  value={`฿${fmt(revenueToday, 0)}`}
-                  icon={Coins}
-                  tone="ok"
-                  hint={`Tariff ฿${tariff.toFixed(2)}/kWh`}
-                />
-                <KpiTile
-                  label="CO₂ Avoided Today"
-                  value={co2TodayTonnes.toFixed(2)}
-                  unit="tCO₂e"
-                  icon={Leaf}
-                  tone="ok"
-                  hint={`TGO EF ${GRID_EF_KG_PER_KWH} kg/kWh`}
-                />
               </div>
 
               {/* 5-Minute Power & Thermal Profile + Active Alarms */}
@@ -736,7 +667,12 @@ export const OverviewPage: React.FC = () => {
                             }`}
                           >
                             <td>
-                              <StatusBadge status={inv.status_label ?? "Unknown"} level={lvl} dot />
+                              <StatusBadge
+                                status={inv.status_label ?? (plantLiveLoading ? LOADING_STATUS : "Unknown")}
+                                level={lvl}
+                                loading={inv.status_label == null && plantLiveLoading}
+                                dot
+                              />
                             </td>
                             <td className="num font-bold text-white hover:text-sky-300">
                               {inv.device_sn}
@@ -789,6 +725,8 @@ export const OverviewPage: React.FC = () => {
                     ? `Now = newest Growatt record per string (live, refreshes every 60 s; fetched ${new Date(
                         selectedPlantOverview.live.fetched_at
                       ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}). PR & Peak = today from the database. Click a tile for its I-V curve.`
+                    : plantLiveLoading
+                    ? "Loading live values… showing today's averages from the database meanwhile. Click a tile for its I-V curve."
                     : "Live values unavailable — showing today's averages from the database. Click a tile for its I-V curve."
                 }
                 actions={

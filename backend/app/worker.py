@@ -13,9 +13,13 @@ Schedule (plant-local time, Asia/Bangkok):
     fleet              05:30   plant / inverter registry
     publish_yesterday  06:00   finalize yesterday's daily summaries
     publish_today      19:30   publish today after sunset
+    retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
+Runs queued from the API (`POST /growatt/sync/{job}`) start on the next tick (≤ 1 min).
 Daily jobs only fire within `GRACE` after their slot, so a worker started at noon does not
 publish a half day. Exception: `fleet` also runs at once when the inverter registry is empty
-(fresh database), otherwise `history` would have nothing to sync until 05:30. Last-run times come from `sync_runs`, so restarts don't re-run jobs.
+(fresh database), otherwise `history` would have nothing to sync until 05:30, and every
+UNTAGGED_RETRY while plants have no project phase yet (e.g. right after phase tokens were
+added), so live calls reach the right Growatt account the same day. Last-run times come from `sync_runs`, so restarts don't re-run jobs.
 """
 
 from __future__ import annotations
@@ -31,8 +35,8 @@ from typing import List, Optional
 from sqlalchemy import select
 
 from app.config import settings
-from app.db.models import GrowattInverter
-from app.db.session import Base, SessionLocal
+from app.db.models import GrowattInverter, GrowattPlant
+from app.db.session import SessionLocal, ensure_schema
 from app.services import jobs
 
 log = logging.getLogger("worker")
@@ -40,6 +44,7 @@ log = logging.getLogger("worker")
 GRACE = timedelta(hours=3)
 TICK_S = 60
 REGISTRY_RETRY = timedelta(minutes=15)
+UNTAGGED_RETRY = timedelta(hours=6)  # bounded: a plant no account lists stays untagged
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,7 @@ def default_schedule() -> List[Schedule]:
         Schedule("backfill", at=dtime(2, 0)),
         Schedule("publish_yesterday", at=dtime(6, 0)),
         Schedule("publish_today", at=dtime(19, 30)),
+        Schedule("retention", at=dtime(3, 0)),
     ]
 
 
@@ -75,15 +81,30 @@ def _registry_empty(db) -> bool:
     return db.scalar(select(GrowattInverter.device_sn).limit(1)) is None
 
 
+def _has_untagged_plants(db) -> bool:
+    return db.scalar(select(GrowattPlant.plant_id).where(GrowattPlant.phase.is_(None)).limit(1)) is not None
+
+
 def _bootstrap_due(job: str, db, now: datetime, last: Optional[datetime]) -> bool:
     """`fleet` also runs whenever the inverter registry is empty (fresh deploy), retrying every
-    REGISTRY_RETRY if Growatt fails, so `history` is not idle until the next 05:30 slot."""
-    return job == "fleet" and (last is None or now - last >= REGISTRY_RETRY) and _registry_empty(db)
+    REGISTRY_RETRY if Growatt fails, so `history` is not idle until the next 05:30 slot; and
+    every UNTAGGED_RETRY while some plants have no phase yet."""
+    if job != "fleet":
+        return False
+    if _registry_empty(db):
+        return last is None or now - last >= REGISTRY_RETRY
+    return (last is None or now - last >= UNTAGGED_RETRY) and _has_untagged_plants(db)
 
 
 def tick(session_factory, schedule: List[Schedule], now: datetime) -> List[str]:
-    """Run every due job once, sequentially. Returns the jobs started."""
+    """Run queued (API-requested) runs, then every due job once, sequentially. Returns the jobs started."""
     started = []
+    with session_factory() as db:
+        queued = jobs.claim_queued(db, now=now)
+    for run_id in queued:
+        run = jobs.execute(session_factory, run_id)
+        log.info("%s (queued) → %s %s", run.job, run.status, run.error or run.detail_json)
+        started.append(run.job)
     for s in schedule:
         with session_factory() as db:
             last = jobs.last_started(db, s.job)
@@ -108,7 +129,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
     with SessionLocal() as db:
-        Base.metadata.create_all(bind=db.get_bind())
+        ensure_schema(db.get_bind())
 
     schedule = default_schedule()
     if args.list:

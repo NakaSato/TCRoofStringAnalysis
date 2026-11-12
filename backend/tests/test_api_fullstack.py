@@ -122,6 +122,7 @@ def test_auth_login_and_rbac_guards(client: TestClient):
 
 def test_core_ingestion_analysis_and_charts(client: TestClient):
     admin_headers = _login_headers(client, "admin@tcroofsolar.com", "admin123")
+    client.headers.update(admin_headers)  # every data route needs a signed-in user
 
     # List plants & strings
     plants = client.get("/api/plants").json()
@@ -173,6 +174,7 @@ def test_core_ingestion_analysis_and_charts(client: TestClient):
 
 def test_om_crud_pq_she_and_reports_streaming(client: TestClient):
     admin_headers = _login_headers(client, "admin@tcroofsolar.com", "admin123")
+    client.headers.update(admin_headers)  # every data route needs a signed-in user
 
     # PM tasks CRUD
     pm_list = client.get("/api/pm-tasks").json()
@@ -235,3 +237,10 @@ def test_om_crud_pq_she_and_reports_streaming(client: TestClient):
     csv_resp = client.get(f"/api/analysis/{run_id}/reports/csv")
     assert csv_resp.status_code == 200
     assert "STR-01" in csv_resp.text
+
+
+def test_data_routes_and_reports_require_login(client: TestClient):
+    for path in ("/api/plants", "/api/pm-tasks", "/api/plants/1/analysis/latest", "/api/analysis/1/reports/pdf",
+                 "/api/growatt/plants", "/plants"):
+        assert client.get(path).status_code == 401, path
+    assert client.get("/api/health").status_code == 200

@@ -35,3 +35,9 @@ data/*.json
 *.db-journal
 *.db-wal
 *.db-shm
+
+# MPPT / string CSV exports (backend/scripts/export_inverter_mppt.py): plant names & serials
+data/exports/
+
+# macOS
+.DS_Store

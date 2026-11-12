@@ -82,6 +82,7 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
         pid = str(plant.plant_id)
         fleet[pid] = {
             "name": plant.name,
+            "phase": plant.phase,
             "capacity_kwp": _round2(k["capacity_kwp"]),
             "yield_kwh": k["yield_today_kwh"],
             "specific_yield": k["specific_yield_kwh_per_kwp"],
@@ -101,6 +102,7 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                     "schema": SCHEMA_VERSION,
                     "day": ds,
                     "plant_id": plant.plant_id,
+                    "phase": plant.phase,
                     "name": plant.name,
                     "capacity_kwp": _round2(k["capacity_kwp"]),
                     "yield_kwh": k["yield_today_kwh"],
@@ -210,6 +212,7 @@ def build_registry_docs(db: Session) -> List[Doc]:
                 {
                     "schema": SCHEMA_VERSION,
                     "plant_id": p.plant_id,
+                    "phase": p.phase,
                     "name": p.name,
                     "city": p.city,
                     "country": p.country,

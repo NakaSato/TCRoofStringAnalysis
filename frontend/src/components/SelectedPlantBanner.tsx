@@ -16,7 +16,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { StatusBadge, fmt, fmtInt } from "./ui";
+import { StatusBadge, fmt, fmtInt, LOADING_STATUS } from "./ui";
 import type { StatusLevel } from "./ui";
 
 export const SelectedPlantBanner: React.FC = () => {
@@ -27,6 +27,7 @@ export const SelectedPlantBanner: React.FC = () => {
     plantOverviewLoading,
     selectGrowattPlant,
     setDashboardMode,
+    growattLiveStatus,
   } = useAppContext();
   const navigate = useNavigate();
   const location = useLocation();
@@ -44,7 +45,11 @@ export const SelectedPlantBanner: React.FC = () => {
         : "ok"
       : "crit";
 
-  const statusLabel = statusUnknown
+  // live poll still running: "Loading…" rather than "unknown"
+  const statusLoading = statusUnknown && growattLiveStatus.loading;
+  const statusLabel = statusLoading
+    ? LOADING_STATUS
+    : statusUnknown
     ? "Status unknown"
     : !plant || plant.status === 1
       ? kpis && kpis.critical_strings > 0
@@ -130,7 +135,7 @@ export const SelectedPlantBanner: React.FC = () => {
                 <h2 className="text-sm font-bold text-white sm:text-base">
                   {plant?.name || "Loading Plant…"}
                 </h2>
-                <StatusBadge status={statusLabel} level={statusLevel} dot />
+                <StatusBadge status={statusLabel} level={statusLevel} loading={statusLoading} dot />
                 {plantOverviewLoading && (
                   <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
                 )}
@@ -153,9 +158,9 @@ export const SelectedPlantBanner: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Side: Quick Plant Selector + Live KPI Badges */}
+        {/* Right Side: Quick Plant Selector + Live KPI Badges (shown on sub-pages) */}
         <div className="flex flex-wrap items-center gap-3">
-          {kpis && (
+          {kpis && location.pathname !== "/" && (
             <div className="hidden items-center gap-4 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3.5 py-1.5 text-xs xl:flex">
               <div
                 title={

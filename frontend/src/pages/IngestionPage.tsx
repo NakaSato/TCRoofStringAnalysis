@@ -13,7 +13,7 @@ import {
   Play,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { api } from "../api/client";
+import { api, downloadApiFile } from "../api/client";
 import { PageHeader, Panel, StatusBadge, fmt } from "../components/ui";
 
 type IngestMode = "api" | "upload" | "simulate";
@@ -379,10 +379,18 @@ export const IngestionPage: React.FC = () => {
                 <code className="text-solar-300">timestamp, irradiance_wm2, PV1_U, PV1_I, PV2_U, PV2_I, ...</code>).
               </p>
               {activeDataset && (
-                <a href={api.getSampleCsvUrl(activeDataset.id)} download className="btn-accent">
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadApiFile(api.sampleCsvPath(activeDataset.id), `dataset_${activeDataset.id}_sample.csv`).catch((e) =>
+                      alert(`Could not download the template: ${e instanceof Error ? e.message : e}`)
+                    )
+                  }
+                  className="btn-accent"
+                >
                   <Download className="h-4 w-4" />
                   Download Sample Template (.csv)
-                </a>
+                </button>
               )}
             </div>
           </Panel>

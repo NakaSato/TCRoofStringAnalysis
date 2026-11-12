@@ -1,0 +1,41 @@
+# Runs on the e2-micro VM (/opt/tcroof): Postgres + the single Growatt worker.
+# The API runs on Cloud Run and reaches Postgres over the VPC (VM internal IP:5432).
+# Port 5432 is only open to the internal VPC range (GCP firewall), never the internet.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: solar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: tc_roof_solar
+    # Tuned for 1 GB RAM shared with the worker.
+    command: >
+      postgres -c shared_buffers=128MB -c effective_cache_size=384MB
+               -c work_mem=4MB -c maintenance_work_mem=64MB -c max_connections=40
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U solar -d tc_roof_solar"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Keep exactly one replica (see app/worker.py).
+  growatt-worker:
+    image: ${BACKEND_IMAGE:?set in .env}
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    volumes:
+      - ./secrets:/app/secrets:ro
+      - summaries:/data/firestore_export
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  summaries:

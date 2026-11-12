@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes.growatt import get_session_factory
 from app.db.models import GrowattInverter, GrowattPlant, SyncRun
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
@@ -162,7 +162,6 @@ def api(factory, fake_jobs):
             db.close()
 
     app.dependency_overrides[get_db] = _db
-    app.dependency_overrides[get_session_factory] = lambda: factory
     return TestClient(app)
 
 
@@ -180,8 +179,17 @@ def test_sync_api_roles_trigger_and_status(api, factory, fake_jobs):
 
     r = api.post("/api/growatt/sync/history", headers=engineer)
     assert r.status_code == 202, r.text
-    assert fake_jobs == ["ok"]  # TestClient runs background tasks before returning
+    assert r.json()["status"] == "queued"
+    assert fake_jobs == []  # the API never runs jobs itself
+    assert api.post("/api/growatt/sync/history", headers=engineer).status_code == 409  # already queued
 
+    status = api.get("/api/growatt/sync/status", headers=viewer).json()
+    assert status["jobs"]["history"]["status"] == "queued"
+
+    # the worker's next tick picks the queued run up, before (and instead of) the schedule
+    now = datetime.now(BKK)
+    assert tick(factory, [Schedule("history", every=timedelta(minutes=30))], now) == ["history"]
+    assert fake_jobs == ["ok"]
     status = api.get("/api/growatt/sync/status", headers=viewer).json()
     assert status["jobs"]["history"]["status"] == "ok"
     assert status["jobs"]["history"]["trigger"] == "api"
@@ -190,6 +198,21 @@ def test_sync_api_roles_trigger_and_status(api, factory, fake_jobs):
     with factory() as db:
         jobs.claim(db, "publish_today", "schedule")
     assert api.post("/api/growatt/sync/publish_today", headers=engineer).status_code == 409
+
+
+def test_stale_queued_run_is_failed_not_run(factory, fake_jobs):
+    t0 = datetime(2026, 11, 12, 3, 0, tzinfo=timezone.utc)
+    with factory() as db:
+        rid = jobs.enqueue(db, "history", now=t0)
+        assert jobs.claim_queued(db, now=t0 + jobs.STALE_AFTER + timedelta(minutes=1)) == []
+        run = db.get(SyncRun, rid)
+        assert run.status == "failed" and "never picked up" in run.error
+        # a running job blocks queuing; a stale running one is failed with the right message
+        rid2 = jobs.claim(db, "fleet", "schedule", now=t0)
+        with pytest.raises(jobs.JobBusy):
+            jobs.enqueue(db, "fleet", now=t0 + timedelta(minutes=5))
+        jobs.enqueue(db, "fleet", now=t0 + jobs.STALE_AFTER + timedelta(minutes=1))
+        assert "abandoned" in db.get(SyncRun, rid2).error
 
 
 # --------------------------------------------------------------------------- incremental paging
@@ -249,3 +272,30 @@ def test_sync_incremental_starts_from_last_synced(factory, monkeypatch):
     assert seen["NEW"] == [(date(2026, 11, 11), date(2026, 11, 12), datetime(2026, 11, 11, 0, 0))]
     # long-offline inverter looks back at most 7 days
     assert seen["OLD"][0][0] == date(2026, 11, 5) and seen["OLD"][-1][1] == date(2026, 11, 12)
+
+
+# --------------------------------------------------------------------------- retention
+
+
+def test_prune_history_deletes_only_readings_older_than_keep_days(factory):
+    from app.db.models import GrowattInverterReading, GrowattStringReading
+    from app.services.growatt_sync import prune_history
+
+    today = date(2026, 11, 12)
+    with factory() as db:
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.flush()
+        db.add(GrowattInverter(device_sn="I", plant_id=1))
+        db.flush()
+        for ts in (datetime(2026, 8, 1, 12), datetime(2026, 8, 13, 23, 59), datetime(2026, 8, 14, 0, 0), datetime(2026, 11, 12, 9)):
+            db.add(GrowattInverterReading(device_sn="I", timestamp=ts, ppv_w=1.0))
+            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1, power_w=1))
+        db.commit()
+
+        t = prune_history(db, today, 90)  # cutoff 2026-08-14 00:00
+        left = sorted(db.scalars(select(GrowattInverterReading.timestamp)))
+        left_str = sorted(db.scalars(select(GrowattStringReading.timestamp)))
+    assert t["inverter_rows"] == 2 and t["string_rows"] == 2 and t["cutoff"] == "2026-08-14T00:00:00"
+    assert left == left_str == [datetime(2026, 8, 14, 0, 0), datetime(2026, 11, 12, 9)]
+    with factory() as db:
+        assert prune_history(db, today, 90)["inverter_rows"] == 0  # idempotent

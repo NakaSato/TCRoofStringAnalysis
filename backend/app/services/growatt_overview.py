@@ -95,6 +95,11 @@ def _get_plant(db: Session, plant_id: int) -> GrowattPlant:
     return plant
 
 
+def plant_phase(db: Session, plant_id: int) -> Optional[int]:
+    """Project phase (Growatt account) of a plant; None if unknown or not yet tagged."""
+    return db.scalar(select(GrowattPlant.phase).where(GrowattPlant.plant_id == plant_id))
+
+
 def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
     """Registry fields. Status, lost and last upload time are realtime: null here, the UI
     fills them from `/growatt/live/plants/{id}/inverters`."""
@@ -147,7 +152,7 @@ def list_plants_summary(db: Session) -> List[Dict[str, Any]]:
     `current_power_w` and `status` are realtime and always null here; the UI fills them from
     `/growatt/live/plants`.
     """
-    db_plants = list(db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)))
+    db_plants = list(db.scalars(select(GrowattPlant).order_by(GrowattPlant.phase.is_(None), GrowattPlant.phase, GrowattPlant.plant_id)))
 
     inv_counts: Dict[int, int] = {
         int(pid): int(cnt)
@@ -195,6 +200,7 @@ def list_plants_summary(db: Session) -> List[Dict[str, Any]]:
     return [
         {
             "plant_id": p.plant_id,
+            "phase": p.phase,
             "name": p.name,
             "city": p.city,
             "country": p.country,

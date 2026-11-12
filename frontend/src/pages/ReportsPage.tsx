@@ -1,25 +1,58 @@
-import React from "react";
-import { FileText, FileSpreadsheet, Globe, Table, Eye, ExternalLink } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { FileText, FileSpreadsheet, Globe, Table, Eye, ExternalLink, Loader2 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { api } from "../api/client";
+import { api, downloadApiFile, fetchFileBlob, openApiFileInTab } from "../api/client";
 import { PageHeader, Panel, LoadingState } from "../components/ui";
+
+type Format = "pdf" | "xlsx" | "html" | "csv";
 
 export const ReportsPage: React.FC = () => {
   const { analysisRun } = useAppContext();
+  const [busy, setBusy] = useState<Format | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  // Reports need the session token, so the preview is fetched as a blob (an iframe src cannot send it).
+  const runId = analysisRun?.id;
+  useEffect(() => {
+    if (runId == null) return;
+    let url: string | null = null;
+    let cancelled = false;
+    setPreviewUrl(null);
+    fetchFileBlob(api.reportPath(runId, "html"))
+      .then(({ blob }) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setPreviewUrl(url);
+      })
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)));
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [runId]);
 
   if (!analysisRun) {
     return <LoadingState label="Loading report compilation context…" />;
   }
 
-  const pdfUrl = api.getReportUrl(analysisRun.id, "pdf");
-  const xlsxUrl = api.getReportUrl(analysisRun.id, "xlsx");
-  const htmlUrl = api.getReportUrl(analysisRun.id, "html");
-  const csvUrl = api.getReportUrl(analysisRun.id, "csv");
+  const run = analysisRun.id;
+  const handle = async (format: Format) => {
+    setBusy(format);
+    setError(null);
+    try {
+      if (format === "html") await openApiFileInTab(api.reportPath(run, "html"));
+      else await downloadApiFile(api.reportPath(run, format), `analysis_${run}_report.${format}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
-  const exports = [
+  const exports: Array<{ format: Format; icon: typeof FileText; title: string; sub: string; tone: string; iconCls: string }> = [
     {
-      href: pdfUrl,
-      download: true,
+      format: "pdf",
       icon: FileText,
       title: "Download Management PDF (.pdf)",
       sub: "Landscape A4 Multi-Page Executive Report",
@@ -27,8 +60,7 @@ export const ReportsPage: React.FC = () => {
       iconCls: "bg-solar-500/20 text-solar-400",
     },
     {
-      href: xlsxUrl,
-      download: true,
+      format: "xlsx",
       icon: FileSpreadsheet,
       title: "Download 11-Sheet Excel (.xlsx)",
       sub: "Full Engineering & O&M Workbook",
@@ -36,8 +68,7 @@ export const ReportsPage: React.FC = () => {
       iconCls: "bg-emerald-500/15 text-emerald-400",
     },
     {
-      href: htmlUrl,
-      download: false,
+      format: "html",
       icon: Globe,
       title: "Open Printable HTML (.html)",
       sub: "Browser-Ready Executive Summary Brief",
@@ -45,8 +76,7 @@ export const ReportsPage: React.FC = () => {
       iconCls: "bg-energy-500/15 text-energy-400",
     },
     {
-      href: csvUrl,
-      download: true,
+      format: "csv",
       icon: Table,
       title: "Download String Summary (.csv)",
       sub: "String KPIs, PR & Fault Classifications",
@@ -64,25 +94,28 @@ export const ReportsPage: React.FC = () => {
         description="Compile and export executive and technical O&M packages covering Daily/Monthly PR trends, String Diagnostics, PM/CM Work Orders, Equipment Failure RCAs, Subcontractor QA/QC, Commissioning/PQ, and SH&E compliance."
       />
 
+      {error && <p className="callout-crit">Could not load the report: {error}</p>}
+
       {/* 4 One-Click Export Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {exports.map((item) => {
-          const Icon = item.icon;
+          const Icon = busy === item.format ? Loader2 : item.icon;
           return (
-            <a
+            <button
               key={item.title}
-              href={item.href}
-              {...(item.download ? { download: true } : { target: "_blank", rel: "noreferrer" })}
-              className={`panel flex items-center gap-3.5 border p-4 transition ${item.tone}`}
+              type="button"
+              onClick={() => handle(item.format)}
+              disabled={busy !== null}
+              className={`panel flex items-center gap-3.5 border p-4 text-left transition disabled:cursor-wait ${item.tone}`}
             >
               <div className={`rounded-xl p-2.5 ${item.iconCls}`}>
-                <Icon className="h-5 w-5 shrink-0" />
+                <Icon className={`h-5 w-5 shrink-0 ${busy === item.format ? "animate-spin" : ""}`} />
               </div>
               <div className="min-w-0">
                 <div className="truncate text-xs font-bold text-slate-100">{item.title}</div>
                 <div className="mt-0.5 truncate text-[11px] text-slate-400">{item.sub}</div>
               </div>
-            </a>
+            </button>
           );
         })}
       </div>
@@ -93,17 +126,21 @@ export const ReportsPage: React.FC = () => {
         title="Live Preview: Printable Management & Engineering O&M Summary"
         subtitle={`Analysis Run #${analysisRun.id}`}
         actions={
-          <a href={htmlUrl} target="_blank" rel="noreferrer" className="btn btn-sm">
+          <button type="button" onClick={() => handle("html")} className="btn btn-sm" disabled={busy !== null}>
             <ExternalLink className="h-3.5 w-3.5" />
             Open in New Tab
-          </a>
+          </button>
         }
       >
-        <iframe
-          src={htmlUrl}
-          title="Solar O&M Management Report Preview"
-          className="h-[760px] w-full rounded-lg border border-white/10 bg-white"
-        />
+        {previewUrl ? (
+          <iframe
+            src={previewUrl}
+            title="Solar O&M Management Report Preview"
+            className="h-[760px] w-full rounded-lg border border-white/10 bg-white"
+          />
+        ) : (
+          !error && <LoadingState label="Loading report preview…" />
+        )}
       </Panel>
     </div>
   );

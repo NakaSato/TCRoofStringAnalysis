@@ -57,6 +57,11 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 | SQL history | `services/growatt_sync.py` | Idempotent upserts. Started by the worker or the CLI. |
 | Firestore | `services/daily_summary.py` | Daily summaries and the static registry only, about 250 writes a day. |
 
+- **Project phases = Growatt accounts.** Each of the 4 phases has its own token (`settings.growatt_accounts()` → `{phase: token}`).
+  - `fleet` lists every account and tags each plant with `growatt_plants.phase`.
+  - `history` / `backfill` sync each phase's inverters with that phase's token. Live calls look up the plant's phase in the DB, and `/growatt/live/plants` merges every account.
+  - `phase IS NULL` means not yet tagged; those plants use the first configured account. The worker re-runs `fleet` every 6 h while any plant is untagged.
+  - Jobs run the accounts one by one. A failing account makes the run `partial`, and the run fails only when every account fails. `detail.phases` holds each phase's result.
 - **Don't invent values.** If a measurement is missing, return `None` / `null`, not a typical-looking default. The same goes for things with no data source at all (grid import, load, irradiance): leave them out instead of modelling them as if measured. Label modelled values as modelled: the clear-sky `expected_kw`, the I-V curves, and the peer-relative `pr_pct`, which is *not* IEC PR because there's no irradiance data.
 - **Record interval is mixed** (mostly 5 min, some inverters every 1–4 min). Integrate energy with `_integrate_kwh`, never `sum × 5 min`. To build a plant curve, average each inverter within its 5-min slot first, then sum across inverters.
 - **Daily yield = `eac_today` from the day's last record.** The counter keeps yesterday's total for a few minutes after midnight, so `MAX()` is wrong.
@@ -81,16 +86,23 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 | `fleet` | 05:30 |
 | `publish_yesterday` | 06:00 |
 | `publish_today` | 19:30 |
+| `retention` | 03:00: deletes raw readings older than `HISTORY_RETENTION_DAYS` (90) |
 
 - Daily jobs fire only within 3 h after their slot.
 - `services/jobs.py` holds the job bodies and the run log / lock (`sync_runs`).
-- `GET /growatt/sync/status` and `POST /growatt/sync/{job}` cover the API side; a job that's already running returns 409.
+- `GET /growatt/sync/status` and `POST /growatt/sync/{job}` cover the API side. **The API only queues a run** (`status = queued`); the worker starts it on its next tick (≤ 1 min). Never run jobs inside the API: on Cloud Run the CPU is cut after the response. A job that's already queued or running returns 409; a queued run nobody picks up within 2 h is marked failed.
 - **Run `publish_today` at most twice a day.** An open day changes on every run, so each run rewrites about 250 Firestore documents.
+
+## Production (`APP_ENV=prod`)
+
+- Startup refuses to run without `ADMIN_PASSWORD` (≥ 12 chars) or with the default / short `JWT_SECRET_KEY`.
+- Only one admin is seeded, from `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Changing the secret resets that admin's password. Demo accounts still on their demo password are disabled, and no demo plant data is created (`SEED_DEMO_DATA` overrides).
+- Every data router requires a signed-in user (`main.py`); only `/auth/login` and `/health` are open. Files (reports, CSV templates) are downloaded by the UI with `fetch` + token, not plain links.
 
 ## DB and migrations
 
 - `DATABASE_URL` defaults to SQLite at `data/solar_fullstack.db`; Docker uses `postgresql+psycopg`.
-- Startup calls `create_all` and seeds data, so local schema changes appear without Alembic. Still add a hand-written migration under `alembic/versions/` (chain `down_revision`) for Postgres.
+- Startup (API and worker) calls `ensure_schema` (`db/session.py`): `create_all` plus `_ADDED_COLUMNS`, which adds new columns to existing tables. New tables and listed columns appear without Alembic. Still add a hand-written migration under `alembic/versions/` (chain `down_revision`) for Postgres.
 
 ## Tests
 
@@ -98,4 +110,4 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - Override `get_live_service` with a fake client; tests must never hit the network.
   - Override `get_session_factory` for background jobs.
 - **Growatt fixtures:** reuse `_seed_growatt` from `tests/test_growatt_routes.py`, which covers 1-min and 5-min inverters, the midnight counter carry-over, and an inverter with no data.
-- **Seeded logins:** `admin@tcroofsolar.com` / `admin123`, `engineer@…` / `engineer123`, `viewer@…` / `viewer123`.
+- **Seeded logins:** usernames `admin` / `admin123`, `engineer` / `engineer123`, `viewer` / `viewer123`. `POST /auth/login` takes `{username, password}` (`email` still accepted; either field matches a username or an email). Users created before usernames get one from their email's local part at startup.

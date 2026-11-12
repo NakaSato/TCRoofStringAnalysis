@@ -5,6 +5,9 @@
 - `/growatt/plants*`  persisted data only: the registry and max_data history (1–5 min) mirrored by
                       `app.services.growatt_sync`. No Growatt calls happen here.
 
+Each project phase is a separate Growatt account; live calls for a plant use its phase's token
+(the phase is read from the registry, nothing is written).
+
 Timestamps in the reading tables are plant-local (Thai) time. DB responses carry
 `meta.source = "db"`; live responses carry `source = "live"`, `fetched_at` and `stale`.
 """
@@ -14,13 +17,13 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_write_access
 from app.db.models import SyncRun, User
-from app.db.session import SessionLocal, get_db
+from app.db.session import get_db
 from app.services import growatt_overview as ov
 from app.services import jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
@@ -48,12 +51,13 @@ def live_plants(
 @router.get("/live/plants/{plant_id}/inverters")
 def live_inverters(
     plant_id: int,
+    db: Session = Depends(get_db),
     live: GrowattLiveService = Depends(get_live_service),
     _user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Realtime inverter status for one plant. Not persisted."""
     try:
-        return live.inverters(plant_id)
+        return live.inverters(plant_id, phase=ov.plant_phase(db, plant_id))
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
@@ -73,7 +77,7 @@ def live_plant_latest(
     if not sns:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no inverters")
     try:
-        return live.plant_latest(plant_id, sns, datetime.now(jobs.PLANT_TZ).date())
+        return live.plant_latest(plant_id, sns, datetime.now(jobs.PLANT_TZ).date(), phase=ov.plant_phase(db, plant_id))
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
@@ -137,11 +141,6 @@ def get_growatt_string_detail(
 # --------------------------------------------------------------------------- background jobs
 
 
-def get_session_factory() -> sessionmaker:
-    """Session factory for background jobs (overridden in tests)."""
-    return SessionLocal
-
-
 @router.get("/sync/status")
 def sync_status(
     limit: int = Query(20, ge=1, le=200),
@@ -160,17 +159,18 @@ def sync_status(
 @router.post("/sync/{job}", status_code=202)
 def trigger_sync(
     job: str,
-    background: BackgroundTasks,
     db: Session = Depends(get_db),
-    factory: sessionmaker = Depends(get_session_factory),
     _user: User = Depends(require_write_access),
 ) -> Dict[str, Any]:
-    """Start a job now (history | backfill | fleet | publish_today | publish_yesterday)."""
+    """Queue a job for the worker (history | backfill | fleet | publish_today | publish_yesterday | retention).
+
+    The API never runs jobs itself (Cloud Run would cut its CPU after the response); the worker
+    starts queued runs within a minute. Poll `/growatt/sync/status` for the outcome.
+    """
     if job not in jobs.JOBS:
         raise HTTPException(status_code=404, detail=f"Unknown job {job!r}; choose one of {sorted(jobs.JOBS)}")
     try:
-        run_id = jobs.claim(db, job, "api")
+        run_id = jobs.enqueue(db, job, "api")
     except jobs.JobBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    background.add_task(jobs.execute, factory, run_id)
-    return {"run_id": run_id, "job": job, "status": "running"}
+    return {"run_id": run_id, "job": job, "status": "queued"}

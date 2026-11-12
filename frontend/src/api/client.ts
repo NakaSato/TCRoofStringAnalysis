@@ -8,6 +8,7 @@ const USER_KEY = "tc_solar_user";
 
 export interface UserProfile {
   id: number;
+  username: string | null;
   email: string;
   full_name: string;
   role: "admin" | "engineer" | "viewer";
@@ -188,6 +189,8 @@ export interface PTWPermit {
 
 export interface GrowattPlant {
   plant_id: number;
+  /** project phase = the Growatt account listing this plant; null until the fleet sync tags it */
+  phase?: number | null;
   name: string;
   city: string | null;
   country: string | null;
@@ -223,6 +226,7 @@ export interface GrowattLive<T> {
 
 export interface GrowattLivePlant {
   plant_id: number;
+  phase: number;
   name: string | null;
   current_power_w: number | null;
   total_energy_kwh: number | null;
@@ -432,6 +436,9 @@ export function getStoredUser(): UserProfile | null {
   }
 }
 
+/** Fired when the API rejects the stored token (401); AppContext listens and signs out. */
+export const AUTH_EXPIRED_EVENT = "tcroof:auth-expired";
+
 export function setAuthSession(token: string, user: UserProfile): void {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -457,6 +464,12 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     headers,
   });
 
+  if (res.status === 401 && path !== "/auth/login") {
+    // token missing/expired: drop the session and let AppContext show the login page
+    clearAuthSession();
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
+
   if (!res.ok) {
     let errDetail = `${res.status} ${res.statusText}`;
     try {
@@ -474,12 +487,56 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return res.json();
 }
 
+/** GET a file with the session token (plain <a href> / window.open cannot send it). */
+export async function fetchFileBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+  const token = getStoredToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 401) {
+    clearAuthSession();
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const cd = res.headers.get("Content-Disposition") || "";
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+  return { blob: await res.blob(), filename: m ? decodeURIComponent(m[1]) : null };
+}
+
+/** Download an authenticated API file to the user's disk. */
+export async function downloadApiFile(path: string, fallbackName: string): Promise<void> {
+  const { blob, filename } = await fetchFileBlob(path);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Open an authenticated API file in a new tab. The tab is opened before the fetch so popup
+ * blockers allow it (call from a click handler). */
+export async function openApiFileInTab(path: string): Promise<void> {
+  const tab = window.open("", "_blank");
+  try {
+    const { blob } = await fetchFileBlob(path);
+    const url = URL.createObjectURL(blob);
+    if (tab) tab.location.href = url;
+    else window.location.href = url;
+  } catch (err) {
+    tab?.close();
+    throw err;
+  }
+}
+
 export const api = {
   // Auth
-  login: async (email: string, password: string) => {
+  login: async (username: string, password: string) => {
     const data = await apiFetch<{ access_token: string; user: UserProfile }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username: username.trim(), password }),
     });
     setAuthSession(data.access_token, data.user);
     return data;
@@ -602,7 +659,7 @@ export const api = {
   deletePtwPermit: (id: number) => apiFetch<void>(`/ptw/${id}`, { method: "DELETE" }),
 
   // Report URLs
-  getReportUrl: (runId: number, format: "pdf" | "xlsx" | "html" | "csv") =>
-    `${API_BASE}/analysis/${runId}/reports/${format}`,
-  getSampleCsvUrl: (datasetId: number) => `${API_BASE}/datasets/${datasetId}/sample-csv`,
+  // Files need the session token: use downloadApiFile / openApiFileInTab / fetchFileBlob with these paths.
+  reportPath: (runId: number, format: "pdf" | "xlsx" | "html" | "csv") => `/analysis/${runId}/reports/${format}`,
+  sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,
 };

@@ -3,7 +3,7 @@ import { Radio, RefreshCw, Search, Zap, Gauge, AlertTriangle, Cpu } from "lucide
 import { api } from "../api/client";
 import type { GrowattInverter } from "../api/client";
 import { useAppContext } from "../context/AppContext";
-import { PageHeader, Panel, KpiTile, StatusBadge, EmptyState, LoadingState, fmt, fmtInt } from "../components/ui";
+import { PageHeader, Panel, KpiTile, StatusBadge, EmptyState, LoadingState, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
 
 const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
@@ -11,9 +11,13 @@ const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
   4: { label: "Offline / Fault", level: "crit" },
 };
 
-// Status is realtime only (never stored): null means live data is unavailable.
-const plantStatus = (s: number | null): { label: string; level: StatusLevel } =>
-  s == null ? { label: "Unknown", level: "neutral" } : PLANT_STATUS[s] ?? { label: `Status ${s}`, level: "warn" };
+// Status is realtime only (never stored): null means live data is still loading or unavailable.
+const plantStatus = (s: number | null, loading = false): { label: string; level: StatusLevel; loading?: boolean } =>
+  s == null
+    ? loading
+      ? { label: LOADING_STATUS, level: "neutral", loading: true }
+      : { label: "Unknown", level: "neutral" }
+    : PLANT_STATUS[s] ?? { label: `Status ${s}`, level: "warn" };
 
 const inverterLevel = (inv: GrowattInverter): StatusLevel =>
   inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
@@ -25,8 +29,10 @@ const sumKnown = (vals: Array<number | null>, div = 1): number | null => {
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-const liveLabel = (s: { fetchedAt: string | null; stale: boolean; error: string | null }) =>
-  !s.fetchedAt
+const liveLabel = (s: { fetchedAt: string | null; stale: boolean; error: string | null; loading: boolean }) =>
+  s.loading
+    ? "Loading live data…"
+    : !s.fetchedAt
     ? "Live data unavailable — power and status not shown."
     : s.stale
     ? `Live data stale (last ${fmtTime(s.fetchedAt)}).`
@@ -165,7 +171,7 @@ export const GrowattFleetPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {filtered.map((p) => {
-                      const st = plantStatus(p.status);
+                      const st = plantStatus(p.status, growattLiveStatus.loading);
                       const kw = p.current_power_w == null ? null : p.current_power_w / 1000;
                       const load = kw != null && p.peak_power_kwp ? (kw / p.peak_power_kwp) * 100 : null;
                       return (
@@ -181,7 +187,7 @@ export const GrowattFleetPage: React.FC = () => {
                           <td className="num text-right">{fmt(p.peak_power_kwp, 1)}</td>
                           <td className="num text-right">{fmt(kw, 1)}</td>
                           <td className="num text-right">{load == null ? "—" : fmt(load, 0)}</td>
-                          <td><StatusBadge status={st.label} level={st.level} /></td>
+                          <td><StatusBadge status={st.label} level={st.level} loading={st.loading} /></td>
                         </tr>
                       );
                     })}
@@ -197,7 +203,7 @@ export const GrowattFleetPage: React.FC = () => {
               subtitle={
                 selected
                   ? `Plant ${selected.plant_id}${inverters ? ` · ${inverters.length} inverters` : ""} · ${
-                      liveInvAt ? `Live ${fmtTime(liveInvAt)}` : "Live status unavailable"
+                      liveInvAt ? `Live ${fmtTime(liveInvAt)}` : invLoading ? "Loading live status…" : "Live status unavailable"
                     }`
                   : "Select a plant"
               }
@@ -232,7 +238,13 @@ export const GrowattFleetPage: React.FC = () => {
                               {inv.device_types.join("/").toUpperCase()} · logger {inv.datalogger_sn}
                             </div>
                           </td>
-                          <td><StatusBadge status={inv.lost ? "Lost" : inv.status_label ?? "Unknown"} level={inverterLevel(inv)} /></td>
+                          <td>
+                            <StatusBadge
+                              status={inv.lost ? "Lost" : inv.status_label ?? (invLoading ? LOADING_STATUS : "Unknown")}
+                              level={inverterLevel(inv)}
+                              loading={!inv.lost && inv.status_label == null && invLoading}
+                            />
+                          </td>
                           <td className="num text-[11px] text-slate-400">{inv.last_update_time ?? "—"}</td>
                         </tr>
                       ))}

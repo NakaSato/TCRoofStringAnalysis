@@ -13,11 +13,11 @@ import {
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { PlotlyChart } from "../components/PlotlyChart";
-import { Panel, KpiTile, StatusBadge, LoadingState, fmt, fmtInt } from "../components/ui";
+import { Panel, KpiTile, StatusBadge, LoadingState, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 
 export const GenerationPrPage: React.FC = () => {
-  const { selectedPlantOverview, plantOverviewLoading } = useAppContext();
+  const { selectedPlantOverview, plantOverviewLoading, plantLiveLoading } = useAppContext();
 
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
@@ -350,7 +350,12 @@ export const GenerationPrPage: React.FC = () => {
                 return (
                   <tr key={inv.device_sn}>
                     <td>
-                      <StatusBadge status={inv.status_label ?? "Unknown"} level={lvl} dot />
+                      <StatusBadge
+                        status={inv.status_label ?? (plantLiveLoading ? LOADING_STATUS : "Unknown")}
+                        level={lvl}
+                        loading={inv.status_label == null && plantLiveLoading}
+                        dot
+                      />
                     </td>
                     <td className="num font-bold text-white">{inv.device_sn}</td>
                     <td className="num text-xs text-slate-400">{inv.model}</td>

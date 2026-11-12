@@ -1,0 +1,9 @@
+# Builds the backend image (API + worker share it). Used by deploy/gcp.sh:
+#   gcloud builds submit --config deploy/cloudbuild.yaml --substitutions=_IMAGE=<registry>/backend:<tag> .
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "backend/Dockerfile", "-t", "${_IMAGE}", "."]
+images:
+  - "${_IMAGE}"
+options:
+  logging: CLOUD_LOGGING_ONLY

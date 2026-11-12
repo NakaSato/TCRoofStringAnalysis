@@ -18,6 +18,7 @@ import {
   Radio,
   Clock,
   LogIn,
+  LogOut,
   MapPin,
   RefreshCw,
   AlertTriangle,
@@ -79,7 +80,7 @@ const useClock = () => {
 };
 
 export const Layout: React.FC = () => {
-  const { user, loginAs, activePlant, activeDataset, refreshAll, analysisRun, loading, error } =
+  const { user, loginAs, logout, activePlant, activeDataset, refreshAll, analysisRun, loading, error } =
     useAppContext();
   const location = useLocation();
   const now = useClock();
@@ -96,8 +97,8 @@ export const Layout: React.FC = () => {
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [cmdOpen, setCmdOpen] = useState<boolean>(false);
   const [alarmsOpen, setAlarmsOpen] = useState<boolean>(false);
-  const [loginEmail, setLoginEmail] = useState<string>("admin@tcroofsolar.com");
-  const [loginPassword, setLoginPassword] = useState<string>("admin123");
+  const [loginUsername, setLoginUsername] = useState<string>("");
+  const [loginPassword, setLoginPassword] = useState<string>("");
   const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -166,8 +167,9 @@ export const Layout: React.FC = () => {
     e.preventDefault();
     setLoginError(null);
     try {
-      await loginAs(loginEmail, loginPassword);
+      await loginAs(loginUsername, loginPassword);
       setAuthModalOpen(false);
+      setLoginPassword("");
     } catch (err: any) {
       setLoginError(err.message || "Login failed");
     }
@@ -276,7 +278,9 @@ export const Layout: React.FC = () => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-semibold text-slate-100">{user ? user.full_name : "Sign In"}</div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">{user ? user.role : "guest"} · switch</div>
+          <div className="truncate text-[10px] uppercase tracking-wider text-slate-500">
+            {user ? `${user.username ?? user.email} · ${user.role}` : "guest"}
+          </div>
         </div>
         <LogIn className="h-3.5 w-3.5 text-slate-500" />
       </button>
@@ -461,54 +465,65 @@ export const Layout: React.FC = () => {
           <div className="panel w-full max-w-md space-y-5 bg-ink-900 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-bold text-white">Operator Sign-In</h3>
-                <p className="text-[11px] text-slate-500">JWT authentication & role switching</p>
+                <h3 className="text-base font-bold text-white">Account</h3>
+                <p className="text-[11px] text-slate-500">
+                  {user ? `Signed in as ${user.username ?? user.email} (${user.role})` : "Not signed in"}
+                </p>
               </div>
               <button onClick={() => setAuthModalOpen(false)} className="btn-ghost" aria-label="Close">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="callout space-y-2">
-              <div className="eyebrow">Quick demo roles</div>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { label: "Admin Engineer", email: "admin@tcroofsolar.com", pw: "admin123", cls: "btn-primary" },
-                  { label: "O&M Engineer", email: "engineer@tcroofsolar.com", pw: "engineer123", cls: "btn-accent" },
-                  { label: "Viewer (Read-Only)", email: "viewer@tcroofsolar.com", pw: "viewer123", cls: "btn" },
-                ].map((r) => (
-                  <button
-                    key={r.email}
-                    type="button"
-                    onClick={() => {
-                      setLoginEmail(r.email);
-                      setLoginPassword(r.pw);
-                    }}
-                    className={`${r.cls} btn-sm`}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <form onSubmit={handleLoginSubmit} className="space-y-3">
+              <div className="eyebrow">Switch user</div>
               <div>
-                <label className="label">Email</label>
-                <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="input" required />
+                <label htmlFor="switch-username" className="label">Username</label>
+                <input
+                  id="switch-username"
+                  type="text"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  className="input"
+                  required
+                />
               </div>
               <div>
-                <label className="label">Password</label>
-                <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="input" required />
+                <label htmlFor="switch-password" className="label">Password</label>
+                <input
+                  id="switch-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className="input"
+                  required
+                />
               </div>
               {loginError && <p className="text-xs text-red-400">{loginError}</p>}
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setAuthModalOpen(false)} className="btn">
-                  Cancel
+              <div className="flex items-center justify-between gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthModalOpen(false);
+                    logout();
+                  }}
+                  className="btn"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign out
                 </button>
-                <button type="submit" className="btn-primary">
-                  Sign In
-                </button>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAuthModalOpen(false)} className="btn">
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    Sign in
+                  </button>
+                </div>
               </div>
             </form>
           </div>

@@ -89,11 +89,11 @@ function themeLayout(layout: Record<string, any>, height: number) {
     margin: layout.margin || { l: 52, r: 36, t: 54, b: 48 },
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
-    font: { family: "Inter, ui-sans-serif, sans-serif", color: TEXT, size: 11 },
+    font: { family: "Noto Sans Thai, ui-sans-serif, sans-serif", color: TEXT, size: 11 },
     hoverlabel: {
       bgcolor: "#0d1524",
       bordercolor: "rgba(245,180,42,0.45)",
-      font: { family: "JetBrains Mono, monospace", color: "#e2e8f0", size: 11 },
+      font: { family: "Noto Sans Thai, sans-serif", color: "#e2e8f0", size: 11 },
     },
     legend: {
       ...(layout.legend || {}),
@@ -106,7 +106,7 @@ function themeLayout(layout: Record<string, any>, height: number) {
 
   if (layout.title) {
     const t = typeof layout.title === "string" ? { text: layout.title } : layout.title;
-    themed.title = { ...t, font: { ...(t.font || {}), color: TITLE, size: 13, family: "Inter, sans-serif" } };
+    themed.title = { ...t, font: { ...(t.font || {}), color: TITLE, size: 13, family: "Noto Sans Thai, sans-serif" } };
   }
 
   // Theme every axis key (xaxis, xaxis2, yaxis, yaxis2, ...)

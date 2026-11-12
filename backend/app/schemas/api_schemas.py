@@ -8,14 +8,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
-    email: str
+    """Sign in with `username` (preferred) or `email`; either field accepts a username or an email."""
+
+    username: Optional[str] = None
+    email: Optional[str] = None
     password: str
+
+    @property
+    def identifier(self) -> str:
+        return (self.username or self.email or "").strip().lower()
 
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    username: Optional[str] = None
     email: str
     full_name: str
     role: str

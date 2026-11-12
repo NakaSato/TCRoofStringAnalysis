@@ -13,11 +13,14 @@ import {
   getStoredToken,
   getStoredUser,
   clearAuthSession,
+  AUTH_EXPIRED_EVENT,
 } from "../api/client";
 
 interface AppContextValue {
   user: UserProfile | null;
-  loginAs: (email: string, password: string) => Promise<void>;
+  /** false until the stored token has been checked (show a splash, not the login page) */
+  authChecked: boolean;
+  loginAs: (username: string, password: string) => Promise<void>;
   logout: () => void;
   plants: Plant[];
   activePlant: Plant | null;
@@ -42,7 +45,10 @@ interface AppContextValue {
   selectGrowattPlant: (plantId: number, switchToPlantOverview?: boolean) => void;
   refreshGrowattPlants: (force?: boolean) => Promise<void>;
   /** Freshness of the realtime overlay (backend memory cache; never persisted). */
-  growattLiveStatus: { fetchedAt: string | null; stale: boolean; error: string | null };
+  /** `loading`: the first fleet live poll has not answered yet (status shows "Loading…", not "Unknown"). */
+  growattLiveStatus: { fetchedAt: string | null; stale: boolean; error: string | null; loading: boolean };
+  /** The selected plant's live record (inverter status) has not answered yet. */
+  plantLiveLoading: boolean;
 }
 
 const LIVE_POLL_MS = 60_000; // realtime overlay (backend caches Growatt for 120 s)
@@ -55,6 +61,7 @@ const INVERTER_STATUS_NAMES: Record<number, string> = { 0: "Offline", 1: "Normal
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(getStoredUser());
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [basePlant, setBasePlant] = useState<Plant | null>(null);
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
@@ -73,26 +80,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // DB overview (persisted history) + realtime overlay for the selected plant (memory only)
   const [dbPlantOverview, setSelectedPlantOverview] = useState<GrowattPlantOverview | null>(null);
   const [selectedPlantLive, setSelectedPlantLive] = useState<GrowattLive<GrowattLivePlantLatest> | null>(null);
+  const [plantLiveFailed, setPlantLiveFailed] = useState(false);
   const [plantOverviewLoading, setPlantOverviewLoading] = useState<boolean>(false);
   const [dashboardMode, setDashboardMode] = useState<"directory" | "plant">("directory");
 
+  // Restore the session from a stored token; without one the login page is shown.
+  // (No automatic sign-in: every visitor must log in with their own username.)
   const ensureAuthenticated = useCallback(async () => {
-    const existingToken = getStoredToken();
-    if (existingToken) {
+    if (getStoredToken()) {
       try {
-        const me = await api.me();
-        setUser(me);
-        return;
+        setUser(await api.me());
       } catch {
         clearAuthSession();
+        setUser(null);
       }
+    } else {
+      setUser(null);
     }
-    try {
-      const res = await api.login("admin@tcroofsolar.com", "admin123");
-      setUser(res.user);
-    } catch {
-      // non-fatal
-    }
+    setAuthChecked(true);
+  }, []);
+
+  // Any 401 from the API (expired token, disabled account) signs out.
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
   }, []);
 
   const refreshGrowattLive = useCallback(async () => {
@@ -155,6 +167,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       fetchedAt: growattLive?.fetched_at ?? null,
       stale: Boolean(growattLive?.stale || growattLiveError),
       error: growattLiveError ?? growattLive?.error ?? null,
+      loading: !growattLive && !growattLiveError,
     }),
     [growattLive, growattLiveError]
   );
@@ -220,7 +233,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (chosen) {
         const [dsList, latestRun] = await Promise.all([
           api.listDatasets(chosen.id),
-          api.getLatestAnalysis(chosen.id),
+          // 404 = no analysis run yet (production starts without demo data)
+          api.getLatestAnalysis(chosen.id).catch(() => null),
         ]);
         setDatasets(dsList);
         setBaseAnalysisRun(latestRun);
@@ -240,8 +254,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [refreshGrowattPlants]);
 
   useEffect(() => {
-    ensureAuthenticated().then(() => loadPlantContext());
-  }, [ensureAuthenticated, loadPlantContext]);
+    ensureAuthenticated();
+  }, [ensureAuthenticated]);
+
+  // Load data only once signed in (and again after switching user).
+  useEffect(() => {
+    if (authChecked && user) loadPlantContext();
+  }, [authChecked, user?.id, loadPlantContext]);
 
   // Load single-plant overview whenever selectedGrowattPlantId changes
   useEffect(() => {
@@ -271,6 +290,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Realtime: newest record per inverter of the selected plant, every minute while visible.
   useEffect(() => {
     setSelectedPlantLive(null);
+    setPlantLiveFailed(false);
     if (!user || selectedGrowattPlantId == null) return;
     const plantId = selectedGrowattPlantId;
     let cancelled = false;
@@ -278,10 +298,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       api
         .getGrowattLivePlantLatest(plantId)
         .then((r) => {
-          if (!cancelled) setSelectedPlantLive(r);
+          if (!cancelled) {
+            setSelectedPlantLive(r);
+            setPlantLiveFailed(false);
+          }
         })
         .catch(() => {
-          // live unavailable: DB values remain
+          // live unavailable: DB values remain, status shows "Unknown"
+          if (!cancelled) setPlantLiveFailed(true);
         });
     };
     load();
@@ -410,8 +434,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const loginAs = async (email: string, password: string) => {
-    const res = await api.login(email, password);
+  const loginAs = async (username: string, password: string) => {
+    const res = await api.login(username, password);
     setUser(res.user);
   };
 
@@ -424,6 +448,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         user,
+        authChecked,
         loginAs,
         logout,
         plants,
@@ -443,6 +468,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         selectedGrowattPlant,
         selectedPlantOverview,
         growattLiveStatus,
+        plantLiveLoading: selectedGrowattPlantId != null && !selectedPlantLive && !plantLiveFailed,
         plantOverviewLoading,
         dashboardMode,
         setDashboardMode,
