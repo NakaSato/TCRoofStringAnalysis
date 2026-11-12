@@ -525,6 +525,7 @@ def _write_inputs(path: pathlib.Path, rows: List[InvRow], day: date) -> None:
         w.writerow([
             "day", "phase", "plant_id", "plant_name", "inverter_name", "inverter_sn", "rated_power_kw",
             "inverter_status", "inputs_total", "inputs_used", "inputs_idle", "inputs_spare", "used_inputs",
+            "idle_inputs",
             *[f"String {n} (MPPT {(n + 1) // 2})" for n in range(1, width + 1)],
         ])
         for r in rows:
@@ -538,6 +539,7 @@ def _write_inputs(path: pathlib.Path, rows: List[InvRow], day: date) -> None:
                 _status_label(r.last_status), len(r.strings) or None,
                 len(by["used"]) if known else None, len(by["idle"]) if known else None,
                 len(by["spare"]) if r.stats else None, _fmt_list(by["used"]),
+                _fmt_list(by["idle"]),
                 *cells, *[""] * (width - len(cells)),
             ])
 
