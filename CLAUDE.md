@@ -41,7 +41,7 @@ Rules for every layer:
 `deploy/gcp.sh setup | backend | frontend | all` (see header of the script).
 - **Frontend:** Firebase Hosting. `firebase.json` rewrites `/api/**` to Cloud Run.
 - **API:** Cloud Run service `tcroof-api` in us-central1. It scales to zero, runs at most 1 instance, and gets its secrets from Secret Manager.
-- **Postgres + `growatt-worker`:** free-tier e2-micro VM `tcroof-db` running `deploy/vm/compose.yml` from `/opt/tcroof`. It has a static internal IP, and port 5432 is reachable only inside the VPC. The disk is 100 GB (`DISK_GB`; 30 GB free, about $2.80/month for the rest) to hold 90 days of raw readings for 629 inverters; the `retention` job deletes older readings.
+- **Postgres + `growatt-worker`:** free-tier e2-micro VM `tcroof-db` running `deploy/vm/compose.yml` from `/opt/tcroof`. It has a static internal IP, and port 5432 is reachable only inside the VPC. The disk is 100 GB (`DISK_GB`; 30 GB free, about $2.80/month for the rest) to hold 90 days of raw readings for 629 inverters; the `retention` job deletes older readings. Daily snapshots of that disk (policy `tcroof-db-daily`, 02:00 Bangkok, kept `SNAPSHOT_KEEP_DAYS` = 7) are set up by `deploy/gcp.sh snapshots`, which `setup` also runs; restore steps are above `cmd_snapshots`.
 - **Production login:** `APP_ENV=prod` seeds only the admin from secret `tcroof-admin-password` (created by `setup`, or from `ADMIN_PASSWORD` in `.env`). There are no demo accounts.
 - **Why not Cloud SQL:** it alone costs about $9+/month, and history grows by about 0.5 GB/day (629 inverters), which rules out the free Postgres tiers.
 

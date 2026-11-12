@@ -10,6 +10,7 @@
 #
 # Usage (from the repo root):
 #   deploy/gcp.sh setup      # one time: APIs, $10 budget alert, registry, secrets, VM
+#   deploy/gcp.sh snapshots  # daily VM disk snapshots, kept SNAPSHOT_KEEP_DAYS (also run by setup)
 #   deploy/gcp.sh backend    # build image, update VM (Postgres + worker), deploy Cloud Run API
 #   deploy/gcp.sh frontend   # build UI, deploy Firebase Hosting
 #   deploy/gcp.sh all        # backend + frontend
@@ -33,6 +34,9 @@ BUDGET_USD="${BUDGET_USD:-10}"
 budget_amount_for() { case "$1" in USD) echo "$BUDGET_USD" ;; THB) echo 500 ;; EUR) echo 10 ;; *) echo "" ;; esac; }
 DISK_GB="${DISK_GB:-100}"              # pd-standard; must hold HISTORY_RETENTION_DAYS of readings
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
+SNAPSHOT_POLICY="tcroof-db-daily"
+SNAPSHOT_KEEP_DAYS="${SNAPSHOT_KEEP_DAYS:-7}"  # daily disk snapshots kept; incremental, ~$0.05/GB-month
+SNAPSHOT_HOUR_UTC="${SNAPSHOT_HOUR_UTC:-19}"   # 19:00 UTC = 02:00 Bangkok, no PV output
 REGISTRY="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
 
 cd "$(dirname "$0")/.."
@@ -136,6 +140,8 @@ EOF
     fi
   fi
 
+  cmd_snapshots
+
   log "Firewall: Postgres reachable from inside the VPC only"
   g compute firewall-rules describe tcroof-allow-postgres-internal >/dev/null 2>&1 || \
     g compute firewall-rules create tcroof-allow-postgres-internal --network default \
@@ -150,6 +156,26 @@ EOF
   done
 
   echo; echo "Setup done. Next: deploy/gcp.sh all"
+}
+
+# Daily snapshot of the VM disk (Postgres history + worker state). Snapshots are crash-consistent,
+# which Postgres recovers from like a power cut (WAL replay). Restore:
+#   gcloud compute snapshots list --filter="sourceDisk~$VM" --project $PROJECT
+#   gcloud compute disks create tcroof-db-restore --source-snapshot SNAPSHOT --zone $ZONE --project $PROJECT
+cmd_snapshots() {
+  log "Daily snapshots of $VM disk at ${SNAPSHOT_HOUR_UTC}:00 UTC, kept ${SNAPSHOT_KEEP_DAYS} days"
+  local start; start="$(printf '%02d:00' "$SNAPSHOT_HOUR_UTC")"
+  if g compute resource-policies describe "$SNAPSHOT_POLICY" --region "$REGION" >/dev/null 2>&1; then
+    g compute resource-policies update snapshot-schedule "$SNAPSHOT_POLICY" --region "$REGION" \
+      --max-retention-days "$SNAPSHOT_KEEP_DAYS" --daily-schedule --start-time "$start" >/dev/null
+  else
+    g compute resource-policies create snapshot-schedule "$SNAPSHOT_POLICY" --region "$REGION" \
+      --description "Daily snapshot of the $VM disk (Postgres)" \
+      --max-retention-days "$SNAPSHOT_KEEP_DAYS" --on-source-disk-delete keep-auto-snapshots \
+      --daily-schedule --start-time "$start" --storage-location "$REGION"
+  fi
+  g compute disks describe "$VM" --zone "$ZONE" --format='value(resourcePolicies)' | grep -q "/$SNAPSHOT_POLICY" || \
+    g compute disks add-resource-policies "$VM" --zone "$ZONE" --resource-policies "$SNAPSHOT_POLICY"
 }
 
 cmd_backend() {
@@ -214,8 +240,9 @@ cmd_frontend() {
 
 case "${1:-}" in
   setup) cmd_setup ;;
+  snapshots) cmd_snapshots ;;
   backend) cmd_backend ;;
   frontend) cmd_frontend ;;
   all) cmd_backend; cmd_frontend ;;
-  *) sed -n '2,16p' "$0"; exit 1 ;;
+  *) sed -n '2,17p' "$0"; exit 1 ;;
 esac
