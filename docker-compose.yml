@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: solar
+      POSTGRES_PASSWORD: solar_password
+      POSTGRES_DB: tc_roof_solar
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U solar -d tc_roof_solar"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env  # GROWATT_API_TOKEN etc. (backend only, never sent to the browser)
+    environment:
+      DATABASE_URL: postgresql+psycopg://solar:solar_password@postgres:5432/tc_roof_solar
+      JWT_SECRET_KEY: tc-roof-solar-production-jwt-secret
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Single scheduler process: Growatt history sync + daily summary publishing (app/worker.py).
+  # Keep exactly one replica — the job lock lives in the DB, but extra replicas only add Growatt calls.
+  growatt-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://solar:solar_password@postgres:5432/tc_roof_solar
+      PUBLISH_SINK: ${PUBLISH_SINK:-json}  # set to firestore once secrets/ holds the service-account key
+    volumes:
+      - ./secrets:/app/secrets:ro      # FIREBASE_CREDENTIALS_FILE=secrets/firebase-service-account.json
+      - summaries:/data/firestore_export  # JSON sink output
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  summaries:

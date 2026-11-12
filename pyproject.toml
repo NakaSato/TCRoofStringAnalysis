@@ -1,0 +1,30 @@
+[project]
+name = "tcroofsringanalysis"
+version = "0.1.0"
+description = "Solar PV String Performance & Fault Analysis Suite (IEC 61724)"
+readme = "README.md"
+authors = [
+    { name = "WiT", email = "wit.chanthawat@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi>=0.162.4",
+    "firebase-admin>=7.8.0",
+    "fpdf2>=2.9.0",
+    "httpx>=0.28.1",
+    "numpy>=2.5.4",
+    "openpyxl>=3.1.5",
+    "pandas>=3.1.1",
+    "plotly>=7.1.0",
+    "pydantic-settings>=2.16.2",
+    "pyjwt>=2.15.1",
+    "pytest>=9.2.0",
+    "python-multipart>=0.0.33",
+    "requests>=2.34.2",
+    "sqlalchemy>=2.1.8",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend", "."]

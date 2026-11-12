@@ -1,0 +1,269 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   GenZ Monitoring System — dark control-room design tokens
+   ========================================================================== */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Surfaces (darkest -> lightest) */
+  --color-ink-950: #05080f;
+  --color-ink-900: #0a101c;
+  --color-ink-850: #0d1524;
+  --color-ink-800: #111b2e;
+  --color-ink-750: #16223a;
+  --color-ink-700: #1d2b47;
+  --color-ink-600: #2a3b5e;
+
+  /* Brand accents */
+  --color-solar-300: #fde68a;
+  --color-solar-400: #fcd34d;
+  --color-solar-500: #f5b42a;
+  --color-solar-600: #e09612;
+  --color-energy-300: #67e8f9;
+  --color-energy-400: #22d3ee;
+  --color-energy-500: #06b6d4;
+
+  --animate-pulse-glow: pulse-glow 2.2s ease-in-out infinite;
+  --animate-sweep: sweep 3s linear infinite;
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+@keyframes flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.flow-line {
+  stroke-dasharray: 6 6;
+  animation: flow 1.1s linear infinite;
+}
+
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-ink-950);
+    color-scheme: dark;
+  }
+
+  ::selection {
+    background: rgba(245, 180, 42, 0.35);
+    color: #fff;
+  }
+
+  /* Thin control-room scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-600) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-ink-600);
+    border-radius: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    opacity: 0.4;
+  }
+
+  select option {
+    background: var(--color-ink-850);
+    color: #e2e8f0;
+  }
+
+  input[type="range"] {
+    accent-color: var(--color-solar-500);
+  }
+
+  input[type="checkbox"] {
+    accent-color: var(--color-solar-500);
+  }
+}
+
+/* ==========================================================================
+   Components (use these classes in pages for a consistent look)
+   ========================================================================== */
+@layer components {
+  /* Panels / cards */
+  .panel {
+    @apply relative rounded-xl border border-white/[0.07] bg-ink-900/80 shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset,0_8px_24px_-12px_rgba(0,0,0,0.6)] backdrop-blur-sm;
+  }
+  .panel-pad {
+    @apply p-4 sm:p-5;
+  }
+  .panel-header {
+    @apply flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3 sm:px-5;
+  }
+  .panel-title {
+    @apply flex items-center gap-2 text-[13px] font-semibold tracking-wide text-slate-100;
+  }
+  .panel-subtitle {
+    @apply text-[11px] text-slate-500;
+  }
+
+  /* Section eyebrow label */
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  /* Form controls */
+  .label {
+    @apply mb-1 block text-[11px] font-medium text-slate-400;
+  }
+  .input,
+  .select,
+  .textarea {
+    @apply w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-solar-500/60 focus:ring-2 focus:ring-solar-500/20 disabled:opacity-50;
+  }
+  .input-sm {
+    @apply px-2 py-1 text-[11px];
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-ink-800 px-3.5 py-2 text-xs font-semibold text-slate-200 transition hover:border-white/20 hover:bg-ink-750 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solar-400/40 bg-solar-500 px-3.5 py-2 text-xs font-bold text-ink-950 transition hover:bg-solar-400 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-accent {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-energy-400/40 bg-energy-500/15 px-3.5 py-2 text-xs font-semibold text-energy-300 transition hover:bg-energy-500/25 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-white/5 hover:text-slate-100 disabled:opacity-50;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-[11px];
+  }
+
+  /* Data tables */
+  .table-wrap {
+    @apply overflow-x-auto rounded-lg border border-white/[0.06];
+  }
+  .data-table {
+    @apply w-full border-collapse text-left text-xs;
+  }
+  .data-table thead tr {
+    @apply bg-ink-850 text-[10px] uppercase tracking-wider text-slate-500;
+  }
+  .data-table th {
+    @apply whitespace-nowrap px-3 py-2.5 font-semibold;
+  }
+  .data-table td {
+    @apply px-3 py-2.5 text-slate-300;
+  }
+  .data-table tbody tr {
+    @apply border-t border-white/[0.05] transition-colors hover:bg-white/[0.025];
+  }
+  .num {
+    @apply font-mono tabular-nums;
+  }
+
+  /* Status badges */
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold;
+  }
+  .badge-ok {
+    @apply border-emerald-400/25 bg-emerald-400/10 text-emerald-300;
+  }
+  .badge-warn {
+    @apply border-amber-400/25 bg-amber-400/10 text-amber-300;
+  }
+  .badge-crit {
+    @apply border-red-400/30 bg-red-500/10 text-red-300;
+  }
+  .badge-info {
+    @apply border-sky-400/25 bg-sky-400/10 text-sky-300;
+  }
+  .badge-neutral {
+    @apply border-white/10 bg-white/5 text-slate-400;
+  }
+
+  /* Callout boxes */
+  .callout {
+    @apply rounded-lg border border-white/[0.07] bg-ink-850/80 p-3 text-xs text-slate-400;
+  }
+  .callout-warn {
+    @apply rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-3 text-xs text-amber-200/90;
+  }
+  .callout-ok {
+    @apply rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] p-3 text-xs text-emerald-200/90;
+  }
+  .callout-crit {
+    @apply rounded-lg border border-red-400/25 bg-red-500/[0.07] p-3 text-xs text-red-200/90;
+  }
+
+  /* Segmented tabs */
+  .tabs {
+    @apply inline-flex flex-wrap gap-1 rounded-lg border border-white/[0.07] bg-ink-900/80 p-1;
+  }
+  .tab {
+    @apply inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-slate-400 transition hover:text-slate-100;
+  }
+  .tab-active {
+    @apply bg-ink-700 text-white shadow-[0_0_0_1px_rgba(245,180,42,0.35)];
+  }
+
+  /* Status dot (pulsing LED) */
+  .led {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full;
+  }
+  .led-ok {
+    @apply bg-emerald-400 text-emerald-400/40 shadow-[0_0_8px_rgba(52,211,153,0.8)];
+  }
+  .led-warn {
+    @apply bg-amber-400 text-amber-400/40 shadow-[0_0_8px_rgba(251,191,36,0.8)];
+  }
+  .led-crit {
+    @apply bg-red-500 text-red-500/40 shadow-[0_0_8px_rgba(239,68,68,0.9)];
+  }
+  .led-off {
+    @apply bg-slate-600;
+  }
+
+  /* Grid/scanline backdrop for hero panels */
+  .grid-backdrop {
+    background-color: var(--color-ink-900);
+  }
+}

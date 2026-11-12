@@ -1,0 +1,530 @@
+import React, { useState, useEffect, useMemo } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import {
+  Sun,
+  TrendingUp,
+  Activity,
+  Wrench,
+  ClipboardCheck,
+  ShieldAlert,
+  FileSpreadsheet,
+  Settings,
+  Save,
+  LayoutDashboard,
+  Bell,
+  SlidersHorizontal,
+  Menu,
+  X,
+  Radio,
+  Clock,
+  LogIn,
+  MapPin,
+  RefreshCw,
+  AlertTriangle,
+  Search,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { useAppContext } from "../context/AppContext";
+import { api } from "../api/client";
+import { Led } from "./ui";
+import { StringInspectorDrawer } from "./StringInspectorDrawer";
+import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  description: string;
+}
+
+const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+  {
+    title: "Monitoring",
+    items: [
+      { to: "/", label: "Plant Overview", icon: LayoutDashboard, description: "Live plant status, alarms & string matrix" },
+      { to: "/generation", label: "Generation & PR", icon: TrendingUp, description: "Daily / monthly yield, PR & loss waterfall" },
+      { to: "/strings", label: "String Diagnostics", icon: Activity, description: "String performance, heatmap & I-V / P-V curves" },
+      { to: "/growatt", label: "Growatt Fleet", icon: Radio, description: "Live Growatt OpenAPI plants & inverter status" },
+    ],
+  },
+  {
+    title: "Operations",
+    items: [
+      { to: "/maintenance", label: "Maintenance & RCA", icon: Wrench, description: "PM schedule, CM work orders & root cause analysis" },
+      { to: "/quality", label: "Quality & Power Quality", icon: ClipboardCheck, description: "Subcontractor QA/QC, commissioning & IEEE 519 PQ" },
+      { to: "/she", label: "Safety (SH&E)", icon: ShieldAlert, description: "Permit-to-work, LOTO & ISO 45001 compliance" },
+    ],
+  },
+  {
+    title: "Reports",
+    items: [
+      { to: "/reports", label: "Reports", icon: FileSpreadsheet, description: "PDF, Excel, HTML & CSV management exports" },
+    ],
+  },
+  {
+    title: "System",
+    items: [{ to: "/settings", label: "Plant Configuration", icon: Settings, description: "Plant parameters & string specifications" }],
+  },
+];
+
+const ALL_NAV = NAV_GROUPS.flatMap((g) => g.items);
+
+const useClock = () => {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+};
+
+export const Layout: React.FC = () => {
+  const { user, loginAs, activePlant, activeDataset, refreshAll, analysisRun, loading, error } =
+    useAppContext();
+  const location = useLocation();
+  const now = useClock();
+
+  // Quick plant parameters (drawer)
+  const [modulesPerString, setModulesPerString] = useState<number>(18);
+  const [moduleWp, setModuleWp] = useState<number>(550);
+  const [targetPrPct, setTargetPrPct] = useState<number>(84.0);
+  const [tariffThb, setTariffThb] = useState<number>(4.2);
+  const [underperfThresh, setUnderperfThresh] = useState<number>(10.0);
+  const [savingConfig, setSavingConfig] = useState<boolean>(false);
+  const [specsOpen, setSpecsOpen] = useState<boolean>(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [cmdOpen, setCmdOpen] = useState<boolean>(false);
+  const [alarmsOpen, setAlarmsOpen] = useState<boolean>(false);
+  const [loginEmail, setLoginEmail] = useState<string>("admin@tcroofsolar.com");
+  const [loginPassword, setLoginPassword] = useState<string>("admin123");
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (activePlant) {
+      setModulesPerString(activePlant.modules_per_string);
+      setModuleWp(activePlant.module_wp);
+      setTargetPrPct(activePlant.target_pr_pct);
+      setTariffThb(activePlant.tariff_thb_per_kwh);
+      setUnderperfThresh(activePlant.underperformance_threshold_pct);
+    }
+  }, [activePlant]);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  const current = ALL_NAV.find((n) => (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)));
+
+  const kpis = analysisRun?.plant_kpis_json || {};
+  const criticalStrings = Number(kpis.critical_strings || 0);
+  const warningStrings = Number(kpis.warning_strings || 0);
+  const alarmCount = useMemo(
+    () => (analysisRun?.anomalies_json || []).filter((a) => String(a.severity) === "Critical").length,
+    [analysisRun]
+  );
+  const plantLevel = criticalStrings > 0 ? "crit" : warningStrings > 0 ? "warn" : "ok";
+  const plantStateLabel = criticalStrings > 0 ? "Fault Detected" : warningStrings > 0 ? "Degraded" : "Normal Operation";
+  const dcCapacityKwp =
+    Number(kpis.total_capacity_kwp) ||
+    (activePlant ? (modulesPerString * moduleWp * (activeDataset?.string_count || 8)) / 1000 : 0);
+  const sidebarStringCount = kpis.num_strings ?? activeDataset?.string_count ?? "—";
+
+  const handleApplySidebarSpecs = async () => {
+    if (!activePlant) return;
+    setSavingConfig(true);
+    try {
+      await api.updatePlant(activePlant.id, {
+        ...activePlant,
+        modules_per_string: modulesPerString,
+        module_wp: moduleWp,
+        target_pr_pct: targetPrPct,
+        tariff_thb_per_kwh: tariffThb,
+        underperformance_threshold_pct: underperfThresh,
+      });
+      await refreshAll();
+      setSpecsOpen(false);
+    } catch (err: any) {
+      alert(`Failed to update plant parameters: ${err.message}`);
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    try {
+      await loginAs(loginEmail, loginPassword);
+      setAuthModalOpen(false);
+    } catch (err: any) {
+      setLoginError(err.message || "Login failed");
+    }
+  };
+
+  const initials = (user?.full_name || "Guest")
+    .split(" ")
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  const sidebar = (
+    <aside className="flex h-full w-64 flex-col border-r border-white/[0.06] bg-ink-900/95 backdrop-blur-xl">
+      {/* Brand */}
+      <div className="flex items-center gap-3 px-5 pb-4 pt-5">
+        <div className="rounded-xl bg-solar-500 p-2 text-ink-950">
+          <Sun className="h-5 w-5" strokeWidth={2.5} />
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-extrabold tracking-tight text-white">GenZ Monitoring</div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
+        </div>
+      </div>
+
+      {/* Plant status card */}
+      <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-ink-850/80 p-3">
+        <div className="flex items-center justify-between">
+          <span className="eyebrow">Active Fleet</span>
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400">
+            <Led level={plantLevel} pulse />
+            {plantStateLabel}
+          </span>
+        </div>
+        <div className="mt-1.5 truncate text-[13px] font-semibold text-slate-100">
+          {activePlant && activePlant.name !== "TC Roof Solar PV Plant" ? activePlant.name : "Solar Fleet Monitoring"}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
+          <MapPin className="h-3 w-3" />
+          <span className="truncate">{activePlant?.location || "Bangkok, Thailand"}</span>
+        </div>
+        <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-2.5 text-[11px]">
+          <div>
+            <div className="text-slate-500">DC Capacity</div>
+            <div className="num font-semibold text-solar-400">{dcCapacityKwp.toFixed(1)} kWp</div>
+          </div>
+          <div>
+            <div className="text-slate-500">Strings</div>
+            <div className="num font-semibold text-slate-200">{sidebarStringCount}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-4">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.title}>
+            <div className="eyebrow px-3 pb-1.5">{group.title}</div>
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const badge =
+                  item.to === "/" && alarmCount > 0
+                    ? { n: alarmCount, cls: "bg-red-500/15 text-red-300 border-red-400/30" }
+                    : item.to === "/strings" && criticalStrings + warningStrings > 0
+                    ? { n: criticalStrings + warningStrings, cls: "bg-amber-500/15 text-amber-300 border-amber-400/30" }
+                    : null;
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === "/"}
+                    className={({ isActive }) =>
+                      `group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition ${
+                        isActive
+                          ? "bg-solar-500/15 text-white"
+                          : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
+                      }`
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {isActive && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-solar-400 shadow-[0_0_10px_rgba(245,180,42,0.8)]" />}
+                        <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-solar-400" : "text-slate-500 group-hover:text-slate-300"}`} />
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {badge && (
+                          <span className={`num rounded-full border px-1.5 py-px text-[10px] font-bold ${badge.cls}`}>{badge.n}</span>
+                        )}
+                      </>
+                    )}
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* User */}
+      <button
+        onClick={() => setAuthModalOpen(true)}
+        className="flex cursor-pointer items-center gap-3 border-t border-white/[0.06] px-4 py-3 text-left transition hover:bg-white/[0.03]"
+      >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-energy-500/20 text-[11px] font-bold text-energy-300 ring-1 ring-energy-400/30">
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-semibold text-slate-100">{user ? user.full_name : "Sign In"}</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">{user ? user.role : "guest"} · switch</div>
+        </div>
+        <LogIn className="h-3.5 w-3.5 text-slate-500" />
+      </button>
+    </aside>
+  );
+
+  return (
+    <div className="flex min-h-screen text-slate-200">
+      {/* Desktop sidebar */}
+      <div className="sticky top-0 hidden h-screen shrink-0 lg:block">{sidebar}</div>
+
+      {/* Mobile sidebar */}
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileNavOpen(false)} />
+          <div className="absolute inset-y-0 left-0">{sidebar}</div>
+        </div>
+      )}
+
+      {/* Main */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Top bar */}
+        <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-ink-950/80 backdrop-blur-xl">
+          <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
+            <button className="btn-ghost lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
+              <Menu className="h-5 w-5" />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <span className="hidden sm:inline">
+                  {activePlant && activePlant.name !== "TC Roof Solar PV Plant" ? activePlant.name : "Solar Fleet"}
+                </span>
+                <span className="hidden sm:inline text-slate-700">/</span>
+                <span className="font-semibold text-slate-200">{current?.label || "Monitoring"}</span>
+              </div>
+              <div className="hidden truncate text-[11px] text-slate-500 md:block">{current?.description}</div>
+            </div>
+
+            {/* Link status */}
+            <div className="hidden items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-1 text-[11px] font-semibold text-emerald-300 md:flex">
+              <Radio className="h-3.5 w-3.5" />
+              {loading ? "SYNCING" : error ? "LINK ERROR" : "DATA LINK ONLINE"}
+            </div>
+
+            {/* Clock */}
+            <div className="hidden items-center gap-1.5 rounded-full border border-white/[0.07] bg-ink-900/80 px-3 py-1 text-[11px] text-slate-300 sm:flex">
+              <Clock className="h-3.5 w-3.5 text-slate-500" />
+              <span className="num">
+                {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok" })}
+              </span>
+              <span className="text-slate-600">ICT</span>
+            </div>
+
+            {/* Quick Jump / Command Palette (⌘K) */}
+            <button
+              onClick={() => setCmdOpen(true)}
+              className="hidden cursor-pointer items-center gap-2 rounded-full border border-white/[0.08] bg-ink-900/90 px-3 py-1 text-[11px] text-slate-400 transition hover:border-solar-400/40 hover:text-slate-200 sm:flex"
+              title="Command Palette (⌘K)"
+            >
+              <Search className="h-3.5 w-3.5 text-solar-400" />
+              <span>Quick Jump…</span>
+              <kbd className="num rounded border border-white/10 bg-ink-850 px-1.5 py-px text-[10px] text-slate-400">
+                ⌘K
+              </kbd>
+            </button>
+
+            <button className="btn-ghost" onClick={() => refreshAll()} title="Refresh plant data" aria-label="Refresh">
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            </button>
+
+            <button className="btn-ghost" onClick={() => setSpecsOpen(true)} title="Quick plant parameters" aria-label="Quick plant parameters">
+              <SlidersHorizontal className="h-4 w-4" />
+            </button>
+
+            <button
+              onClick={() => setAlarmsOpen(true)}
+              className="btn-ghost relative"
+              title="Open SCADA Alarm Center"
+              aria-label="Open SCADA Alarm Center"
+            >
+              <Bell className="h-4 w-4" />
+              {alarmCount > 0 && (
+                <span className="num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white shadow-[0_0_8px_rgba(239,68,68,0.8)]">
+                  {alarmCount}
+                </span>
+              )}
+            </button>
+          </div>
+          {loading && (
+            <div className="relative h-px overflow-hidden bg-transparent">
+              <div className="absolute inset-y-0 w-1/3 animate-sweep bg-solar-400" />
+            </div>
+          )}
+        </header>
+
+        {error && (
+          <div className="mx-4 mt-4 flex items-center gap-2 sm:mx-6 callout-crit">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <main className="flex-1 px-4 py-6 sm:px-6">
+          <div className="mx-auto max-w-[1600px]">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+
+      {/* Quick plant parameters drawer */}
+      {specsOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSpecsOpen(false)} />
+          <div className="relative flex h-full w-full max-w-sm flex-col border-l border-white/[0.08] bg-ink-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <SlidersHorizontal className="h-4 w-4 text-solar-400" />
+                  Quick Plant Parameters
+                </div>
+                <div className="mt-0.5 text-[11px] text-slate-500">Changes trigger a full PR & loss recalculation</div>
+              </div>
+              <button className="btn-ghost" onClick={() => setSpecsOpen(false)} aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 space-y-4 overflow-y-auto p-5">
+              <div className="rounded-xl border border-solar-400/20 bg-solar-500/[0.06] p-4">
+                <div className="eyebrow text-solar-400/80">Calculated DC Capacity</div>
+                <div className="num mt-1 text-2xl font-bold text-solar-400">
+                  {dcCapacityKwp.toFixed(1)} <span className="text-sm text-slate-500">kWp</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Modules / String</label>
+                  <input type="number" value={modulesPerString} onChange={(e) => setModulesPerString(Number(e.target.value))} className="input" />
+                </div>
+                <div>
+                  <label className="label">Module Rating (Wp)</label>
+                  <input type="number" value={moduleWp} onChange={(e) => setModuleWp(Number(e.target.value))} className="input" />
+                </div>
+                <div>
+                  <label className="label">Target PR (%)</label>
+                  <input type="number" step="0.5" value={targetPrPct} onChange={(e) => setTargetPrPct(Number(e.target.value))} className="input" />
+                </div>
+                <div>
+                  <label className="label">Tariff (THB/kWh)</label>
+                  <input type="number" step="0.1" value={tariffThb} onChange={(e) => setTariffThb(Number(e.target.value))} className="input" />
+                </div>
+              </div>
+              <div>
+                <div className="mb-1 flex justify-between text-[11px]">
+                  <span className="text-slate-400">Underperformance Alert Threshold</span>
+                  <span className="num font-semibold text-solar-400">{underperfThresh}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={5}
+                  max={25}
+                  step={1}
+                  value={underperfThresh}
+                  onChange={(e) => setUnderperfThresh(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+            <div className="border-t border-white/[0.06] p-5">
+              <button onClick={handleApplySidebarSpecs} disabled={savingConfig} className="btn-primary w-full py-2.5">
+                <Save className="h-4 w-4" />
+                {savingConfig ? "Recalculating…" : "Apply & Recalculate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Role / Account Switcher Modal */}
+      {authModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="panel w-full max-w-md space-y-5 bg-ink-900 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-white">Operator Sign-In</h3>
+                <p className="text-[11px] text-slate-500">JWT authentication & role switching</p>
+              </div>
+              <button onClick={() => setAuthModalOpen(false)} className="btn-ghost" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="callout space-y-2">
+              <div className="eyebrow">Quick demo roles</div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: "Admin Engineer", email: "admin@tcroofsolar.com", pw: "admin123", cls: "btn-primary" },
+                  { label: "O&M Engineer", email: "engineer@tcroofsolar.com", pw: "engineer123", cls: "btn-accent" },
+                  { label: "Viewer (Read-Only)", email: "viewer@tcroofsolar.com", pw: "viewer123", cls: "btn" },
+                ].map((r) => (
+                  <button
+                    key={r.email}
+                    type="button"
+                    onClick={() => {
+                      setLoginEmail(r.email);
+                      setLoginPassword(r.pw);
+                    }}
+                    className={`${r.cls} btn-sm`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <form onSubmit={handleLoginSubmit} className="space-y-3">
+              <div>
+                <label className="label">Email</label>
+                <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="input" required />
+              </div>
+              <div>
+                <label className="label">Password</label>
+                <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="input" required />
+              </div>
+              {loginError && <p className="text-xs text-red-400">{loginError}</p>}
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setAuthModalOpen(false)} className="btn">
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary">
+                  Sign In
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Global Slide-Over Drawers & Command Palette */}
+      <StringInspectorDrawer />
+      <AlarmCenterDrawer open={alarmsOpen} onClose={() => setAlarmsOpen(false)} />
+      <CommandPaletteModal
+        open={cmdOpen}
+        onClose={() => setCmdOpen(false)}
+        onOpenSpecs={() => setSpecsOpen(true)}
+        onOpenAlarms={() => setAlarmsOpen(true)}
+        onOpenAuth={() => setAuthModalOpen(true)}
+      />
+    </div>
+  );
+};

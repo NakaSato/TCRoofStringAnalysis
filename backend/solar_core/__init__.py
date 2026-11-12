@@ -1,0 +1,1 @@
+"""Solar String Analysis package."""

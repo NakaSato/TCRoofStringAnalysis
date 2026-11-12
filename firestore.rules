@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Only the backend writes, through the Admin SDK (service account), which bypasses these
+// rules. Browsers get no direct access until reads are opened deliberately (phase 4).
+// Realtime Growatt data is never stored here: only daily summaries and the static registry.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
