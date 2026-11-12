@@ -29,6 +29,8 @@ REPO="tcroof"
 SERVICE="tcroof-api"
 API_SA="tcroof-api"
 BUDGET_USD="${BUDGET_USD:-10}"
+# Budgets must be in the billing account's currency (override with BUDGET_AMOUNT, e.g. 500 or 500THB).
+budget_amount_for() { case "$1" in USD) echo "$BUDGET_USD" ;; THB) echo 500 ;; EUR) echo 10 ;; *) echo "" ;; esac; }
 DISK_GB="${DISK_GB:-100}"              # pd-standard; must hold HISTORY_RETENTION_DAYS of readings
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
 REGISTRY="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
@@ -47,7 +49,9 @@ secret_put() {  # name value  (adds a version only when the value changed)
     printf '%s' "$2" | g secrets create "$1" --replication-policy=user-managed --locations="$REGION" --data-file=- >/dev/null
   fi
 }
-env_value() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | sed -e 's/[[:space:]]*#.*$//' -e 's/^"//' -e 's/"$//'; }
+env_value() {  # missing key -> empty string (grep's exit 1 must not trip set -e/pipefail)
+  { grep -E "^$1=" .env 2>/dev/null || true; } | tail -1 | cut -d= -f2- | sed -e 's/[[:space:]]*#.*$//' -e 's/^"//' -e 's/"$//'
+}
 db_ip() { g compute addresses describe "$DB_IP_NAME" --region "$REGION" --format='value(address)'; }
 
 # One Growatt account per project phase. Secret tcroof-growatt-token-phaseN <-> env GROWATT_TOKEN_PHASEN.
@@ -66,13 +70,18 @@ cmd_setup() {
 
   log "Enabling APIs"
   g services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com \
-    compute.googleapis.com secretmanager.googleapis.com billingbudgets.googleapis.com
+    compute.googleapis.com secretmanager.googleapis.com billingbudgets.googleapis.com cloudbilling.googleapis.com
 
-  log "Budget alert at \$${BUDGET_USD}/month (emails billing admins at 50/90/100%)"
-  local ba; ba="$(g billing projects describe "$PROJECT" --format='value(billingAccountName)' | sed 's#billingAccounts/##')"
-  if ! gcloud billing budgets list --billing-account="$ba" --format='value(displayName)' | grep -qx "tcroof-${BUDGET_USD}usd"; then
-    gcloud billing budgets create --billing-account="$ba" --display-name="tcroof-${BUDGET_USD}usd" \
-      --budget-amount="${BUDGET_USD}USD" --filter-projects="projects/$PROJECT" \
+  local ba cur amount
+  ba="$(g billing projects describe "$PROJECT" --format='value(billingAccountName)' | sed 's#billingAccounts/##')"
+  cur="$(gcloud billing accounts describe "$ba" --format='value(currencyCode)')"
+  amount="${BUDGET_AMOUNT:-$(budget_amount_for "$cur")}"; amount="${amount%"$cur"}"  # accept 500 or 500THB
+  [ -n "$amount" ] || { echo "Billing account currency is $cur: set BUDGET_AMOUNT (~\$${BUDGET_USD} in $cur)"; exit 1; }
+  log "Budget alert at ${amount} ${cur}/month (emails billing admins at 50/90/100%)"
+  # The Budgets API needs a quota project when called with user credentials.
+  if ! gcloud billing budgets list --billing-project="$PROJECT" --billing-account="$ba" --format='value(displayName)' | grep -qx "tcroof-${BUDGET_USD}usd"; then
+    gcloud billing budgets create --billing-project="$PROJECT" --billing-account="$ba" --display-name="tcroof-${BUDGET_USD}usd" \
+      --budget-amount="${amount}${cur}" --filter-projects="projects/$PROJECT" \
       --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
       --threshold-rule=percent=1.0,basis=forecasted-spend
   fi
