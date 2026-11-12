@@ -61,7 +61,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - `fleet` lists every account and tags each plant with `growatt_plants.phase`.
   - `history` / `backfill` sync each phase's inverters with that phase's token. Live calls look up the plant's phase in the DB, and `/growatt/live/plants` merges every account.
   - `phase IS NULL` means not yet tagged; those plants use the first configured account. The worker re-runs `fleet` every 6 h while any plant is untagged.
-  - Jobs run the accounts one by one. A failing account makes the run `partial`, and the run fails only when every account fails. `detail.phases` holds each phase's result.
+  - Jobs run the accounts in parallel, one thread and one DB session each (`_per_phase`; `WORKER_PARALLEL_ACCOUNTS=false` runs them one by one). A failing account makes the run `partial`, and the run fails only when every account fails. `detail.phases` holds each phase's result.
 - **Don't invent values.** If a measurement is missing, return `None` / `null`, not a typical-looking default. The same goes for things with no data source at all (grid import, load, irradiance): leave them out instead of modelling them as if measured. Label modelled values as modelled: the clear-sky `expected_kw`, the I-V curves, and the peer-relative `pr_pct`, which is *not* IEC PR because there's no irradiance data.
 - **Record interval is mixed** (mostly 5 min, some inverters every 1–4 min). Integrate energy with `_integrate_kwh`, never `sum × 5 min`. To build a plant curve, average each inverter within its 5-min slot first, then sum across inverters.
 - **Daily yield = `eac_today` from the day's last record.** The counter keeps yesterday's total for a few minutes after midnight, so `MAX()` is wrong.

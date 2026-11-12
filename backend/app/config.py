@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     publish_daily_write_budget: int = 15000  # stop before the Spark plan's 20k writes/day
     publish_sink: str = "json"  # json (data/firestore_export) | firestore
     worker_history_interval_min: int = 30
+    # Sync the Growatt accounts (one per phase) in parallel threads. Growatt rate-limits per
+    # token, so this cuts a fleet pass ~3x; set false if Growatt starts limiting per IP.
+    worker_parallel_accounts: bool = True
     # Raw 1–5 min Growatt readings older than this are deleted daily (`retention` job). Daily
     # summaries in Firestore are kept. ~0.35–0.5 MB per inverter-day: 629 inverters x 90 days ≈ 30–45 GB.
     history_retention_days: int = 90

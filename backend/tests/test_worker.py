@@ -215,6 +215,17 @@ def test_stale_queued_run_is_failed_not_run(factory, fake_jobs):
         assert "abandoned" in db.get(SyncRun, rid2).error
 
 
+def test_worker_startup_fails_runs_left_running_but_keeps_queued(factory, fake_jobs):
+    t0 = datetime(2026, 11, 12, 3, 0, tzinfo=timezone.utc)
+    with factory() as db:
+        running = jobs.claim(db, "history", "schedule", now=t0)
+        queued = jobs.enqueue(db, "fleet", now=t0)
+        assert jobs.fail_abandoned(db, now=t0 + timedelta(minutes=5)) == [running]
+        assert db.get(SyncRun, running).status == "failed" and "abandoned" in db.get(SyncRun, running).error
+        assert db.get(SyncRun, queued).status == "queued"
+        jobs.claim(db, "history", "schedule", now=t0 + timedelta(minutes=5))  # no longer blocked
+
+
 # --------------------------------------------------------------------------- incremental paging
 
 

@@ -152,6 +152,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
     log.info("worker started; publish sink=%s", settings.publish_sink)
+    with SessionLocal() as db:
+        if abandoned := jobs.fail_abandoned(db):
+            log.warning("marked runs %s abandoned (left running by the previous worker)", abandoned)
     while not stop:
         tick(SessionLocal, schedule, datetime.now(jobs.PLANT_TZ))
         for _ in range(TICK_S):

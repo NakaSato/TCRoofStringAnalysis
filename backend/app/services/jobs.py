@@ -11,6 +11,8 @@ its CPU after the response and the instance can scale to zero mid-job.
 from __future__ import annotations
 
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, overload
@@ -65,23 +67,42 @@ def _per_phase(
     """Run `fn(db, client, phase, include_untagged)` for every account; one failing account
     does not stop the others. Plants without a phase yet go with the first account.
 
+    Each account gets its own session and, with `worker_parallel_accounts`, its own thread:
+    the accounts touch disjoint plants/inverters and Growatt rate-limits per token.
+
     Detail: totals summed over phases plus `phases: {phase: detail | {"error": ...}}`.
     """
     clients = _clients()
     first = min(clients)
+    new_session = sessionmaker(bind=db.get_bind(), autoflush=False, expire_on_commit=False)
+
+    def run(phase: int, client: GrowattClient) -> Dict[str, Any]:
+        t0 = time.monotonic()
+        with new_session() as s:
+            try:
+                d = fn(s, client, phase, phase == first)
+            except Exception as exc:  # keep going with the other accounts
+                s.rollback()
+                log.exception("phase %s failed", phase)
+                return {"error": f"{type(exc).__name__}: {exc}"}
+        log.info("phase %s done in %.0f s", phase, time.monotonic() - t0)
+        return d
+
+    if settings.worker_parallel_accounts and len(clients) > 1:
+        with ThreadPoolExecutor(max_workers=len(clients), thread_name_prefix="growatt") as pool:
+            futures = {phase: pool.submit(run, phase, client) for phase, client in clients.items()}
+            results = {phase: f.result() for phase, f in futures.items()}
+    else:
+        results = {phase: run(phase, client) for phase, client in clients.items()}
+
     per: Dict[str, Any] = {}
     totals: Dict[str, Any] = {}
     errors = 0
-    for phase, client in clients.items():
-        try:
-            d = fn(db, client, phase, phase == first)
-        except Exception as exc:  # keep going with the other accounts
-            db.rollback()
-            errors += 1
-            per[str(phase)] = {"error": f"{type(exc).__name__}: {exc}"}
-            log.exception("phase %s failed", phase)
-            continue
+    for phase, d in results.items():
         per[str(phase)] = d
+        if "error" in d:
+            errors += 1
+            continue
         for k, v in d.items():
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 totals[k] = totals.get(k, 0) + v
@@ -181,6 +202,17 @@ def _fail_stale(run: SyncRun, now: datetime) -> None:
         "abandoned (worker stopped mid-run)" if run.status == "running" else "never picked up (is the worker running?)"
     )
     run.status, run.finished_at = "failed", now
+
+
+def fail_abandoned(db: Session, now: Optional[datetime] = None) -> List[int]:
+    """Worker startup: runs still `running` were left by a previous worker (there is only one),
+    so fail them now instead of blocking their job until STALE_AFTER. Queued runs are kept."""
+    now = _utc(now)
+    runs = list(db.scalars(select(SyncRun).where(SyncRun.status == "running")))
+    for run in runs:
+        _fail_stale(run, now)
+    db.commit()
+    return [r.id for r in runs]
 
 
 def _utc(now: Optional[datetime]) -> datetime:

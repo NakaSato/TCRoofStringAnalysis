@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta
 
 import pytest
@@ -92,6 +93,47 @@ def test_history_uses_each_plants_own_token_and_untagged_goes_to_first(factory, 
     hist = {k: [c[1] for c in a.calls if c[0] == "history"] for k, a in accounts.items()}
     assert hist == {1: ["A1", "U1"], 2: ["B1"], 4: []}
     assert status == "ok" and detail["inverters"] == 3
+
+
+def _seed_one_inverter_per_account(factory):
+    with factory() as db:
+        db.add_all([GrowattPlant(plant_id=10, name="a", phase=1), GrowattPlant(plant_id=20, name="b", phase=2),
+                    GrowattPlant(plant_id=40, name="d", phase=4)])
+        db.flush()
+        db.add_all([GrowattInverter(device_sn=sn, plant_id=pid) for sn, pid in (("A1", 10), ("B1", 20), ("D1", 40))])
+        db.commit()
+
+
+def test_accounts_sync_in_parallel(factory, accounts, monkeypatch):
+    """Every account must be inside max_history at once: a barrier only opens when all 3 arrive."""
+    monkeypatch.setattr(jobs.settings, "worker_parallel_accounts", True)
+    _seed_one_inverter_per_account(factory)
+    barrier = threading.Barrier(len(accounts), timeout=5)
+    for a in accounts.values():
+        a.max_history = lambda sn, a_, b_, stop_before=None: (barrier.wait(), [])[1]
+    with factory() as db:
+        status, detail = jobs.job_history(db)
+    assert status == "ok", detail
+    assert detail["inverters"] == 3 and set(detail["phases"]) == {"1", "2", "4"}
+    with factory() as db:  # each thread's session committed its own inverters
+        assert db.query(GrowattInverter).count() == 3
+
+
+def test_accounts_run_one_by_one_when_parallel_is_off(factory, accounts, monkeypatch):
+    monkeypatch.setattr(jobs.settings, "worker_parallel_accounts", False)
+    _seed_one_inverter_per_account(factory)
+    order, active = [], []
+    for phase, a in accounts.items():
+        def hist(sn, a_, b_, stop_before=None, phase=phase):
+            active.append(phase)
+            assert len(active) == 1, "accounts overlapped"
+            order.append(phase)
+            active.remove(phase)
+            return []
+        a.max_history = hist
+    with factory() as db:
+        status, _ = jobs.job_history(db)
+    assert status == "ok" and order == [1, 2, 4]
 
 
 def test_one_failing_account_makes_job_partial_not_failed(factory, accounts):
