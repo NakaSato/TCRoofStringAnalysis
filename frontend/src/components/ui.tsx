@@ -107,10 +107,12 @@ export const KpiTile: React.FC<{
   hintTone?: Tone;
   icon?: LucideIcon;
   tone?: Tone;
+  /** coloured hairline along the top edge (default on) */
+  accentBar?: boolean;
   className?: string;
-}> = ({ label, value, unit, hint, hintTone = "neutral", icon: Icon, tone = "neutral", className = "" }) => (
+}> = ({ label, value, unit, hint, hintTone = "neutral", icon: Icon, tone = "neutral", accentBar = true, className = "" }) => (
   <div className={`panel overflow-hidden p-4 ${className}`}>
-    <div className={`absolute inset-x-0 top-0 h-px ${TONE_BAR[tone]}`} />
+    {accentBar && <div className={`absolute inset-x-0 top-0 h-px ${TONE_BAR[tone]}`} />}
     <div className="flex items-start justify-between gap-2">
       <div className="eyebrow">{label}</div>
       {Icon && (

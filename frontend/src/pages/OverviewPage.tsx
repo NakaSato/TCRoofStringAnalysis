@@ -300,7 +300,9 @@ export const OverviewPage: React.FC = () => {
                   value={fmt(pvPowerKw, 1)}
                   unit="kW"
                   hint={
-                    capacity > 0 && pvPowerKw != null
+                    plant?.reported_peak_power_kwp != null && kpis?.capacity_kwp == null
+                      ? `Capacity unknown: Growatt lists ${fmt(plant.reported_peak_power_kwp, 0)} kWp, impossible for its inverters`
+                      : capacity > 0 && pvPowerKw != null
                       ? `${((pvPowerKw / capacity) * 100).toFixed(0)}% of ${fmt(capacity, 1)} kWp`
                       : `${fmt(kpis?.capacity_kwp, 1)} kWp installed`
                   }

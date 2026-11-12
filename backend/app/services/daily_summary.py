@@ -45,7 +45,7 @@ from app.config import DATA_DIR, settings
 from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PublishedDoc, PublishWriteCount
 from app.services import google_weather
 from app.services.fleet_settings import config_docs
-from app.services.growatt_overview import build_plant_overview
+from app.services.growatt_overview import build_plant_overview, plant_rated_ac_w, plausible_capacity_kwp
 
 log = logging.getLogger("daily_summary")
 
@@ -244,6 +244,7 @@ def build_registry_docs(db: Session) -> List[Doc]:
     inv_by_plant: Dict[int, List[str]] = defaultdict(list)
     for _path, doc in docs:
         inv_by_plant[doc["plant_id"]].append(doc["device_sn"])
+    rated_ac = plant_rated_ac_w(db)
     for p in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)):
         docs.append(
             (
@@ -257,7 +258,7 @@ def build_registry_docs(db: Session) -> List[Doc]:
                     "country": p.country,
                     "latitude": p.latitude,
                     "longitude": p.longitude,
-                    "capacity_kwp": _round2(p.peak_power_kwp),
+                    "capacity_kwp": _round2(plausible_capacity_kwp(p.peak_power_kwp, rated_ac.get(p.plant_id))),
                     "create_date": p.create_date,
                     "inverters": inv_by_plant.get(p.plant_id, []),
                 },

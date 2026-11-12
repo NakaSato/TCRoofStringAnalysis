@@ -46,11 +46,12 @@ export interface UnifiedPlantItem {
   phase: number | null;
   name: string;
   location: string;
-  capacityKwp: number;
+  /** null when Growatt has no plausible capacity for the plant */
+  capacityKwp: number | null;
   currentPowerKw: number | null; // realtime (live overlay); null when live is unavailable
   yieldTodayKwh: number;
   totalEnergyKwh: number | null;
-  specificEnergyKwhPerKwp: number;
+  specificEnergyKwhPerKwp: number | null;
   prPct: number | null;
   statusLabel: "Normal" | "Faulty" | "Disconnected" | "Loading…";
   statusLevel: StatusLevel;
@@ -281,7 +282,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
       const isUnknown = gp.status == null;
       const isNormal = gp.status === 1;
       const isDisconnected = gp.status === 0 || gp.status === 4;
-      const capKwp = Number(gp.peak_power_kwp || 0);
+      const capKwp = gp.peak_power_kwp ?? null;
       const totalKwh = gp.total_energy_kwh ?? null;
       const curKw = gp.current_power_w == null ? null : gp.current_power_w / 1000;
       // Measured energy of the latest synced day only — no estimate when it is missing.
@@ -299,7 +300,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
         currentPowerKw: curKw,
         yieldTodayKwh: estTodayKwh,
         totalEnergyKwh: totalKwh,
-        specificEnergyKwhPerKwp: capKwp > 0 ? estTodayKwh / capKwp : 0,
+        specificEnergyKwhPerKwp: capKwp ? estTodayKwh / capKwp : null,
         prPct: null,
         statusLabel: isUnknown ? LOADING_STATUS : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
         statusLevel: isUnknown ? "neutral" : isNormal ? "ok" : isDisconnected ? "info" : "crit",
@@ -326,7 +327,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
     const currentPowerKw = sumKnown(unifiedPlants.map((p) => p.currentPowerKw));
     const yieldTodayKwh = unifiedPlants.reduce((a, p) => a + p.yieldTodayKwh, 0);
     const totalYieldKwh = sumKnown(unifiedPlants.map((p) => p.totalEnergyKwh));
-    const ratedPowerKwp = unifiedPlants.reduce((a, p) => a + p.capacityKwp, 0);
+    const ratedPowerKwp = unifiedPlants.reduce((a, p) => a + (p.capacityKwp ?? 0), 0);
     const tariff = activePlant?.tariff_thb_per_kwh ?? analysisRun?.tariff_thb_per_kwh ?? 4.2;
     const revenueTodayThb = yieldTodayKwh * tariff;
 
@@ -390,8 +391,10 @@ export const FleetPlantDirectoryPanel: React.FC<{
     });
 
     return [...list].sort((a, b) => {
-      const av = a[sortField] ?? "";
-      const bv = b[sortField] ?? "";
+      // missing values sort last in either direction
+      if (a[sortField] == null || b[sortField] == null) return (a[sortField] == null ? 1 : 0) - (b[sortField] == null ? 1 : 0);
+      const av = a[sortField];
+      const bv = b[sortField];
       if (typeof av === "number" && typeof bv === "number") {
         return sortAsc ? av - bv : bv - av;
       }
@@ -1117,7 +1120,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 pagedPlants.map((p) => {
                   const isSelected = p.id === selectedGrowattPlantId;
                   const loadPct =
-                    p.capacityKwp > 0 && p.currentPowerKw != null
+                    p.capacityKwp && p.currentPowerKw != null
                       ? Math.min(100, (p.currentPowerKw / p.capacityKwp) * 100)
                       : 0;
 

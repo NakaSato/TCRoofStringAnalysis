@@ -32,6 +32,44 @@ R = GrowattInverterReading
 S = GrowattStringReading
 
 
+# --------------------------------------------------------------------------- plant capacity
+
+# A plant's DC capacity is never this many times its inverters' rated AC power (real plants
+# run about 1.0-1.5). Above it, Growatt's `peak_power` is wrong at the source (e.g. typed in
+# W instead of kW in the portal), so it is treated as unknown rather than corrected by guess.
+MAX_DC_AC_RATIO = 3.0
+
+
+def plant_rated_ac_w(db: Session, plant_ids: Optional[Sequence[int]] = None) -> Dict[int, float]:
+    """Summed rated AC power (W) per plant, only for plants where every inverter has one."""
+    q = select(
+        GrowattInverter.plant_id,
+        func.sum(GrowattInverter.nominal_power_w),
+        func.count(GrowattInverter.nominal_power_w),
+        func.count(),
+    ).group_by(GrowattInverter.plant_id)
+    if plant_ids is not None:
+        q = q.where(GrowattInverter.plant_id.in_(list(plant_ids)))
+    return {int(pid): float(w) for pid, w, known, n in db.execute(q) if w and known == n}
+
+
+def plausible_capacity_kwp(peak_kwp: Optional[float], rated_ac_w: Optional[float]) -> Optional[float]:
+    """Growatt's plant peak power, or None when missing or impossible for its inverters
+    (more than `MAX_DC_AC_RATIO` x their rated AC power). Unknown rating: kept as reported."""
+    if not peak_kwp or peak_kwp <= 0:
+        return None
+    if rated_ac_w and peak_kwp > MAX_DC_AC_RATIO * rated_ac_w / 1000.0:
+        return None
+    return float(peak_kwp)
+
+
+def capacity_check(db: Session, plant: GrowattPlant) -> Tuple[Optional[float], Optional[float]]:
+    """(capacity used, Growatt's value when it was rejected as implausible, else None)."""
+    cap = plausible_capacity_kwp(plant.peak_power_kwp, plant_rated_ac_w(db, [plant.plant_id]).get(plant.plant_id))
+    rejected = plant.peak_power_kwp if cap is None and plant.peak_power_kwp else None
+    return cap, rejected
+
+
 # --------------------------------------------------------------------------- helpers
 
 
@@ -187,6 +225,7 @@ def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> Li
         q = q.where(GrowattPlant.plant_id.in_(plant_ids))
     db_plants = list(db.scalars(q))
 
+    rated_ac = plant_rated_ac_w(db)
     inv_counts: Dict[int, int] = {
         int(pid): int(cnt)
         for pid, cnt in db.execute(
@@ -239,7 +278,13 @@ def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> Li
             "country": p.country,
             "latitude": p.latitude,
             "longitude": p.longitude,
-            "peak_power_kwp": p.peak_power_kwp,
+            "peak_power_kwp": plausible_capacity_kwp(p.peak_power_kwp, rated_ac.get(p.plant_id)),
+            # Growatt's peak power when rejected as impossible for the plant's inverters
+            "reported_peak_power_kwp": (
+                p.peak_power_kwp
+                if p.peak_power_kwp and plausible_capacity_kwp(p.peak_power_kwp, rated_ac.get(p.plant_id)) is None
+                else None
+            ),
             "current_power_w": None,  # realtime: /growatt/live/plants
             "today_energy_kwh": _round(day_energy.get(p.plant_id), 2),
             "energy_date": energy_date.isoformat() if energy_date and p.plant_id in day_energy else None,
@@ -590,7 +635,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         )
     )
     sns = [inv.device_sn for inv in inverters]
-    cap_kwp = plant.peak_power_kwp or None
+    cap_kwp, rejected_kwp = capacity_check(db, plant)
     inv_cap_kwp = cap_kwp / len(sns) if cap_kwp and sns else None
 
     data_until = _latest_reading(db, sns)
@@ -859,6 +904,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "latitude": plant.latitude,
             "longitude": plant.longitude,
             "peak_power_kwp": cap_kwp,
+            "reported_peak_power_kwp": rejected_kwp,
             "current_power_w": None,  # realtime: the UI overlays /growatt/live/*
             "total_energy_kwh": total_yield_kwh,
             "status": None,  # realtime: the UI overlays /growatt/live/plants
@@ -1104,10 +1150,11 @@ def build_inverter_timeseries(
         if seen and all((device_sn, n) in layout and layout[(device_sn, n)][1] for n in seen):
             w = sum(layout[(device_sn, n)][0] * (layout[(device_sn, n)][1] or 0.0) for n in seen)
             cap_kwp, cap_basis = round(w / 1000.0, 2), "string_layout"
-    if cap_kwp is None and plant.peak_power_kwp:
+    plant_cap_kwp = capacity_check(db, plant)[0] if cap_kwp is None else None
+    if plant_cap_kwp:
         n_inv = db.scalar(select(func.count()).select_from(GrowattInverter).where(GrowattInverter.plant_id == plant_id))
         if n_inv:
-            cap_kwp, cap_basis = round(plant.peak_power_kwp / n_inv, 2), "plant_share"
+            cap_kwp, cap_basis = round(plant_cap_kwp / n_inv, 2), "plant_share"
 
     timeseries: List[Dict[str, Any]] = []
     strings_heat: Dict[str, Any] = {"string_nos": [], "timestamps": [], "current_a": []}

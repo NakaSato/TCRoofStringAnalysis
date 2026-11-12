@@ -227,7 +227,7 @@ export const SelectedPlantBanner: React.FC = () => {
             )}
             {filteredPlants.map((gp) => (
               <option key={gp.plant_id} value={gp.plant_id}>
-                {gp.name} ({fmt(Number(gp.peak_power_kwp || 0), 1)} kWp)
+                {gp.name} ({fmt(gp.peak_power_kwp, 1)} kWp)
               </option>
             ))}
           </select>

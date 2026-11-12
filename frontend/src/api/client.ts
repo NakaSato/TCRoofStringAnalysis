@@ -176,7 +176,10 @@ export interface GrowattPlant {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** null when missing, or when Growatt's value is impossible for the plant's inverters */
   peak_power_kwp: number | null;
+  /** Growatt's peak power when rejected (> 3x the inverters' rated AC power, e.g. typed in W) */
+  reported_peak_power_kwp?: number | null;
   current_power_w: number | null;
   today_energy_kwh?: number | null;
   total_energy_kwh: number | null;
