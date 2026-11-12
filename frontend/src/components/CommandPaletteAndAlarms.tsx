@@ -20,6 +20,7 @@ import {
   CheckCheck,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
+import { canAccessPath, isAdmin } from "../auth/access";
 import { api, downloadApiFile } from "../api/client";
 import { StatusBadge, Led, statusLevel, fmt } from "./ui";
 
@@ -34,6 +35,8 @@ interface CommandItem {
   badge?: string;
   icon: React.ElementType;
   onSelect: () => void;
+  /** route it opens (navigation items): hidden when the user's role cannot open it */
+  path?: string;
 }
 
 export const CommandPaletteModal: React.FC<{
@@ -43,7 +46,7 @@ export const CommandPaletteModal: React.FC<{
   onOpenAlarms: () => void;
   onOpenAuth: () => void;
 }> = ({ open, onClose, onOpenSpecs, onOpenAlarms, onOpenAuth }) => {
-  const { analysisRun, setInspectedStringId } = useAppContext();
+  const { analysisRun, setInspectedStringId, user } = useAppContext();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -62,6 +65,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "Live plant status, PR ring gauge, Digital Twin & string matrix",
         icon: LayoutDashboard,
         onSelect: go("/"),
+        path: "/",
       },
       {
         id: "nav-generation",
@@ -70,6 +74,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "Daily/monthly yield, IEC 61724 PR & energy loss waterfall",
         icon: TrendingUp,
         onSelect: go("/generation"),
+        path: "/generation",
       },
       {
         id: "nav-strings",
@@ -78,6 +83,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "Peer deviation heatmap, timeseries & single-diode I-V envelope",
         icon: Activity,
         onSelect: go("/strings"),
+        path: "/strings",
       },
       {
         id: "nav-maintenance",
@@ -86,6 +92,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "PM optimization schedule, CM work orders & 5-Why / Fishbone RCA",
         icon: Wrench,
         onSelect: go("/maintenance"),
+        path: "/maintenance",
       },
       {
         id: "nav-quality",
@@ -94,6 +101,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "Subcontractor QA/QC, IEC 62446-1 commissioning & IEEE 519 PQ",
         icon: ClipboardCheck,
         onSelect: go("/quality"),
+        path: "/quality",
       },
       {
         id: "nav-she",
@@ -102,6 +110,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "Permit-to-work, LOTO isolation & ISO 45001 compliance",
         icon: ShieldAlert,
         onSelect: go("/she"),
+        path: "/she",
       },
       {
         id: "nav-reports",
@@ -110,6 +119,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "Export PDF, 11-sheet Excel workbook, HTML & CSV",
         icon: FileSpreadsheet,
         onSelect: go("/reports"),
+        path: "/reports",
       },
       {
         id: "nav-settings",
@@ -118,6 +128,7 @@ export const CommandPaletteModal: React.FC<{
         subtitle: "Plant coordinates, loss factors & per-string STC nameplate specs",
         icon: Settings,
         onSelect: go("/settings"),
+        path: "/settings",
       },
     ];
 
@@ -148,7 +159,7 @@ export const CommandPaletteModal: React.FC<{
     }));
 
     const actionItems: CommandItem[] = [
-      {
+      ...(isAdmin(user) ? [{
         id: "act-specs",
         category: "Quick Actions",
         title: "Open Quick Plant Parameters Drawer",
@@ -158,7 +169,7 @@ export const CommandPaletteModal: React.FC<{
           onClose();
           onOpenSpecs();
         },
-      },
+      } as CommandItem] : []),
       {
         id: "act-alarms",
         category: "Quick Actions",
@@ -173,8 +184,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "act-auth",
         category: "Quick Actions",
-        title: "Switch Operator Role (JWT)",
-        subtitle: "Toggle between Admin Engineer, O&M Engineer, and Viewer",
+        title: "Switch User",
+        subtitle: "Sign in as another admin or engineer account",
         icon: Settings,
         onSelect: () => {
           onClose();
@@ -199,8 +210,9 @@ export const CommandPaletteModal: React.FC<{
       });
     }
 
-    return [...stringItems, ...navItems, ...alarmItems, ...actionItems];
-  }, [analysisRun, navigate, onClose, onOpenAlarms, onOpenAuth, onOpenSpecs, setInspectedStringId]);
+    const allowedNav = navItems.filter((n) => !n.path || canAccessPath(user, n.path));
+    return [...stringItems, ...allowedNav, ...alarmItems, ...actionItems];
+  }, [analysisRun, navigate, onClose, onOpenAlarms, onOpenAuth, onOpenSpecs, setInspectedStringId, user]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

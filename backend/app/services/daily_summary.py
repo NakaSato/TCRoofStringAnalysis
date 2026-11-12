@@ -6,7 +6,9 @@ history are never written (raw history stays in SQL). Layout::
     daily/{YYYY-MM-DD}                     fleet summary: every plant embedded (1 read per day view)
     daily/{YYYY-MM-DD}/plants/{plantId}    plant KPIs, hourly curve, top anomalies
     daily/{YYYY-MM-DD}/inverters/{sn}      inverter KPIs + per-string map
-    plants/{plantId}, inverters/{sn}       registry (static fields only)
+    plants/{plantId}, inverters/{sn}       registry (static fields only; inverters carry the
+                                           as-built string layout once one is entered)
+    config/fleet_module                    global settings (PV module used across the fleet)
 
 About 43 + 215 + 1 ≈ 260 writes per day. Documents whose content is unchanged since the last
 publish are skipped (`published_docs`), so re-running costs nothing. Writes are counted per
@@ -40,7 +42,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import DATA_DIR, settings
-from app.db.models import GrowattInverter, GrowattPlant, PublishedDoc, PublishWriteCount
+from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PublishedDoc, PublishWriteCount
+from app.services.fleet_settings import config_docs
 from app.services.growatt_overview import build_plant_overview
 
 log = logging.getLogger("daily_summary")
@@ -186,25 +189,47 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
     return docs
 
 
+def build_inverter_docs(db: Session, plant_id: Optional[int] = None) -> List[Doc]:
+    """`inverters/{sn}` registry docs (all, or one plant's).
+
+    `strings` is the as-built layout: [{string_no, modules, module_wp}], `module_wp` null = the
+    fleet module (`config/fleet_module`). The key is left out while an inverter has no layout,
+    so adding the field rewrote only inverters that have one.
+    """
+    q = select(GrowattInverter).order_by(GrowattInverter.device_sn)
+    if plant_id is not None:
+        q = q.where(GrowattInverter.plant_id == plant_id)
+    invs = list(db.scalars(q))
+    layout: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    if invs:
+        for r in db.scalars(
+            select(GrowattStringLayout)
+            .where(GrowattStringLayout.device_sn.in_([i.device_sn for i in invs]))
+            .order_by(GrowattStringLayout.device_sn, GrowattStringLayout.string_no)
+        ):
+            layout[r.device_sn].append({"string_no": r.string_no, "modules": r.modules, "module_wp": r.module_wp})
+    docs: List[Doc] = []
+    for inv in invs:
+        doc: Dict[str, Any] = {
+            "schema": SCHEMA_VERSION,
+            "device_sn": inv.device_sn,
+            "plant_id": inv.plant_id,
+            "model": inv.model,
+            "datalogger_sn": inv.datalogger_sn,
+            "device_types": inv.device_types.split(",") if inv.device_types else [],
+        }
+        if layout.get(inv.device_sn):
+            doc["strings"] = layout[inv.device_sn]
+        docs.append((f"inverters/{inv.device_sn}", doc))
+    return docs
+
+
 def build_registry_docs(db: Session) -> List[Doc]:
     """Static plant / inverter fields only — status and power are realtime and stay out."""
-    docs: List[Doc] = []
+    docs: List[Doc] = build_inverter_docs(db)
     inv_by_plant: Dict[int, List[str]] = defaultdict(list)
-    for inv in db.scalars(select(GrowattInverter).order_by(GrowattInverter.device_sn)):
-        inv_by_plant[inv.plant_id].append(inv.device_sn)
-        docs.append(
-            (
-                f"inverters/{inv.device_sn}",
-                {
-                    "schema": SCHEMA_VERSION,
-                    "device_sn": inv.device_sn,
-                    "plant_id": inv.plant_id,
-                    "model": inv.model,
-                    "datalogger_sn": inv.datalogger_sn,
-                    "device_types": inv.device_types.split(",") if inv.device_types else [],
-                },
-            )
-        )
+    for _path, doc in docs:
+        inv_by_plant[doc["plant_id"]].append(doc["device_sn"])
     for p in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)):
         docs.append(
             (
@@ -224,7 +249,19 @@ def build_registry_docs(db: Session) -> List[Doc]:
                 },
             )
         )
+    docs.extend((path, {"schema": SCHEMA_VERSION, **doc}) for path, doc in config_docs(db))
     return docs
+
+
+def publish_plant_inverters(db: Session, plant_id: int, sink: Optional["DocSink"] = None) -> "PublishReport":
+    """Publish one plant's `inverters/{sn}` docs (only changed ones are written), e.g. after a layout edit."""
+    return publish(db, sink or make_sink(settings.publish_sink), build_inverter_docs(db, plant_id), settings.publish_daily_write_budget)
+
+
+def publish_config(db: Session, sink: Optional["DocSink"] = None) -> "PublishReport":
+    """Publish only the `config/*` documents (1 write when changed), e.g. right after an edit."""
+    docs = [(path, {"schema": SCHEMA_VERSION, **doc}) for path, doc in config_docs(db)]
+    return publish(db, sink or make_sink(settings.publish_sink), docs, settings.publish_daily_write_budget)
 
 
 # --------------------------------------------------------------------------- sinks
@@ -386,7 +423,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--day", type=date.fromisoformat, action="append", help="Plant-local day (repeatable)")
     ap.add_argument("--sink", choices=["json", "firestore"], default="json")
     ap.add_argument("--out", type=pathlib.Path, help="JSON sink output dir (default data/firestore_export)")
-    ap.add_argument("--no-registry", action="store_true", help="Skip plants/ and inverters/ registry docs")
+    ap.add_argument("--no-registry", action="store_true", help="Skip plants/, inverters/ and config/ registry docs")
     ap.add_argument("--dry-run", action="store_true", help="Build and size documents, write nothing")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

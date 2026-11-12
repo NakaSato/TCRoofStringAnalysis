@@ -500,7 +500,7 @@ export const StringAnalysisPage: React.FC = () => {
         subtitle="Click any string row to load its I-V / P-V curves in the analyzer above, or click 'Inspect Drawer' for slide-over details"
         bodyClassName="p-0"
       >
-        <div className="overflow-x-auto">
+        <div className="scroll-x-hint overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>

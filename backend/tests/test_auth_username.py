@@ -53,7 +53,7 @@ def test_login_with_username_case_insensitive(client):
 
 def test_email_still_works_in_either_field(client):
     assert _login(client, email="engineer@tcroofsolar.com", password="engineer123").status_code == 200
-    assert _login(client, username="viewer@tcroofsolar.com", password="viewer123").status_code == 200
+    assert _login(client, username="admin@tcroofsolar.com", password="admin123").status_code == 200
 
 
 def test_bad_credentials_and_disabled_users_get_the_same_401(client, factory):
@@ -63,9 +63,9 @@ def test_bad_credentials_and_disabled_users_get_the_same_401(client, factory):
     assert wrong.json()["detail"] == unknown.json()["detail"] == "Invalid username or password"
 
     with factory() as db:
-        db.scalar(select(User).where(User.username == "viewer")).is_active = False
+        db.scalar(select(User).where(User.username == "engineer")).is_active = False
         db.commit()
-    assert _login(client, username="viewer", password="viewer123").status_code == 401
+    assert _login(client, username="engineer", password="engineer123").status_code == 401
 
 
 def test_missing_username_is_rejected(client):

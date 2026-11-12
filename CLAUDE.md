@@ -18,7 +18,7 @@ cd frontend && bun run lint && bun run build                        # type check
 docker compose up --build                                           # Postgres + backend + growatt-worker + frontend
 ```
 
-Seeded logins (username / password): `admin` / `admin123`, `engineer` / `engineer123`, `viewer` / `viewer123`. Login takes a username; an email is still accepted. There is no auto-login: the UI shows a login page until a user signs in.
+Seeded logins (username / password): `admin` / `admin123`, `engineer` / `engineer123`. Two roles: **admin** can do everything; **engineer** sees and works on only the Growatt plants an admin assigned (UI: Users & Access). Login takes a username; an email is still accepted. There is no auto-login: the UI shows a login page until a user signs in.
 
 ## How data flows (Growatt)
 
@@ -32,7 +32,7 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
 Rules for every layer:
 
 1. **Never store realtime values.** Live data stays in backend memory; SQL gets only Growatt-timestamped history.
-2. **Firestore holds only daily summaries and the static registry.** The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 250 writes, capped at `PUBLISH_DAILY_WRITE_BUDGET`.
+2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 250 writes, capped at `PUBLISH_DAILY_WRITE_BUDGET`.
 3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load, irradiance), and label modelled values as modelled.
 4. **The Growatt tokens stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
 

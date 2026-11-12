@@ -320,7 +320,7 @@ export const GenerationPrPage: React.FC = () => {
         subtitle={`${inverters.length} Growatt MAX inverters monitored at this plant`}
         bodyClassName="p-0"
       >
-        <div className="overflow-x-auto">
+        <div className="scroll-x-hint overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>

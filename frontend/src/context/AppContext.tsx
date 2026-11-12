@@ -123,7 +123,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Sort by capacity descending so top plants appear first by default
         const sorted = [...list].sort((a, b) => (b.peak_power_kwp || 0) - (a.peak_power_kwp || 0));
         setGrowattDbPlants(sorted);
-        setSelectedGrowattPlantId((prev) => prev ?? (sorted[0]?.plant_id ?? null));
+        // keep the selection only if this user still sees that plant (assignments, user switch)
+        setSelectedGrowattPlantId((prev) =>
+          prev != null && sorted.some((p) => p.plant_id === prev) ? prev : sorted[0]?.plant_id ?? null
+        );
       } catch {
         // ignore
       }
@@ -228,6 +231,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLoading(true);
     setError(null);
     try {
+      // The legacy plant / analysis modules are admin only: engineers load just their Growatt plants.
+      if (user?.role !== "admin") {
+        await refreshGrowattPlants(false);
+        setPlants([]);
+        setBasePlant(null);
+        setDatasets([]);
+        setActiveDataset(null);
+        setBaseAnalysisRun(null);
+        return;
+      }
       const [plantList] = await Promise.all([api.listPlants(), refreshGrowattPlants(false)]);
       setPlants(plantList);
       const chosen = plantList.find((p) => p.id === plantId) || plantList[0] || null;
@@ -254,7 +267,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } finally {
       setLoading(false);
     }
-  }, [refreshGrowattPlants]);
+  }, [refreshGrowattPlants, user?.role]);
 
   useEffect(() => {
     ensureAuthenticated();

@@ -13,7 +13,13 @@ export const DigitalTwinPanel: React.FC = () => {
 
   const strings = analysisRun?.string_summary_json || [];
   const kpis = analysisRun?.plant_kpis_json || {};
-  const modulesPerString = activePlant?.modules_per_string || 18;
+  // Module count per string (strings can differ); unknown strings draw no modules.
+  const modulesByString = useMemo(
+    () => new Map((activePlant?.string_specs ?? []).map((sp) => [sp.string_id, sp.modules_per_string])),
+    [activePlant]
+  );
+  const modulesOf = (s: Record<string, any>): number =>
+    modulesByString.get(String(s.string_id)) ?? activePlant?.modules_per_string ?? 0;
 
   const inverters = useMemo(() => {
     const map = new Map<
@@ -64,7 +70,7 @@ export const DigitalTwinPanel: React.FC = () => {
     }
     if (lvl === "warn") {
       // Highlight partial shading on last 5 modules or bypassed diode on middle sub-string
-      if (diag.includes("shad") && modIdx >= modulesPerString - 5) {
+      if (diag.includes("shad") && modIdx >= modulesOf(s) - 5) {
         return "bg-amber-400/85 border-amber-200";
       }
       if (diag.includes("diode") && modIdx >= 6 && modIdx < 12) {
@@ -231,14 +237,14 @@ export const DigitalTwinPanel: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* 18 Physical PV Modules on Rack */}
+                          {/* Physical PV modules on the rack (this string's own count) */}
                           <div
                             className="grid gap-1 pt-0.5"
                             style={{
-                              gridTemplateColumns: `repeat(${Math.min(modulesPerString, 24)}, minmax(0, 1fr))`,
+                              gridTemplateColumns: `repeat(${Math.min(modulesOf(s), 24)}, minmax(0, 1fr))`,
                             }}
                           >
-                            {Array.from({ length: Math.min(modulesPerString, 24) }).map((_, mIdx) => (
+                            {Array.from({ length: Math.min(modulesOf(s), 24) }).map((_, mIdx) => (
                               <div
                                 key={mIdx}
                                 className={`h-5 rounded-[2px] border transition ${getModuleStyle(s, mIdx)}`}
@@ -259,7 +265,7 @@ export const DigitalTwinPanel: React.FC = () => {
         /* ================================================================== */
         /* TAB 2: INTERACTIVE ELECTRICAL SINGLE-LINE DIAGRAM (SLD)            */
         /* ================================================================== */
-        <div className="overflow-x-auto">
+        <div className="scroll-x-hint overflow-x-auto">
           <div className="grid-backdrop min-w-[920px] rounded-xl border border-white/[0.08] bg-ink-950/90 p-5">
             <div className="grid grid-cols-12 items-center gap-4">
               {/* COLUMN 1: PV Strings + DC Fuses (col-span-5) */}

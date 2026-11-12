@@ -156,7 +156,7 @@ export const GrowattFleetPage: React.FC = () => {
                 </div>
               }
             >
-              <div className="max-h-[640px] overflow-auto">
+              <div className="scroll-x-hint max-h-[640px] overflow-auto">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -218,7 +218,7 @@ export const GrowattFleetPage: React.FC = () => {
               {selected && invLoading && !inverters && <div className="p-4"><LoadingState label="Fetching inverters…" /></div>}
               {selected && invError && <EmptyState icon={AlertTriangle} title="Could not load inverters" description={invError} />}
               {selected && inverters && (
-                <div className="max-h-[640px] overflow-auto">
+                <div className="scroll-x-hint max-h-[640px] overflow-auto">
                   <table className="data-table">
                     <thead>
                       <tr>

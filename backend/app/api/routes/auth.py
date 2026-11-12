@@ -10,6 +10,7 @@ from app.auth import create_access_token, get_current_user, verify_password
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.api_schemas import LoginRequest, TokenResponse, UserOut
+from app.services.users import user_out
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -28,10 +29,10 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
             detail="Invalid username or password",
         )
     token = create_access_token(user)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    return TokenResponse(access_token=token, user=UserOut(**user_out(db, user)))
 
 
 @router.get("/me", response_model=UserOut)
-def get_me(current_user: User = Depends(get_current_user)) -> UserOut:
-    """Return the currently authenticated user's profile and role."""
-    return UserOut.model_validate(current_user)
+def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserOut:
+    """Return the signed-in user's profile, role and assigned plants (null = all, for admins)."""
+    return UserOut(**user_out(db, current_user))

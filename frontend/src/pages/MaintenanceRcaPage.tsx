@@ -164,7 +164,7 @@ export const MaintenanceRcaPage: React.FC = () => {
           subtitle={`Real-time string mismatch & underperformance alarms on ${selectedPlantOverview?.plant.name || ""}`}
           bodyClassName="p-0"
         >
-          <div className="max-h-72 overflow-y-auto">
+          <div className="scroll-x-hint max-h-72 overflow-auto">
             <table className="data-table">
               <thead>
                 <tr>

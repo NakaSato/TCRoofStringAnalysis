@@ -6,15 +6,16 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import secrets
-from typing import Optional
+from typing import Optional, Set
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.models import User
+from app.db.models import User, UserPlantAssignment
 from app.db.session import get_db
 
 security_scheme = HTTPBearer(auto_error=False)
@@ -115,4 +116,45 @@ def require_write_access(user: User = Depends(get_current_user)) -> User:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions: 'admin' or 'engineer' role required for write operations.",
         )
+    return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Require an admin: fleet-wide settings, jobs, user management and the legacy O&M modules."""
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required.")
+    return user
+
+
+def allowed_plant_ids(db: Session, user: User) -> Optional[Set[int]]:
+    """Growatt plants the user may see: None = every plant (admin), else the assigned set."""
+    if user.role == "admin":
+        return None
+    return set(db.scalars(select(UserPlantAssignment.plant_id).where(UserPlantAssignment.user_id == user.id)))
+
+
+def ensure_plant_access(db: Session, user: User, plant_id: int) -> None:
+    """404 (not 403) for a plant outside the user's assignments, so plant ids are not revealed."""
+    allowed = allowed_plant_ids(db, user)
+    if allowed is not None and plant_id not in allowed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Plant {plant_id} not found")
+
+
+def require_plant_read(
+    plant_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Route dependency for `/…/plants/{plant_id}/…` reads: admin, or the plant is assigned."""
+    ensure_plant_access(db, user, plant_id)
+    return user
+
+
+def require_plant_write(
+    plant_id: int,
+    user: User = Depends(require_write_access),
+    db: Session = Depends(get_db),
+) -> User:
+    """Route dependency for plant writes: admin, or an engineer the plant is assigned to."""
+    ensure_plant_access(db, user, plant_id)
     return user

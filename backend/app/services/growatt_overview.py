@@ -10,15 +10,17 @@ from __future__ import annotations
 import math
 import statistics
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
+from app.services.fleet_settings import get_fleet_module
 from app.db.models import (
     GrowattInverter,
     GrowattInverterReading,
     GrowattPlant,
+    GrowattStringLayout,
     GrowattStringReading,
 )
 
@@ -155,14 +157,19 @@ def _synthesize_iv_pv_curve(
 
 
 
-def list_plants_summary(db: Session) -> List[Dict[str, Any]]:
+def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> List[Dict[str, Any]]:
     """Plant registry from the DB, with inverter counts and energy from stored history.
 
     `total_energy_kwh` is the sum of each inverter's newest stored `eac_total`.
     `current_power_w` and `status` are realtime and always null here; the UI fills them from
-    `/growatt/live/plants`.
+    `/growatt/live/plants`. `plant_ids` limits the list (an engineer's assignments); None = all.
     """
-    db_plants = list(db.scalars(select(GrowattPlant).order_by(GrowattPlant.phase.is_(None), GrowattPlant.phase, GrowattPlant.plant_id)))
+    q = select(GrowattPlant).order_by(GrowattPlant.phase.is_(None), GrowattPlant.phase, GrowattPlant.plant_id)
+    if plant_ids is not None:
+        if not plant_ids:
+            return []
+        q = q.where(GrowattPlant.plant_id.in_(plant_ids))
+    db_plants = list(db.scalars(q))
 
     inv_counts: Dict[int, int] = {
         int(pid): int(cnt)
@@ -237,10 +244,108 @@ def list_inverters(db: Session, plant_id: int) -> List[Dict[str, Any]]:
     return [inverter_out(inv) for inv in invs]
 
 
+# --------------------------------------------------------------------------- string layout
+
+# (device_sn, string_no) -> (modules, module_wp or None)
+Layout = Dict[Tuple[str, int], Tuple[int, Optional[float]]]
+
+LAYOUT_SEEN_LOOKBACK = timedelta(days=7)
+
+
+def load_layout(db: Session, sns: Sequence[str], fleet_wp: bool = True) -> Layout:
+    """Registry rows for `sns`. A string without its own `module_wp` gets the fleet module's
+    rating (global setting) unless `fleet_wp` is False (raw rows, for the editor)."""
+    if not sns:
+        return {}
+    default_wp = get_fleet_module(db).get("wp") if fleet_wp else None
+    return {
+        (r.device_sn, int(r.string_no)): (int(r.modules), r.module_wp if r.module_wp is not None else default_wp)
+        for r in db.scalars(select(GrowattStringLayout).where(GrowattStringLayout.device_sn.in_(list(sns))))
+    }
+
+
+def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
+    """Module count per string input of a plant: registry rows plus inputs seen in the last week.
+
+    `modules` is null where nobody has entered it yet; nothing is guessed.
+    """
+    plant = _get_plant(db, plant_id)
+    invs = list(
+        db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id).order_by(GrowattInverter.device_sn))
+    )
+    sns = [inv.device_sn for inv in invs]
+    layout = load_layout(db, sns, fleet_wp=False)
+    seen: Dict[Tuple[str, int], int] = {}
+    latest = db.scalar(select(func.max(S.timestamp)).where(S.device_sn.in_(sns))) if sns else None
+    if latest is not None:
+        for sn, sno, mppt in db.execute(
+            select(S.device_sn, S.string_no, func.max(S.mppt_no))
+            .where(S.device_sn.in_(sns), S.timestamp >= latest - LAYOUT_SEEN_LOOKBACK, S.current_a > INACTIVE_MAX_A)
+            .group_by(S.device_sn, S.string_no)
+        ):
+            seen[(sn, int(sno))] = int(mppt)
+    out = []
+    for inv in invs:
+        nos = sorted({n for s, n in seen if s == inv.device_sn} | {n for s, n in layout if s == inv.device_sn})
+        out.append(
+            {
+                "device_sn": inv.device_sn,
+                "model": inv.model or "",
+                "strings": [
+                    {
+                        "string_no": n,
+                        "mppt_no": seen.get((inv.device_sn, n), (n + 1) // 2),
+                        "modules": layout[(inv.device_sn, n)][0] if (inv.device_sn, n) in layout else None,
+                        "module_wp": layout[(inv.device_sn, n)][1] if (inv.device_sn, n) in layout else None,
+                        "active": (inv.device_sn, n) in seen,
+                    }
+                    for n in nos
+                ],
+            }
+        )
+    return {
+        "plant_id": plant.plant_id,
+        "plant_name": plant.name,
+        # used for strings whose module_wp is null
+        "fleet_module_wp": get_fleet_module(db).get("wp"),
+        "inverters": out,
+    }
+
+
+def put_string_layout(db: Session, plant_id: int, entries: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    """Replace the plant's module-count registry with `entries` (strings left out are cleared)."""
+    _get_plant(db, plant_id)
+    sns = set(db.scalars(select(GrowattInverter.device_sn).where(GrowattInverter.plant_id == plant_id)))
+    rows: Dict[Tuple[str, int], GrowattStringLayout] = {}
+    for e in entries:
+        sn = str(e["device_sn"])
+        if sn not in sns:
+            raise ValueError(f"Inverter {sn} does not belong to plant {plant_id}")
+        key = (sn, int(e["string_no"]))
+        if key in rows:
+            raise ValueError(f"Duplicate entry for {sn} string {key[1]}")
+        rows[key] = GrowattStringLayout(
+            device_sn=sn, string_no=key[1], modules=int(e["modules"]), module_wp=e.get("module_wp")
+        )
+    if sns:
+        db.execute(delete(GrowattStringLayout).where(GrowattStringLayout.device_sn.in_(sns)))
+    db.add_all(rows.values())
+    db.commit()
+    return get_string_layout(db, plant_id)
+
+
 def _classify_strings(
-    string_aggs: List[Dict[str, Any]], inv_cap_kwp: Optional[float]
+    string_aggs: List[Dict[str, Any]], inv_cap_kwp: Optional[float], layout: Optional[Layout] = None
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, int], Dict[str, List[float]]]:
-    """Peer-relative string diagnostics per inverter (same-inverter median as reference)."""
+    """Peer-relative string diagnostics per inverter (same-inverter median as reference).
+
+    Strings of one inverter can have different module counts. When every string of the
+    inverter has a count in `layout`, energy is compared per module (per kWp when every
+    module rating is known too) and voltage per module, so a 16-module string is not flagged
+    against 18-module peers. Otherwise the raw values are compared (`peer_basis = "raw"`).
+    Current needs no scaling: modules in a string are in series.
+    """
+    layout = layout or {}
     by_inv: Dict[str, List[Dict[str, Any]]] = {}
     for x in string_aggs:
         by_inv.setdefault(x["device_sn"], []).append(x)
@@ -252,21 +357,47 @@ def _classify_strings(
 
     for sn, s_list in by_inv.items():
         inv_string_counts[sn] = len(s_list)
-        active_energies = [x["energy_kwh"] for x in s_list if x["energy_kwh"] > 0.5]
+        spec = {x["string_no"]: layout.get((sn, x["string_no"])) for x in s_list}
+        per_module = all(v is not None for v in spec.values())
+        per_kwp = per_module and all(v[1] for v in spec.values() if v is not None)
+        peer_basis = "per_kwp" if per_kwp else "per_module" if per_module else "raw"
+
+        def size(x: Dict[str, Any]) -> float:
+            """Relative DC size used to scale energy (1 when not normalizing)."""
+            v = spec[x["string_no"]]
+            if v is None or not per_module:
+                return 1.0
+            return v[0] * (v[1] or 1.0) if per_kwp else float(v[0])
+
+        def n_mod(x: Dict[str, Any]) -> float:
+            v = spec[x["string_no"]]
+            return float(v[0]) if per_module and v is not None else 1.0
+
+        active_energies = [x["energy_kwh"] / size(x) for x in s_list if x["energy_kwh"] > 0.5]
         active_currents = [x["i_avg"] for x in s_list if x["i_avg"] > 0.2]
-        active_voltages = [x["v_avg"] for x in s_list if x["v_avg"] > 50.0]
+        active_voltages = [x["v_avg"] / n_mod(x) for x in s_list if x["v_avg"] > 50.0]
 
         med_energy = statistics.median(active_energies) if active_energies else None
         med_current = statistics.median(active_currents) if active_currents else None
         med_voltage = statistics.median(active_voltages) if active_voltages else None
-        str_cap_kwp = round(inv_cap_kwp / len(s_list), 2) if inv_cap_kwp else None
+        total_modules = sum(v[0] for v in spec.values() if v is not None) if per_module else 0
 
         for x in s_list:
             sno = x["string_no"]
             sid = f"{sn} · STR-{sno:02d}"
-            e_ratio = x["energy_kwh"] / med_energy if med_energy else None
+            own = spec[sno]
+            if own is not None and own[1]:
+                str_cap_kwp: Optional[float] = round(own[0] * own[1] / 1000.0, 2)
+            elif per_module and own is not None and inv_cap_kwp and total_modules:
+                str_cap_kwp = round(inv_cap_kwp * own[0] / total_modules, 2)
+            else:
+                str_cap_kwp = round(inv_cap_kwp / len(s_list), 2) if inv_cap_kwp else None
+            expected = med_energy * size(x) if med_energy is not None else None
+            e_ratio = x["energy_kwh"] / expected if expected else None
             i_dev_pct = (x["i_avg"] - med_current) / med_current * 100.0 if med_current else None
-            v_dev_pct = (x["v_avg"] - med_voltage) / med_voltage * 100.0 if med_voltage else None
+            v_norm = x["v_avg"] / n_mod(x)
+            v_basis = " per module" if per_module else ""
+            v_dev_pct = (v_norm - med_voltage) / med_voltage * 100.0 if med_voltage else None
             i_dev, v_dev = i_dev_pct or 0.0, v_dev_pct or 0.0
 
             # Peer-relative performance index (88.5 % nominal for top peers) — not IEC 61724 PR,
@@ -283,13 +414,13 @@ def _classify_strings(
                 if x["i_max"] < 0.3:
                     diagnosis = "Zero/Near-Zero String Current (Open Circuit / Fuse / Disconnected String)"
                 elif v_dev < -8.0:
-                    diagnosis = f"Severe Voltage Drop ({v_dev:+.1f}% vs peer) — Possible Bypass Diode / Module Fault"
+                    diagnosis = f"Severe Voltage Drop ({v_dev:+.1f}% vs peer{v_basis}) — Possible Bypass Diode / Module Fault"
                 else:
                     diagnosis = f"Severe String Underperformance ({i_dev:+.1f}% current vs peer median)"
             elif (pr_pct is not None and pr_pct < 81.0) or i_dev < -12.0 or v_dev < -5.0:
                 status = "Warning"
                 if v_dev < -5.0:
-                    diagnosis = f"Voltage Mismatch ({v_dev:+.1f}% vs MPPT peer) — Partial Shading or Diode Bypass"
+                    diagnosis = f"Voltage Mismatch ({v_dev:+.1f}% vs MPPT peer{v_basis}) — Partial Shading or Diode Bypass"
                 else:
                     diagnosis = f"Current Mismatch ({i_dev:+.1f}% vs peer) — Soiling or Localized Shading"
             else:
@@ -298,7 +429,7 @@ def _classify_strings(
 
             if pr_pct is not None:
                 inv_pr_list.setdefault(sn, []).append(pr_pct)
-            loss = round(max(0.0, med_energy - x["energy_kwh"]), 2) if med_energy is not None else None
+            loss = round(max(0.0, expected - x["energy_kwh"]), 2) if expected is not None else None
 
             strings_summary.append(
                 {
@@ -310,8 +441,11 @@ def _classify_strings(
                     "mppt_id": f"MPPT-{x['mppt_no']}",
                     "mppt_no": x["mppt_no"],
                     "capacity_kwp": str_cap_kwp,
+                    "modules": own[0] if own is not None else None,
+                    "module_wp": own[1] if own is not None else None,
+                    "peer_basis": peer_basis,
                     "actual_energy_kwh": x["energy_kwh"],
-                    "expected_energy_kwh": _round(med_energy, 2),
+                    "expected_energy_kwh": _round(expected, 2),
                     "energy_loss_kwh": loss,
                     "pr_pct": _round(pr_pct, 1),
                     "v_avg": x["v_avg"],
@@ -590,7 +724,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         string_aggs.extend(dead)
         string_aggs.sort(key=lambda x: (x["device_sn"], x["string_no"]))
 
-    strings_summary, anomalies, inv_string_counts, inv_pr_list = _classify_strings(string_aggs, inv_cap_kwp)
+    layout = load_layout(db, sns)
+    strings_summary, anomalies, inv_string_counts, inv_pr_list = _classify_strings(string_aggs, inv_cap_kwp, layout)
 
     # 3. Inverter list
     inverters_out: List[Dict[str, Any]] = []
@@ -697,6 +832,9 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "warning_strings": warning_cnt,
             "critical_strings": critical_cnt,
             "inactive_strings": len(inactive_strings),
+            # strings whose module count is in the registry / compared per module with peers
+            "strings_with_module_count": sum(1 for s in strings_summary if s["modules"] is not None),
+            "strings_normalized": sum(1 for s in strings_summary if s["peer_basis"] != "raw"),
             "avg_health_score": avg_health,
             "tariff_thb_per_kwh": 4.2,
         },
@@ -737,14 +875,32 @@ def build_string_detail(
     if not rows:
         raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no} on {day}")
 
-    # Peer (other strings, same inverter) mean per 5-minute slot
-    peer_acc: Dict[datetime, List[Tuple[float, float, float]]] = {}
-    for ts, v, i, p in db.execute(
-        select(S.timestamp, S.voltage_v, S.current_a, S.power_w).where(
+    # Peer (other strings, same inverter) mean per 5-minute slot. With every module count known,
+    # peer voltage / power are scaled to this string's size (current is not: series string).
+    peer_rows = db.execute(
+        select(S.timestamp, S.string_no, S.voltage_v, S.current_a, S.power_w).where(
             *in_day, S.string_no != string_no, S.current_a > 0.1
         )
-    ):
-        peer_acc.setdefault(_bucket(ts), []).append((v, i, p))
+    ).all()
+    layout = load_layout(db, [device_sn])
+    own = layout.get((device_sn, string_no))
+    peer_nos = {int(r[1]) for r in peer_rows}
+    per_module = own is not None and all((device_sn, n) in layout for n in peer_nos)
+    per_kwp = per_module and own is not None and bool(own[1]) and all(layout[(device_sn, n)][1] for n in peer_nos)
+    peer_basis = "per_kwp" if per_kwp else "per_module" if per_module else "raw"
+
+    def _scale(n: int) -> Tuple[float, float]:
+        """(voltage factor, power factor) mapping peer string `n` onto this string."""
+        if not per_module or own is None:
+            return 1.0, 1.0
+        m, wp = layout[(device_sn, n)]
+        v_f = own[0] / m
+        return v_f, (own[0] * (own[1] or 1.0)) / (m * (wp or 1.0)) if per_kwp else v_f
+
+    peer_acc: Dict[datetime, List[Tuple[float, float, float]]] = {}
+    for ts, n, v, i, p in peer_rows:
+        v_f, p_f = _scale(int(n))
+        peer_acc.setdefault(_bucket(ts), []).append((v * v_f, i, p * p_f))
     peer_map: Dict[datetime, Tuple[float, float, float]] = {
         ts: tuple(statistics.mean(col) for col in zip(*vals)) for ts, vals in peer_acc.items()  # type: ignore[misc]
     }
@@ -816,6 +972,10 @@ def build_string_detail(
         "string_no": string_no,
         "mppt_no": mppt_no,
         "string_id": f"{device_sn} · STR-{string_no:02d}",
+        "modules": own[0] if own is not None else None,
+        "module_wp": own[1] if own is not None else None,
+        # "raw": peers compared as measured; otherwise scaled to this string's module count / kWp
+        "peer_basis": peer_basis,
         "summary": {
             "v_avg": _round(_mean(voltages), 1),
             "v_max": round(v_max, 1),

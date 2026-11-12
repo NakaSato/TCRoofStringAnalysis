@@ -23,11 +23,13 @@ import {
   RefreshCw,
   AlertTriangle,
   Search,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
+import { canAccessPath, isAdmin } from "../auth/access";
 import { api } from "../api/client";
-import { Led, LoadingState } from "./ui";
+import { Led, LoadingState, fmt } from "./ui";
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
 
@@ -35,14 +37,14 @@ interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  description: string;
+  description?: string;
 }
 
 const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Monitoring",
     items: [
-      { to: "/", label: "Plant Overview", icon: LayoutDashboard, description: "Live plant status, alarms & string matrix" },
+      { to: "/", label: "Plant Overview", icon: LayoutDashboard },
       { to: "/generation", label: "Generation & PR", icon: TrendingUp, description: "Daily / monthly yield, PR & loss waterfall" },
       { to: "/strings", label: "String Diagnostics", icon: Activity, description: "String performance, heatmap & I-V / P-V curves" },
       { to: "/growatt", label: "Growatt Fleet", icon: Radio, description: "Live Growatt OpenAPI plants & inverter status" },
@@ -64,7 +66,10 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   },
   {
     title: "System",
-    items: [{ to: "/settings", label: "Plant Configuration", icon: Settings, description: "Plant parameters & string specifications" }],
+    items: [
+      { to: "/settings", label: "Plant Configuration", icon: Settings, description: "Plant parameters & string specifications" },
+      { to: "/users", label: "Users & Access", icon: Users, description: "Accounts, roles & plant assignments" },
+    ],
   },
 ];
 
@@ -137,9 +142,29 @@ export const Layout: React.FC = () => {
   );
   const plantLevel = criticalStrings > 0 ? "crit" : warningStrings > 0 ? "warn" : "ok";
   const plantStateLabel = criticalStrings > 0 ? "Fault Detected" : warningStrings > 0 ? "Degraded" : "Normal Operation";
-  const dcCapacityKwp =
+  // Strings can have different module counts / ratings. The plant-level values are defaults:
+  // a string still on the saved default follows the drawer's value, others keep their own.
+  const stringSpecs = activePlant?.string_specs ?? [];
+  const specCapacityKwp = (mods: number, wp: number): number | null =>
+    stringSpecs.length && activePlant
+      ? stringSpecs.reduce(
+          (sum, s) =>
+            sum +
+            (s.modules_per_string === activePlant.modules_per_string ? mods : s.modules_per_string) *
+              (s.module_wp === activePlant.module_wp ? wp : s.module_wp),
+          0
+        ) / 1000
+      : null;
+  const dcCapacityKwp: number | null =
     Number(kpis.total_capacity_kwp) ||
-    (activePlant ? (modulesPerString * moduleWp * (activeDataset?.string_count || 8)) / 1000 : 0);
+    (activePlant ? specCapacityKwp(activePlant.modules_per_string, activePlant.module_wp) : null);
+  const draftCapacityKwp = specCapacityKwp(modulesPerString, moduleWp);
+  const moduleCounts = stringSpecs.map((s) => s.modules_per_string);
+  const customStrings = activePlant
+    ? stringSpecs.filter(
+        (s) => s.modules_per_string !== activePlant.modules_per_string || s.module_wp !== activePlant.module_wp
+      ).length
+    : 0;
   const sidebarStringCount = kpis.num_strings ?? activeDataset?.string_count ?? "—";
 
   const handleApplySidebarSpecs = async () => {
@@ -214,7 +239,7 @@ export const Layout: React.FC = () => {
         <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-2.5 text-[11px]">
           <div>
             <div className="text-slate-500">DC Capacity</div>
-            <div className="num font-semibold text-solar-400">{dcCapacityKwp.toFixed(1)} kWp</div>
+            <div className="num font-semibold text-solar-400">{fmt(dcCapacityKwp, 1)} kWp</div>
           </div>
           <div>
             <div className="text-slate-500">Strings</div>
@@ -225,7 +250,9 @@ export const Layout: React.FC = () => {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-4">
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter((i) => canAccessPath(user, i.to)) }))
+          .filter((group) => group.items.length > 0)
+          .map((group) => (
           <div key={group.title}>
             <div className="eyebrow px-3 pb-1.5">{group.title}</div>
             <div className="space-y-0.5">
@@ -310,24 +337,26 @@ export const Layout: React.FC = () => {
             </button>
 
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-[11px] text-slate-500">
-                <span className="hidden sm:inline">
+              <div className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] text-slate-500">
+                <span className="hidden min-w-0 truncate sm:inline">
                   {activePlant && activePlant.name !== "TC Roof Solar PV Plant" ? activePlant.name : "Solar Fleet"}
                 </span>
                 <span className="hidden sm:inline text-slate-700">/</span>
-                <span className="font-semibold text-slate-200">{current?.label || "Monitoring"}</span>
+                <span className="shrink-0 font-semibold text-slate-200">{current?.label || "Monitoring"}</span>
               </div>
-              <div className="hidden truncate text-[11px] text-slate-500 md:block">{current?.description}</div>
+              {current?.description && (
+                <div className="hidden truncate text-[11px] text-slate-500 md:block">{current.description}</div>
+              )}
             </div>
 
             {/* Link status */}
-            <div className="hidden items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-1 text-[11px] font-semibold text-emerald-300 md:flex">
+            <div className="hidden shrink-0 items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-1 text-[11px] font-semibold text-emerald-300 lg:flex">
               <Radio className="h-3.5 w-3.5" />
               {loading ? "SYNCING" : error ? "LINK ERROR" : "DATA LINK ONLINE"}
             </div>
 
             {/* Clock */}
-            <div className="hidden items-center gap-1.5 rounded-full border border-white/[0.07] bg-ink-900/80 px-3 py-1 text-[11px] text-slate-300 sm:flex">
+            <div className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-ink-900/80 px-3 py-1 text-[11px] text-slate-300 sm:flex">
               <Clock className="h-3.5 w-3.5 text-slate-500" />
               <span className="num">
                 {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok" })}
@@ -338,12 +367,13 @@ export const Layout: React.FC = () => {
             {/* Quick Jump / Command Palette (⌘K) */}
             <button
               onClick={() => setCmdOpen(true)}
-              className="hidden cursor-pointer items-center gap-2 rounded-full border border-white/[0.08] bg-ink-900/90 px-3 py-1 text-[11px] text-slate-400 transition hover:border-solar-400/40 hover:text-slate-200 sm:flex"
+              className="hidden shrink-0 cursor-pointer items-center gap-2 rounded-full border border-white/[0.08] bg-ink-900/90 px-2 py-1 text-[11px] text-slate-400 transition hover:border-solar-400/40 hover:text-slate-200 sm:flex lg:px-3"
               title="Command Palette (⌘K)"
+              aria-label="Quick Jump"
             >
               <Search className="h-3.5 w-3.5 text-solar-400" />
-              <span>Quick Jump…</span>
-              <kbd className="num rounded border border-white/10 bg-ink-850 px-1.5 py-px text-[10px] text-slate-400">
+              <span className="hidden lg:inline">Quick Jump…</span>
+              <kbd className="num hidden rounded border border-white/10 bg-ink-850 px-1.5 py-px text-[10px] text-slate-400 lg:inline">
                 ⌘K
               </kbd>
             </button>
@@ -352,9 +382,11 @@ export const Layout: React.FC = () => {
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>
 
-            <button className="btn-ghost" onClick={() => setSpecsOpen(true)} title="Quick plant parameters" aria-label="Quick plant parameters">
-              <SlidersHorizontal className="h-4 w-4" />
-            </button>
+            {isAdmin(user) && (
+              <button className="btn-ghost" onClick={() => setSpecsOpen(true)} title="Quick plant parameters" aria-label="Quick plant parameters">
+                <SlidersHorizontal className="h-4 w-4" />
+              </button>
+            )}
 
             <button
               onClick={() => setAlarmsOpen(true)}
@@ -384,6 +416,13 @@ export const Layout: React.FC = () => {
           </div>
         )}
 
+        {user && !isAdmin(user) && user.plant_ids?.length === 0 && (
+          <div className="mx-4 mt-4 flex items-center gap-2 sm:mx-6 callout-warn">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>No plants are assigned to your account yet. Ask an admin to assign the plants you work on.</span>
+          </div>
+        )}
+
         <main className="flex-1 px-4 py-6 sm:px-6">
           <div className="mx-auto max-w-[1600px]">
             <Suspense fallback={<LoadingState label="Loading page…" />}>
@@ -394,7 +433,7 @@ export const Layout: React.FC = () => {
       </div>
 
       {/* Quick plant parameters drawer */}
-      {specsOpen && (
+      {specsOpen && isAdmin(user) && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSpecsOpen(false)} />
           <div className="relative flex h-full w-full max-w-sm flex-col border-l border-white/[0.08] bg-ink-900 shadow-2xl">
@@ -414,16 +453,29 @@ export const Layout: React.FC = () => {
               <div className="rounded-xl border border-solar-400/20 bg-solar-500/[0.06] p-4">
                 <div className="eyebrow text-solar-400/80">Calculated DC Capacity</div>
                 <div className="num mt-1 text-2xl font-bold text-solar-400">
-                  {dcCapacityKwp.toFixed(1)} <span className="text-sm text-slate-500">kWp</span>
+                  {fmt(draftCapacityKwp, 1)} <span className="text-sm text-slate-500">kWp</span>
                 </div>
+                <div className="mt-0.5 text-[11px] text-slate-500">Sum of {stringSpecs.length} string specs</div>
               </div>
+              {customStrings > 0 && (
+                <div className="callout-warn text-[11px] leading-relaxed">
+                  Strings have different sizes ({Math.min(...moduleCounts)}–{Math.max(...moduleCounts)} modules).
+                  The values below are the plant defaults: they apply to the {stringSpecs.length - customStrings}{" "}
+                  strings on the default; the {customStrings} strings set individually keep their own values. Edit
+                  those under{" "}
+                  <NavLink to="/settings" className="font-semibold text-solar-400 underline" onClick={() => setSpecsOpen(false)}>
+                    Plant Configuration
+                  </NavLink>
+                  .
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Modules / String</label>
+                  <label className="label">{customStrings > 0 ? "Default Modules / String" : "Modules / String"}</label>
                   <input type="number" value={modulesPerString} onChange={(e) => setModulesPerString(Number(e.target.value))} className="input" />
                 </div>
                 <div>
-                  <label className="label">Module Rating (Wp)</label>
+                  <label className="label">{customStrings > 0 ? "Default Module Wp" : "Module Rating (Wp)"}</label>
                   <input type="number" value={moduleWp} onChange={(e) => setModuleWp(Number(e.target.value))} className="input" />
                 </div>
                 <div>

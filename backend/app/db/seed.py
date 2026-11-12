@@ -69,6 +69,18 @@ def _backfill_usernames(db: Session) -> None:
 # Demo accounts seeded in dev: (username, password). In prod they are never created, and any
 # that still has its demo password (e.g. a DB first started in dev) is disabled at startup.
 DEMO_ACCOUNTS = {"admin": "admin123", "engineer": "engineer123", "viewer": "viewer123"}
+# Roles: admin (everything) and engineer (only the plants an admin assigned). `viewer` is the
+# demo account of the former read-only role; it is no longer seeded but stays listed above so
+# prod still disables it while it has its demo password.
+ROLES = ("admin", "engineer")
+
+
+def _normalize_roles(db: Session) -> None:
+    """Any role other than admin/engineer (the former `viewer`) becomes engineer, with no plants
+    assigned until an admin assigns some: it keeps seeing nothing it could not see before."""
+    for user in db.scalars(select(User).where(User.role.not_in(ROLES))):
+        user.role = "engineer"
+    db.flush()
 DEFAULT_JWT_SECRET = "tc-roof-solar-super-secret-jwt-key-2026-engineering"
 
 
@@ -125,13 +137,6 @@ def _seed_users(db: Session, cfg: Settings) -> None:
                     hashed_password=hash_password("engineer123"),
                     role="engineer",
                 ),
-                User(
-                    username="viewer",
-                    email="viewer@tcroofsolar.com",
-                    full_name="Executive Management Viewer",
-                    hashed_password=hash_password("viewer123"),
-                    role="viewer",
-                ),
             ]
         )
         db.flush()
@@ -147,6 +152,7 @@ def ensure_seeded(db: Session, cfg: Settings | None = None) -> Plant:
     # 1. Users
     _backfill_usernames(db)
     _seed_users(db, cfg)
+    _normalize_roles(db)
     db.commit()
 
     # 2. Seed default plant

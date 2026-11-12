@@ -171,33 +171,35 @@ def _auth(client, email, pw):
 
 
 def test_sync_api_roles_trigger_and_status(api, factory, fake_jobs):
-    viewer = _auth(api, "viewer@tcroofsolar.com", "viewer123")
     engineer = _auth(api, "engineer@tcroofsolar.com", "engineer123")
+    admin = _auth(api, "admin@tcroofsolar.com", "admin123")
 
-    assert api.post("/api/growatt/sync/history", headers=viewer).status_code == 403
-    assert api.post("/api/growatt/sync/nope", headers=engineer).status_code == 404
+    # jobs are fleet-wide: admin only
+    assert api.post("/api/growatt/sync/history", headers=engineer).status_code == 403
+    assert api.get("/api/growatt/sync/status", headers=engineer).status_code == 403
+    assert api.post("/api/growatt/sync/nope", headers=admin).status_code == 404
 
-    r = api.post("/api/growatt/sync/history", headers=engineer)
+    r = api.post("/api/growatt/sync/history", headers=admin)
     assert r.status_code == 202, r.text
     assert r.json()["status"] == "queued"
     assert fake_jobs == []  # the API never runs jobs itself
-    assert api.post("/api/growatt/sync/history", headers=engineer).status_code == 409  # already queued
+    assert api.post("/api/growatt/sync/history", headers=admin).status_code == 409  # already queued
 
-    status = api.get("/api/growatt/sync/status", headers=viewer).json()
+    status = api.get("/api/growatt/sync/status", headers=admin).json()
     assert status["jobs"]["history"]["status"] == "queued"
 
     # the worker's next tick picks the queued run up, before (and instead of) the schedule
     now = datetime.now(BKK)
     assert tick(factory, [Schedule("history", every=timedelta(minutes=30))], now) == ["history"]
     assert fake_jobs == ["ok"]
-    status = api.get("/api/growatt/sync/status", headers=viewer).json()
+    status = api.get("/api/growatt/sync/status", headers=admin).json()
     assert status["jobs"]["history"]["status"] == "ok"
     assert status["jobs"]["history"]["trigger"] == "api"
     assert status["jobs"]["fleet"] is None
 
     with factory() as db:
         jobs.claim(db, "publish_today", "schedule")
-    assert api.post("/api/growatt/sync/publish_today", headers=engineer).status_code == 409
+    assert api.post("/api/growatt/sync/publish_today", headers=admin).status_code == 409
 
 
 def test_stale_queued_run_is_failed_not_run(factory, fake_jobs):

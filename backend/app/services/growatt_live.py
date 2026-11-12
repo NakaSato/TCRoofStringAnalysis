@@ -39,7 +39,7 @@ PLANT_TZ = ZoneInfo("Asia/Bangkok")  # max_data `time` is naive plant-local
 DEFAULT_INTERVAL_S = 300.0  # when the interval can't be measured (one record so far)
 MIN_INTERVAL_S, MAX_INTERVAL_S = 30.0, 900.0  # measured gaps outside this are outages, not the rhythm
 UPLOAD_GRACE_S = 60.0  # a record reaches the Growatt cloud a little after its timestamp
-LATE_RETRY_S = 60.0  # next record overdue: check again soon
+LATE_RETRY_S = 60.0  # next record overdue: check again soon (raised to `device_gap_s` when set)
 
 Ttl = Union[float, Callable[[Any], float]]  # fixed seconds, or computed from the fetched data
 
@@ -80,7 +80,9 @@ class GrowattLiveService:
 
     Growatt rate-limits per endpoint *and* per device / plant (error 10012 on a repeat call
     within a few minutes), so cooldowns are tracked per cache key: one refused inverter
-    never blocks the others.
+    never blocks the others. `max_data` answers each inverter about once per 4-4.5 min
+    (measured 2026-11-12; refused calls do not restart the wait), so `device_gap_s` keeps
+    successful per-inverter calls at least that far apart.
     """
 
     def __init__(
@@ -93,6 +95,7 @@ class GrowattLiveService:
         phases: Sequence[int] = (1,),
         now_local: Callable[[], datetime] = lambda: datetime.now(PLANT_TZ).replace(tzinfo=None),
         night_ttl_s: float = 0.0,
+        device_gap_s: float = 0.0,
     ):
         """`client_factory(phase)` builds the client for one account; `phases` lists the accounts."""
         self._client_factory = client_factory
@@ -107,6 +110,8 @@ class GrowattLiveService:
         self._now_local = now_local
         # Max cache life at night (0 = night mode off); always ends at dawn.
         self.night_ttl_s = night_ttl_s
+        # Min seconds between successful max_data calls for one inverter (0 = off).
+        self.device_gap_s = device_gap_s
         # key -> (monotonic_ts, wall_ts, data, ttl_s)
         self._cache: Dict[Hashable, Tuple[float, datetime, Any, float]] = {}
         self._key_locks: Dict[Hashable, threading.Lock] = {}
@@ -172,7 +177,11 @@ class GrowattLiveService:
         wait = self._until_daylight(coords)
         return max(ttl_s, min(self.night_ttl_s, wait)) if wait > 0 else ttl_s
 
-    def _get(self, key: Hashable, fn: Callable[[GrowattClient], Any], ttl: Ttl, phase: int) -> _Result:
+    def _get(
+        self, key: Hashable, fn: Callable[[GrowattClient], Any], ttl: Ttl, phase: int, gap_s: float = 0.0
+    ) -> _Result:
+        """`gap_s`: Growatt refuses this key until `gap_s` after its last success, so a refused
+        call waits at least until then."""
         hit = self._cache.get(key)
         if hit and self._clock() - hit[0] < hit[3]:
             return _Result(hit[1], hit[2], stale=False, refresh_in=self._refresh_in(key))
@@ -193,7 +202,10 @@ class GrowattLiveService:
                 except GrowattAPIError as exc:
                     # Back off this key on any error: 10012 needs it, and an offline device or
                     # network failure would otherwise be retried on every request.
-                    self._cooldown_until[key] = now + self.cooldown_s
+                    until = now + self.cooldown_s
+                    if hit:
+                        until = max(until, hit[0] + gap_s)
+                    self._cooldown_until[key] = until
                     error = str(exc)
                 else:
                     wall = datetime.now(timezone.utc)
@@ -302,7 +314,8 @@ class GrowattLiveService:
         while the others stay fresh. The envelope is `stale` only when no inverter is fresh.
         """
         ph = self.resolve_phase(phase)
-        ttl = lambda row: self._night(self._latest_ttl(row), coords)
+        # never ask before Growatt would answer: >= device_gap_s since the last success
+        ttl = lambda row: self._night(max(self.device_gap_s, self._latest_ttl(row)), coords)
         inverters: List[Dict[str, Any]] = []
         errors: Dict[str, str] = {}
         fresh_walls: List[datetime] = []
@@ -312,7 +325,7 @@ class GrowattLiveService:
         for sn in device_sns:
             key = ("latest", sn, day)
             try:
-                r = self._get(key, lambda c, sn=sn: _latest_row(c, sn, day), ttl, ph)
+                r = self._get(key, lambda c, sn=sn: _latest_row(c, sn, day), ttl, ph, gap_s=self.device_gap_s)
             except LiveUnavailable as exc:
                 errors[sn] = str(exc)
                 refresh.append(self._refresh_in(key))
@@ -387,5 +400,6 @@ def get_live_service() -> GrowattLiveService:
         ttl_s=settings.growatt_live_ttl_s,
         latest_ttl_s=settings.growatt_live_latest_ttl_s,
         night_ttl_s=settings.growatt_live_night_ttl_s,
+        device_gap_s=settings.growatt_live_device_gap_s,
         phases=tuple(accounts),
     )

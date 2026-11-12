@@ -173,6 +173,21 @@ const MultiSegmentDonut: React.FC<{
 /* -------------------------------------------------------------------------- */
 /* Mini Rooftop PV Plant Thumbnail                                            */
 /* -------------------------------------------------------------------------- */
+/** Page numbers to show: first, last and current ±1, with null marking a gap ("…"). */
+const pageWindow = (page: number, total: number): (number | null)[] => {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages = new Set([1, total, page - 1, page, page + 1]);
+  if (page <= 3) [2, 3, 4].forEach((p) => pages.add(p));
+  if (page >= total - 2) [total - 3, total - 2, total - 1].forEach((p) => pages.add(p));
+  const sorted = [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+  const out: (number | null)[] = [];
+  sorted.forEach((p, i) => {
+    if (i > 0 && p - sorted[i - 1] > 1) out.push(null);
+    out.push(p);
+  });
+  return out;
+};
+
 const PlantThumbnail: React.FC<{ statusLevel: StatusLevel; source: "local" | "growatt" }> = ({
   statusLevel,
   source,
@@ -477,9 +492,9 @@ export const FleetPlantDirectoryPanel: React.FC<{
         <div className="pointer-events-none absolute left-1/3 top-0 h-56 w-96 -translate-x-1/2 rounded-full bg-sky-400/10 blur-3xl" />
 
         {/* 3-Column Content Grid */}
-        <div className="relative grid grid-cols-1 divide-y divide-white/[0.08] lg:grid-cols-12 lg:divide-x lg:divide-y-0">
+        <div className="relative grid grid-cols-1 divide-y divide-white/[0.08] xl:grid-cols-12 xl:divide-x xl:divide-y-0">
           {/* ---------------- COLUMN 1: Plant KPIs ---------------- */}
-          <div className="p-5 lg:col-span-4 lg:p-6">
+          <div className="min-w-0 p-5 xl:col-span-4 xl:p-6">
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold tracking-tight text-white">Plant KPIs</h3>
@@ -499,14 +514,14 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </Link>
             </div>
 
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-4">
               {/* 1. Current power */}
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-sky-400/30 bg-sky-400/10 text-sky-300">
                   <Gauge className="h-4 w-4" />
                 </div>
-                <div>
-                  <div className="flex items-baseline gap-1">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-1">
                     <span className="num text-lg font-bold text-white">
                       {fmt(heroMetrics.currentPowerKw, 2)}
                     </span>
@@ -517,12 +532,12 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </div>
 
               {/* 2. Yield today */}
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/10 text-amber-300">
                   <Sun className="h-4 w-4" />
                 </div>
-                <div>
-                  <div className="flex items-baseline gap-1">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-1">
                     <span className="num text-lg font-bold text-white">
                       {fmt(heroMetrics.yieldTodayKwh, 2)}
                     </span>
@@ -533,12 +548,12 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </div>
 
               {/* 3. Revenue today */}
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
                   <Coins className="h-4 w-4" />
                 </div>
-                <div>
-                  <div className="flex items-baseline gap-1">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-1">
                     <span className="num text-lg font-bold text-white">
                       {fmt(heroMetrics.revenueTodayThb, 2)}
                     </span>
@@ -554,12 +569,12 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </div>
 
               {/* 4. Inverter rated power */}
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-sky-400/30 bg-sky-400/10 text-sky-300">
                   <Cpu className="h-4 w-4" />
                 </div>
-                <div>
-                  <div className="flex items-baseline gap-1">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-1">
                     <span className="num text-lg font-bold text-white">
                       {fmt(heroMetrics.ratedPowerKwp, 2)}
                     </span>
@@ -575,12 +590,12 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </div>
 
               {/* 5. Rated ESS capacity */}
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-400/25 bg-white/5 text-slate-300">
                   <BatteryCharging className="h-4 w-4" />
                 </div>
-                <div>
-                  <div className="flex items-baseline gap-1">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-1">
                     <span className="num text-lg font-bold text-slate-300">--</span>
                     <span className="text-[11px] text-slate-400">kWh</span>
                   </div>
@@ -589,12 +604,12 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </div>
 
               {/* 6. Total yield */}
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
                   <Zap className="h-4 w-4" />
                 </div>
-                <div>
-                  <div className="flex items-baseline gap-1">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-1">
                     <span className="num text-lg font-bold text-white">
                       {fmt(heroMetrics.totalYieldKwh, 2)}
                     </span>
@@ -612,7 +627,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
           </div>
 
           {/* ---------------- COLUMN 2: Plant Status Donut ---------------- */}
-          <div className="p-5 lg:col-span-4 lg:p-6">
+          <div className="min-w-0 p-5 xl:col-span-4 xl:p-6">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold tracking-tight text-white">Plant Status</h3>
               <button
@@ -687,7 +702,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
           </div>
 
           {/* ---------------- COLUMN 3: Active Alarms Donut ---------------- */}
-          <div className="p-5 pr-12 lg:col-span-4 lg:p-6 lg:pr-14">
+          <div className="min-w-0 p-5 pr-14 xl:col-span-4 xl:p-6 xl:pr-14">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold tracking-tight text-white">Active Alarms</h3>
               <Link
@@ -998,7 +1013,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
         </div>
 
         {/* Full-Width 12-Column Sortable Plant Directory Table */}
-        <div className="overflow-x-auto">
+        <div className="scroll-x-hint overflow-x-auto">
           <table className="w-full border-collapse text-left text-[11px]">
             <thead>
               <tr className="bg-ink-850 text-[10px] uppercase tracking-wider text-slate-400">
@@ -1299,7 +1314,12 @@ export const FleetPlantDirectoryPanel: React.FC<{
               >
                 ‹
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
+              {pageWindow(safePage, totalPages).map((pg, i) =>
+                pg === null ? (
+                  <span key={`gap-${i}`} className="px-1 text-slate-600">
+                    …
+                  </span>
+                ) : (
                 <button
                   key={pg}
                   onClick={() => setCurrentPage(pg)}
@@ -1311,7 +1331,8 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 >
                   {pg}
                 </button>
-              ))}
+                )
+              )}
               <button
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={safePage >= totalPages}

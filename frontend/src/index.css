@@ -182,6 +182,17 @@
   .table-wrap {
     @apply overflow-x-auto rounded-lg border border-white/[0.06];
   }
+  /* Horizontal scroller that shows a soft edge glow on whichever side has more
+     content (pure CSS "scroll shadows": the local-attached covers hide the
+     scroll-attached glows once that edge is reached). */
+  .scroll-x-hint,
+  .table-wrap {
+    background:
+      linear-gradient(to right, var(--color-ink-900) 30%, transparent) left center / 40px 100% no-repeat local,
+      linear-gradient(to left, var(--color-ink-900) 30%, transparent) right center / 40px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(148, 163, 184, 0.28), transparent) left center / 14px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(148, 163, 184, 0.28), transparent) right center / 14px 100% no-repeat scroll;
+  }
   .data-table {
     @apply w-full border-collapse text-left text-xs;
   }
@@ -193,6 +204,10 @@
   }
   .data-table td {
     @apply px-3 py-2.5 text-slate-300;
+  }
+  /* IDs and numbers ("MPPT-1", "PM-PV-001", "140,220.00") never break mid-value */
+  .data-table td.num {
+    @apply whitespace-nowrap;
   }
   .data-table tbody tr {
     @apply border-t border-white/[0.05] transition-colors hover:bg-white/[0.025];

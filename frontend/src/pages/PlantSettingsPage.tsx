@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Save, Settings, Sliders, Cpu, CheckCircle2 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { api, StringSpec } from "../api/client";
+import { api, FleetModuleOut, StringSpec } from "../api/client";
 import { PageHeader, Panel } from "../components/ui";
+import { GrowattStringLayoutPanel } from "../components/GrowattStringLayoutPanel";
+import { FleetModulePanel } from "../components/FleetModulePanel";
+import { isAdmin } from "../auth/access";
 
 export const PlantSettingsPage: React.FC = () => {
-  const { activePlant, refreshAll } = useAppContext();
+  const { activePlant, refreshAll, user } = useAppContext();
+  const admin = isAdmin(user); // the legacy plant / string-spec form is admin only
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [lat, setLat] = useState(13.7563);
@@ -13,6 +17,11 @@ export const PlantSettingsPage: React.FC = () => {
   const [lossFactor, setLossFactor] = useState(0.04);
   const [specs, setSpecs] = useState<StringSpec[]>([]);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [fleetModule, setFleetModule] = useState<FleetModuleOut | null>(null);
+
+  useEffect(() => {
+    api.getFleetModule().then(setFleetModule).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (activePlant) {
@@ -64,6 +73,7 @@ export const PlantSettingsPage: React.FC = () => {
         </div>
       )}
 
+      {admin && (
       <form onSubmit={handleSavePlant} className="space-y-6">
         <Panel icon={Sliders} title="General Plant Metadata" subtitle="Geolocation and baseline system loss parameters">
           <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-5">
@@ -209,6 +219,10 @@ export const PlantSettingsPage: React.FC = () => {
           Save Plant & String Configuration
         </button>
       </form>
+      )}
+
+      <FleetModulePanel module={fleetModule} onSaved={setFleetModule} />
+      <GrowattStringLayoutPanel fleetModule={fleetModule} />
     </div>
   );
 };

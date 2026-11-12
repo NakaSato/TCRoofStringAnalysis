@@ -73,7 +73,7 @@ def client(tmp_path):
 
     app.dependency_overrides[get_db] = _db
     c = TestClient(app)
-    tok = c.post("/api/auth/login", json={"email": "viewer@tcroofsolar.com", "password": "viewer123"}).json()["access_token"]
+    tok = c.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()["access_token"]
     c.headers["Authorization"] = f"Bearer {tok}"
     c.app_ref = app  # type: ignore[attr-defined]
     return c
@@ -390,6 +390,51 @@ def test_latest_expires_when_the_next_record_is_due():
     # silent for more than two intervals (offline / evening): fall back to latest_ttl_s
     clock[0], now[0] = 1000.0, _dt(2026, 11, 12, 12, 40, 0)
     assert svc.plant_latest(PLANT, ["A"], day)["refresh_in_s"] == 300
+
+
+def test_device_gap_spaces_calls_per_inverter():
+    """Growatt answers max_data once per ~4.5 min per inverter; never ask sooner."""
+    from datetime import date as _date, datetime as _dt
+    from solar_core.growatt import GrowattAPIError
+
+    day = _date(2026, 11, 12)
+    make = lambda fake, clock, now: GrowattLiveService(
+        client_factory=lambda phase: fake, latest_ttl_s=300, cooldown_s=60, device_gap_s=270,
+        clock=lambda: clock[0], now_local=lambda: now[0],
+    )
+
+    # late record: retried after the gap, not after LATE_RETRY_S
+    fake, clock, now = _RhythmClient(step=300, records=2), [0.0], [_dt(2026, 11, 12, 12, 11, 1)]
+    assert make(fake, clock, now).plant_latest(PLANT, ["A"], day)["refresh_in_s"] == 270
+
+    # 1-min inverter: one call per gap, not per record
+    fake, clock, now = _RhythmClient(step=60, records=5), [0.0], [_dt(2026, 11, 12, 12, 4, 10)]
+    svc = make(fake, clock, now)
+    assert svc.plant_latest(PLANT, ["A"], day)["refresh_in_s"] == 270
+    clock[0] = 269.0
+    svc.plant_latest(PLANT, ["A"], day)
+    assert fake.calls == 1
+
+    # refused (someone else used the window): retry after cooldown_s, never before the gap
+    class _Refusing(_RhythmClient):
+        refuse = False
+
+        def _request(self, method, path, params):
+            if self.refuse:
+                self.calls += 1
+                raise GrowattAPIError("busy", error_code=10012)
+            return super()._request(method, path, params)
+
+    fake, clock, now = _Refusing(step=300, records=2), [0.0], [_dt(2026, 11, 12, 12, 6, 0)]
+    svc = GrowattLiveService(
+        client_factory=lambda phase: fake, latest_ttl_s=300, cooldown_s=60, device_gap_s=270,
+        clock=lambda: clock[0], now_local=lambda: now[0],
+    )
+    svc.plant_latest(PLANT, ["A"], day)
+    svc._cache[("latest", "A", day)] = svc._cache[("latest", "A", day)][:3] + (100.0,)  # force early expiry
+    fake.refuse, clock[0] = True, 150.0
+    env = svc.plant_latest(PLANT, ["A"], day)
+    assert env["stale"] and env["refresh_in_s"] == 120  # waits until 270 s after the success at 0
 
 
 def test_latest_ttl_edge_cases():

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -28,6 +28,34 @@ class UserOut(BaseModel):
     full_name: str
     role: str
     is_active: bool
+    # Growatt plants this user may see: null = every plant (admin), else the assigned ids.
+    plant_ids: Optional[List[int]] = None
+
+
+Role = Literal["admin", "engineer"]
+
+
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=2, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
+    email: Optional[str] = Field(None, max_length=255)
+    full_name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: Role = "engineer"
+    plant_ids: List[int] = Field(default_factory=list)
+
+
+class UserUpdate(BaseModel):
+    """Fields left out are not changed."""
+
+    email: Optional[str] = Field(None, max_length=255)
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
+    role: Optional[Role] = None
+    is_active: Optional[bool] = None
+
+
+class PlantAssignment(BaseModel):
+    plant_ids: List[int]
 
 
 class TokenResponse(BaseModel):
@@ -303,3 +331,30 @@ class PTWPermitOut(PTWPermitIn):
 
     id: int
     updated_at: datetime
+
+
+class GrowattStringLayoutEntry(BaseModel):
+    """As-built module count of one Growatt string input (`string_no` as in `vString{n}`)."""
+
+    device_sn: str = Field(min_length=1, max_length=64)
+    string_no: int = Field(ge=1, le=64)
+    modules: int = Field(ge=1, le=60)
+    module_wp: Optional[float] = Field(default=None, ge=50, le=1500)
+
+
+class FleetModule(BaseModel):
+    """PV module used across the fleet (STC datasheet values). Unknown values stay null."""
+
+    manufacturer: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=64)
+    wp: float = Field(ge=50, le=1500)
+    vmp_stc: Optional[float] = Field(default=None, gt=0, le=200)
+    imp_stc: Optional[float] = Field(default=None, gt=0, le=50)
+    voc_stc: Optional[float] = Field(default=None, gt=0, le=200)
+    isc_stc: Optional[float] = Field(default=None, gt=0, le=50)
+    efficiency_pct: Optional[float] = Field(default=None, gt=0, le=40)
+    temp_coeff_pmax_pct: Optional[float] = Field(default=None, ge=-2, le=2)
+    temp_coeff_voc_pct: Optional[float] = Field(default=None, ge=-2, le=2)
+    temp_coeff_isc_pct: Optional[float] = Field(default=None, ge=-2, le=2)
+    bifacial_factor_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    datasheet_url: Optional[str] = Field(default=None, max_length=500)

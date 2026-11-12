@@ -54,17 +54,23 @@ def update_plant(
     if plant is None:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} not found")
 
+    old = (plant.modules_per_string, plant.module_wp, plant.vmp_stc, plant.imp_stc)
     for field_name, val in payload.model_dump().items():
         setattr(plant, field_name, val)
 
-    # Also update existing string specs on this plant to match updated module defaults
+    # The plant-level values are defaults. Strings still on the old default follow the new one;
+    # strings set individually (e.g. 16 modules on an 18-module plant) keep their own value.
     for spec in plant.string_specs:
-        spec.modules_per_string = int(payload.modules_per_string)
-        spec.module_wp = float(payload.module_wp)
-        spec.vmp_stc = float(payload.vmp_stc)
-        spec.voc_stc = round(float(payload.vmp_stc) * 1.188, 2)
-        spec.imp_stc = float(payload.imp_stc)
-        spec.isc_stc = round(float(payload.imp_stc) * 1.065, 2)
+        if spec.modules_per_string == old[0]:
+            spec.modules_per_string = int(payload.modules_per_string)
+        if spec.module_wp == old[1]:
+            spec.module_wp = float(payload.module_wp)
+        if spec.vmp_stc == old[2]:
+            spec.vmp_stc = float(payload.vmp_stc)
+            spec.voc_stc = round(float(payload.vmp_stc) * 1.188, 2)
+        if spec.imp_stc == old[3]:
+            spec.imp_stc = float(payload.imp_stc)
+            spec.isc_stc = round(float(payload.imp_stc) * 1.065, 2)
 
     db.commit()
     db.refresh(plant)

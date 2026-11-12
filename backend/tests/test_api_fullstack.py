@@ -70,15 +70,16 @@ def test_auth_login_and_rbac_guards(client: TestClient):
     )
     assert unauth.status_code == 401
 
-    # 2. Viewer role login succeeds on /auth/me but gets 403 on write endpoints
-    viewer_headers = _login_headers(client, "viewer@tcroofsolar.com", "viewer123")
-    me_resp = client.get("/api/auth/me", headers=viewer_headers)
+    # 2. Engineer login succeeds on /auth/me but the legacy O&M modules are admin only
+    eng_headers = _login_headers(client, "engineer@tcroofsolar.com", "engineer123")
+    me_resp = client.get("/api/auth/me", headers=eng_headers)
     assert me_resp.status_code == 200
-    assert me_resp.json()["role"] == "viewer"
+    assert me_resp.json()["role"] == "engineer" and me_resp.json()["plant_ids"] == []
+    assert client.get("/api/rca", headers=eng_headers).status_code == 403
 
     forbidden = client.post(
         "/api/rca",
-        headers=viewer_headers,
+        headers=eng_headers,
         json={
             "plant_id": 1,
             "equipment_category": "Inverter",

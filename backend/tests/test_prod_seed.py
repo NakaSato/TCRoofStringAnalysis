@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
-from app.auth import verify_password
+from app.auth import hash_password, verify_password
 from app.config import Settings
 from app.db.models import AnalysisRun, PMTask, Plant, User
 from app.db.seed import ensure_seeded
@@ -56,12 +56,16 @@ def test_prod_disables_demo_accounts_and_resets_admin_password(tmp_path):
     f = _factory(tmp_path)
     with f() as db:
         ensure_seeded(db, Settings(_env_file=None, seed_demo_data=False))  # dev start: demo users
+        # the former read-only demo account, from a DB seeded before roles were cut to two
+        db.add(User(username="viewer", email="viewer@tcroofsolar.com", full_name="V",
+                    hashed_password=hash_password("viewer123"), role="viewer"))
+        db.commit()
     with f() as db:
         ensure_seeded(db, _prod())
     with f() as db:
-        state = {u.username: u.is_active for u in db.scalars(select(User))}
+        state = {u.username: (u.is_active, u.role) for u in db.scalars(select(User))}
         admin = db.scalar(select(User).where(User.username == "admin"))
-    assert state == {"admin": True, "engineer": False, "viewer": False}
+    assert state == {"admin": (True, "admin"), "engineer": (False, "engineer"), "viewer": (False, "engineer")}
     assert verify_password(STRONG, admin.hashed_password) and not verify_password("admin123", admin.hashed_password)
 
 
@@ -70,5 +74,5 @@ def test_dev_still_seeds_demo_users_and_data(tmp_path):
     with f() as db:
         ensure_seeded(db, Settings(_env_file=None))
     with f() as db:
-        assert {u.username for u in db.scalars(select(User))} == {"admin", "engineer", "viewer"}
+        assert {u.username for u in db.scalars(select(User))} == {"admin", "engineer"}
         assert db.scalar(select(func.count()).select_from(AnalysisRun)) == 1

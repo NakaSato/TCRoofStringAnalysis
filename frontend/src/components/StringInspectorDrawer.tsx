@@ -324,6 +324,7 @@ export const StringInspectorDrawer: React.FC = () => {
                 Electrical Operating Point ({row.mppt_id})
               </div>
               <span className="num text-[11px] text-slate-400">
+                {row.modules != null && <>{row.modules} modules{row.module_wp ? ` × ${fmt(row.module_wp, 0)} Wp` : ""} · </>}
                 Capacity: {fmt(row.capacity_kwp, 2)} kWp
               </span>
             </div>
@@ -351,7 +352,12 @@ export const StringInspectorDrawer: React.FC = () => {
 
               <div>
                 <div className="mb-1 flex justify-between text-[11px]">
-                  <span className="text-slate-400">String Energy vs. Peer Median</span>
+                  <span className="text-slate-400">
+                    String Energy vs. Peer Median
+                    {row.peer_basis === "raw" && " (raw — module count not set for every string)"}
+                    {row.peer_basis === "per_module" && " (scaled per module)"}
+                    {row.peer_basis === "per_kwp" && " (scaled per kWp)"}
+                  </span>
                   <span className="num text-slate-200">
                     <strong>{fmt(row.actual_energy_kwh, 2)} kWh</strong> /{" "}
                     {fmt(row.expected_energy_kwh, 2)} kWh Peer

@@ -36,7 +36,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False, default="O&M Lead Engineer")
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), nullable=False, default="admin")  # admin | engineer | viewer
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="engineer")  # admin | engineer
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
@@ -412,6 +412,54 @@ class GrowattStringReading(Base):
     voltage_v: Mapped[float] = mapped_column(Float, nullable=False)
     current_a: Mapped[float] = mapped_column(Float, nullable=False)
     power_w: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class GrowattStringLayout(Base):
+    """As-built module count per Growatt string input, entered by an engineer.
+
+    Growatt does not report how many modules each string has. Strings on one inverter can
+    differ (e.g. 16 vs 18 modules), so peer comparisons normalize by this count when every
+    string of the inverter has one. No FK on device_sn: the registry outlives inverter re-syncs.
+    """
+
+    __tablename__ = "growatt_string_layouts"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    string_no: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    modules: Mapped[int] = mapped_column(Integer, nullable=False)
+    module_wp: Mapped[Optional[float]] = mapped_column(Float)  # null = not recorded
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class UserPlantAssignment(Base):
+    """Growatt plants an admin assigned to an engineer.
+
+    Admins see every plant and have no rows here. Engineers see and work on only the
+    plants listed for them. No FK on plant_id: an assignment survives a plant briefly
+    missing from the registry, and a plant that never comes back is simply not listed.
+    """
+
+    __tablename__ = "user_plant_assignments"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False, index=True)
+    assigned_by: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class AppSetting(Base):
+    """Fleet-wide settings as JSON, one row per key (e.g. `fleet_module`).
+
+    Source of truth for global data the operator enters; mirrored to Firestore `config/{key}`
+    by the publish job (and right after an edit).
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSON, nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 
 class PublishedDoc(Base):

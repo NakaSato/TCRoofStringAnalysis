@@ -17,8 +17,9 @@ from app.api.routes import (
     rca,
     reports,
     she,
+    users,
 )
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.config import settings
 from app.db.seed import ensure_seeded
 from app.db.session import SessionLocal
@@ -53,10 +54,14 @@ def create_app() -> FastAPI:
 
     api_router = APIRouter()
     api_router.include_router(auth.router)  # /auth/login is the only route open without a token
-    # Every data route needs a signed-in user (writes additionally check the role per route).
-    signed_in = [Depends(get_current_user)]
-    for module in (plants, datasets, analysis, maintenance, rca, quality, she, reports, growatt):
-        api_router.include_router(module.router, dependencies=signed_in)
+    # Every data route needs a signed-in user. Growatt routes scope engineers to their assigned
+    # plants per route (app.auth.require_plant_*); fleet settings and jobs are admin only.
+    api_router.include_router(growatt.router, dependencies=[Depends(get_current_user)])
+    # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
+    # Growatt plants an engineer is assigned, so they are admin only.
+    admin_only = [Depends(require_admin)]
+    for module in (plants, datasets, analysis, maintenance, rca, quality, she, reports, users):
+        api_router.include_router(module.router, dependencies=admin_only)
 
     # Mount at both `/api` and `/` for compatibility
     app.include_router(api_router, prefix="/api")

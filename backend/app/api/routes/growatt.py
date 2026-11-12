@@ -21,9 +21,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user, require_write_access
+from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
 from app.db.models import SyncRun, User
 from app.db.session import get_db
+from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
+from app.services import fleet_settings
 from app.services import growatt_overview as ov
 from app.services import jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
@@ -40,13 +42,20 @@ DAY_QUERY = Query(None, description="Plant-local date (YYYY-MM-DD); default = la
 def live_plants(
     db: Session = Depends(get_db),
     live: GrowattLiveService = Depends(get_live_service),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Realtime plant power/status for the whole fleet. Not persisted."""
+    """Realtime plant power/status for the fleet (an engineer's assigned plants). Not persisted.
+
+    The memory cache stays fleet-wide (same Growatt calls for every user); only the answer is filtered.
+    """
+    allowed = allowed_plant_ids(db, user)
     try:
-        return live.plants(coords=ov.plant_coords(db))
+        env = live.plants(coords=ov.plant_coords(db))
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    if allowed is None:
+        return env
+    return {**env, "data": [p for p in env["data"] if p["plant_id"] in allowed]}
 
 
 @router.get("/live/plants/{plant_id}/inverters")
@@ -54,7 +63,7 @@ def live_inverters(
     plant_id: int,
     db: Session = Depends(get_db),
     live: GrowattLiveService = Depends(get_live_service),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
     """Realtime inverter status for one plant. Not persisted."""
     try:
@@ -68,7 +77,7 @@ def live_plant_latest(
     plant_id: int,
     db: Session = Depends(get_db),
     live: GrowattLiveService = Depends(get_live_service),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
     """Newest record per inverter (power, MPPT, per-string V/I) for one plant. Not persisted.
 
@@ -95,21 +104,22 @@ def live_plant_latest(
 @router.get("/plants")
 def list_growatt_plants(
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> List[Dict[str, Any]]:
     """Plant registry from the DB, with inverter counts and the latest synced day's energy.
+    Engineers get only the plants assigned to them.
 
     `current_power_w` / `status` are the last values written by the sync job (see `synced_at`);
     use `/growatt/live/plants` for realtime values.
     """
-    return ov.list_plants_summary(db)
+    return ov.list_plants_summary(db, plant_ids=allowed_plant_ids(db, user))
 
 
 @router.get("/plants/{plant_id}/inverters")
 def list_growatt_inverters(
     plant_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_plant_read),
 ) -> List[Dict[str, Any]]:
     """Inverter registry for a plant from the DB (status = last synced value)."""
     return ov.list_inverters(db, plant_id)
@@ -120,7 +130,7 @@ def get_growatt_plant_overview(
     plant_id: int,
     day: Optional[date] = DAY_QUERY,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
     """Single-plant overview for one day from persisted max_data history (nulls where not measured)."""
     try:
@@ -136,13 +146,81 @@ def get_growatt_string_detail(
     string_no: int,
     day: Optional[date] = DAY_QUERY,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
     """Stored telemetry for one string on one day, plus modelled I-V / P-V curves."""
     try:
         return ov.build_string_detail(db, plant_id, device_sn, string_no, day)
     except ov.GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/fleet-module")
+def get_fleet_module(
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """PV module used across the fleet (global). `source = "default"` until someone saves it."""
+    return fleet_settings.get_fleet_module(db)
+
+
+@router.put("/fleet-module")
+def put_fleet_module(
+    payload: FleetModule,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Save the fleet module (admin only: it applies to every plant) to SQL, then publish `config/fleet_module` to the summary sink.
+
+    A failed publish does not undo the save: the next publish job retries it.
+    """
+    from app.services import daily_summary  # firebase_admin is imported lazily by the sink
+
+    saved = fleet_settings.put_fleet_module(db, payload.model_dump(), user.username or user.email)
+    return {**saved, "published": _publish_safely(db, lambda: daily_summary.publish_config(db))}
+
+
+@router.get("/plants/{plant_id}/string-layout")
+def get_growatt_string_layout(
+    plant_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """As-built module count per string input (null = not entered), plus inputs seen in the last week."""
+    try:
+        return ov.get_string_layout(db, plant_id)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put("/plants/{plant_id}/string-layout")
+def put_growatt_string_layout(
+    plant_id: int,
+    entries: List[GrowattStringLayoutEntry],
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_write),
+) -> Dict[str, Any]:
+    """Replace the plant's module-count registry; strings left out are cleared."""
+    try:
+        saved = ov.put_string_layout(db, plant_id, [e.model_dump() for e in entries])
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    from app.services import daily_summary
+
+    return {**saved, "published": _publish_safely(db, lambda: daily_summary.publish_plant_inverters(db, plant_id))}
+
+
+def _publish_safely(db: Session, fn: Any) -> Dict[str, Any]:
+    """Mirror a just-saved registry change to the summary sink. A failure does not undo the
+    save (the next publish job retries); it is reported instead."""
+    try:
+        rep = fn()
+        return {"sink": rep.sink, "written": rep.written, "deferred": bool(rep.over_budget)}
+    except Exception as exc:  # noqa: BLE001 — sink errors (credentials, network) are reported, not raised
+        db.rollback()
+        return {"sink": None, "written": 0, "error": str(exc)}
 
 
 # --------------------------------------------------------------------------- background jobs
@@ -152,7 +230,7 @@ def get_growatt_string_detail(
 def sync_status(
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Latest run per job plus the most recent runs (worker, API and CLI)."""
     latest: Dict[str, Any] = {}
@@ -167,7 +245,7 @@ def sync_status(
 def trigger_sync(
     job: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_write_access),
+    _user: User = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Queue a job for the worker (history | backfill | fleet | publish_today | publish_yesterday | retention).
 

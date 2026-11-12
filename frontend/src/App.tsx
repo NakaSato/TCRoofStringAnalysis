@@ -4,6 +4,7 @@ import { AppProvider, useAppContext } from "./context/AppContext";
 import { LoginPage } from "./pages/LoginPage";
 import { LoadingState } from "./components/ui";
 import { Layout } from "./components/Layout";
+import { isAdmin } from "./auth/access";
 
 // Each page is its own chunk, fetched on first visit (Layout shows a fallback meanwhile).
 const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
@@ -17,6 +18,13 @@ const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage
 const ReportsPage = page(() => import("./pages/ReportsPage"), "ReportsPage");
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
 const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
+const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
+
+/** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
+const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAppContext();
+  return isAdmin(user) ? <>{children}</> : <Navigate to="/" replace />;
+};
 
 /** Every page needs a signed-in user: splash while the stored token is checked, else the login page. */
 const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -42,11 +50,12 @@ export const App: React.FC = () => {
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="generation" element={<GenerationPrPage />} />
             <Route path="strings" element={<StringAnalysisPage />} />
-            <Route path="maintenance" element={<MaintenanceRcaPage />} />
-            <Route path="quality" element={<SubcontractorPqPage />} />
-            <Route path="she" element={<SheSafetyPage />} />
-            <Route path="reports" element={<ReportsPage />} />
+            <Route path="maintenance" element={<AdminOnly><MaintenanceRcaPage /></AdminOnly>} />
+            <Route path="quality" element={<AdminOnly><SubcontractorPqPage /></AdminOnly>} />
+            <Route path="she" element={<AdminOnly><SheSafetyPage /></AdminOnly>} />
+            <Route path="reports" element={<AdminOnly><ReportsPage /></AdminOnly>} />
             <Route path="settings" element={<PlantSettingsPage />} />
+            <Route path="users" element={<AdminOnly><UsersPage /></AdminOnly>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
