@@ -173,6 +173,92 @@ export const OverviewPage: React.FC = () => {
     return strings.filter((s) => s.device_sn === selectedInverterSn);
   }, [strings, selectedInverterSn]);
 
+  // String Status Matrix grouped by inverter (registry order). Inverters with no string rows
+  // stay listed so an inverter without data is visible instead of silently missing.
+  const [groupByInverter, setGroupByInverter] = useState(true);
+  const stringGroups = useMemo(() => {
+    const bySn = new Map<string, typeof strings>();
+    for (const s of filteredStrings) {
+      const list = bySn.get(s.device_sn) ?? [];
+      list.push(s);
+      bySn.set(s.device_sn, list);
+    }
+    const shown = selectedInverterSn === "ALL" ? inverters : inverters.filter((i) => i.device_sn === selectedInverterSn);
+    return shown.map((inv) => {
+      const list = bySn.get(inv.device_sn) ?? [];
+      const levels = list.map((s) => statusLevel(s.status));
+      return {
+        inv,
+        strings: list,
+        crit: levels.filter((l) => l === "crit").length,
+        warn: levels.filter((l) => l === "warn").length,
+      };
+    });
+  }, [filteredStrings, inverters, selectedInverterSn]);
+
+  const renderStringTile = (s: (typeof strings)[number]) => {
+    const lvl = statusLevel(s.status);
+    const pr = s.pr_pct;
+    const isLive = s.live_current_a != null;
+    const border =
+      lvl === "crit"
+        ? "border-red-500/40 bg-red-500/[0.04] hover:border-red-400/70"
+        : lvl === "warn"
+        ? "border-amber-400/35 bg-amber-400/[0.03] hover:border-amber-400/60"
+        : "border-white/[0.07] bg-ink-850/90 hover:border-emerald-400/40";
+    return (
+      <div
+        key={s.string_id}
+        onClick={() => setInspectedStringId(s.string_id)}
+        title={`Click to inspect ${s.string_id} I-V & P-V curves`}
+        className={`group relative cursor-pointer rounded-xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${border}`}
+      >
+        <div className="flex items-center justify-between">
+          <span className="num text-xs font-bold text-white group-hover:text-solar-300">
+            {s.short_label}
+          </span>
+          <Led level={lvl} pulse={lvl === "crit"} />
+        </div>
+        <div className="num mt-0.5 truncate text-[10px] text-slate-500">
+          {s.device_sn} · {s.mppt_id}
+        </div>
+
+        <div className="mt-2 flex items-baseline justify-between">
+          <div>
+            <div className="text-[9px] uppercase text-slate-500">PR</div>
+            <div className="num text-base font-bold text-white">{pr == null ? "—" : `${fmt(pr, 1)}%`}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-[9px] uppercase text-slate-500">Peak</div>
+            <div className="num text-xs font-semibold text-slate-200">
+              {fmt(s.p_max_w / 1000, 2)} kW
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-2">
+          <Meter value={pr ?? 0} tone={lvl === "crit" ? "crit" : lvl === "warn" ? "warn" : "ok"} />
+        </div>
+
+        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
+          {isLive ? (
+            <span className="num text-sky-300" title={`Live record ${s.live_at ?? ""}`}>
+              Now {fmt(s.live_voltage_v, 0)}V · {fmt(s.live_current_a, 1)}A ·{" "}
+              {fmt((s.live_power_w ?? 0) / 1000, 2)}kW
+            </span>
+          ) : (
+            <span className="num" title="Today's average from the database (no live value)">
+              Avg {fmt(s.v_avg, 0)}V · {fmt(s.i_avg, 1)}A
+            </span>
+          )}
+          <span className="text-solar-400 opacity-0 transition group-hover:opacity-100">
+            I-V →
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   const capacity = Number(kpis?.capacity_kwp || 0);
   const currentKw = Number(kpis?.current_power_kw || 0);
   const peakKw = Number(kpis?.peak_power_kw || 0);
@@ -731,6 +817,15 @@ export const OverviewPage: React.FC = () => {
                 }
                 actions={
                   <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={groupByInverter}
+                        onChange={(e) => setGroupByInverter(e.target.checked)}
+                        className="accent-sky-400"
+                      />
+                      Group by inverter
+                    </label>
                     <select
                       value={selectedInverterSn}
                       onChange={(e) => setSelectedInverterSn(e.target.value)}
@@ -749,70 +844,50 @@ export const OverviewPage: React.FC = () => {
                   </div>
                 }
               >
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
-                  {filteredStrings.slice(0, 64).map((s) => {
-                    const lvl = statusLevel(s.status);
-                    const pr = s.pr_pct;
-                    const isLive = s.live_current_a != null;
-                    const border =
-                      lvl === "crit"
-                        ? "border-red-500/40 bg-red-500/[0.04] hover:border-red-400/70"
-                        : lvl === "warn"
-                        ? "border-amber-400/35 bg-amber-400/[0.03] hover:border-amber-400/60"
-                        : "border-white/[0.07] bg-ink-850/90 hover:border-emerald-400/40";
-                    return (
-                      <div
-                        key={s.string_id}
-                        onClick={() => setInspectedStringId(s.string_id)}
-                        title={`Click to inspect ${s.string_id} I-V & P-V curves`}
-                        className={`group relative cursor-pointer rounded-xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${border}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="num text-xs font-bold text-white group-hover:text-solar-300">
-                            {s.short_label}
-                          </span>
-                          <Led level={lvl} pulse={lvl === "crit"} />
-                        </div>
-                        <div className="num mt-0.5 truncate text-[10px] text-slate-500">
-                          {s.device_sn} · {s.mppt_id}
-                        </div>
-
-                        <div className="mt-2 flex items-baseline justify-between">
-                          <div>
-                            <div className="text-[9px] uppercase text-slate-500">PR</div>
-                            <div className="num text-base font-bold text-white">{pr == null ? "—" : `${fmt(pr, 1)}%`}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-[9px] uppercase text-slate-500">Peak</div>
-                            <div className="num text-xs font-semibold text-slate-200">
-                              {fmt(s.p_max_w / 1000, 2)} kW
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-2">
-                          <Meter value={pr ?? 0} tone={lvl === "crit" ? "crit" : lvl === "warn" ? "warn" : "ok"} />
-                        </div>
-
-                        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-                          {isLive ? (
-                            <span className="num text-sky-300" title={`Live record ${s.live_at ?? ""}`}>
-                              Now {fmt(s.live_voltage_v, 0)}V · {fmt(s.live_current_a, 1)}A ·{" "}
-                              {fmt((s.live_power_w ?? 0) / 1000, 2)}kW
+                {groupByInverter ? (
+                  <div className="space-y-4">
+                    {stringGroups.map(({ inv, strings: list, crit, warn }) => {
+                      const lvl =
+                        inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
+                      return (
+                        <section key={inv.device_sn} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
+                          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                            <Led level={lvl} />
+                            <button
+                              type="button"
+                              onClick={() => setSelectedInverterSn(selectedInverterSn === inv.device_sn ? "ALL" : inv.device_sn)}
+                              className="num font-bold text-white hover:text-sky-300"
+                              title="Show only this inverter"
+                            >
+                              {inv.device_sn}
+                            </button>
+                            <span className="num text-slate-500">{inv.model}</span>
+                            <span className="num text-sky-300">{list.length} strings</span>
+                            {crit > 0 && <span className="num text-red-300">{crit} critical</span>}
+                            {warn > 0 && <span className="num text-amber-300">{warn} warning</span>}
+                            <span className="num ml-auto text-slate-400">
+                              Now {fmt(inv.current_ac_kw, 2)} kW · Peak {fmt(inv.peak_ac_kw, 2)} kW
                             </span>
+                          </div>
+                          {list.length ? (
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">{list.map(renderStringTile)}</div>
                           ) : (
-                            <span className="num" title="Today's average from the database (no live value)">
-                              Avg {fmt(s.v_avg, 0)}V · {fmt(s.i_avg, 1)}A
-                            </span>
+                            <div className="text-xs text-slate-500">No string data stored for this inverter today.</div>
                           )}
-                          <span className="text-solar-400 opacity-0 transition group-hover:opacity-100">
-                            I-V →
-                          </span>
-                        </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">{filteredStrings.slice(0, 64).map(renderStringTile)}</div>
+                    {filteredStrings.length > 64 && (
+                      <div className="mt-3 text-xs text-slate-500">
+                        Showing 64 of {filteredStrings.length} strings. Group by inverter or pick an inverter to see all.
                       </div>
-                    );
-                  })}
-                </div>
+                    )}
+                  </>
+                )}
               </Panel>
             </>
           )}
