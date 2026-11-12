@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import {
   Zap,
   Gauge,
@@ -16,9 +16,12 @@ import {
   Radio,
   Satellite,
   ExternalLink,
+  CloudRain,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
+import { api } from "../api/client";
+import type { GoogleWeatherDay } from "../api/client";
 import { Panel, KpiTile, Led, EmptyState, LoadingState, fmt } from "../components/ui";
 import { FleetPlantDirectoryPanel } from "../components/FleetPlantDirectoryPanel";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
@@ -32,70 +35,14 @@ const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteM
 const GRID_EF_KG_PER_KWH = 0.4999;
 
 /* -------------------------------------------------------------------------- */
-/* PR ring gauge                                                              */
-/* -------------------------------------------------------------------------- */
-const RingGauge: React.FC<{ value: number; target: number; size?: number }> = ({ value, target, size = 176 }) => {
-  const stroke = 12;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const arc = 0.75; // 270° gauge
-  const pct = Math.max(0, Math.min(100, value)) / 100;
-  const targetPct = Math.max(0, Math.min(100, target)) / 100;
-  const ok = value >= target;
-  const color = ok ? "#34d399" : value >= target - 5 ? "#fbbf24" : "#f87171";
-  const targetAngle = 135 + targetPct * 270;
-  const tx = size / 2 + r * Math.cos((targetAngle * Math.PI) / 180);
-  const ty = size / 2 + r * Math.sin((targetAngle * Math.PI) / 180);
-
-  return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} style={{ transform: "rotate(135deg)" }}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="rgba(148,163,184,0.12)"
-          strokeWidth={stroke}
-          strokeDasharray={`${c * arc} ${c}`}
-          strokeLinecap="round"
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={color}
-          strokeWidth={stroke}
-          strokeDasharray={`${c * arc * pct} ${c}`}
-          strokeLinecap="round"
-          style={{ filter: `drop-shadow(0 0 6px ${color}88)`, transition: "stroke-dasharray 1s ease" }}
-        />
-      </svg>
-      <svg width={size} height={size} className="absolute inset-0">
-        <circle cx={tx} cy={ty} r={4} fill="#0a101c" stroke="#e2e8f0" strokeWidth={2} />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="eyebrow">Plant PR</div>
-        <div className="num text-4xl font-bold tracking-tight text-white">
-          {value.toFixed(1)}
-          <span className="text-lg text-slate-500">%</span>
-        </div>
-        <div className={`num text-[11px] font-semibold ${ok ? "text-emerald-400" : "text-amber-400"}`}>
-          {ok ? "▲" : "▼"} {(value - target).toFixed(1)} vs {target.toFixed(1)}%
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/* -------------------------------------------------------------------------- */
 /* Power-flow pieces                                                          */
 /* -------------------------------------------------------------------------- */
 const FLOW_TONE = {
   solar: "border-solar-400/30 bg-solar-500/10 text-solar-400",
   ok: "border-emerald-400/30 bg-emerald-500/10 text-emerald-400",
   info: "border-cyan-400/30 bg-cyan-500/10 text-cyan-400",
+  warn: "border-amber-400/30 bg-amber-500/10 text-amber-400",
+  muted: "border-white/10 bg-white/[0.03] text-slate-500",
 } as const;
 
 const FlowNode: React.FC<{
@@ -104,7 +51,8 @@ const FlowNode: React.FC<{
   label: string;
   value: React.ReactNode;
   unit: string;
-}> = ({ icon: Icon, tone, label, value, unit }) => (
+  sub?: React.ReactNode;
+}> = ({ icon: Icon, tone, label, value, unit, sub }) => (
   <div className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-ink-950/70 p-2.5">
     <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${FLOW_TONE[tone]}`}>
       <Icon className="h-4.5 w-4.5" />
@@ -115,12 +63,13 @@ const FlowNode: React.FC<{
         {value} <span className="text-xs font-normal text-slate-400">{unit}</span>
       </div>
     </div>
+    {sub != null && <div className="num ml-auto shrink-0 text-right text-[11px] text-slate-400">{sub}</div>}
   </div>
 );
 
-const FlowArrow: React.FC<{ label: string }> = ({ label }) => (
+const FlowArrow: React.FC<{ label: string; active: boolean }> = ({ label, active }) => (
   <div className="flex items-center justify-center gap-1.5">
-    <ArrowDown className="h-3 w-3 animate-pulse text-energy-400" />
+    <ArrowDown className={`h-3 w-3 ${active ? "animate-pulse text-energy-400" : "text-slate-600"}`} />
     <span className="font-mono text-[10px] uppercase text-slate-500">{label}</span>
   </div>
 );
@@ -141,6 +90,75 @@ const MiniStat: React.FC<{ icon: LucideIcon; label: string; value: React.ReactNo
     </div>
   </div>
 );
+
+/* -------------------------------------------------------------------------- */
+/* Rain at 09 / 12 / 17 (Google Weather, modelled; stored hours only)          */
+/* -------------------------------------------------------------------------- */
+const RAIN_SLOTS = ["09", "12", "17"] as const;
+
+const WeatherSlotsTile: React.FC<{ plantId: number; day: string | null }> = ({ plantId, day }) => {
+  const [wx, setWx] = useState<GoogleWeatherDay | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setWx(null);
+    setFailed(false);
+    api
+      .getGoogleWeatherDay(plantId, day ?? undefined)
+      .then((r) => !cancelled && setWx(r))
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [plantId, day]);
+
+  const anyRain = wx ? RAIN_SLOTS.some((h) => wx.slots[h]?.raining) : false;
+  const tone = anyRain ? "text-sky-400" : "text-emerald-400";
+  const note = failed
+    ? "unavailable"
+    : !wx
+    ? "loading…"
+    : !wx.configured
+    ? "not configured"
+    : !wx.has_location
+    ? "no location"
+    : wx.rain.days_since_rain != null
+    ? `${wx.rain.days_since_rain} d since rain`
+    : "modelled";
+
+  return (
+    <div className="panel overflow-hidden p-4" title="Google Weather (modelled) — daytime rain status at 09:00, 12:00 and 17:00">
+      <div className={`absolute inset-x-0 top-0 h-px ${anyRain ? "bg-sky-400/60" : "bg-emerald-400/60"}`} />
+      <div className="flex items-start justify-between gap-2">
+        <div className="eyebrow">Weather 09·12·17</div>
+        <div className={`rounded-lg p-1.5 ring-1 ${anyRain ? "bg-sky-500/10 ring-sky-400/20" : "bg-emerald-500/10 ring-emerald-400/20"} ${tone}`}>
+          <CloudRain className="h-3.5 w-3.5" />
+        </div>
+      </div>
+      <div className="mt-2 space-y-1">
+        {RAIN_SLOTS.map((h) => {
+          const slot = wx?.slots[h] ?? null;
+          const cls = slot?.raining == null ? "text-slate-500" : slot.raining ? "text-sky-300" : "text-emerald-300";
+          return (
+            <div
+              key={h}
+              className="flex items-baseline gap-1.5 whitespace-nowrap text-[11px]"
+              title={slot?.condition ?? "not stored yet"}
+            >
+              <span className="num text-slate-500">{h}:00</span>
+              <span className={`font-semibold ${cls}`}>{slot?.status_th ?? "—"}</span>
+              <span className="num ml-auto truncate text-[10px] text-slate-400">
+                {slot ? `${fmt(slot.precip_mm, 1)} mm · ☁ ${fmt(slot.cloud_cover_pct, 0)}%` : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 text-[11px] font-medium text-slate-500">{note}</div>
+    </div>
+  );
+};
 
 /* -------------------------------------------------------------------------- */
 /* Overview page                                                              */
@@ -175,6 +193,21 @@ export const OverviewPage: React.FC = () => {
   // No grid / load meter data exists, so import & consumption are not shown.
   const pvPowerKw = kpis?.current_power_kw ?? null;
 
+  // Realtime Generation panel: DC input and AC output of the newest record. Live overlay when
+  // present (today only), else the last stored 5-min point of the day (DB).
+  const live = selectedPlantOverview?.live ?? null;
+  const series = selectedPlantOverview?.timeseries ?? [];
+  const lastStored = series.length ? series[series.length - 1] : null;
+  const acNowKw = pvPowerKw;
+  const dcNowKw = live ? live.dc_kw ?? null : lastStored?.ppv_kw ?? null;
+  const dataAt = live?.data_at ?? lastStored?.timestamp ?? null;
+  const dataAtLabel = dataAt ? dataAt.slice(11, 16) : null;
+  const convEffPct = acNowKw != null && dcNowKw != null && dcNowKw > 0.5 ? Math.min(100, (acNowKw / dcNowKw) * 100) : null;
+  const onlineInv = kpis?.online_inverters ?? null;
+  const invCount = kpis?.inverter_count ?? null;
+  const invTone: keyof typeof FLOW_TONE = onlineInv == null || invCount == null ? "muted" : onlineInv >= invCount ? "ok" : "warn";
+  const producing = acNowKw != null && acNowKw > 0;
+
   return (
     <div className="space-y-6">
       {/* ==================================================================== */}
@@ -207,7 +240,7 @@ export const OverviewPage: React.FC = () => {
           ) : (
             <>
               {/* Row 1: KPI strip */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
                 <KpiTile
                   label={iecPr != null ? "Plant PR (IEC)" : "PR Index (peer)"}
                   icon={Gauge}
@@ -262,6 +295,7 @@ export const OverviewPage: React.FC = () => {
                   hint={`${critical} critical · ${warning} warning`}
                   hintTone={critical > 0 ? "crit" : warning > 0 ? "warn" : "neutral"}
                 />
+                {plant && <WeatherSlotsTile plantId={plant.plant_id} day={selectedPlantOverview.meta.day ?? null} />}
               </div>
 
               {/* Row 2: compact realtime generation (1/4) | site map (3/4 of the width, 56 % of the window height) */}
@@ -273,65 +307,83 @@ export const OverviewPage: React.FC = () => {
                         <Activity className="h-4 w-4 text-solar-400" />
                         <span className="truncate">Realtime Generation</span>
                       </h2>
-                      <p className="panel-subtitle mt-0.5">DC → inverters → AC</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className={`badge ${plantLevel === "ok" ? "badge-ok" : "badge-warn"} px-2.5 py-1 text-[11px] font-semibold`}>
                         <Led level={plantLevel} pulse />
                         {plantLevel === "ok" ? "ALL NORMAL" : `${critical} CRIT · ${warning} WARN`}
                       </span>
-                      {selectedPlantOverview?.live && (
+                      {live ? (
                         <span
-                          className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold tracking-wider text-emerald-300"
-                          title={`Live telemetry fetched ${new Date(selectedPlantOverview.live.fetched_at).toLocaleTimeString()}`}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold tracking-wider ${
+                            live.stale
+                              ? "border-amber-400/30 bg-amber-500/10 text-amber-300"
+                              : "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
+                          }`}
+                          title={`Live telemetry fetched ${new Date(live.fetched_at).toLocaleTimeString()}${
+                            live.stale ? " — Growatt refused the last call, showing the previous value" : ""
+                          }`}
                         >
-                          <Radio className="h-2.5 w-2.5 animate-pulse text-emerald-400" />
-                          LIVE
+                          <Radio className={`h-2.5 w-2.5 ${live.stale ? "text-amber-400" : "animate-pulse text-emerald-400"}`} />
+                          {live.stale ? "STALE" : "LIVE"}
+                          {dataAtLabel && <span className="num font-medium opacity-80">{dataAtLabel}</span>}
                         </span>
+                      ) : (
+                        dataAtLabel && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] font-semibold text-slate-400"
+                            title="Last stored 5-minute record (the worker syncs every 30 min)"
+                          >
+                            DB <span className="num">{dataAtLabel}</span>
+                          </span>
+                        )
                       )}
                     </div>
                   </header>
 
                   <div className="flex flex-1 flex-col gap-3 p-4">
-                    <div className="flex justify-center">
-                      {shownPr != null ? (
-                        <RingGauge value={shownPr} target={targetPr} size={120} />
-                      ) : (
-                        <div className="flex h-[120px] w-[120px] flex-col items-center justify-center rounded-full border border-white/[0.08]">
-                          <div className="eyebrow">Plant PR</div>
-                          <div className="num text-3xl font-bold text-slate-500">—</div>
-                        </div>
-                      )}
+                    {/* DC → Inverters → AC */}
+                    <div className="grid grid-cols-1 gap-1 rounded-xl border border-white/[0.08] bg-gradient-to-b from-ink-900 via-[#101a33] to-ink-900 p-2 shadow-inner">
+                      <FlowNode icon={Sun} tone={dcNowKw == null ? "muted" : "solar"} label="PV input (DC)" value={fmt(dcNowKw, 1)} unit="kW" />
+                      <FlowArrow label="DC" active={producing} />
+                      <FlowNode
+                        icon={Cpu}
+                        tone={invTone}
+                        label="Inverters"
+                        value={`${onlineInv ?? "—"} / ${invCount ?? "—"}`}
+                        unit="online"
+                        sub={convEffPct != null ? <span title="AC output ÷ DC input of the newest record">η {convEffPct.toFixed(1)}%</span> : undefined}
+                      />
+                      <FlowArrow label="AC" active={producing} />
+                      <FlowNode
+                        icon={UtilityPole}
+                        tone={acNowKw == null ? "muted" : "info"}
+                        label="Output (AC)"
+                        value={fmt(acNowKw, 1)}
+                        unit="kW"
+                        sub={
+                          <>
+                            {fmt(kpis?.yield_today_kwh, 1)} kWh
+                            <br />
+                            <span className="text-slate-500">today</span>
+                          </>
+                        }
+                      />
                     </div>
 
-                    <div className="min-w-0 space-y-3">
-                      {/* DC → Inverters → AC */}
-                      <div className="grid grid-cols-1 gap-1 rounded-xl border border-white/[0.08] bg-gradient-to-b from-ink-900 via-[#101a33] to-ink-900 p-2 shadow-inner">
-                        <FlowNode icon={Sun} tone="solar" label="PV (DC)" value={fmt(pvPowerKw, 1)} unit="kW" />
-                        <FlowArrow label="DC" />
-                        <FlowNode
-                          icon={Cpu}
-                          tone="ok"
-                          label="Inverters"
-                          value={`${kpis?.online_inverters ?? "—"} / ${kpis?.inverter_count ?? "—"}`}
-                          unit="online"
-                        />
-                        <FlowArrow label="AC" />
-                        <FlowNode icon={UtilityPole} tone="info" label="Yield (AC)" value={fmt(kpis?.yield_today_kwh, 1)} unit="kWh" />
-                      </div>
-
-                      {/* secondary metrics */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <MiniStat icon={Gauge} label="Peak today" value={fmt(kpis?.peak_power_kw, 1)} unit="kW" />
-                        <MiniStat icon={Activity} label="Lifetime" value={fmt(kpis?.total_yield_kwh == null ? null : totalYieldKwh / 1000, 2)} unit="MWh" />
-                        <MiniStat icon={Thermometer} label="Max temp" value={fmt(kpis?.max_temp_c, 1)} unit="°C" />
-                        <MiniStat
-                          icon={Leaf}
-                          label="CO₂ avoided"
-                          value={fmt(kpis?.yield_today_kwh == null ? null : co2TodayTonnes, 2)}
-                          unit="t today"
-                        />
-                      </div>
+                    {/* secondary metrics */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <MiniStat icon={Gauge} label="Peak today" value={fmt(kpis?.peak_power_kw, 1)} unit="kW" />
+                      <MiniStat icon={Zap} label="Specific yield" value={fmt(kpis?.specific_yield_kwh_per_kwp, 2)} unit="kWh/kWp" />
+                      <MiniStat icon={Activity} label="Lifetime" value={fmt(kpis?.total_yield_kwh == null ? null : totalYieldKwh / 1000, 2)} unit="MWh" />
+                      <MiniStat icon={Thermometer} label="Max temp" value={fmt(kpis?.max_temp_c, 1)} unit="°C" />
+                      <MiniStat
+                        icon={Leaf}
+                        label="CO₂ avoided"
+                        value={fmt(kpis?.yield_today_kwh == null ? null : co2TodayTonnes, 2)}
+                        unit="t today"
+                      />
+                      <MiniStat icon={Coins} label="Revenue" value={kpis?.yield_today_kwh == null ? "—" : `฿${fmt(revenueToday, 0)}`} unit="today" />
                     </div>
                   </div>
                 </section>

@@ -192,13 +192,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const liveW = live.inverters.reduce((a, i) => a + (i.pac_w ?? 0), 0);
     const hasLive = live.inverters.length > 0;
+    const dcReported = live.inverters.filter((i) => i.ppv_w != null);
+    const liveDcKw = dcReported.length
+      ? Math.round(dcReported.reduce((a, i) => a + (i.ppv_w ?? 0), 0) / 10) / 100
+      : null;
+    const liveDataAt = live.inverters.reduce<string | null>(
+      (a, i) => (i.timestamp && (a == null || i.timestamp > a) ? i.timestamp : a),
+      null
+    );
     // Status is realtime only (null in the DB): plant status from the fleet poll,
     // online count from the newest record of each inverter.
     const liveStatus = livePlantMap.get(ov.plant.plant_id)?.status ?? ov.plant.status;
     const online = hasLive ? live.inverters.filter((i) => i.status === 1).length : ov.kpis.online_inverters;
     return {
       ...ov,
-      live: { fetched_at: selectedPlantLive!.fetched_at, stale: selectedPlantLive!.stale },
+      live: {
+        fetched_at: selectedPlantLive!.fetched_at,
+        stale: selectedPlantLive!.stale,
+        data_at: liveDataAt,
+        dc_kw: liveDcKw,
+      },
       plant: { ...ov.plant, status: liveStatus, ...(hasLive ? { current_power_w: liveW } : {}) },
       kpis: {
         ...ov.kpis,

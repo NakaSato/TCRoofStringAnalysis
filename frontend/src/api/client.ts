@@ -539,7 +539,14 @@ export interface GrowattInverterDaily {
 export interface GrowattPlantOverview {
   meta: GrowattDbMeta;
   /** set by AppContext when live values are overlaid */
-  live?: { fetched_at: string; stale: boolean } | null;
+  live?: {
+    fetched_at: string;
+    stale: boolean;
+    /** plant-local time of the newest inverter record in the overlay */
+    data_at?: string | null;
+    /** sum of the inverters' live PV input power (ppv), kW; null when none reported it */
+    dc_kw?: number | null;
+  } | null;
   plant: GrowattPlant;
   kpis: {
     capacity_kwp: number | null;
