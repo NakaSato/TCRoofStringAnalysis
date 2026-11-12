@@ -111,7 +111,7 @@ def _per_phase(
     if errors == len(clients):
         raise RuntimeError("; ".join(f"phase {p}: {d['error']}" for p, d in per.items()))
     totals["phases"] = per
-    partial = errors > 0 or bool(totals.get("failed"))
+    partial = errors > 0 or bool(totals.get("failed")) or bool(totals.get("env_failed"))
     return ("partial" if partial else "ok"), totals
 
 
@@ -124,23 +124,31 @@ def _today() -> date:
 
 
 def job_history(db: Session) -> Tuple[str, Dict[str, Any]]:
-    from app.services.growatt_sync import sync_incremental
+    """New inverter/string records and weather-sensor records since the last run."""
+    from app.services.growatt_sync import sync_env_incremental, sync_incremental
 
     today = _today()
     return _per_phase(
-        db, lambda db, c, phase, untagged: sync_incremental(db, c, today, phase=phase, include_untagged=untagged)
+        db,
+        lambda db, c, phase, untagged: {
+            **sync_incremental(db, c, today, phase=phase, include_untagged=untagged),
+            **sync_env_incremental(db, c, today, phase=phase, include_untagged=untagged),
+        },
     )
 
 
 def job_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Re-read the previous two full days to catch uploads that arrived late."""
-    from app.services.growatt_sync import sync_all_history
+    from app.services.growatt_sync import sync_all_history, sync_env_all
 
     today = _today()
     start, end = today - timedelta(days=2), today - timedelta(days=1)
     return _per_phase(
         db,
-        lambda db, c, phase, untagged: sync_all_history(db, c, start, end, phase=phase, include_untagged=untagged),
+        lambda db, c, phase, untagged: {
+            **sync_all_history(db, c, start, end, phase=phase, include_untagged=untagged),
+            **sync_env_all(db, c, start, end, phase=phase, include_untagged=untagged),
+        },
     )
 
 

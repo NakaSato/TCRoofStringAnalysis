@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     JSON,
@@ -412,6 +413,51 @@ class GrowattStringReading(Base):
     voltage_v: Mapped[float] = mapped_column(Float, nullable=False)
     current_a: Mapped[float] = mapped_column(Float, nullable=False)
     power_w: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class GrowattEnvSensor(Base):
+    """Weather (environmental) sensor on a plant's datalogger, from `device/env/env_list`.
+
+    Keyed by (datalogger SN, bus address): Growatt lists every such sensor with `device_sn`
+    "env", so the serial is useless as a key. Online state / last upload are realtime and
+    are not stored.
+    """
+
+    __tablename__ = "growatt_env_sensors"
+
+    datalogger_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    address: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    plant_id: Mapped[int] = mapped_column(Integer, ForeignKey("growatt_plants.plant_id", ondelete="CASCADE"), index=True, nullable=False)
+    device_name: Mapped[Optional[str]] = mapped_column(String(64))
+    history_synced_until: Mapped[Optional[datetime]] = mapped_column(DateTime)  # latest reading stored
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattEnvReading(Base):
+    """5-minute weather-sensor record from `device/env/env_data` (timestamp is plant-local time).
+
+    Values as reported; a probe the sensor is not fitted with reads 0 (nulled per day when read).
+    """
+
+    __tablename__ = "growatt_env_readings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["datalogger_sn", "address"],
+            ["growatt_env_sensors.datalogger_sn", "growatt_env_sensors.address"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_growatt_env_ts", "timestamp"),
+    )
+
+    datalogger_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    address: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    irradiance_wm2: Mapped[Optional[float]] = mapped_column(Float)
+    ambient_temp_c: Mapped[Optional[float]] = mapped_column(Float)
+    module_temp_c: Mapped[Optional[float]] = mapped_column(Float)
+    humidity_pct: Mapped[Optional[float]] = mapped_column(Float)
+    wind_speed_ms: Mapped[Optional[float]] = mapped_column(Float)
+    wind_dir_deg: Mapped[Optional[float]] = mapped_column(Float)
 
 
 class GrowattStringLayout(Base):

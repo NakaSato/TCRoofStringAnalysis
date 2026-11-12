@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
+from app.services import growatt_weather
 from app.services.fleet_settings import get_fleet_module
 from app.db.models import (
     GrowattInverter,
@@ -773,18 +774,48 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     avg_freq_hz = _round(_mean(i["avg_freq_hz"] for i in inverters_out), 2)
     avg_eff_pct = _round(_mean(i["efficiency_pct"] for i in inverters_out), 2)
 
-    # Loss waterfall — a modelled breakdown; only built when every input is measured.
+    # Weather sensor (measured irradiance / temperatures) for the same day, merged onto the
+    # 5-minute curve, and the IEC 61724-1 PR it allows. Null where the plant has no sensor.
+    weather = growatt_weather.build_weather_day(db, plant_id, day, latest_if_none=False)
+    wx_by_ts = {p["timestamp"]: p for p in weather["series"]}
+    for r in timeseries:
+        wx = wx_by_ts.get(r["timestamp"]) or {}
+        r["irradiance_wm2"] = wx.get("irradiance_wm2")  # measured, plane of array
+        r["module_temp_c"] = wx.get("module_temp_c")
+        r["ambient_temp_c"] = wx.get("ambient_temp_c")
+    pr = growatt_weather.iec_pr(
+        yield_today_kwh, cap_kwp, weather, [r["timestamp"] for r in timeseries if r["pac_kw"] > 0]
+    )
+    wk = weather["kpis"]
+
+    # Loss waterfall — a modelled breakdown; only built when every input is measured. With a
+    # weather sensor the reference is the measured POA insolation × kWp (IEC reference yield)
+    # and thermal derating uses the measured module temperature.
     loss_waterfall: List[Dict[str, Any]] = []
-    if yield_today_kwh and plant_pr_pct and avg_temp_c is not None and avg_eff_pct is not None:
-        nominal_dc_kwh = round(yield_today_kwh / max(0.65, plant_pr_pct / 100.0), 1)
-        thermal_loss_kwh = round(nominal_dc_kwh * max(0.015, (avg_temp_c - 25.0) * 0.0034), 1)
+    insolation: Optional[float] = wk["insolation_kwh_m2"]
+    reference_kwh = (
+        round(cap_kwp * insolation, 1) if pr["pr_pct"] is not None and cap_kwp and insolation else None
+    )
+    reference_measured = reference_kwh is not None
+    module_temp_c = wk["avg_module_temp_daylight_c"] if reference_measured else None
+    if yield_today_kwh and (reference_measured or plant_pr_pct) and avg_temp_c is not None and avg_eff_pct is not None:
+        if reference_kwh is not None:
+            nominal_dc_kwh = reference_kwh
+        else:
+            nominal_dc_kwh = round(yield_today_kwh / max(0.65, (plant_pr_pct or 0.0) / 100.0), 1)
+        cell_temp_c = module_temp_c if module_temp_c is not None else avg_temp_c
+        thermal_loss_kwh = round(nominal_dc_kwh * max(0.015, (cell_temp_c - 25.0) * 0.0034), 1)
         mismatch_loss_kwh = round(sum(s["energy_loss_kwh"] or 0.0 for s in strings_summary), 1)
         conv_loss_kwh = round(yield_today_kwh * max(0.0, 100.0 - avg_eff_pct) / 100.0, 1)
         optical_loss_kwh = round(
             max(0.0, nominal_dc_kwh - yield_today_kwh - thermal_loss_kwh - mismatch_loss_kwh - conv_loss_kwh), 1
         )
         loss_waterfall = [
-            {"stage": "Nominal DC Reference", "kwh": nominal_dc_kwh, "type": "base"},
+            {
+                "stage": "POA Insolation × kWp (measured)" if reference_measured else "Nominal DC Reference",
+                "kwh": nominal_dc_kwh,
+                "type": "base",
+            },
             {"stage": "Optical & Soiling Loss", "kwh": -optical_loss_kwh, "type": "loss"},
             {"stage": "Thermal Derating Loss", "kwh": -thermal_loss_kwh, "type": "loss"},
             {"stage": "String & MPPT Mismatch", "kwh": -mismatch_loss_kwh, "type": "loss"},
@@ -819,7 +850,14 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "yield_today_kwh": yield_today_kwh,
             "total_yield_kwh": total_yield_kwh,
             "specific_yield_kwh_per_kwp": round(yield_today_kwh / cap_kwp, 2) if yield_today_kwh is not None and cap_kwp else None,
+            # peer-relative string index (not IEC: compares strings with each other)
             "plant_pr_pct": plant_pr_pct,
+            # IEC 61724-1 PR from the weather sensor's measured irradiance (null without one)
+            "iec_pr_pct": pr["pr_pct"],
+            "insolation_kwh_m2": wk["insolation_kwh_m2"],
+            "peak_irradiance_wm2": wk["peak_irradiance_wm2"],
+            "avg_module_temp_c": wk["avg_module_temp_daylight_c"],
+            "avg_ambient_temp_c": wk["avg_ambient_temp_c"],
             "target_pr_pct": 85.0,
             "conversion_efficiency_pct": avg_eff_pct,
             "avg_temp_c": avg_temp_c,
@@ -840,6 +878,13 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         },
         "inverters": inverters_out,
         "timeseries": timeseries,
+        "weather": {
+            "has_sensor": weather["has_sensor"],
+            "sensors": weather["sensors"],
+            "data_until": weather["meta"]["data_until"],
+            "kpis": wk,
+            "iec_pr": pr,
+        },
         "loss_waterfall": loss_waterfall,
         "strings": strings_summary,
         # String inputs with no current today (unused inputs, or no light yet). Kept out of

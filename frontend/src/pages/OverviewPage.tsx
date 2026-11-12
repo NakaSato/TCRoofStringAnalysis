@@ -27,6 +27,7 @@ import { PlotlyChart } from "../components/PlotlyChart";
 import { Panel, KpiTile, StatusBadge, Led, Meter, EmptyState, LoadingState, statusLevel, fmt, LOADING_STATUS } from "../components/ui";
 import { FleetPlantDirectoryPanel } from "../components/FleetPlantDirectoryPanel";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
+import { WeatherStationPanel } from "../components/WeatherStationPanel";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
@@ -354,6 +355,9 @@ export const OverviewPage: React.FC = () => {
   const yieldTodayKwh = Number(kpis?.yield_today_kwh || 0);
   const totalYieldKwh = Number(kpis?.total_yield_kwh || 0);
   const targetPr = Number(kpis?.target_pr_pct || 85.0);
+  // Measured IEC 61724-1 PR when the plant's weather sensor allows it; else the peer-relative index.
+  const iecPr = kpis?.iec_pr_pct ?? null;
+  const shownPr = iecPr ?? kpis?.plant_pr_pct ?? null;
   const tariff = Number(kpis?.tariff_thb_per_kwh || 4.2);
   const revenueToday = yieldTodayKwh * tariff;
   const co2TodayTonnes = (yieldTodayKwh * GRID_EF_KG_PER_KWH) / 1000;
@@ -402,12 +406,16 @@ export const OverviewPage: React.FC = () => {
               {/* Row 1: KPI strip */}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
                 <KpiTile
-                  label="Plant PR"
+                  label={iecPr != null ? "Plant PR (IEC)" : "PR Index (peer)"}
                   icon={Gauge}
-                  tone={kpis?.plant_pr_pct == null ? "neutral" : kpis.plant_pr_pct >= targetPr ? "ok" : "warn"}
-                  value={fmt(kpis?.plant_pr_pct, 1)}
+                  tone={shownPr == null ? "neutral" : shownPr >= targetPr ? "ok" : "warn"}
+                  value={fmt(shownPr, 1)}
                   unit="%"
-                  hint={`Target ${fmt(kpis?.target_pr_pct, 1)}% · IEC 61724-1`}
+                  hint={
+                    iecPr != null
+                      ? `Target ${fmt(kpis?.target_pr_pct, 1)}% · IEC 61724-1, measured irradiance`
+                      : `Strings vs. peers · not IEC (${selectedPlantOverview.weather?.iec_pr.reason ?? "no irradiance"})`
+                  }
                 />
                 <KpiTile
                   label="PV Power"
@@ -483,8 +491,8 @@ export const OverviewPage: React.FC = () => {
 
                   <div className="grid flex-1 grid-cols-1 items-center gap-6 p-5 sm:p-6 lg:grid-cols-[auto_1fr]">
                     <div className="flex justify-center">
-                      {kpis?.plant_pr_pct != null ? (
-                        <RingGauge value={kpis.plant_pr_pct} target={targetPr} size={168} />
+                      {shownPr != null ? (
+                        <RingGauge value={shownPr} target={targetPr} size={168} />
                       ) : (
                         <div className="flex h-[168px] w-[168px] flex-col items-center justify-center rounded-full border border-white/[0.08]">
                           <div className="eyebrow">Plant PR</div>
@@ -595,6 +603,16 @@ export const OverviewPage: React.FC = () => {
                   </div>
                 </Panel>
               </div>
+
+              {/* Weather station: measured irradiance / temperatures, IEC PR */}
+              {plant && (
+                <WeatherStationPanel
+                  plantId={plant.plant_id}
+                  day={selectedPlantOverview.meta.day ?? null}
+                  dataUntil={selectedPlantOverview.meta.data_until ?? null}
+                  iecPr={selectedPlantOverview.weather?.iec_pr ?? null}
+                />
+              )}
 
               {/* 5-Minute Power & Thermal Profile + Active Alarms */}
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">

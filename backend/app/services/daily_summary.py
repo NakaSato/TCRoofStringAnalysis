@@ -91,6 +91,8 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
             "specific_yield": k["specific_yield_kwh_per_kwp"],
             "peak_kw": k["peak_power_kw"],
             "pr_index_pct": k["plant_pr_pct"],
+            "iec_pr_pct": k["iec_pr_pct"],
+            "insolation_kwh_m2": k["insolation_kwh_m2"],
             "critical_strings": k["critical_strings"],
             "warning_strings": k["warning_strings"],
             "has_data": has_data,
@@ -111,8 +113,17 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                     "yield_kwh": k["yield_today_kwh"],
                     "specific_yield": k["specific_yield_kwh_per_kwp"],
                     "peak_kw": k["peak_power_kw"],
-                    # peer-relative string index, not IEC 61724 PR (no irradiance yet)
+                    # peer-relative string index (strings compared with each other)
                     "pr_index_pct": k["plant_pr_pct"],
+                    # IEC 61724-1 PR from the plant's weather sensor; null without one / poor coverage
+                    "iec_pr_pct": k["iec_pr_pct"],
+                    "weather": {
+                        "insolation_kwh_m2": k["insolation_kwh_m2"],
+                        "peak_irradiance_wm2": k["peak_irradiance_wm2"],
+                        "avg_module_temp_c": k["avg_module_temp_c"],
+                        "avg_ambient_temp_c": k["avg_ambient_temp_c"],
+                        "pr_coverage_pct": ov["weather"]["iec_pr"]["coverage_pct"],
+                    },
                     "conversion_efficiency_pct": k["conversion_efficiency_pct"],
                     "avg_temp_c": k["avg_temp_c"],
                     "max_temp_c": k["max_temp_c"],

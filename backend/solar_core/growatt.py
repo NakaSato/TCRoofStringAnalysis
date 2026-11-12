@@ -170,6 +170,105 @@ class GrowattClient:
             page += 1
 
 
+    # ------------------------------------------------------------------ weather (environmental) sensors
+    # A datalogger with a weather sensor lists a type-3 device whose `device_sn` is literally
+    # "env" in device/list. The sensor itself is addressed by (datalogger SN, bus address),
+    # which only `device/env/env_list` reveals. Rate limits apply per datalogger.
+
+    def list_env_sensors(self, datalogger_sn: str, refresh: bool = False) -> List[Dict[str, Any]]:
+        """Weather sensors on one datalogger (`device/env/env_list`): address, name, lost, lastUpdateTime."""
+        sensors: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            data = self._get("device/env/env_list", use_cache=not refresh, datalog_sn=datalogger_sn, page=page, perpage=100) or {}
+            batch = data.get("envs") or []
+            sensors.extend(batch)
+            if not batch or len(sensors) >= int(data.get("count") or 0):
+                return sensors
+            page += 1
+
+    def env_history(
+        self, datalogger_sn: str, address: int, start_date: date, end_date: date, stop_before: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """Weather-sensor records between two dates (inclusive, max 7 days), newest first, 100 per page.
+
+        `stop_before` stops paging once a page reaches records older than it (incremental sync).
+        """
+        if (end_date - start_date).days > 6:
+            raise ValueError("Growatt env_data date range must not exceed 7 days")
+        records: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            data = self._request(
+                "GET",
+                "device/env/env_data",
+                {
+                    "datalog_sn": datalogger_sn,
+                    "address": address,
+                    "start_date": start_date.strftime("%Y-%m-%d"),
+                    "end_date": end_date.strftime("%Y-%m-%d"),
+                    "page": page,
+                    "perpage": 100,
+                },
+            ) or {}
+            batch = data.get("env_data") or []
+            records.extend(batch)
+            if not batch or len(records) >= int(data.get("count") or 0):
+                return records
+            oldest = _env_time(batch[-1])
+            if stop_before is not None and oldest is not None and oldest < stop_before:
+                return records
+            page += 1
+
+    def env_latest(self, datalogger_sn: str, address: int) -> Optional[Dict[str, Any]]:
+        """Newest weather-sensor record (`device/env/env_last_data`), or None when the sensor has none."""
+        data = self._request("GET", "device/env/env_last_data", {"datalog_sn": datalogger_sn, "address": address})
+        return data if isinstance(data, dict) and data.get("timeText") else None
+
+
+# Weather-sensor fields worth keeping → column name. `env_data` also returns ~20 other
+# fields (rain, snow, pressure, soil, gas, …) that this fleet's sensors are not fitted with:
+# they are always 0 and are dropped. `etodayRadiation` is 0 here too; insolation is
+# integrated from `radiant` instead.
+ENV_FIELDS: Dict[str, str] = {
+    "radiant": "irradiance_wm2",  # plane-of-array irradiance, W/m²
+    "envTemp": "ambient_temp_c",
+    "panelTemp": "module_temp_c",  # back-of-module temperature
+    "envHumidity": "humidity_pct",
+    "windSpeed": "wind_speed_ms",
+    "windAngle": "wind_dir_deg",
+}
+
+
+def _env_time(r: Dict[str, Any]) -> Optional[datetime]:
+    """`timeText` is plant-local wall-clock time. (The Java `calendar` block next to it labels
+    the same wall time as Asia/Shanghai, so its epoch millis are an hour off — ignore it.)"""
+    try:
+        return datetime.strptime(str(r.get("timeText")), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def parse_env_records(datalogger_sn: str, address: int, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """`env_data` records → `growatt_env_readings` rows (one per timestamp, values as reported).
+
+    Values are stored as Growatt reports them; a probe the sensor lacks reads 0, which readers
+    turn into null per day (see `growatt_weather`).
+    """
+    rows: Dict[datetime, Dict[str, Any]] = {}
+    for r in records:
+        ts = _env_time(r)
+        if ts is None:
+            continue
+        rows[ts] = {
+            "datalogger_sn": datalogger_sn,
+            "address": int(address),
+            "timestamp": ts,
+            **{col: _f(r.get(key)) for key, col in ENV_FIELDS.items()},
+        }
+    return list(rows.values())
+
+
 def newest_max_records(client: "GrowattClient", device_sn: str, day: date, n: int = 1) -> List[Dict[str, Any]]:
     """The day's `n` newest `max_data` records, newest first (first page only) — one API call, no paging."""
     data = client._request(

@@ -28,7 +28,7 @@ from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, Tupl
 from zoneinfo import ZoneInfo
 
 from app.config import settings
-from solar_core.growatt import GrowattAPIError, GrowattClient, newest_max_records, parse_max_records
+from solar_core.growatt import ENV_FIELDS, GrowattAPIError, GrowattClient, newest_max_records, parse_max_records
 from solar_core.sun import sun_times
 
 RATE_LIMIT_CODE = 10012
@@ -351,6 +351,73 @@ class GrowattLiveService:
                 refresh_in=min(refresh),  # as soon as any inverter can change
             )
         )
+
+    def plant_weather(
+        self,
+        plant_id: int,
+        sensors: Sequence[Tuple[str, int, Optional[Sequence[str]]]],
+        phase: Optional[int] = None,
+        coords: Optional[Coords] = None,
+    ) -> Dict[str, Any]:
+        """Newest weather-sensor record per sensor of one plant (`env_last_data`). Not persisted.
+
+        `sensors` = (datalogger_sn, address, measured fields or None). Fields outside
+        `measured` (probes that read only 0 in the stored history) are returned as null.
+        Each sensor is cached until its next 5-minute record is due, like `plant_latest`.
+        """
+        ph = self.resolve_phase(phase)
+        ttl = lambda row: self._night(max(self.device_gap_s, self._latest_ttl(row)), coords)
+        out: List[Dict[str, Any]] = []
+        errors: Dict[str, str] = {}
+        fresh_walls: List[datetime] = []
+        all_walls: List[datetime] = []
+        refresh: List[float] = []
+        for dl, addr, measured in sensors:
+            key = ("env", dl, addr)
+            label = f"{dl}/{addr}"
+            try:
+                r = self._get(key, lambda c, dl=dl, addr=addr: _env_row(c, dl, addr), ttl, ph, gap_s=self.device_gap_s)
+            except LiveUnavailable as exc:
+                errors[label] = str(exc)
+                refresh.append(self._refresh_in(key))
+                continue
+            refresh.append(r.refresh_in)
+            all_walls.append(r.wall)
+            if r.error:
+                errors[label] = r.error
+            if not r.stale:
+                fresh_walls.append(r.wall)
+            if r.data is not None:
+                row = dict(r.data)
+                if measured is not None:
+                    for col in ENV_FIELDS.values():
+                        if col not in measured:
+                            row[col] = None
+                out.append({**row, "stale": r.stale, "fetched_at": r.wall.isoformat()})
+        if not all_walls:
+            raise LiveUnavailable("; ".join(f"{k}: {e}" for k, e in errors.items()) or "no weather sensors")
+        return self._envelope(
+            _Result(
+                max(fresh_walls or all_walls),
+                {"plant_id": plant_id, "sensors": out, "errors": errors},
+                stale=not fresh_walls,
+                error="; ".join(f"{k}: {e}" for k, e in errors.items()) or None,
+                refresh_in=min(refresh),
+            )
+        )
+
+
+def _env_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optional[Dict[str, Any]]:
+    rec = client.env_latest(datalogger_sn, address)
+    if rec is None:
+        return None
+    return {
+        "datalogger_sn": datalogger_sn,
+        "address": address,
+        "timestamp": str(rec.get("timeText")),  # plant-local
+        "interval_s": None,  # env_last_data has no previous record; sensors report every 5 min
+        **{col: _f(rec.get(key)) for key, col in ENV_FIELDS.items()},
+    }
 
 
 def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str, Any]]:

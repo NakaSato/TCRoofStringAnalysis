@@ -1,212 +1,249 @@
-import React, { useMemo } from "react";
-import { Sun, Thermometer, Flame, CloudSun, Compass } from "lucide-react";
-import { useAppContext } from "../context/AppContext";
-import { Panel, Meter, fmt } from "./ui";
+import React, { useEffect, useMemo, useState } from "react";
+import { CloudSun, Droplets, Gauge, Sun, Thermometer, Wind } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  api,
+  GrowattIecPr,
+  GrowattLive,
+  GrowattLiveWeather,
+  GrowattWeatherDay,
+  GrowattWeatherField,
+} from "../api/client";
+import { useLivePoll } from "../context/useLivePoll";
+import { PlotlyChart } from "./PlotlyChart";
+import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
 
-export const WeatherStationPanel: React.FC = () => {
-  const { analysisRun, activeDataset } = useAppContext();
+/** Plant-local (Bangkok) date, YYYY-MM-DD. */
+function plantToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+}
 
-  const metrics = useMemo(() => {
-    const kpis = analysisRun?.plant_kpis_json || {};
-    const dailyPlant = analysisRun?.daily_plant_json || [];
-    const dailyString = analysisRun?.daily_string_json || [];
-    const anomalies = analysisRun?.anomalies_json || [];
-    const preview = activeDataset?.preview_rows || [];
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const compass = (deg: number | null | undefined) => (deg == null ? "" : COMPASS[Math.round(deg / 45) % 8]);
 
-    const days = Math.max(1, dailyPlant.length);
-    const refYieldPsh = Number(kpis.reference_yield_psh || 45.5);
-    const dailyPsh = refYieldPsh / days;
+const Card: React.FC<{
+  label: string;
+  icon: LucideIcon;
+  tone: string;
+  value: React.ReactNode;
+  unit?: string;
+  hint?: React.ReactNode;
+  meter?: { value: number | null | undefined; max: number; tone: "solar" | "energy" | "warn" | "ok" | "info" };
+}> = ({ label, icon: Icon, tone, value, unit, hint, meter }) => (
+  <div className="rounded-xl border border-white/[0.06] bg-ink-850/70 p-3.5">
+    <div className="flex items-center justify-between">
+      <span className="eyebrow">{label}</span>
+      <Icon className={`h-3.5 w-3.5 ${tone}`} />
+    </div>
+    <div className={`num mt-1.5 text-xl font-bold ${tone}`}>
+      {value} {unit && <span className="text-xs text-slate-500">{unit}</span>}
+    </div>
+    {hint && <div className="num mt-1 text-[10px] text-slate-400">{hint}</div>}
+    {meter && meter.value != null && <Meter value={meter.value} max={meter.max} tone={meter.tone} className="mt-2" />}
+  </div>
+);
 
-    // Derive peak & daytime mean irradiance from actual plant peak power / capacity & anomaly logs
-    const capKwp = Math.max(1, Number(kpis.total_capacity_kwp || 79.2));
-    const maxDailyPeakKw = Math.max(
-      0,
-      ...dailyPlant.map((d) => Number(d.peak_power_kw || 0))
-    );
-    const anomIrr = anomalies.map((a) => Number(a.avg_irradiance_wm2 || 0));
-    const previewIrr = preview.map((r) => Number(r.irradiance_wm2 || 0));
+/**
+ * Measured weather-sensor data for the selected Growatt plant: stored 5-minute history (DB) plus
+ * the newest reading (live, today only). Fields the sensor does not measure show "—", and the
+ * IEC 61724-1 PR is only shown when the sensor covered the plant's producing time.
+ */
+export const WeatherStationPanel: React.FC<{
+  plantId: number;
+  /** plant-local day shown by the overview (null = latest) */
+  day: string | null;
+  /** changes when new history is synced, to re-read the stored day */
+  dataUntil?: string | null;
+  iecPr?: GrowattIecPr | null;
+}> = ({ plantId, day, dataUntil, iecPr }) => {
+  const [wx, setWx] = useState<GrowattWeatherDay | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<GrowattLive<GrowattLiveWeather> | null>(null);
 
-    const estimatedPeakIrr = Math.min(
-      1080,
-      Math.max(
-        780,
-        (maxDailyPeakKw / capKwp) * 1050,
-        ...anomIrr,
-        ...previewIrr
-      )
-    );
-    const meanDayIrr = Math.round(dailyPsh * 1000 / 9.5);
-
-    // Module temperature from daily_string_json & preview_rows
-    const dailyTemps = dailyString
-      .map((d) => Number(d.avg_module_temp_c || 0))
-      .filter((t) => t > 25);
-    const meanModTemp = dailyTemps.length
-      ? dailyTemps.reduce((a, b) => a + b, 0) / dailyTemps.length + 7.5
-      : 48.4;
-
-    const ambTemps = preview
-      .map((r) => Number(r.ambient_temp_c || 0))
-      .filter((t) => t > 15);
-    const meanAmbTemp = ambTemps.length
-      ? ambTemps.reduce((a, b) => a + b, 0) / ambTemps.length + 4.5
-      : 33.2;
-
-    const deltaT = Math.max(0, meanModTemp - meanAmbTemp);
-    const stcRise = Math.max(0, meanModTemp - 25);
-
-    // Thermal loss from waterfall
-    const waterfall = analysisRun?.waterfall_json || [];
-    const thermalStep = waterfall.find((w) =>
-      String(w.Step || "").toLowerCase().includes("thermal")
-    );
-    const thermalLossKwh = Math.abs(Number(thermalStep?.Energy_kWh || 0));
-
-    // Synthesize diurnal POA bell curve (06:00 - 18:00) scaled to actual peak irradiance
-    const hours = Array.from({ length: 13 }, (_, i) => i + 6);
-    const profile = hours.map((h) => {
-      const x = (h - 12) / 5.5; // -1..+1 around solar noon (12:00)
-      const cosVal = Math.max(0, Math.cos((x * Math.PI) / 2));
-      const bell = Math.pow(cosVal, 1.35);
-      const irr = Math.round(estimatedPeakIrr * bell);
-      const mod = +(meanAmbTemp - 3 + bell * (deltaT + 6)).toFixed(1);
-      return { hour: `${String(h).padStart(2, "0")}:00`, irr, mod };
-    });
-
-    return {
-      peakIrr: estimatedPeakIrr,
-      meanDayIrr,
-      meanModTemp,
-      meanAmbTemp,
-      deltaT,
-      stcRise,
-      thermalLossKwh,
-      refYieldPsh,
-      dailyPsh,
-      profile,
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api
+      .getGrowattPlantWeather(plantId, day ?? undefined)
+      .then((r) => {
+        if (cancelled) return;
+        setWx(r);
+        setError(null);
+      })
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
     };
-  }, [activeDataset, analysisRun]);
+  }, [plantId, day, dataUntil]);
 
-  const maxProfileIrr = Math.max(950, ...metrics.profile.map((p) => p.irr));
+  useEffect(() => setLive(null), [plantId]);
+  const viewingToday = (day ?? wx?.meta.day) === plantToday();
+  useLivePoll(
+    Boolean(wx?.has_sensor) && viewingToday,
+    plantId,
+    () => api.getGrowattLiveWeather(plantId),
+    (r) => setLive(r),
+    () => undefined // live unavailable: the stored history stays on screen
+  );
+
+  const measured = useMemo(() => {
+    const set = new Set<GrowattWeatherField>();
+    wx?.sensors.forEach((s) => s.measured.forEach((f) => set.add(f)));
+    return set;
+  }, [wx]);
+
+  const now = live?.data.sensors[0] ?? null;
+  const k = wx?.kpis;
+
+  const fig = useMemo(() => {
+    const series = wx?.series ?? [];
+    if (!series.length) return null;
+    const x = series.map((p) => p.timestamp);
+    const data: any[] = [
+      {
+        x,
+        y: series.map((p) => p.irradiance_wm2),
+        name: "POA Irradiance (W/m²)",
+        type: "scatter",
+        mode: "lines",
+        fill: "tozeroy",
+        fillcolor: "rgba(251, 191, 36, 0.12)",
+        line: { color: "#fbbf24", width: 2 },
+      },
+    ];
+    if (measured.has("module_temp_c"))
+      data.push({
+        x,
+        y: series.map((p) => p.module_temp_c),
+        name: "Module Temp (°C)",
+        type: "scatter",
+        mode: "lines",
+        yaxis: "y2",
+        line: { color: "#f43f5e", width: 1.6 },
+      });
+    if (measured.has("ambient_temp_c"))
+      data.push({
+        x,
+        y: series.map((p) => p.ambient_temp_c),
+        name: "Ambient Temp (°C)",
+        type: "scatter",
+        mode: "lines",
+        yaxis: "y2",
+        line: { color: "#38bdf8", width: 1.4, dash: "dot" },
+      });
+    return {
+      data,
+      layout: {
+        margin: { l: 50, r: 50, t: 16, b: 36 },
+        xaxis: { title: "Plant-local time (5-min)" },
+        yaxis: { title: "Irradiance (W/m²)", rangemode: "tozero" },
+        yaxis2: { title: "Temp (°C)", overlaying: "y", side: "right", showgrid: false },
+        legend: { orientation: "h", y: 1.12 },
+      },
+    };
+  }, [wx, measured]);
+
+  const subtitle = wx?.sensors.length
+    ? `${wx.sensors.length > 1 ? `${wx.sensors.length} sensors` : "Sensor"} ${wx.sensors
+        .map((s) => `${s.datalogger_sn}#${s.address}`)
+        .join(", ")} · measured, 5-min · ${wx.meta.day ?? "no data"}`
+    : "Plane-of-array irradiance, module & ambient temperature";
 
   return (
     <Panel
       icon={CloudSun}
-      title="Meteorological & Cell Thermal Station"
-      subtitle="Plane-of-Array (POA) pyranometer, PT1000 back-of-module temperature & IEC 61724 thermal derating"
+      title="Weather Station"
+      subtitle={subtitle}
+      actions={
+        live ? (
+          <span
+            className={`badge ${live.stale ? "badge-warn" : "badge-ok"} px-2 py-0.5 text-[10px] font-semibold`}
+            title={`Fetched ${new Date(live.fetched_at).toLocaleTimeString()}`}
+          >
+            {live.stale ? "LIVE (STALE)" : "LIVE"} {now?.timestamp?.slice(11, 16)}
+          </span>
+        ) : null
+      }
     >
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        {/* Left: 4 Weather & Thermal Sensor Cards */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:col-span-7">
-          <div className="rounded-xl border border-white/[0.06] bg-ink-850/70 p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="eyebrow">Peak POA Irrad.</span>
-              <Sun className="h-3.5 w-3.5 text-solar-400" />
-            </div>
-            <div className="num mt-1.5 text-xl font-bold text-solar-400">
-              {fmt(metrics.peakIrr, 0)} <span className="text-xs text-slate-500">W/m²</span>
-            </div>
-            <div className="num mt-1 text-[10px] text-slate-400">
-              Daytime mean: {fmt(metrics.meanDayIrr, 0)} W/m²
-            </div>
-            <Meter value={metrics.peakIrr} max={1100} tone="solar" className="mt-2" />
+      {loading && !wx ? (
+        <LoadingState label="Loading weather-sensor history…" />
+      ) : error ? (
+        <EmptyState icon={CloudSun} title="Weather data unavailable" description={error} />
+      ) : !wx?.has_sensor ? (
+        <EmptyState
+          icon={CloudSun}
+          title="No weather sensor at this plant"
+          description="Growatt lists no environmental sensor on this plant's datalogger, so irradiance and IEC 61724 PR cannot be measured here."
+        />
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+            <Card
+              label={now ? "Irradiance now" : "Peak irradiance"}
+              icon={Sun}
+              tone="text-solar-400"
+              value={fmt(now ? now.irradiance_wm2 : k?.peak_irradiance_wm2, 0)}
+              unit="W/m²"
+              hint={now ? `Peak today ${fmt(k?.peak_irradiance_wm2, 0)} W/m²` : "Plane of array"}
+              meter={{ value: now ? now.irradiance_wm2 : k?.peak_irradiance_wm2, max: 1100, tone: "solar" }}
+            />
+            <Card
+              label="Insolation"
+              icon={Gauge}
+              tone="text-energy-400"
+              value={fmt(k?.insolation_kwh_m2, 2)}
+              unit="kWh/m²"
+              hint={`= ${fmt(k?.insolation_kwh_m2, 2)} peak-sun hours`}
+              meter={{ value: k?.insolation_kwh_m2, max: 7.5, tone: "energy" }}
+            />
+            <Card
+              label="Module vs. ambient"
+              icon={Thermometer}
+              tone="text-amber-300"
+              value={`${fmt(now ? now.module_temp_c : k?.avg_module_temp_daylight_c, 1)}°`}
+              unit="C"
+              hint={
+                now
+                  ? `Ambient ${fmt(now.ambient_temp_c, 1)}°C · max module ${fmt(k?.max_module_temp_c, 1)}°C`
+                  : `Daylight mean · ambient ${fmt(k?.avg_ambient_temp_c, 1)}°C`
+              }
+              meter={{ value: now ? now.module_temp_c : k?.avg_module_temp_daylight_c, max: 75, tone: "warn" }}
+            />
+            <Card
+              label="IEC 61724 PR"
+              icon={Gauge}
+              tone={iecPr?.pr_pct == null ? "text-slate-400" : iecPr.pr_pct >= 80 ? "text-emerald-300" : "text-amber-300"}
+              value={fmt(iecPr?.pr_pct, 1)}
+              unit={iecPr?.pr_pct == null ? undefined : "%"}
+              hint={
+                iecPr?.pr_pct == null
+                  ? iecPr?.reason ?? "needs the plant overview"
+                  : `Yf ${fmt(iecPr.final_yield_h, 2)} h ÷ Yr ${fmt(iecPr.reference_yield_h, 2)} h · ${fmt(iecPr.coverage_pct, 0)}% coverage`
+              }
+            />
+            <Card
+              label="Humidity · wind"
+              icon={measured.has("wind_speed_ms") ? Wind : Droplets}
+              tone="text-sky-300"
+              value={measured.has("humidity_pct") ? `${fmt(now ? now.humidity_pct : k?.avg_humidity_pct, 0)}%` : "—"}
+              hint={
+                measured.has("wind_speed_ms")
+                  ? `Wind ${fmt(now ? now.wind_speed_ms : k?.avg_wind_speed_ms, 1)} m/s ${now ? compass(now.wind_dir_deg) : `avg · max ${fmt(k?.max_wind_speed_ms, 1)}`}`
+                  : "Wind not measured"
+              }
+            />
           </div>
-
-          <div className="rounded-xl border border-white/[0.06] bg-ink-850/70 p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="eyebrow">Insolation (PSH)</span>
-              <Compass className="h-3.5 w-3.5 text-energy-400" />
-            </div>
-            <div className="num mt-1.5 text-xl font-bold text-energy-400">
-              {fmt(metrics.dailyPsh, 2)} <span className="text-xs text-slate-500">h/day</span>
-            </div>
-            <div className="num mt-1 text-[10px] text-slate-400">
-              Cumulative: {fmt(metrics.refYieldPsh, 1)} kWh/m²
-            </div>
-            <Meter value={metrics.dailyPsh} max={7.5} tone="energy" className="mt-2" />
-          </div>
-
-          <div className="rounded-xl border border-white/[0.06] bg-ink-850/70 p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="eyebrow">Module vs. Amb</span>
-              <Thermometer className="h-3.5 w-3.5 text-amber-400" />
-            </div>
-            <div className="num mt-1.5 text-xl font-bold text-white">
-              {fmt(metrics.meanModTemp, 1)}°<span className="text-xs text-slate-500">C</span>
-            </div>
-            <div className="num mt-1 text-[10px] text-amber-300">
-              Amb {fmt(metrics.meanAmbTemp, 1)}°C · ΔT +{fmt(metrics.deltaT, 1)}°C
-            </div>
-            <Meter value={metrics.meanModTemp} max={75} tone="warn" className="mt-2" />
-          </div>
-
-          <div className="rounded-xl border border-white/[0.06] bg-ink-850/70 p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="eyebrow">Thermal Derate</span>
-              <Flame className="h-3.5 w-3.5 text-red-400" />
-            </div>
-            <div className="num mt-1.5 text-xl font-bold text-red-400">
-              −{fmt(metrics.thermalLossKwh, 1)} <span className="text-xs text-slate-500">kWh</span>
-            </div>
-            <div className="num mt-1 text-[10px] text-slate-400">
-              +{fmt(metrics.stcRise, 1)}°C over 25°C STC
-            </div>
-            <Meter value={metrics.stcRise} max={40} tone="crit" className="mt-2" />
-          </div>
+          {fig ? (
+            <PlotlyChart figure={fig} height={260} bare />
+          ) : (
+            <EmptyState icon={Sun} title="No readings stored for this day" description="The weather sensor uploaded nothing for the selected day." />
+          )}
         </div>
-
-        {/* Right: Diurnal Solar Bell Curve (06:00 - 18:00) */}
-        <div className="flex flex-col justify-between rounded-xl border border-white/[0.06] bg-ink-950/60 p-3.5 lg:col-span-5">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="font-semibold text-slate-300">
-              Diurnal POA Irradiance & Cell Temp Profile (06:00–18:00)
-            </span>
-            <span className="num text-[10px] text-solar-400">Peak {fmt(metrics.peakIrr, 0)} W/m²</span>
-          </div>
-
-          <svg viewBox="0 0 260 68" className="mt-2 h-20 w-full overflow-visible">
-            <defs>
-              <linearGradient id="irrBarCool" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fcd34d" stopOpacity="0.95" />
-                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.35" />
-              </linearGradient>
-              <linearGradient id="irrBarHot" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fbbf24" stopOpacity="1" />
-                <stop offset="100%" stopColor="#ef4444" stopOpacity="0.55" />
-              </linearGradient>
-            </defs>
-            {metrics.profile.map((p, idx) => {
-              const barW = 14;
-              const gap = 6;
-              const x = idx * (barW + gap) + 3;
-              const barH = Math.max(4, Math.round((p.irr / maxProfileIrr) * 60));
-              const y = 64 - barH;
-              const hot = p.mod >= 42;
-              return (
-                <g key={p.hour}>
-                  <title>{`${p.hour} · ${fmt(p.irr, 0)} W/m² · Mod ${fmt(p.mod, 1)}°C`}</title>
-                  <rect
-                    x={x}
-                    y={y}
-                    width={barW}
-                    height={barH}
-                    rx={2.5}
-                    fill={hot ? "url(#irrBarHot)" : "url(#irrBarCool)"}
-                  />
-                </g>
-              );
-            })}
-            <line x1="0" y1="65" x2="260" y2="65" stroke="rgba(148,163,184,0.18)" strokeWidth="1" />
-          </svg>
-          <div className="num mt-1.5 flex justify-between text-[9px] text-slate-500">
-            <span>06:00</span>
-            <span>09:00</span>
-            <span>12:00</span>
-            <span>15:00</span>
-            <span>18:00</span>
-          </div>
-        </div>
-      </div>
+      )}
     </Panel>
   );
 };
+
+export default WeatherStationPanel;

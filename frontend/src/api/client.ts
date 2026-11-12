@@ -274,6 +274,69 @@ export interface GrowattLivePlantLatest {
   errors: Record<string, string>;
 }
 
+export type GrowattWeatherField =
+  | "irradiance_wm2"
+  | "ambient_temp_c"
+  | "module_temp_c"
+  | "humidity_pct"
+  | "wind_speed_ms"
+  | "wind_dir_deg";
+
+export interface GrowattWeatherSensor {
+  datalogger_sn: string;
+  address: number;
+  device_name: string | null;
+  samples: number;
+  first_reading: string | null;
+  last_reading: string | null;
+  /** fields the sensor actually reported that day (others read 0 all day = not fitted) */
+  measured: GrowattWeatherField[];
+}
+
+export interface GrowattWeatherKpis {
+  insolation_kwh_m2: number | null;
+  peak_irradiance_wm2: number | null;
+  avg_ambient_temp_c: number | null;
+  max_ambient_temp_c: number | null;
+  avg_module_temp_daylight_c: number | null;
+  max_module_temp_c: number | null;
+  avg_humidity_pct: number | null;
+  avg_wind_speed_ms: number | null;
+  max_wind_speed_ms: number | null;
+}
+
+export interface GrowattIecPr {
+  pr_pct: number | null;
+  reference_yield_h: number | null;
+  final_yield_h: number | null;
+  coverage_pct: number | null;
+  /** why pr_pct is null */
+  reason: string | null;
+}
+
+export type GrowattWeatherPoint = { timestamp: string } & Record<GrowattWeatherField, number | null>;
+
+/** /growatt/plants/{id}/weather — stored 5-minute weather-sensor history (DB only). */
+export interface GrowattWeatherDay {
+  meta: { source: "db"; day: string | null; data_until: string | null };
+  has_sensor: boolean;
+  sensors: GrowattWeatherSensor[];
+  kpis: GrowattWeatherKpis;
+  series: GrowattWeatherPoint[];
+}
+
+/** /growatt/live/plants/{id}/weather — newest reading per sensor (memory only, never stored). */
+export interface GrowattLiveWeather {
+  plant_id: number;
+  sensors: Array<
+    { datalogger_sn: string; address: number; timestamp: string; stale?: boolean; fetched_at?: string } & Record<
+      GrowattWeatherField,
+      number | null
+    >
+  >;
+  errors: Record<string, string>;
+}
+
 export interface GrowattPlantOverview {
   meta: GrowattDbMeta;
   /** set by AppContext when live values are overlaid */
@@ -286,7 +349,14 @@ export interface GrowattPlantOverview {
     yield_today_kwh: number | null;
     total_yield_kwh: number | null;
     specific_yield_kwh_per_kwp: number | null;
+    /** peer-relative string index (strings compared with each other), not IEC */
     plant_pr_pct: number | null;
+    /** IEC 61724-1 PR from the plant's weather sensor; null without one or with poor coverage */
+    iec_pr_pct?: number | null;
+    insolation_kwh_m2?: number | null;
+    peak_irradiance_wm2?: number | null;
+    avg_module_temp_c?: number | null;
+    avg_ambient_temp_c?: number | null;
     target_pr_pct: number;
     conversion_efficiency_pct: number | null;
     avg_temp_c: number | null;
@@ -340,7 +410,18 @@ export interface GrowattPlantOverview {
     expected_kw: number | null;
     temp_c: number | null;
     freq_hz: number | null;
+    /** measured by the weather sensor (null without one) */
+    irradiance_wm2?: number | null;
+    module_temp_c?: number | null;
+    ambient_temp_c?: number | null;
   }>;
+  weather?: {
+    has_sensor: boolean;
+    sensors: GrowattWeatherSensor[];
+    data_until: string | null;
+    kpis: GrowattWeatherKpis;
+    iec_pr: GrowattIecPr;
+  };
   loss_waterfall: Array<{
     stage: string;
     kwh: number;
@@ -694,6 +775,10 @@ export const api = {
     apiFetch<GrowattLive<GrowattInverter[]>>(`/growatt/live/plants/${plantId}/inverters`),
   getGrowattLivePlantLatest: (plantId: number) =>
     apiFetch<GrowattLive<GrowattLivePlantLatest>>(`/growatt/live/plants/${plantId}/latest`),
+  getGrowattLiveWeather: (plantId: number) =>
+    apiFetch<GrowattLive<GrowattLiveWeather>>(`/growatt/live/plants/${plantId}/weather`),
+  getGrowattPlantWeather: (plantId: number, day?: string) =>
+    apiFetch<GrowattWeatherDay>(`/growatt/plants/${plantId}/weather${day ? `?day=${day}` : ""}`),
 
   // Plants
   listPlants: () => apiFetch<Plant[]>("/plants"),

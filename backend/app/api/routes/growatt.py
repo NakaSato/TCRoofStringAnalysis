@@ -14,7 +14,7 @@ Timestamps in the reading tables are plant-local (Thai) time. DB responses carry
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,6 +27,7 @@ from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
 from app.services import fleet_settings
 from app.services import growatt_overview as ov
+from app.services import growatt_weather as wx
 from app.services import jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
 
@@ -98,6 +99,32 @@ def live_plant_latest(
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
 
+@router.get("/live/plants/{plant_id}/weather")
+def live_plant_weather(
+    plant_id: int,
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Newest weather-sensor reading (irradiance, temperatures, humidity, wind) per sensor. Not persisted.
+
+    The DB is read only for the plant's sensor list and which probes it has; nothing is written.
+    """
+    since = datetime.now(jobs.PLANT_TZ).replace(tzinfo=None) - timedelta(days=7)
+    measured = wx.measured_fields(db, plant_id, since)
+    if not measured:
+        raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no weather sensor")
+    try:
+        return live.plant_weather(
+            plant_id,
+            [(dl, addr, fields) for (dl, addr), fields in measured.items()],
+            phase=ov.plant_phase(db, plant_id),
+            coords=ov.plant_coords(db, plant_id),
+        )
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
 # --------------------------------------------------------------------------- persisted (DB only)
 
 
@@ -137,6 +164,23 @@ def get_growatt_plant_overview(
         return ov.build_plant_overview(db, plant_id, day)
     except ov.GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/plants/{plant_id}/weather")
+def get_growatt_plant_weather(
+    plant_id: int,
+    day: Optional[date] = Query(None, description="Plant-local date (YYYY-MM-DD); default = latest day with weather data"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Stored weather-sensor data for one day: 5-minute irradiance, module/ambient temperature,
+    humidity and wind, plus daily insolation and peaks. Probes that read only 0 all day are null.
+    `has_sensor = false` when the plant has no weather sensor."""
+    try:
+        ov._get_plant(db, plant_id)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return wx.build_weather_day(db, plant_id, day)
 
 
 @router.get("/plants/{plant_id}/strings/{device_sn}/{string_no}")

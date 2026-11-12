@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-TC Roof Solar: a PV string performance and O&M suite. It has a FastAPI backend (`backend/`) and a React frontend (`frontend/`), and monitors a fleet of 43 Growatt plants (215 MAX inverters).
+TC Roof Solar: a PV string performance and O&M suite. It has a FastAPI backend (`backend/`) and a React frontend (`frontend/`), and monitors a fleet of 234 Growatt plants (629 MAX inverters, 231 weather sensors).
 
 Folder-specific guidance lives in **`backend/CLAUDE.md`** and **`frontend/CLAUDE.md`**.
 
@@ -33,7 +33,7 @@ Rules for every layer:
 
 1. **Never store realtime values.** Live data stays in backend memory; SQL gets only Growatt-timestamped history.
 2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 250 writes, capped at `PUBLISH_DAILY_WRITE_BUDGET`.
-3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load, irradiance), and label modelled values as modelled.
+3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load; irradiance only where a plant has a weather sensor), and label modelled values as modelled.
 4. **The Growatt tokens stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
 
 ## Deploy (GCP, sized for < $10/month)
