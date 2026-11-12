@@ -20,7 +20,7 @@ import argparse
 import logging
 import time
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
@@ -69,6 +69,35 @@ def _fnum(v: Any) -> Optional[float]:
         return None
 
 
+# Fleet bounding box (Thailand). Growatt returns some plants with lat/lon swapped.
+_LAT_RANGE = (5.0, 21.0)
+_LON_RANGE = (97.0, 106.0)
+
+
+def normalize_coords(lat: Any, lon: Any) -> Tuple[Optional[float], Optional[float]]:
+    """(lat, lon) as floats, swapped back when Growatt reported them reversed.
+
+    A pair that fits the fleet area neither way round is dropped (None, None) rather than guessed.
+    """
+    la, lo = _fnum(lat), _fnum(lon)
+    if la is None or lo is None:
+        return None, None
+
+    def fits(a: float, b: float) -> bool:
+        return _LAT_RANGE[0] <= a <= _LAT_RANGE[1] and _LON_RANGE[0] <= b <= _LON_RANGE[1]
+
+    if fits(la, lo):
+        return la, lo
+    if fits(lo, la):
+        return lo, la
+    return None, None
+
+
+def _coords_row(p: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    lat, lon = normalize_coords(p.get("latitude"), p.get("longitude"))
+    return {"latitude": lat, "longitude": lon}
+
+
 def _retry(fn, label: str, retries: int = 3):
     """Call `fn()`, retrying Growatt errors; 10012 (per-endpoint rate limit) waits minutes."""
     for attempt in range(retries + 1):
@@ -101,8 +130,7 @@ def sync_fleet(
                 "name": p.get("name") or str(p["plant_id"]),
                 "city": p.get("city"),
                 "country": p.get("country"),
-                "latitude": _fnum(p.get("latitude")),
-                "longitude": _fnum(p.get("longitude")),
+                **_coords_row(p),
                 "peak_power_kwp": _fnum(p.get("peak_power")),
                 # current power / total energy / status are realtime: served live, never stored
                 "create_date": p.get("create_date"),

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { Suspense, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Zap,
@@ -18,12 +18,17 @@ import {
   Building2,
   MapPin,
   Radio,
+  Satellite,
+  ExternalLink,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { PlotlyChart } from "../components/PlotlyChart";
 import { Panel, StatusBadge, Led, Meter, EmptyState, LoadingState, statusLevel, fmt, LOADING_STATUS } from "../components/ui";
 import { FleetPlantDirectoryPanel } from "../components/FleetPlantDirectoryPanel";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
+
+// Leaflet (~40 KB gz) is fetched only when a plant map is shown.
+const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
 
 /** Thailand grid emission factor (TGO), kg CO2e per kWh. */
 const GRID_EF_KG_PER_KWH = 0.4999;
@@ -551,8 +556,8 @@ export const OverviewPage: React.FC = () => {
                   </div>
                 </section>
 
+                <div className="flex flex-col gap-6 xl:col-span-4">
                 <Panel
-                  className="xl:col-span-4"
                   icon={HeartPulse}
                   title="Plant String Health"
                   subtitle={`Status across ${totalStrings} wired strings (${inverters.length} inverters)`}
@@ -622,6 +627,46 @@ export const OverviewPage: React.FC = () => {
                     </div>
                   </div>
                 </Panel>
+
+                <Panel
+                  icon={Satellite}
+                  title="Site Satellite"
+                  subtitle={plant?.city ? `${plant.name} · ${plant.city}` : plant?.name}
+                  bodyClassName="overflow-hidden rounded-b-xl"
+                  actions={
+                    plant?.latitude != null && plant?.longitude != null ? (
+                      <a
+                        className="btn-ghost btn-sm"
+                        href={`https://www.google.com/maps?q=${plant.latitude},${plant.longitude}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open in Google Maps"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" /> Maps
+                      </a>
+                    ) : undefined
+                  }
+                >
+                  {plant?.latitude != null && plant?.longitude != null ? (
+                    <Suspense fallback={<div className="flex h-60 items-center justify-center text-xs text-slate-500">Loading map…</div>}>
+                      <PlantSatelliteMap
+                        lat={plant.latitude}
+                        lon={plant.longitude}
+                        name={plant.name}
+                        capacityKwp={plant.peak_power_kwp}
+                      />
+                    </Suspense>
+                  ) : (
+                    <div className="p-4">
+                      <EmptyState
+                        icon={MapPin}
+                        title="Location not set"
+                        description="Growatt has no usable coordinates for this plant."
+                      />
+                    </div>
+                  )}
+                </Panel>
+                </div>
               </div>
 
               {/* 5-Minute Power & Thermal Profile + Active Alarms */}

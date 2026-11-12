@@ -68,3 +68,20 @@ def test_parse_max_records_strings_mppt_and_night_filter():
     assert inv[0]["mppt_json"] == [{"mppt": 1, "v": 730.0, "i": 7.0, "p": 5110.0}]
     # night record produces no string rows; zero-current string 2 is kept (could be a dead string)
     assert [(s["string_no"], s["mppt_no"], s["power_w"]) for s in strings] == [(1, 1, 5110.0), (2, 1, 0.0), (3, 2, 3850.0)]
+
+
+@pytest.mark.parametrize(
+    ("lat", "lon", "expected"),
+    [
+        (13.4404, 102.1636, (13.4404, 102.1636)),  # correct
+        ("102.1636", "13.4404", (13.4404, 102.1636)),  # swapped by Growatt, strings
+        (0, 0, (None, None)),  # unset
+        (48.85, 2.35, (None, None)),  # outside the fleet area either way round
+        (None, 100.5, (None, None)),
+        ("", "", (None, None)),
+    ],
+)
+def test_normalize_coords(lat, lon, expected):
+    from app.services.growatt_sync import normalize_coords
+
+    assert normalize_coords(lat, lon) == expected
