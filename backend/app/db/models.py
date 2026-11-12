@@ -377,6 +377,20 @@ class GrowattInverter(Base):
     datalogger_sn: Mapped[Optional[str]] = mapped_column(String(64))
     model: Mapped[Optional[str]] = mapped_column(String(64))
     device_types: Mapped[Optional[str]] = mapped_column(String(64))  # e.g. "inverter,max"
+    # from `device/max/max_data_info` (refreshed by the fleet job, see growatt_sync.INFO_REFRESH_DAYS)
+    alias: Mapped[Optional[str]] = mapped_column(String(64))  # name set in Growatt, e.g. "INVERTER 7"
+    nominal_power_w: Mapped[Optional[float]] = mapped_column(Float)  # rated AC power (`normalPower`)
+    fw_version: Mapped[Optional[str]] = mapped_column(String(32))
+    inner_version: Mapped[Optional[str]] = mapped_column(String(32))
+    # inverter settings from the same call (configured values, not measurements)
+    active_rate_pct: Mapped[Optional[float]] = mapped_column(Float)  # active power limit; < 100 = curtailed
+    reactive_rate_pct: Mapped[Optional[float]] = mapped_column(Float)
+    pf_setting: Mapped[Optional[float]] = mapped_column(Float)
+    pf_model: Mapped[Optional[int]] = mapped_column(Integer)
+    export_limit: Mapped[Optional[int]] = mapped_column(Integer)
+    export_limit_rate_pct: Mapped[Optional[float]] = mapped_column(Float)
+    on_off: Mapped[Optional[int]] = mapped_column(Integer)  # 1 = on, 0 = switched off
+    info_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     history_synced_until: Mapped[Optional[datetime]] = mapped_column(DateTime)  # latest reading stored
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
@@ -532,6 +546,49 @@ class PublishWriteCount(Base):
     sink: Mapped[str] = mapped_column(String(32), primary_key=True)
     quota_day: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD, Pacific
     writes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class GoogleWeatherHourly(Base):
+    """Hourly weather from the Google Maps Weather API (`history/hours`), per grid cell.
+
+    Modelled by Google for the cell's coordinates, not measured at the plant. Plants share a
+    cell when their coordinates round to the same `GOOGLE_WEATHER_CELL_DEG` grid point (see
+    `services/google_weather.cell_of`). `hour` is the plant-local (Bangkok) start of the hour,
+    naive like the Growatt reading tables. Only history is stored; current conditions stay in memory.
+    """
+
+    __tablename__ = "google_weather_hourly"
+    __table_args__ = (Index("ix_google_weather_hour", "hour"),)
+
+    cell_key: Mapped[str] = mapped_column(String(32), primary_key=True)  # "13.75,100.50"
+    hour: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    condition: Mapped[Optional[str]] = mapped_column(String(48))
+    is_daytime: Mapped[Optional[bool]] = mapped_column(Boolean)
+    temp_c: Mapped[Optional[float]] = mapped_column(Float)
+    feels_like_c: Mapped[Optional[float]] = mapped_column(Float)
+    dew_point_c: Mapped[Optional[float]] = mapped_column(Float)
+    humidity_pct: Mapped[Optional[float]] = mapped_column(Float)
+    cloud_cover_pct: Mapped[Optional[float]] = mapped_column(Float)
+    uv_index: Mapped[Optional[float]] = mapped_column(Float)
+    precip_mm: Mapped[Optional[float]] = mapped_column(Float)
+    precip_prob_pct: Mapped[Optional[float]] = mapped_column(Float)
+    thunder_prob_pct: Mapped[Optional[float]] = mapped_column(Float)
+    wind_speed_ms: Mapped[Optional[float]] = mapped_column(Float)
+    wind_gust_ms: Mapped[Optional[float]] = mapped_column(Float)
+    wind_dir_deg: Mapped[Optional[float]] = mapped_column(Float)
+    pressure_hpa: Mapped[Optional[float]] = mapped_column(Float)
+    visibility_km: Mapped[Optional[float]] = mapped_column(Float)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class ExternalApiCallCount(Base):
+    """Billable calls to an external API per plant-local day (worker and API share the count)."""
+
+    __tablename__ = "external_api_call_counts"
+
+    api: Mapped[str] = mapped_column(String(32), primary_key=True)  # google_weather_history | google_weather_current
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD, plant-local
+    calls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class SyncRun(Base):

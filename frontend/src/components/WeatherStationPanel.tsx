@@ -10,7 +10,9 @@ import {
   GrowattWeatherField,
 } from "../api/client";
 import { useLivePoll } from "../context/useLivePoll";
-import { PlotlyChart } from "./PlotlyChart";
+import { PanelChart } from "./PanelChart";
+import type { ChartSeries, PanelChartSpec } from "./PanelChart";
+import { SERIES } from "./chartTheme";
 import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
 
 /** Plant-local (Bangkok) date, YYYY-MM-DD. */
@@ -38,7 +40,7 @@ const Card: React.FC<{
     <div className={`num mt-1.5 text-xl font-bold ${tone}`}>
       {value} {unit && <span className="text-xs text-slate-500">{unit}</span>}
     </div>
-    {hint && <div className="num mt-1 text-[10px] text-slate-400">{hint}</div>}
+    {hint && <div className="num mt-1 text-[11px] text-slate-400">{hint}</div>}
     {meter && meter.value != null && <Meter value={meter.value} max={meter.max} tone={meter.tone} className="mt-2" />}
   </div>
 );
@@ -97,51 +99,28 @@ export const WeatherStationPanel: React.FC<{
   const now = live?.data.sensors[0] ?? null;
   const k = wx?.kpis;
 
-  const fig = useMemo(() => {
+  const spec = useMemo<PanelChartSpec | null>(() => {
     const series = wx?.series ?? [];
     if (!series.length) return null;
-    const x = series.map((p) => p.timestamp);
-    const data: any[] = [
-      {
-        x,
-        y: series.map((p) => p.irradiance_wm2),
-        name: "POA Irradiance (W/m²)",
-        type: "scatter",
-        mode: "lines",
-        fill: "tozeroy",
-        fillcolor: "rgba(251, 191, 36, 0.12)",
-        line: { color: "#fbbf24", width: 2 },
-      },
-    ];
+    const temps: ChartSeries[] = [];
     if (measured.has("module_temp_c"))
-      data.push({
-        x,
-        y: series.map((p) => p.module_temp_c),
-        name: "Module Temp (°C)",
-        type: "scatter",
-        mode: "lines",
-        yaxis: "y2",
-        line: { color: "#f43f5e", width: 1.6 },
-      });
+      temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: series.map((p) => p.module_temp_c), unit: "°C" });
     if (measured.has("ambient_temp_c"))
-      data.push({
-        x,
-        y: series.map((p) => p.ambient_temp_c),
-        name: "Ambient Temp (°C)",
-        type: "scatter",
-        mode: "lines",
-        yaxis: "y2",
-        line: { color: "#38bdf8", width: 1.4, dash: "dot" },
-      });
+      temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: series.map((p) => p.ambient_temp_c), unit: "°C" });
     return {
-      data,
-      layout: {
-        margin: { l: 50, r: 50, t: 16, b: 36 },
-        xaxis: { title: "Plant-local time (5-min)" },
-        yaxis: { title: "Irradiance (W/m²)", rangemode: "tozero" },
-        yaxis2: { title: "Temp (°C)", overlaying: "y", side: "right", showgrid: false },
-        legend: { orientation: "h", y: 1.12 },
-      },
+      xKind: "time",
+      x: series.map((p) => p.timestamp),
+      panels: [
+        {
+          key: "g",
+          title: "POA irradiance (W/m²)",
+          weight: temps.length ? 1.4 : 1,
+          series: [
+            { key: "g", name: "POA irradiance", type: "line", area: true, color: SERIES.irradiance, y: series.map((p) => p.irradiance_wm2), format: (v) => `${fmt(v, 0)} W/m²` },
+          ],
+        },
+        ...(temps.length ? [{ key: "t", title: "Temperature (°C)", zero: false, series: temps }] : []),
+      ],
     };
   }, [wx, measured]);
 
@@ -159,7 +138,7 @@ export const WeatherStationPanel: React.FC<{
       actions={
         live ? (
           <span
-            className={`badge ${live.stale ? "badge-warn" : "badge-ok"} px-2 py-0.5 text-[10px] font-semibold`}
+            className={`badge ${live.stale ? "badge-warn" : "badge-ok"} px-2 py-0.5 text-[11px] font-semibold`}
             title={`Fetched ${new Date(live.fetched_at).toLocaleTimeString()}`}
           >
             {live.stale ? "LIVE (STALE)" : "LIVE"} {now?.timestamp?.slice(11, 16)}
@@ -235,8 +214,8 @@ export const WeatherStationPanel: React.FC<{
               }
             />
           </div>
-          {fig ? (
-            <PlotlyChart figure={fig} height={260} bare />
+          {spec ? (
+            <PanelChart spec={spec} height={300} />
           ) : (
             <EmptyState icon={Sun} title="No readings stored for this day" description="The weather sensor uploaded nothing for the selected day." />
           )}

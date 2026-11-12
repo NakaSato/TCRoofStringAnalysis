@@ -126,6 +126,21 @@ def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
         "lost": None,
         "last_update_time": None,
         "device_types": (inv.device_types or "").split(",") if inv.device_types else [],
+        "alias": inv.alias,
+        "nominal_power_kw": round(inv.nominal_power_w / 1000, 1) if inv.nominal_power_w else None,
+        "fw_version": inv.fw_version,
+        "inner_version": inv.inner_version,
+        # configured settings (as read at info_synced_at), not measurements
+        "settings": {
+            "active_rate_pct": inv.active_rate_pct,
+            "reactive_rate_pct": inv.reactive_rate_pct,
+            "pf_setting": inv.pf_setting,
+            "pf_model": inv.pf_model,
+            "export_limit": inv.export_limit,
+            "export_limit_rate_pct": inv.export_limit_rate_pct,
+            "on_off": inv.on_off,
+            "read_at": inv.info_synced_at.isoformat() if inv.info_synced_at else None,
+        },
         "synced_at": inv.synced_at.isoformat() if inv.synced_at else None,
     }
 
@@ -552,6 +567,16 @@ def _split_inactive(
     return dead, inactive
 
 
+def _expected_kw(cap_kwp: Optional[float], hr: float) -> Optional[float]:
+    """Modelled clear-sky envelope (not measured): 82 % of kWp at solar noon."""
+    if not cap_kwp:
+        return None
+    if not 6.0 <= hr <= 18.0:
+        return 0.0
+    x = (hr - 12.15) / 5.85
+    return round(cap_kwp * 0.82 * max(0.0, math.cos(x * math.pi / 2.0)) ** 1.3, 2)
+
+
 def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None) -> Dict[str, Any]:
     """Single-plant overview for one day (default: latest day with data)."""
     """Single-plant overview for one day from persisted max_data history.
@@ -657,11 +682,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         for ts in sorted(buckets):
             b = buckets[ts]
             hr = ts.hour + ts.minute / 60.0
-            expected_kw: Optional[float] = None
-            if cap_kwp:
-                # Modelled clear-sky envelope (not measured): 82 % of kWp at solar noon.
-                x = (hr - 12.15) / 5.85
-                expected_kw = round(cap_kwp * 0.82 * max(0.0, math.cos(x * math.pi / 2.0)) ** 1.3, 2) if 6.0 <= hr <= 18.0 else 0.0
+            expected_kw = _expected_kw(cap_kwp, hr)
             pac_kw = round(sum(b["pac"]) / 1000.0, 2)
             ppv_kw = round(sum(b["ppv"]) / 1000.0, 2)
             timeseries.append(
@@ -1043,4 +1064,174 @@ def build_string_detail(
             "mpp_nominal": {"v": v_mpp_nom, "i": i_mpp_nom, "p": round(v_mpp_nom * i_mpp_nom, 1)},
             "mpp_actual": {"v": round(v_mpp_actual, 1), "i": round(i_mpp_actual, 2), "p": p_max_w},
         },
+    }
+
+
+def build_inverter_timeseries(
+    db: Session, plant_id: int, device_sn: str, day: Optional[date] = None
+) -> Dict[str, Any]:
+    """5-minute AC / DC power and temperature of one inverter for one day (stored history).
+
+    `expected_kw` is modelled, from the inverter's share of the plant kWp: the sum of its
+    strings' modules × Wp when every string has a layout entry, else plant kWp / inverters.
+    """
+    plant = _get_plant(db, plant_id)
+    inv = db.scalar(
+        select(GrowattInverter).where(GrowattInverter.plant_id == plant_id, GrowattInverter.device_sn == device_sn)
+    )
+    if inv is None:
+        raise GrowattNotFound(f"Inverter {device_sn} not found on plant {plant_id}")
+
+    if day is None:
+        latest = db.scalar(select(func.max(R.timestamp)).where(R.device_sn == device_sn))
+        day = latest.date() if latest else None
+
+    # Capacity share for the modelled envelope: the inverter's own strings when every one
+    # that carried current that day has a module count (Wp falls back to the fleet module).
+    cap_kwp: Optional[float] = None
+    cap_basis: Optional[str] = None
+    if day is not None:
+        d_start, d_end = _day_bounds(day)
+        seen = {
+            int(n)
+            for (n,) in db.execute(
+                select(S.string_no)
+                .where(S.device_sn == device_sn, S.timestamp >= d_start, S.timestamp < d_end, S.current_a > INACTIVE_MAX_A)
+                .distinct()
+            )
+        }
+        layout = load_layout(db, [device_sn])
+        if seen and all((device_sn, n) in layout and layout[(device_sn, n)][1] for n in seen):
+            w = sum(layout[(device_sn, n)][0] * (layout[(device_sn, n)][1] or 0.0) for n in seen)
+            cap_kwp, cap_basis = round(w / 1000.0, 2), "string_layout"
+    if cap_kwp is None and plant.peak_power_kwp:
+        n_inv = db.scalar(select(func.count()).select_from(GrowattInverter).where(GrowattInverter.plant_id == plant_id))
+        if n_inv:
+            cap_kwp, cap_basis = round(plant.peak_power_kwp / n_inv, 2), "plant_share"
+
+    timeseries: List[Dict[str, Any]] = []
+    strings_heat: Dict[str, Any] = {"string_nos": [], "timestamps": [], "current_a": []}
+    if day is not None:
+        start, end = _day_bounds(day)
+        slots: Dict[datetime, Dict[str, List[float]]] = {}
+        for ts, pac, ppv, temp in db.execute(
+            select(R.timestamp, R.pac_w, R.ppv_w, R.temperature_c)
+            .where(R.device_sn == device_sn, R.timestamp >= start, R.timestamp < end)
+            .order_by(R.timestamp)
+        ):
+            b = slots.setdefault(_bucket(ts), {"pac": [], "ppv": [], "temp": []})
+            b["pac"].append(pac or 0.0)
+            b["ppv"].append(ppv or 0.0)
+            if temp is not None and temp > 0:
+                b["temp"].append(temp)
+        # string current per 5-min slot (rows exist only while the inverter produces)
+        str_slots: Dict[Tuple[datetime, int], List[float]] = {}
+        for ts, n, a in db.execute(
+            select(S.timestamp, S.string_no, S.current_a)
+            .where(S.device_sn == device_sn, S.timestamp >= start, S.timestamp < end)
+            .order_by(S.timestamp)
+        ):
+            str_slots.setdefault((_bucket(ts), int(n)), []).append(float(a))
+        string_nos = sorted({n for _, n in str_slots})
+        str_times = sorted({t for t, _ in str_slots})
+        strings_heat = {
+            "string_nos": string_nos,
+            "timestamps": [_fmt_ts(t) for t in str_times],
+            # [string][slot]; null = no record for that string in that slot
+            "current_a": [
+                [_round(_mean(str_slots[(t, n)]), 2) if (t, n) in str_slots else None for t in str_times]
+                for n in string_nos
+            ],
+        }
+        for ts in sorted(slots):
+            b = slots[ts]
+            timeseries.append(
+                {
+                    "timestamp": _fmt_ts(ts),
+                    "pac_kw": round(statistics.mean(b["pac"]) / 1000.0, 3),
+                    "ppv_kw": round(statistics.mean(b["ppv"]) / 1000.0, 3),
+                    "expected_kw": _expected_kw(cap_kwp, ts.hour + ts.minute / 60.0),
+                    "temp_c": _round(_mean(b["temp"]), 1),
+                }
+            )
+
+    return {
+        "meta": {"source": "db", "day": day.isoformat() if day else None},
+        "plant_id": plant.plant_id,
+        "device_sn": device_sn,
+        "capacity_kwp": cap_kwp,
+        # "string_layout": modules × Wp of its strings; "plant_share": plant kWp / inverters (modelled)
+        "capacity_basis": cap_basis,
+        # rated AC power from Growatt (max_data_info); null until the fleet job has read it
+        "nominal_power_kw": round(inv.nominal_power_w / 1000, 1) if inv.nominal_power_w else None,
+        "timeseries": timeseries,
+        "strings": strings_heat,
+    }
+
+
+MAX_TREND_DAYS = 90  # = raw history retention
+
+
+def build_inverter_daily(
+    db: Session, plant_id: int, device_sn: str, end: Optional[date] = None, days: int = 30
+) -> Dict[str, Any]:
+    """Daily yield, peak AC and max temperature of one inverter over `days` days ending at `end`,
+    with the plant's per-inverter average yield for the same days (stored history only).
+
+    Yield is `eac_today` of each day's last record (the counter carries yesterday's total for
+    a few minutes after midnight, so not MAX()). Days without records are null.
+    """
+    plant = _get_plant(db, plant_id)
+    sns = list(db.scalars(select(GrowattInverter.device_sn).where(GrowattInverter.plant_id == plant_id)))
+    if device_sn not in sns:
+        raise GrowattNotFound(f"Inverter {device_sn} not found on plant {plant_id}")
+    days = max(1, min(int(days), MAX_TREND_DAYS))
+    if end is None:
+        latest = db.scalar(select(func.max(R.timestamp)).where(R.device_sn == device_sn))
+        end = latest.date() if latest else date.today()
+
+    out: List[Dict[str, Any]] = []
+    for k in range(days - 1, -1, -1):
+        d = end - timedelta(days=k)
+        start, stop = _day_bounds(d)
+        last_ts = (
+            select(R.device_sn, func.max(R.timestamp).label("ts"))
+            .where(R.device_sn.in_(sns), R.timestamp >= start, R.timestamp < stop, R.eac_today_kwh.is_not(None))
+            .group_by(R.device_sn)
+        ).subquery()
+        yields = {
+            sn: float(kwh)
+            for sn, kwh in db.execute(
+                select(R.device_sn, R.eac_today_kwh).join(
+                    last_ts, (R.device_sn == last_ts.c.device_sn) & (R.timestamp == last_ts.c.ts)
+                )
+            )
+            if kwh is not None
+        }
+        peak_ac, max_temp = db.execute(
+            select(func.max(R.pac_w), func.max(R.temperature_c)).where(
+                R.device_sn == device_sn, R.timestamp >= start, R.timestamp < stop
+            )
+        ).one()
+        own = yields.get(device_sn)
+        avg = statistics.mean(yields.values()) if yields else None
+        out.append(
+            {
+                "day": d.isoformat(),
+                "yield_kwh": _round(own, 2),
+                "plant_avg_yield_kwh": _round(avg, 2),
+                "inverters_reporting": len(yields),
+                # own yield / plant average × 100; null when either is missing or the average is 0
+                "vs_plant_pct": _round(own / avg * 100.0, 1) if own is not None and avg else None,
+                "peak_ac_kw": _round(peak_ac / 1000.0, 2) if peak_ac is not None else None,
+                "max_temp_c": _round(max_temp, 1) if max_temp is not None and max_temp > 0 else None,
+            }
+        )
+    inv = db.get(GrowattInverter, device_sn)
+    return {
+        "meta": {"source": "db", "from": out[0]["day"], "to": out[-1]["day"], "days": days},
+        "plant_id": plant.plant_id,
+        "device_sn": device_sn,
+        "nominal_power_kw": round(inv.nominal_power_w / 1000, 1) if inv and inv.nominal_power_w else None,
+        "daily": out,
     }

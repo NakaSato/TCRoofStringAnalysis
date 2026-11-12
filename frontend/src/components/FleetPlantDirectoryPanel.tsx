@@ -214,7 +214,7 @@ const PlantThumbnail: React.FC<{ statusLevel: StatusLevel; source: "local" | "gr
         <line x1="14" y1="24" x2="50" y2="24" stroke="#38bdf8" strokeWidth="0.7" strokeOpacity="0.6" />
         <line x1="11" y1="30" x2="53" y2="30" stroke="#38bdf8" strokeWidth="0.7" strokeOpacity="0.6" />
       </svg>
-      <span className="absolute bottom-0.5 right-1 rounded bg-ink-950/80 px-1 text-[8px] font-bold uppercase tracking-wider text-sky-300">
+      <span className="absolute bottom-0.5 right-1 rounded bg-ink-950/80 px-1 text-[10px] font-bold uppercase tracking-wider text-sky-300">
         {source === "local" ? "SCADA" : "CLOUD"}
       </span>
     </div>
@@ -738,7 +738,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     <div className="num text-xs font-bold leading-tight text-white">
                       {heroMetrics.criticalCount}
                     </div>
-                    <div className="text-[10px] text-slate-400">Critical</div>
+                    <div className="text-[11px] text-slate-400">Critical</div>
                   </div>
                 </Link>
 
@@ -753,7 +753,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     <div className="num text-xs font-bold leading-tight text-white">
                       {heroMetrics.majorCount}
                     </div>
-                    <div className="text-[10px] text-slate-400">Major</div>
+                    <div className="text-[11px] text-slate-400">Major</div>
                   </div>
                 </Link>
 
@@ -768,7 +768,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     <div className="num text-xs font-bold leading-tight text-white">
                       {heroMetrics.minorCount}
                     </div>
-                    <div className="text-[10px] text-slate-400">Minor</div>
+                    <div className="text-[11px] text-slate-400">Minor</div>
                   </div>
                 </Link>
 
@@ -783,7 +783,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     <div className="num text-xs font-bold leading-tight text-white">
                       {heroMetrics.warningCount}
                     </div>
-                    <div className="text-[10px] text-slate-400">Warning</div>
+                    <div className="text-[11px] text-slate-400">Warning</div>
                   </div>
                 </Link>
               </div>
@@ -1016,7 +1016,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
         <div className="scroll-x-hint overflow-x-auto">
           <table className="w-full border-collapse text-left text-[11px]">
             <thead>
-              <tr className="bg-ink-850 text-[10px] uppercase tracking-wider text-slate-400">
+              <tr className="bg-ink-850 text-[11px] uppercase tracking-wider text-slate-400">
                 <th className="whitespace-nowrap px-2.5 py-2.5 font-semibold">
                   <span className="inline-flex items-center gap-1">
                     Status <ArrowUpDown className="h-2.5 w-2.5 opacity-50" />
@@ -1105,7 +1105,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 <tr>
                   <td colSpan={12} className="py-12 text-center">
                     <div className="mx-auto flex flex-col items-center justify-center gap-2 text-slate-500">
-                      <Building2 className="h-8 w-8 stroke-1 text-slate-600" />
+                      <Building2 className="h-8 w-8 stroke-1 text-slate-500" />
                       <div className="text-xs font-medium text-slate-400">No data</div>
                       <div className="text-[11px] text-slate-500">
                         No solar plants match the current filter criteria.
@@ -1152,7 +1152,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                           <span className="truncate">{p.name}</span>
                           <ArrowUpRight className="h-3 w-3 shrink-0 text-sky-400 opacity-0 transition group-hover:opacity-100" />
                         </div>
-                        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-500">
+                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
                           <span className="num">#{p.id}</span>
                           {p.phase != null && (
                             <>
@@ -1289,7 +1289,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                       <span className="num text-xs font-semibold text-slate-200">
                         {fmt(Number(s.pr_pct), 1)}%
                       </span>
-                      <span className="num text-[10px] text-slate-500">
+                      <span className="num text-[11px] text-slate-500">
                         {fmt(Number(s.actual_energy_kwh), 0)} kWh
                       </span>
                     </div>
@@ -1310,13 +1310,13 @@ export const FleetPlantDirectoryPanel: React.FC<{
               <button
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={safePage <= 1}
-                className="rounded px-2 py-1 text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-600"
+                className="rounded px-2 py-1 text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-500"
               >
                 ‹
               </button>
               {pageWindow(safePage, totalPages).map((pg, i) =>
                 pg === null ? (
-                  <span key={`gap-${i}`} className="px-1 text-slate-600">
+                  <span key={`gap-${i}`} className="px-1 text-slate-500">
                     …
                   </span>
                 ) : (
@@ -1336,7 +1336,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
               <button
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={safePage >= totalPages}
-                className="rounded px-2 py-1 text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-600"
+                className="rounded px-2 py-1 text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-500"
               >
                 ›
               </button>

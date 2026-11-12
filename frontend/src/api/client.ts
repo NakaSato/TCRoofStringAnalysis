@@ -241,6 +241,29 @@ export interface GrowattLive<T> {
   data: T;
 }
 
+/** One record of the Growatt alarm / fault log (`device/max/alarm_data`); times are plant-local. */
+export interface GrowattAlarm {
+  device_sn: string;
+  start_time: string | null;
+  end_time: string | null;
+  alarm_code: number | string | null;
+  alarm_message: string | null;
+  /** as Growatt labels it: "Warning", "Fault", … */
+  fault_type: string | null;
+  status: number | null;
+}
+
+/** /growatt/live/plants/{id}/alarms — memory only, never stored. */
+export interface GrowattLiveAlarms {
+  plant_id: number;
+  /** first / last plant-local day of the window */
+  from: string;
+  to: string;
+  alarms: GrowattAlarm[];
+  /** inverter-days whose log could not be read ("SN YYYY-MM-DD" -> error) */
+  errors: Record<string, string>;
+}
+
 export interface GrowattLivePlant {
   plant_id: number;
   phase: number;
@@ -249,6 +272,61 @@ export interface GrowattLivePlant {
   total_energy_kwh: number | null;
   peak_power_kwp: number | null;
   status: number | null;
+}
+
+export interface GrowattLiveGrid {
+  v_r: number | null; v_s: number | null; v_t: number | null;
+  v_rs: number | null; v_st: number | null; v_tr: number | null;
+  i_r: number | null; i_s: number | null; i_t: number | null;
+  pf: number | null;
+  reactive_var: number | null;
+  fac_hz: number | null;
+}
+
+/** Fault / warning codes and internal temperatures of the newest record (0 = none, null = not reported). */
+export interface GrowattLiveDiagnostics {
+  fault_type: number | null;
+  fault_code1: number | null;
+  fault_code2: number | null;
+  fault_value: number | null;
+  warn_code: number | null;
+  warning_values: Array<number | null>;
+  pid_fault_code: number | null;
+  /** Growatt string-break bit field, 0 = none */
+  str_break: number | null;
+  pv_iso_kohm: number | null;
+  temperature_c: number | null;
+  ipm_temperature_c: number | null;
+  boost_temperature_c: number | null;
+  /** arc-fault detection status code and level per AFCI channel, as reported */
+  afci_status?: number | null;
+  afci_pv?: Array<number | null>;
+  /** residual (leakage) current and DC injection R/S/T, as reported by Growatt */
+  gfci?: number | null;
+  dci?: Array<number | null>;
+  /** lifetime operating hours (Growatt timeTotal) */
+  time_total_h?: number | null;
+}
+
+export interface GrowattMpptEnergy {
+  mppt: number;
+  today_kwh: number | null;
+  total_kwh: number | null;
+}
+
+/** Inverter settings as configured (read daily by the fleet job), not measurements. */
+export interface GrowattInverterSettings {
+  /** active power limit, % of rated: < 100 = curtailed */
+  active_rate_pct: number | null;
+  reactive_rate_pct: number | null;
+  pf_setting: number | null;
+  pf_model: number | null;
+  export_limit: number | null;
+  export_limit_rate_pct: number | null;
+  /** 1 = on, 0 = switched off */
+  on_off: number | null;
+  /** when Growatt was last asked (UTC ISO) */
+  read_at: string | null;
 }
 
 export interface GrowattLiveInverterLatest {
@@ -261,6 +339,9 @@ export interface GrowattLiveInverterLatest {
   temperature_c: number | null;
   fac_hz: number | null;
   mppt: Array<{ mppt: number; v: number; i: number; p: number }>;
+  grid?: GrowattLiveGrid;
+  diagnostics?: GrowattLiveDiagnostics;
+  mppt_energy?: GrowattMpptEnergy[];
   strings: Array<{ string_no: number; mppt_no: number; voltage_v: number; current_a: number; power_w: number }>;
   /** true = Growatt refused this inverter just now; this is its last good record */
   stale?: boolean;
@@ -325,6 +406,84 @@ export interface GrowattWeatherDay {
   series: GrowattWeatherPoint[];
 }
 
+/** Google Maps Weather values: modelled for the plant's grid cell, not measured at the plant. */
+export interface GoogleWeatherValues {
+  condition: string | null;
+  is_daytime: boolean | null;
+  temp_c: number | null;
+  feels_like_c: number | null;
+  dew_point_c: number | null;
+  humidity_pct: number | null;
+  cloud_cover_pct: number | null;
+  uv_index: number | null;
+  precip_mm: number | null;
+  precip_prob_pct: number | null;
+  thunder_prob_pct: number | null;
+  wind_speed_ms: number | null;
+  wind_gust_ms: number | null;
+  wind_dir_deg: number | null;
+  pressure_hpa: number | null;
+  visibility_km: number | null;
+}
+
+export interface GoogleWeatherCell {
+  key: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface GoogleWeatherSlot {
+  raining: boolean | null;
+  status_th: "ฝนตก" | "ไม่มีฝน" | null;
+  condition: string | null;
+  precip_mm: number | null;
+  precip_prob_pct: number | null;
+  cloud_cover_pct: number | null;
+  temp_c: number | null;
+}
+
+/** /growatt/plants/{id}/google-weather — stored hourly Google weather for one day (DB only). */
+export interface GoogleWeatherDay {
+  meta: { source: "db"; provider: string; modelled: true; day: string | null; cell: GoogleWeatherCell | null };
+  configured: boolean;
+  has_location: boolean;
+  hours: Array<{ hour: string } & GoogleWeatherValues>;
+  kpis: {
+    hours: number;
+    complete: boolean;
+    rain_mm: number | null;
+    rain_hours: number | null;
+    temp_max_c: number | null;
+    temp_min_c: number | null;
+    cloud_cover_daytime_pct: number | null;
+    uv_max: number | null;
+    humidity_avg_pct: number | null;
+    wind_gust_max_ms: number | null;
+    thunder_prob_max_pct: number | null;
+    condition: string | null;
+    rained: boolean | null;
+  };
+  /** rain status at 09:00, 12:00, 17:00 (null = hour not stored yet) */
+  slots: Record<"09" | "12" | "17", GoogleWeatherSlot | null>;
+  rain: { days_since_rain: number | null; last_rain_day: string | null; last_rain_mm: number | null };
+}
+
+/** /growatt/live/plants/{id}/google-weather — current conditions (memory only, cached 30 min per cell). */
+export interface GoogleWeatherNow extends GoogleWeatherValues {
+  plant_id: number;
+  provider: string;
+  modelled: true;
+  cell: GoogleWeatherCell;
+  condition_text: string | null;
+  icon_uri: string | null;
+  precip_type: string | null;
+  time_utc: string | null;
+  time_zone: string | null;
+  past24h_precip_mm: number | null;
+  past24h_max_temp_c: number | null;
+  past24h_min_temp_c: number | null;
+}
+
 /** /growatt/live/plants/{id}/weather — newest reading per sensor (memory only, never stored). */
 export interface GrowattLiveWeather {
   plant_id: number;
@@ -335,6 +494,46 @@ export interface GrowattLiveWeather {
     >
   >;
   errors: Record<string, string>;
+}
+
+/** /growatt/plants/{id}/inverters/{sn}/timeseries — one inverter's stored 5-minute day curve (DB only). */
+export interface GrowattInverterTimeseries {
+  meta: GrowattDbMeta;
+  plant_id: number;
+  device_sn: string;
+  /** kWp behind the modelled reference; null when unknown */
+  capacity_kwp: number | null;
+  /** "string_layout": modules × Wp of its strings; "plant_share": plant kWp / inverters */
+  capacity_basis: "string_layout" | "plant_share" | null;
+  timeseries: Array<{
+    timestamp: string;
+    pac_kw: number;
+    ppv_kw: number;
+    /** modelled clear-sky reference, not measured */
+    expected_kw: number | null;
+    temp_c: number | null;
+  }>;
+  /** rated AC power from Growatt; null until the fleet job has read it */
+  nominal_power_kw?: number | null;
+  /** string current per 5-min slot: current_a[string][slot], null = no record */
+  strings?: { string_nos: number[]; timestamps: string[]; current_a: Array<Array<number | null>> };
+}
+
+export interface GrowattInverterDaily {
+  meta: { source: "db"; from: string; to: string; days: number };
+  plant_id: number;
+  device_sn: string;
+  nominal_power_kw: number | null;
+  daily: Array<{
+    day: string;
+    yield_kwh: number | null;
+    /** mean yield of the plant's inverters that reported that day */
+    plant_avg_yield_kwh: number | null;
+    inverters_reporting: number;
+    vs_plant_pct: number | null;
+    peak_ac_kw: number | null;
+    max_temp_c: number | null;
+  }>;
 }
 
 export interface GrowattPlantOverview {
@@ -381,6 +580,12 @@ export interface GrowattPlantOverview {
     device_sn: string;
     model: string;
     datalogger_sn: string;
+    /** name set in Growatt (e.g. "INVERTER 7"), rated AC power and firmware, from max_data_info */
+    alias?: string | null;
+    nominal_power_kw?: number | null;
+    fw_version?: string | null;
+    inner_version?: string | null;
+    settings?: GrowattInverterSettings;
     status: number | null;
     status_label: string | null;
     lost: boolean | null;
@@ -402,6 +607,10 @@ export interface GrowattPlantOverview {
     mppt_latest: Array<{ mppt: number; v: number; i: number; p: number }>;
     /** plant-local time of the live record overlaid on current_ac_kw / mppt_latest (frontend only) */
     live_at?: string | null;
+    /** grid side and fault / warning codes of the live record (frontend only) */
+    live_grid?: GrowattLiveGrid | null;
+    live_diagnostics?: GrowattLiveDiagnostics | null;
+    live_mppt_energy?: GrowattMpptEnergy[] | null;
   }>;
   timeseries: Array<{
     timestamp: string;
@@ -611,6 +820,12 @@ export interface GrowattInverter {
   last_update_time: string | null;
   device_types: string[];
   synced_at?: string | null;
+  /** name set in Growatt (e.g. "INVERTER 7"), rated AC power and firmware, from max_data_info */
+  alias?: string | null;
+  nominal_power_kw?: number | null;
+  fw_version?: string | null;
+  inner_version?: string | null;
+  settings?: GrowattInverterSettings;
 }
 
 export function getStoredToken(): string | null {
@@ -753,6 +968,14 @@ export const api = {
   listGrowattInverters: (plantId: number) => apiFetch<GrowattInverter[]>(`/growatt/plants/${plantId}/inverters`),
   getGrowattPlantOverview: (plantId: number, day?: string) =>
     apiFetch<GrowattPlantOverview>(`/growatt/plants/${plantId}/overview${day ? `?day=${day}` : ""}`),
+  getGrowattInverterTimeseries: (plantId: number, deviceSn: string, day?: string) =>
+    apiFetch<GrowattInverterTimeseries>(
+      `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/timeseries${day ? `?day=${day}` : ""}`
+    ),
+  getGrowattInverterDaily: (plantId: number, deviceSn: string, days = 30, day?: string) =>
+    apiFetch<GrowattInverterDaily>(
+      `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/daily?days=${days}${day ? `&day=${day}` : ""}`
+    ),
   getGrowattStringDetail: (plantId: number, deviceSn: string, stringNo: number, day?: string) =>
     apiFetch<GrowattStringDetail>(
       `/growatt/plants/${plantId}/strings/${encodeURIComponent(deviceSn)}/${stringNo}${day ? `?day=${day}` : ""}`
@@ -775,10 +998,18 @@ export const api = {
     apiFetch<GrowattLive<GrowattInverter[]>>(`/growatt/live/plants/${plantId}/inverters`),
   getGrowattLivePlantLatest: (plantId: number) =>
     apiFetch<GrowattLive<GrowattLivePlantLatest>>(`/growatt/live/plants/${plantId}/latest`),
+  getGrowattLiveAlarms: (plantId: number, day?: string, days = 7) =>
+    apiFetch<GrowattLive<GrowattLiveAlarms>>(
+      `/growatt/live/plants/${plantId}/alarms?days=${days}${day ? `&day=${day}` : ""}`
+    ),
   getGrowattLiveWeather: (plantId: number) =>
     apiFetch<GrowattLive<GrowattLiveWeather>>(`/growatt/live/plants/${plantId}/weather`),
   getGrowattPlantWeather: (plantId: number, day?: string) =>
     apiFetch<GrowattWeatherDay>(`/growatt/plants/${plantId}/weather${day ? `?day=${day}` : ""}`),
+  getGoogleWeatherDay: (plantId: number, day?: string) =>
+    apiFetch<GoogleWeatherDay>(`/growatt/plants/${plantId}/google-weather${day ? `?day=${day}` : ""}`),
+  getGoogleWeatherLive: (plantId: number) =>
+    apiFetch<GrowattLive<GoogleWeatherNow>>(`/growatt/live/plants/${plantId}/google-weather`),
 
   // Plants
   listPlants: () => apiFetch<Plant[]>("/plants"),

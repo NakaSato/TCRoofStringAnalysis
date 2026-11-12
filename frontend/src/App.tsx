@@ -11,7 +11,9 @@ const page = <K extends string>(load: () => Promise<Record<K, React.ComponentTyp
   React.lazy(() => load().then((m) => ({ default: m[name] })));
 const OverviewPage = page(() => import("./pages/OverviewPage"), "OverviewPage");
 const GenerationPrPage = page(() => import("./pages/GenerationPrPage"), "GenerationPrPage");
+const InvertersPage = page(() => import("./pages/InvertersPage"), "InvertersPage");
 const StringAnalysisPage = page(() => import("./pages/StringAnalysisPage"), "StringAnalysisPage");
+const StringLayoutPage = page(() => import("./pages/StringLayoutPage"), "StringLayoutPage");
 const MaintenanceRcaPage = page(() => import("./pages/MaintenanceRcaPage"), "MaintenanceRcaPage");
 const SubcontractorPqPage = page(() => import("./pages/SubcontractorPqPage"), "SubcontractorPqPage");
 const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage");
@@ -49,7 +51,9 @@ export const App: React.FC = () => {
             <Route index element={<OverviewPage />} />
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="generation" element={<GenerationPrPage />} />
+            <Route path="inverters" element={<InvertersPage />} />
             <Route path="strings" element={<StringAnalysisPage />} />
+            <Route path="string-layout" element={<StringLayoutPage />} />
             <Route path="maintenance" element={<AdminOnly><MaintenanceRcaPage /></AdminOnly>} />
             <Route path="quality" element={<AdminOnly><SubcontractorPqPage /></AdminOnly>} />
             <Route path="she" element={<AdminOnly><SheSafetyPage /></AdminOnly>} />

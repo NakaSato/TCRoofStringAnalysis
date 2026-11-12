@@ -21,6 +21,7 @@ plant's phase; `plants()` asks every account and merges the lists (tagged with `
 from __future__ import annotations
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
@@ -28,12 +29,23 @@ from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, Tupl
 from zoneinfo import ZoneInfo
 
 from app.config import settings
-from solar_core.growatt import ENV_FIELDS, GrowattAPIError, GrowattClient, newest_max_records, parse_max_records
+from solar_core.growatt import (
+    ENV_FIELDS,
+    GrowattAPIError,
+    GrowattClient,
+    newest_max_records,
+    parse_max_diagnostics,
+    parse_max_grid,
+    parse_max_mppt_energy,
+    parse_max_records,
+)
 from solar_core.sun import sun_times
 
 RATE_LIMIT_CODE = 10012
 MIN_REFRESH_S = 15  # floor for refresh_in_s, so an expired key never invites a tight loop
 PLANT_TZ = ZoneInfo("Asia/Bangkok")  # max_data `time` is naive plant-local
+PAST_DAY_ALARM_TTL_S = 6 * 3600.0  # a closed day's alarm log no longer changes
+ALARM_WORKERS = 8  # parallel alarm_data calls for one request (one call per inverter-day)
 
 # Per-inverter expiry follows the upload rhythm (see `_latest_ttl`).
 DEFAULT_INTERVAL_S = 300.0  # when the interval can't be measured (one record so far)
@@ -407,6 +419,91 @@ class GrowattLiveService:
         )
 
 
+    def plant_alarms(
+        self,
+        plant_id: int,
+        device_sns: Sequence[str],
+        days: Sequence[date],
+        phase: Optional[int] = None,
+        coords: Optional[Coords] = None,
+    ) -> Dict[str, Any]:
+        """Growatt alarm / fault log of one plant's inverters over `days` (`device/max/alarm_data`
+        answers one inverter-day per call). Newest alarm first.
+
+        Held in memory like every live value (never written to SQL or Firestore). Each
+        inverter-day is cached separately: a past day cannot change, so it is kept
+        `PAST_DAY_ALARM_TTL_S`; today's log is refreshed every `ttl_s` (stretched at night).
+        Calls run in a small thread pool; per-key locks keep them single-flight.
+        """
+        ph = self.resolve_phase(phase)
+        today = self._now_local().date()
+        keys = [(sn, d) for d in sorted(set(days)) for sn in device_sns]
+
+        def one(sn: str, d: date) -> _Result:
+            ttl: Ttl = PAST_DAY_ALARM_TTL_S if d < today else (lambda _x: self._night(self.ttl_s, coords))
+            return self._get(
+                ("alarms", sn, d), lambda c: [_alarm_row(sn, a) for a in c.max_alarms(sn, d)], ttl, ph
+            )
+
+        results: Dict[Tuple[str, date], Union[_Result, LiveUnavailable]] = {}
+        with ThreadPoolExecutor(max_workers=ALARM_WORKERS) as pool:
+            futures = {pool.submit(one, sn, d): (sn, d) for sn, d in keys}
+            for fut, k in futures.items():
+                try:
+                    results[k] = fut.result()
+                except LiveUnavailable as exc:
+                    results[k] = exc
+
+        alarms: List[Dict[str, Any]] = []
+        errors: Dict[str, str] = {}
+        fresh_walls: List[datetime] = []
+        all_walls: List[datetime] = []
+        refresh: List[float] = []
+        for (sn, d), r in results.items():
+            label = f"{sn} {d.isoformat()}"
+            if isinstance(r, LiveUnavailable):
+                errors[label] = str(r)
+                refresh.append(self._refresh_in(("alarms", sn, d)))
+                continue
+            refresh.append(r.refresh_in)
+            all_walls.append(r.wall)
+            if r.error:
+                errors[label] = r.error
+            if not r.stale:
+                fresh_walls.append(r.wall)
+            alarms.extend(r.data)
+        if not all_walls:
+            raise LiveUnavailable("; ".join(f"{k}: {e}" for k, e in errors.items()) or "no inverters")
+        alarms.sort(key=lambda a: a["start_time"] or "", reverse=True)
+        ds = sorted(set(days))
+        return self._envelope(
+            _Result(
+                min(all_walls),
+                {
+                    "plant_id": plant_id,
+                    "from": ds[0].isoformat(),
+                    "to": ds[-1].isoformat(),
+                    "alarms": alarms,
+                    "errors": errors,
+                },
+                stale=not fresh_walls,
+                error="; ".join(f"{k}: {e}" for k, e in errors.items()) or None,
+                refresh_in=min(refresh),
+            )
+        )
+
+def _alarm_row(sn: str, a: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "device_sn": sn,
+        "start_time": a.get("start_time") or None,  # plant-local
+        "end_time": a.get("end_time") or None,
+        "alarm_code": a.get("alarm_code"),
+        "alarm_message": a.get("alarm_message") or None,
+        "fault_type": a.get("fault_type") or None,
+        "status": a.get("status"),
+    }
+
+
 def _env_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optional[Dict[str, Any]]:
     rec = client.env_latest(datalogger_sn, address)
     if rec is None:
@@ -439,6 +536,9 @@ def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str,
         "temperature_c": row["temperature_c"],
         "fac_hz": row["fac_hz"],
         "mppt": row["mppt_json"],
+        "grid": parse_max_grid(recs[0]),
+        "diagnostics": parse_max_diagnostics(recs[0]),
+        "mppt_energy": parse_max_mppt_energy(recs[0]),
         "strings": [
             {k: r[k] for k in ("string_no", "mppt_no", "voltage_v", "current_a", "power_w")} for r in str_rows
         ],

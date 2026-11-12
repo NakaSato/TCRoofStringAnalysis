@@ -135,6 +135,12 @@ class GrowattClient:
             entry["device_types"].append(DEVICE_TYPE_NAMES.get(dtype, str(dtype)))
         return sorted(merged.values(), key=lambda d: d["device_sn"])
 
+    def max_info(self, device_sn: str) -> Dict[str, Any]:
+        """Static facts of one MAX inverter (`device/max/max_data_info`): name, rating, firmware."""
+        data = self._get("device/max/max_data_info", use_cache=False, device_sn=device_sn) or {}
+        m = data.get("max")
+        return parse_max_info(m if isinstance(m, dict) else data)
+
     def max_history(
         self, device_sn: str, start_date: date, end_date: date, stop_before: Optional[datetime] = None
     ) -> List[Dict[str, Any]]:
@@ -226,6 +232,27 @@ class GrowattClient:
         return data if isinstance(data, dict) and data.get("timeText") else None
 
 
+    def max_alarms(self, device_sn: str, day: date, perpage: int = 100, max_pages: int = 10) -> List[Dict[str, Any]]:
+        """Alarm / fault log of one MAX inverter for one plant-local day (`device/max/alarm_data`, POST).
+
+        Each record: start_time, end_time (plant-local text), alarm_code, alarm_message,
+        fault_type ("Warning" / "Fault" …) and status. Pages until `count` records are read.
+        """
+        out: List[Dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            data = self._request(
+                "POST",
+                "device/max/alarm_data",
+                {"max_sn": device_sn, "date": day.isoformat(), "page": page, "perpage": perpage},
+            )
+            body = data if isinstance(data, dict) else {}
+            batch = body.get("alarms") or []
+            out.extend(batch)
+            total = int(body.get("count") or 0)
+            if not batch or len(out) >= total:
+                break
+        return out
+
 # Weather-sensor fields worth keeping → column name. `env_data` also returns ~20 other
 # fields (rain, snow, pressure, soil, gas, …) that this fleet's sensors are not fitted with:
 # they are always 0 and are dropped. `etodayRadiation` is 0 here too; insolation is
@@ -267,6 +294,88 @@ def parse_env_records(datalogger_sn: str, address: int, records: List[Dict[str, 
             **{col: _f(r.get(key)) for key, col in ENV_FIELDS.items()},
         }
     return list(rows.values())
+
+
+def parse_max_info(m: Dict[str, Any]) -> Dict[str, Any]:
+    """`max_data_info` → registry fields; blanks become None."""
+    text = lambda k: (str(m.get(k)).strip() or None) if m.get(k) not in (None, "") else None
+    power = _f(m.get("normalPower"))
+    num = lambda k: _f(m.get(k)) if m.get(k) not in (None, "") else None
+    integer = lambda k: int(v) if (v := num(k)) is not None else None
+    return {
+        "alias": text("alias"),
+        "nominal_power_w": power if power else None,  # 0 = not reported
+        "fw_version": text("fwVersion"),
+        "inner_version": text("innerVersion"),
+        # settings as configured on the inverter (not measurements)
+        "active_rate_pct": num("activeRate"),  # active power limit, % of rated; < 100 = curtailed
+        "reactive_rate_pct": num("reactiveRate"),
+        "pf_setting": num("pf"),
+        "pf_model": integer("pfModel"),  # Growatt PF mode code
+        "export_limit": integer("exportLimit"),  # export limitation enabled flag / mode as reported
+        "export_limit_rate_pct": num("exportLimitPowerRate"),
+        "on_off": integer("onOff"),  # 1 = on, 0 = switched off
+    }
+
+
+# `max_data` grid-side fields, as reported (V, A, Hz; reactPower in var).
+MAX_GRID_FIELDS = {
+    "vacr": "v_r", "vacs": "v_s", "vact": "v_t",            # phase voltage
+    "vacRs": "v_rs", "vacSt": "v_st", "vacTr": "v_tr",      # line voltage
+    "iacr": "i_r", "iacs": "i_s", "iact": "i_t",
+    "pf": "pf", "reactPower": "reactive_var", "fac": "fac_hz",
+}
+# PV insulation resistance; Growatt reports 65530 when it has no reading.
+PV_ISO_NO_READING = 65530
+
+
+def parse_max_grid(r: Dict[str, Any]) -> Dict[str, Any]:
+    """Grid-side values of one `max_data` record."""
+    return {col: _f(r.get(key)) for key, col in MAX_GRID_FIELDS.items()}
+
+
+def parse_max_diagnostics(r: Dict[str, Any]) -> Dict[str, Any]:
+    """Fault / warning codes and internal temperatures of one `max_data` record, as reported.
+
+    Code 0 = none. `str_break` is Growatt's string-break bit field (0 = none).
+    """
+    num = lambda k: int(v) if (v := _f(r.get(k))) is not None else None
+    iso = _f(r.get("pvIso"))
+    return {
+        "fault_type": num("faultType"),
+        "fault_code1": num("faultCode1"),
+        "fault_code2": num("faultCode2"),
+        "fault_value": num("faultValue"),
+        "warn_code": num("warnCode1"),
+        "warning_values": [num(f"warningValue{n}") for n in (1, 2, 3)],
+        "pid_fault_code": num("pidFaultCode"),
+        "str_break": num("StrBreak"),
+        "pv_iso_kohm": None if iso is None or iso >= PV_ISO_NO_READING else iso,
+        # safety: arc-fault detection and leakage / DC injection, as reported by Growatt
+        "afci_status": num("afciStatus"),
+        "afci_pv": [num("afciPv1"), num("afciPv2")],
+        "gfci": _f(r.get("gfci")),
+        "dci": [_f(r.get("rDci")), _f(r.get("sDci")), _f(r.get("tDci"))],
+        "time_total_h": _round_h(_f(r.get("timeTotal"))),
+        "temperature_c": _f(r.get("temperature")),
+        "ipm_temperature_c": _f(r.get("temperature2")),
+        "boost_temperature_c": _f(r.get("temperature3")),
+    }
+
+
+def _round_h(seconds_or_none: Optional[float]) -> Optional[float]:
+    """`timeTotal` is reported in seconds (25 378 280 ≈ 7 050 h ≈ 1.6 years of daylight) → hours."""
+    return None if seconds_or_none is None else round(seconds_or_none / 3600.0, 1)
+
+
+def parse_max_mppt_energy(r: Dict[str, Any], max_mppts: int = 16) -> List[Dict[str, Any]]:
+    """Today's and lifetime DC energy per PV input (`epv{n}Today` / `epv{n}Total`, kWh)."""
+    out = []
+    for n in range(1, max_mppts + 1):
+        today, total = _f(r.get(f"epv{n}Today")), _f(r.get(f"epv{n}Total"))
+        if today or total:
+            out.append({"mppt": n, "today_kwh": today, "total_kwh": total})
+    return out
 
 
 def newest_max_records(client: "GrowattClient", device_sn: str, day: date, n: int = 1) -> List[Dict[str, Any]]:

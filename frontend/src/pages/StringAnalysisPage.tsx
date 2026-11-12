@@ -13,7 +13,10 @@ import {
 import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
 import type { GrowattStringDetail } from "../api/client";
-import { PlotlyChart } from "../components/PlotlyChart";
+import { PanelChart } from "../components/PanelChart";
+import type { PanelChartSpec } from "../components/PanelChart";
+import { SERIES, STATUS } from "../components/chartTheme";
+import { ivPvSpecFrom } from "../components/ivPvSpec";
 import {
   Panel,
   KpiTile,
@@ -26,6 +29,7 @@ import {
   fmt,
 } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
+import { StringStatusMatrix } from "../components/StringStatusMatrix";
 
 export const StringAnalysisPage: React.FC = () => {
   const {
@@ -106,176 +110,91 @@ export const StringAnalysisPage: React.FC = () => {
     };
   }, [selectedGrowattPlantId, activeString?.device_sn, activeString?.string_no]);
 
-  // 1. I-V & P-V Curve Figure from stringDetail
-  const ivPvFig = useMemo(() => {
+  // 1. I-V curve above P-V curve, sharing the voltage axis (curves are modelled; dots are measured)
+  const ivPvSpec = useMemo<PanelChartSpec | null>(() => {
     if (!stringDetail) return null;
-    const { nominal_points, actual_points, measured_scatter, mpp_nominal, mpp_actual } =
-      stringDetail.iv_pv_curve;
-
-    return {
-      data: [
-        {
-          x: nominal_points.map((p) => p.v),
-          y: nominal_points.map((p) => p.i),
-          name: "Reference I-V Curve (A)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#64748b", width: 2, dash: "dash" },
-        },
-        {
-          x: actual_points.map((p) => p.v),
-          y: actual_points.map((p) => p.i),
-          name: "Actual String I-V Curve (A)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#22d3ee", width: 3 },
-        },
-        {
-          x: measured_scatter.map((p) => p.v),
-          y: measured_scatter.map((p) => p.i),
-          name: "Measured Operating Points (V, I)",
-          type: "scatter",
-          mode: "markers",
-          marker: { color: "#38bdf8", size: 6, opacity: 0.65 },
-        },
-        {
-          x: actual_points.map((p) => p.v),
-          y: actual_points.map((p) => p.p),
-          name: "Actual P-V Power Curve (W)",
-          type: "scatter",
-          mode: "lines",
-          yaxis: "y2",
-          line: { color: "#f59e0b", width: 2.5 },
-        },
-        {
-          x: [mpp_actual.v],
-          y: [mpp_actual.p],
-          name: `Actual MPP (${fmt(mpp_actual.p, 0)} W @ ${fmt(mpp_actual.v, 0)} V)`,
-          type: "scatter",
-          mode: "markers",
-          yaxis: "y2",
-          marker: { color: "#10b981", size: 11, symbol: "diamond", line: { color: "#ffffff", width: 1.5 } },
-        },
-        {
-          x: [mpp_nominal.v],
-          y: [mpp_nominal.p],
-          name: `Reference MPP (${fmt(mpp_nominal.p, 0)} W)`,
-          type: "scatter",
-          mode: "markers",
-          yaxis: "y2",
-          marker: { color: "#94a3b8", size: 9, symbol: "circle-open", line: { width: 2 } },
-        },
-      ],
-      layout: {
-        margin: { l: 52, r: 58, t: 28, b: 48 },
-        xaxis: { title: "String DC Voltage (V)", rangemode: "tozero" },
-        yaxis: { title: "String DC Current (A)", rangemode: "tozero" },
-        yaxis2: {
-          title: "String Power (W)",
-          overlaying: "y",
-          side: "right",
-          showgrid: false,
-          rangemode: "tozero",
-        },
-        legend: { orientation: "h", y: 1.16, x: 0 },
-      },
-    };
+    return ivPvSpecFrom(stringDetail.iv_pv_curve);
   }, [stringDetail]);
 
-  // 2. 5-Minute String Telemetry vs. Peer Median Figure
-  const stringTimeseriesFig = useMemo(() => {
+  // 2. 5-minute string current (vs peer average) above MPPT voltage
+  const stringTimeseriesSpec = useMemo<PanelChartSpec | null>(() => {
     if (!stringDetail || stringDetail.timeseries.length === 0) return null;
     const ts = stringDetail.timeseries;
-    const x = ts.map((r) => r.timestamp);
     return {
-      data: [
+      xKind: "time",
+      x: ts.map((r) => r.timestamp),
+      panels: [
         {
-          x,
-          y: ts.map((r) => r.peer_current_a),
-          name: "Peer Avg Current (A)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#64748b", width: 1.5, dash: "dot" },
+          key: "i",
+          title: "DC current (A)",
+          weight: 1.3,
+          series: [
+            {
+              key: "peer",
+              name: "Peer average",
+              type: "line",
+              dash: "dot",
+              width: 1.5,
+              color: SERIES.reference,
+              y: ts.map((r) => r.peer_current_a),
+              format: (v) => `${fmt(v, 2)} A`,
+            },
+            { key: "i", name: "String current", type: "line", color: SERIES.ac, y: ts.map((r) => r.current_a), format: (v) => `${fmt(v, 2)} A` },
+          ],
         },
         {
-          x,
-          y: ts.map((r) => r.current_a),
-          name: "String Current (A)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#22d3ee", width: 2.2 },
-        },
-        {
-          x,
-          y: ts.map((r) => r.voltage_v),
-          name: "MPPT Voltage (V)",
-          type: "scatter",
-          mode: "lines",
-          yaxis: "y2",
-          line: { color: "#f59e0b", width: 1.8 },
+          key: "v",
+          title: "MPPT voltage (V)",
+          zero: false,
+          series: [{ key: "v", name: "MPPT voltage", type: "line", color: SERIES.dc, y: ts.map((r) => r.voltage_v), format: (v) => `${fmt(v, 0)} V` }],
         },
       ],
-      layout: {
-        margin: { l: 50, r: 55, t: 28, b: 48 },
-        xaxis: { title: "Timestamp (5-Min Intervals)" },
-        yaxis: { title: "DC Current (A)", rangemode: "tozero" },
-        yaxis2: {
-          title: "DC Voltage (V)",
-          overlaying: "y",
-          side: "right",
-          showgrid: false,
-          rangemode: "tozero",
-        },
-        legend: { orientation: "h", y: 1.16, x: 0 },
-      },
     };
   }, [stringDetail]);
 
-  // 3. Peer String PR (%) & Current Mismatch Bar Chart
-  const peerBarFig = useMemo(() => {
+  // 3. Peer-relative string PR (status-coloured) above peak current
+  const peerBarSpec = useMemo<PanelChartSpec | null>(() => {
     const sub = filteredStrings.slice(0, 40);
     if (sub.length === 0) return null;
     return {
-      data: [
+      xKind: "band",
+      x: sub.map((s) => s.string_id),
+      xTickLabel: (id) => sub.find((s) => s.string_id === id)?.short_label ?? String(id),
+      legend: [
+        { label: "Healthy", color: STATUS.good, shape: "bar" },
+        { label: "Warning", color: STATUS.warn, shape: "bar" },
+        { label: "Critical", color: STATUS.crit, shape: "bar" },
+        { label: "Peak current", color: SERIES.secondary, shape: "line" },
+      ],
+      tipExtra: (i) => [{ label: "Diagnosis", value: sub[i].diagnosis }],
+      panels: [
         {
-          x: sub.map((s) => s.string_id),
-          y: sub.map((s) => s.pr_pct),
-          name: "String PR (%)",
-          type: "bar",
-          marker: {
-            color: sub.map((s) =>
-              s.status === "Critical"
-                ? "#ef4444"
-                : s.status === "Warning"
-                ? "#f59e0b"
-                : "#10b981"
-            ),
-          },
+          key: "pr",
+          title: "Peer-relative PR (%) · modelled",
+          weight: 1.5,
+          yMin: 0,
+          yMax: 105,
+          tickSuffix: "%",
+          series: [
+            {
+              key: "pr",
+              name: "String PR",
+              type: "bar",
+              color: STATUS.good,
+              y: sub.map((s) => s.pr_pct),
+              colors: sub.map((s) => (s.status === "Critical" ? STATUS.crit : s.status === "Warning" ? STATUS.warn : STATUS.good)),
+              format: (v) => `${fmt(v, 1)}%`,
+            },
+          ],
         },
         {
-          x: sub.map((s) => s.string_id),
-          y: sub.map((s) => s.i_max),
-          name: "Peak Current I_max (A)",
-          type: "scatter",
-          mode: "lines+markers",
-          yaxis: "y2",
-          line: { color: "#38bdf8", width: 2 },
-          marker: { size: 6, color: "#38bdf8" },
+          key: "imax",
+          title: "Peak current (A)",
+          series: [
+            { key: "imax", name: "Peak current", type: "line", color: SERIES.secondary, y: sub.map((s) => s.i_max), format: (v) => `${fmt(v, 2)} A` },
+          ],
         },
       ],
-      layout: {
-        margin: { l: 50, r: 52, t: 26, b: 85 },
-        xaxis: { title: "String ID (Click any string below to inspect I-V)", tickangle: -35 },
-        yaxis: { title: "String PR (%)", range: [0, 105] },
-        yaxis2: {
-          title: "Peak Current (A)",
-          overlaying: "y",
-          side: "right",
-          showgrid: false,
-          rangemode: "tozero",
-        },
-        legend: { orientation: "h", y: 1.14, x: 0 },
-      },
     };
   }, [filteredStrings]);
 
@@ -428,29 +347,29 @@ export const StringAnalysisPage: React.FC = () => {
               <LoadingState label={`Synthesizing I-V & P-V curves for ${activeString.string_id}…`} />
             ) : (
               <div className="space-y-3">
-                <PlotlyChart figure={ivPvFig} height={330} bare />
+                <PanelChart spec={ivPvSpec} height={360} />
                 {stringDetail && (
                   <div className="grid grid-cols-4 gap-2 rounded-lg border border-white/[0.06] bg-ink-950/60 p-3 text-center text-xs">
                     <div>
-                      <div className="text-[10px] uppercase text-slate-500">V_mpp / V_oc</div>
+                      <div className="text-[11px] uppercase text-slate-500">V_mpp / V_oc</div>
                       <div className="num font-bold text-amber-300">
                         {fmt(stringDetail.summary.v_mpp, 1)} / {fmt(stringDetail.summary.v_oc_est, 1)} V
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase text-slate-500">I_mpp / I_sc</div>
+                      <div className="text-[11px] uppercase text-slate-500">I_mpp / I_sc</div>
                       <div className="num font-bold text-energy-300">
                         {fmt(stringDetail.summary.i_mpp, 2)} / {fmt(stringDetail.summary.i_sc_est, 2)} A
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase text-slate-500">Peak Power (MPP)</div>
+                      <div className="text-[11px] uppercase text-slate-500">Peak Power (MPP)</div>
                       <div className="num font-bold text-emerald-300">
                         {fmt(stringDetail.summary.p_max_w, 0)} W
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase text-slate-500">String PR</div>
+                      <div className="text-[11px] uppercase text-slate-500">String PR</div>
                       <div className="num font-bold text-white">
                         {fmt(stringDetail.summary.pr_pct, 1)}%
                       </div>
@@ -471,7 +390,7 @@ export const StringAnalysisPage: React.FC = () => {
               <LoadingState label="Loading 5-minute string time series…" />
             ) : (
               <div className="space-y-3">
-                <PlotlyChart figure={stringTimeseriesFig} height={330} bare />
+                <PanelChart spec={stringTimeseriesSpec} height={360} />
                 <div className="rounded-lg border border-white/[0.06] bg-ink-950/60 px-3.5 py-2.5 text-xs text-slate-300">
                   <span className="font-semibold text-white">Automated Diagnosis: </span>
                   <span>{activeString.diagnosis}</span>
@@ -482,6 +401,9 @@ export const StringAnalysisPage: React.FC = () => {
         </div>
       )}
 
+      {/* String tiles by inverter / MPPT (moved from Plant Overview) */}
+      <StringStatusMatrix />
+
       {/* Peer String Comparison Bar Chart */}
       <Panel
         icon={Activity}
@@ -490,7 +412,7 @@ export const StringAnalysisPage: React.FC = () => {
           selectedInverterSn === "ALL" ? plant?.name || "All Inverters" : `Inverter ${selectedInverterSn}`
         }`}
       >
-        <PlotlyChart figure={peerBarFig} height={350} bare />
+        <PanelChart spec={peerBarSpec} height={380} />
       </Panel>
 
       {/* Full String Diagnostics Table */}
@@ -582,7 +504,7 @@ export const StringAnalysisPage: React.FC = () => {
                           e.stopPropagation();
                           setInspectedStringId(s.string_id);
                         }}
-                        className="rounded border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-300 hover:bg-sky-500/20"
+                        className="rounded border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/20"
                       >
                         Inspect Drawer
                       </button>

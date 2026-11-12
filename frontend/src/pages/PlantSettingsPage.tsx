@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Save, Settings, Sliders, Cpu, CheckCircle2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Save, Sliders, Cpu, CheckCircle2, Globe2, Layers } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { api, FleetModuleOut, StringSpec } from "../api/client";
 import { PageHeader, Panel } from "../components/ui";
-import { GrowattStringLayoutPanel } from "../components/GrowattStringLayoutPanel";
 import { FleetModulePanel } from "../components/FleetModulePanel";
 import { isAdmin } from "../auth/access";
 
@@ -48,7 +48,7 @@ export const PlantSettingsPage: React.FC = () => {
     });
     await api.updatePlantStrings(activePlant.id, specs);
     await refreshAll();
-    setSavedMsg("Plant configuration and string electrical specifications saved!");
+    setSavedMsg("Legacy plant and string specifications saved.");
   };
 
   const updateSpecField = (idx: number, field: keyof StringSpec, value: any) => {
@@ -60,10 +60,10 @@ export const PlantSettingsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        icon={Settings}
-        eyebrow="System · Plant & String Specifications"
-        title="Plant Configuration & String Nameplate Specs"
-        description="Configure site coordinates, system loss factors, and per-string STC module ratings."
+        icon={Globe2}
+        eyebrow="System · Global Settings"
+        title="Global Settings"
+        description="Fleet-wide settings that apply to every Growatt plant. Settings that belong to one plant live on that plant's tabs."
       />
 
       {savedMsg && (
@@ -73,8 +73,33 @@ export const PlantSettingsPage: React.FC = () => {
         </div>
       )}
 
+      <FleetModulePanel module={fleetModule} onSaved={setFleetModule} />
+
+      <Panel icon={Layers} title="Per-plant settings" subtitle="Not global: set these on the selected plant">
+        <ul className="space-y-2 text-xs text-slate-300">
+          <li>
+            <Link to="/string-layout" className="font-semibold text-sky-300 underline">
+              String Layout
+            </Link>{" "}
+            — modules per string and module Wp for one plant (blank Wp uses the fleet module above).
+          </li>
+          {admin && (
+            <li>
+              <Link to="/users" className="font-semibold text-sky-300 underline">
+                Users &amp; Access
+              </Link>{" "}
+              — which plants each engineer can see.
+            </li>
+          )}
+        </ul>
+      </Panel>
+
       {admin && (
-      <form onSubmit={handleSavePlant} className="space-y-6">
+      <details className="group">
+        <summary className="cursor-pointer select-none text-xs font-semibold text-slate-400 hover:text-slate-200">
+          Legacy analysis plant (uploaded / simulated datasets, not Growatt plants)
+        </summary>
+      <form onSubmit={handleSavePlant} className="mt-4 space-y-6">
         <Panel icon={Sliders} title="General Plant Metadata" subtitle="Geolocation and baseline system loss parameters">
           <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-5">
             <div className="md:col-span-2">
@@ -216,13 +241,11 @@ export const PlantSettingsPage: React.FC = () => {
 
         <button type="submit" className="btn-primary">
           <Save className="h-4 w-4" />
-          Save Plant & String Configuration
+          Save legacy plant & strings
         </button>
       </form>
+      </details>
       )}
-
-      <FleetModulePanel module={fleetModule} onSaved={setFleetModule} />
-      <GrowattStringLayoutPanel fleetModule={fleetModule} />
     </div>
   );
 };

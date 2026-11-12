@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TypeVar
 
 from sqlalchemy import delete, func, or_, select
@@ -183,6 +183,12 @@ def sync_fleet(
             log.error("plant %s weather-sensor discovery failed: %s", pid, exc)
         time.sleep(pause_s)
     pids = [int(p["plant_id"]) for p in plants]
+    try:
+        n_info = _sync_inverter_info(db, client, pids, now, pause_s)
+        log.info("phase %s: inverter info/settings read for %d inverters", phase, n_info)
+    except Exception as exc:  # never break the registry over it
+        db.rollback()
+        log.error("phase %s inverter info sweep failed: %s", phase, exc)
     return list(
         db.scalars(
             select(GrowattInverter)
@@ -190,6 +196,53 @@ def sync_fleet(
             .order_by(GrowattInverter.plant_id, GrowattInverter.device_sn)
         )
     )
+
+
+INFO_REFRESH_HOURS = 20  # settings (power limit, on/off) can change: re-read on each daily fleet run
+
+
+def _sync_inverter_info(
+    db: Session, client: GrowattClient, plant_ids: Sequence[int], now: datetime, pause_s: float = 0.5
+) -> int:
+    """Read name, rating, firmware and settings (`max_data_info`) of the plants' inverters that
+    were never read or were read more than INFO_REFRESH_HOURS ago, oldest first.
+
+    `max_data_info` is tightly rate limited: the first 10012 ends the sweep (the rest are read on
+    the next run, still oldest first); any other failure skips that inverter.
+    """
+    now = now.astimezone(timezone.utc)  # bookkeeping is UTC (SQLite drops tzinfo; read back as UTC)
+    cutoff = now - timedelta(hours=INFO_REFRESH_HOURS)
+    done = 0
+    invs = db.scalars(
+        select(GrowattInverter)
+        .where(GrowattInverter.plant_id.in_(plant_ids))
+        .order_by(GrowattInverter.info_synced_at.is_not(None), GrowattInverter.info_synced_at, GrowattInverter.device_sn)
+    )
+    for inv in list(invs):
+        last = inv.info_synced_at
+        if last is not None and (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) > cutoff:
+            continue
+        try:
+            info = client.max_info(inv.device_sn)
+        except GrowattAPIError as exc:
+            if exc.error_code == RATE_LIMIT_CODE:
+                log.warning("max_data_info rate limited after %d inverters; the rest wait for the next run", done)
+                break
+            log.warning("inverter %s max_data_info failed: %s", inv.device_sn, exc)
+            continue
+        except Exception as exc:
+            log.warning("inverter %s max_data_info failed: %s", inv.device_sn, exc)
+            continue
+        if all(v is None for v in info.values()):  # answered without a `max` block: try again next run
+            log.warning("inverter %s max_data_info returned no data", inv.device_sn)
+            continue
+        for k, v in info.items():
+            setattr(inv, k, v)
+        inv.info_synced_at = now
+        db.commit()
+        done += 1
+        time.sleep(pause_s)
+    return done
 
 
 def sync_env_sensors(db: Session, client: GrowattClient, plant_id: int, now: Optional[datetime] = None) -> int:

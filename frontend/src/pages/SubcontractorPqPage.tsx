@@ -338,7 +338,7 @@ export const SubcontractorPqPage: React.FC = () => {
                       <td className="num font-bold text-solar-400">{row.Test_ID}</td>
                       <td>
                         <div className="font-medium text-slate-100">{row.Test_Description}</div>
-                        <div className="text-[10px] text-slate-500">{row.Category}</div>
+                        <div className="text-[11px] text-slate-500">{row.Category}</div>
                       </td>
                       <td className="text-[11px] text-slate-400">{row.Acceptance_Criteria}</td>
                       <td className="num text-[11px] text-slate-200">{row.Measured_Result}</td>

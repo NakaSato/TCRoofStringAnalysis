@@ -29,7 +29,7 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
 - **`src/components/ui.tsx`**: shared UI pieces.
   - Components: `PageHeader`, `Panel`, `KpiTile`, `StatusBadge`, `Led`, `Meter`, `EmptyState`, `LoadingState`.
   - Formatters `fmt` and `fmtInt` return `"—"` for null or non-finite values.
-- **Charts:** Plotly via `components/PlotlyChart.tsx` (`plotly.js-dist-min`). Pass a `{data, layout}` figure, either built in the page with `useMemo` or returned as Plotly JSON by the backend.
+- **Charts:** D3 only (no Plotly). Every x/y chart is `components/PanelChart.tsx`: pass a `PanelChartSpec` built with `useMemo` (`xKind` time / linear / band, stacked `panels`, each with **one** y scale; never a second y axis, so two units = two panels). Nulls are gaps, never 0. Colours come from `components/chartTheme.ts` by role (`SERIES.ac`, `SERIES.dc`, …; `STATUS.*` only for state); modelled series are labelled "(modelled)" and drawn dashed/dotted in `SERIES.reference`. Special-purpose D3 charts (comparison bars, string heatmap) are in `D3Charts.tsx`; shared tooltip/sizing helpers in `chartKit.tsx`.
 - **Styling:**
   - Tailwind v4 design tokens are in `src/index.css` under `@theme`: `ink-*` surfaces, `solar-*` and `energy-*` accents.
   - Component classes live under `@layer components`: `panel`, `btn`/`btn-ghost`/`btn-sm`, `badge-*`, `led-*`, `data-table`, `num`, `input`/`input-sm`, `select`, `tabs`/`tab`, `callout-*`.

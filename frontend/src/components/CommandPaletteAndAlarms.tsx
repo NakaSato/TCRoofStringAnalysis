@@ -124,8 +124,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "nav-settings",
         category: "Navigation",
-        title: "Plant Configuration",
-        subtitle: "Plant coordinates, loss factors & per-string STC nameplate specs",
+        title: "Global Settings",
+        subtitle: "Fleet module & settings that apply to every plant",
         icon: Settings,
         onSelect: go("/settings"),
         path: "/settings",
@@ -269,7 +269,7 @@ export const CommandPaletteModal: React.FC<{
             placeholder="Jump to any PV string (STR-06), inverter, alarm, or module…"
             className="w-full bg-transparent text-xs text-slate-100 placeholder:text-slate-500 outline-none"
           />
-          <kbd className="num rounded border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[10px] text-slate-400">
+          <kbd className="num rounded border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[11px] text-slate-400">
             ESC
           </kbd>
         </div>
@@ -309,7 +309,7 @@ export const CommandPaletteModal: React.FC<{
                           <span className="truncate text-xs font-semibold text-slate-100">
                             {item.title}
                           </span>
-                          <span className="text-[10px] uppercase tracking-wider text-slate-500">
+                          <span className="text-[11px] uppercase tracking-wider text-slate-500">
                             {item.category}
                           </span>
                         </div>
@@ -328,7 +328,7 @@ export const CommandPaletteModal: React.FC<{
         </div>
 
         {/* Footer hint */}
-        <div className="flex items-center justify-between border-t border-white/[0.06] bg-ink-950/60 px-4 py-2 text-[10px] text-slate-500">
+        <div className="flex items-center justify-between border-t border-white/[0.06] bg-ink-950/60 px-4 py-2 text-[11px] text-slate-500">
           <span>Use ↑↓ arrows to navigate, Enter to select</span>
           <span className="num">⌘K / Ctrl+K</span>
         </div>
@@ -464,7 +464,7 @@ export const AlarmCenterDrawer: React.FC<{
 
                   <div className="mt-1.5 text-xs font-semibold text-slate-100">{a.fault_type}</div>
 
-                  <div className="num mt-1.5 grid grid-cols-3 gap-2 rounded-lg border border-white/[0.05] bg-ink-950/60 p-2 text-[10px]">
+                  <div className="num mt-1.5 grid grid-cols-3 gap-2 rounded-lg border border-white/[0.05] bg-ink-950/60 p-2 text-[11px]">
                     <div>
                       <span className="text-slate-500">Window</span>
                       <div className="text-slate-200">

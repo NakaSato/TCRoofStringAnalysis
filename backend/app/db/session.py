@@ -33,6 +33,18 @@ def build_engine(database_url: str | None = None):
 _ADDED_COLUMNS = [
     ("growatt_plants", "phase", "INTEGER", "CREATE INDEX IF NOT EXISTS ix_growatt_plants_phase ON growatt_plants (phase)"),
     ("users", "username", "VARCHAR(64)", "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)"),
+    ("growatt_inverters", "alias", "VARCHAR(64)", None),
+    ("growatt_inverters", "nominal_power_w", "FLOAT", None),
+    ("growatt_inverters", "fw_version", "VARCHAR(32)", None),
+    ("growatt_inverters", "inner_version", "VARCHAR(32)", None),
+    ("growatt_inverters", "info_synced_at", "TIMESTAMP WITH TIME ZONE", None),
+    ("growatt_inverters", "active_rate_pct", "FLOAT", None),
+    ("growatt_inverters", "reactive_rate_pct", "FLOAT", None),
+    ("growatt_inverters", "pf_setting", "FLOAT", None),
+    ("growatt_inverters", "pf_model", "INTEGER", None),
+    ("growatt_inverters", "export_limit", "INTEGER", None),
+    ("growatt_inverters", "export_limit_rate_pct", "FLOAT", None),
+    ("growatt_inverters", "on_off", "INTEGER", None),
 ]
 
 

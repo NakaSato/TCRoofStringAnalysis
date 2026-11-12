@@ -35,7 +35,7 @@ export const LoginPage: React.FC = () => {
           </div>
           <div>
             <div className="text-lg font-extrabold tracking-tight text-white">GenZ Monitoring</div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
           </div>
         </div>
 

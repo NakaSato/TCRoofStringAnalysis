@@ -529,7 +529,7 @@ export const MaintenanceRcaPage: React.FC = () => {
                 <tr key={rec.id}>
                   <td className="num">
                     <div className="font-bold text-solar-400">{rec.rca_id}</div>
-                    <div className="text-[10px] text-slate-500">{rec.incident_date}</div>
+                    <div className="text-[11px] text-slate-500">{rec.incident_date}</div>
                   </td>
                   <td>
                     <div className="font-semibold text-slate-100">{rec.equipment_category}</div>

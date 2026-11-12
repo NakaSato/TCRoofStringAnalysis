@@ -28,6 +28,7 @@ from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
 from app.services import fleet_settings
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
+from app.services import google_weather as gw
 from app.services import jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
 
@@ -99,6 +100,33 @@ def live_plant_latest(
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
 
+@router.get("/live/plants/{plant_id}/alarms")
+def live_plant_alarms(
+    plant_id: int,
+    day: Optional[date] = Query(None, description="Last plant-local day (YYYY-MM-DD) of the window; default = today"),
+    days: int = Query(7, ge=1, le=31, description="Number of days ending at `day`"),
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Growatt alarm / fault log (`device/max/alarm_data`) of the plant's inverters over the last
+    `days` days, newest first. Cached in memory only; the DB is read only for the inverter list."""
+    sns = [inv["device_sn"] for inv in ov.list_inverters(db, plant_id)]
+    if not sns:
+        raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no inverters")
+    end = day or datetime.now(jobs.PLANT_TZ).date()
+    try:
+        return live.plant_alarms(
+            plant_id,
+            sns,
+            [end - timedelta(days=i) for i in range(days)],
+            phase=ov.plant_phase(db, plant_id),
+            coords=ov.plant_coords(db, plant_id),
+        )
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
 @router.get("/live/plants/{plant_id}/weather")
 def live_plant_weather(
     plant_id: int,
@@ -123,6 +151,26 @@ def live_plant_weather(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
+@router.get("/live/plants/{plant_id}/google-weather")
+def live_plant_google_weather(
+    plant_id: int,
+    db: Session = Depends(get_db),
+    live: gw.GoogleWeatherLive = Depends(gw.get_google_live),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Current conditions from the Google Maps Weather API for the plant's grid cell (modelled,
+    not measured). Cached in memory per cell (`GOOGLE_WEATHER_LIVE_TTL_S`), never stored, and
+    capped per day; over the cap the last value is served as stale."""
+    try:
+        plant = ov._get_plant(db, plant_id)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        return gw.live_plant(db, plant, live)
+    except gw.GoogleWeatherUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Google Weather unavailable: {exc}") from exc
 
 
 # --------------------------------------------------------------------------- persisted (DB only)
@@ -166,6 +214,39 @@ def get_growatt_plant_overview(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/plants/{plant_id}/inverters/{device_sn}/timeseries")
+def get_growatt_inverter_timeseries(
+    plant_id: int,
+    device_sn: str,
+    day: Optional[date] = DAY_QUERY,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Stored 5-minute AC/DC power and temperature of one inverter for one day,
+    plus a modelled clear-sky reference (`expected_kw`)."""
+    try:
+        return ov.build_inverter_timeseries(db, plant_id, device_sn, day)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/plants/{plant_id}/inverters/{device_sn}/daily")
+def get_growatt_inverter_daily(
+    plant_id: int,
+    device_sn: str,
+    day: Optional[date] = DAY_QUERY,
+    days: int = Query(30, ge=1, le=ov.MAX_TREND_DAYS),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Stored daily yield / peak AC / max temperature of one inverter for `days` days ending
+    at `day`, with the plant's average inverter yield per day."""
+    try:
+        return ov.build_inverter_daily(db, plant_id, device_sn, day, days)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/plants/{plant_id}/weather")
 def get_growatt_plant_weather(
     plant_id: int,
@@ -181,6 +262,22 @@ def get_growatt_plant_weather(
     except ov.GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return wx.build_weather_day(db, plant_id, day)
+
+
+@router.get("/plants/{plant_id}/google-weather")
+def get_growatt_plant_google_weather(
+    plant_id: int,
+    day: Optional[date] = Query(None, description="Plant-local date (YYYY-MM-DD); default = latest complete stored day"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Stored hourly Google Maps Weather for one day (modelled): cloud cover, rain, temperature,
+    UV, wind; daily totals and days since the last rain day. Written by the `google_weather` job."""
+    try:
+        plant = ov._get_plant(db, plant_id)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return gw.build_day(db, plant, day)
 
 
 @router.get("/plants/{plant_id}/strings/{device_sn}/{string_no}")

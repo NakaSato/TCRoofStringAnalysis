@@ -12,9 +12,13 @@ import {
   Flame,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { PlotlyChart } from "../components/PlotlyChart";
+import { PanelChart } from "../components/PanelChart";
+import type { PanelChartSpec } from "../components/PanelChart";
+import { SERIES, STATUS } from "../components/chartTheme";
 import { Panel, KpiTile, StatusBadge, LoadingState, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
+import { WeatherStationPanel } from "../components/WeatherStationPanel";
+import { GoogleWeatherPanel } from "../components/GoogleWeatherPanel";
 
 export const GenerationPrPage: React.FC = () => {
   const { selectedPlantOverview, plantOverviewLoading } = useAppContext();
@@ -25,174 +29,176 @@ export const GenerationPrPage: React.FC = () => {
   const timeseries = selectedPlantOverview?.timeseries || [];
   const waterfall = selectedPlantOverview?.loss_waterfall || [];
 
-  // 1. Per-Inverter PR (%) & Specific Yield (kWh/kWp) Chart
-  const inverterPrFig = useMemo(() => {
+  // 1. Per-inverter PR (status-coloured bars vs target) above specific yield
+  const inverterPrSpec = useMemo<PanelChartSpec | null>(() => {
     if (inverters.length === 0) return null;
-    const sns = inverters.map((i) => i.device_sn);
-    const prs = inverters.map((i) => i.pr_pct);
-    const specYields = inverters.map((i) => i.specific_yield);
     const target = kpis?.target_pr_pct ?? 85.0;
-
+    const prs = inverters.map((i) => i.pr_pct);
     return {
-      data: [
+      xKind: "band",
+      x: inverters.map((i) => i.device_sn),
+      xTipLabel: (sn) => {
+        const inv = inverters.find((i) => i.device_sn === sn);
+        return inv?.alias ? `${inv.alias} · ${sn}` : String(sn);
+      },
+      legend: [
+        { label: `≥ target ${target.toFixed(0)}%`, color: STATUS.good, shape: "bar" },
+        { label: "within 5 pts", color: STATUS.warn, shape: "bar" },
+        { label: "below", color: STATUS.crit, shape: "bar" },
+        { label: "Specific yield", color: SERIES.secondary, shape: "line" },
+      ],
+      panels: [
         {
-          x: sns,
-          y: prs,
-          name: "Inverter PR (%)",
-          type: "bar",
-          marker: {
-            color: prs.map((v) =>
-              v == null ? "#64748b" : v >= target ? "#10b981" : v >= target - 5 ? "#f59e0b" : "#ef4444"
-            ),
-          },
+          key: "pr",
+          title: "Peer-relative PR (%) · modelled",
+          weight: 1.5,
+          yMin: 0,
+          yMax: 105,
+          tickSuffix: "%",
+          refLines: [{ y: target, label: `Target ${target.toFixed(1)}%`, color: SERIES.ambient }],
+          series: [
+            {
+              key: "pr",
+              name: "PR",
+              type: "bar",
+              color: STATUS.none,
+              y: prs,
+              colors: prs.map((v) =>
+                v == null ? STATUS.none : v >= target ? STATUS.good : v >= target - 5 ? STATUS.warn : STATUS.crit,
+              ),
+              format: (v) => `${fmt(v, 1)}%`,
+            },
+          ],
         },
         {
-          x: sns,
-          y: sns.map(() => target),
-          name: `Target PR (${target.toFixed(1)}%)`,
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#38bdf8", width: 2, dash: "dash" },
-        },
-        {
-          x: sns,
-          y: specYields,
-          name: "Specific Yield (kWh/kWp)",
-          type: "scatter",
-          mode: "lines+markers",
-          yaxis: "y2",
-          line: { color: "#fbbf24", width: 2 },
-          marker: { size: 7, color: "#fbbf24" },
+          key: "sy",
+          title: "Specific yield (kWh/kWp)",
+          series: [
+            {
+              key: "sy",
+              name: "Specific yield",
+              type: "line",
+              color: SERIES.secondary,
+              y: inverters.map((i) => i.specific_yield),
+              format: (v) => `${fmt(v, 2)} kWh/kWp`,
+            },
+          ],
         },
       ],
-      layout: {
-        margin: { l: 50, r: 55, t: 28, b: 65 },
-        xaxis: { title: "Inverter Serial Number (device_sn)", tickangle: -25 },
-        yaxis: { title: "Performance Ratio (%)", range: [0, 105] },
-        yaxis2: {
-          title: "Specific Yield (kWh/kWp)",
-          overlaying: "y",
-          side: "right",
-          showgrid: false,
-          rangemode: "tozero",
-        },
-        legend: { orientation: "h", y: 1.14, x: 0 },
-      },
     };
   }, [inverters, kpis]);
 
-  // 2. 5-Minute Power Profile (AC vs DC vs Expected Reference)
-  const powerProfileFig = useMemo(() => {
+  // 2. 5-minute power profile: AC vs DC vs modelled clear-sky reference
+  const powerProfileSpec = useMemo<PanelChartSpec | null>(() => {
     if (timeseries.length === 0) return null;
-    const x = timeseries.map((r) => r.timestamp);
     return {
-      data: [
+      xKind: "time",
+      x: timeseries.map((r) => r.timestamp),
+      panels: [
         {
-          x,
-          y: timeseries.map((r) => r.expected_kw),
-          name: "Clear-Sky Reference (kW)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#64748b", width: 1.5, dash: "dot" },
-        },
-        {
-          x,
-          y: timeseries.map((r) => r.ppv_kw),
-          name: "DC PV Input (kW)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#f59e0b", width: 2 },
-        },
-        {
-          x,
-          y: timeseries.map((r) => r.pac_kw),
-          name: "AC Grid Output (kW)",
-          type: "scatter",
-          mode: "lines",
-          fill: "tozeroy",
-          fillcolor: "rgba(16, 185, 129, 0.12)",
-          line: { color: "#10b981", width: 2.2 },
+          key: "p",
+          title: "Power (kW)",
+          series: [
+            {
+              key: "ref",
+              name: "Clear-sky reference (modelled)",
+              type: "line",
+              dash: "dot",
+              width: 1.5,
+              color: SERIES.reference,
+              y: timeseries.map((r) => r.expected_kw),
+              unit: "kW",
+            },
+            { key: "dc", name: "DC input", type: "line", color: SERIES.dc, y: timeseries.map((r) => r.ppv_kw), unit: "kW" },
+            { key: "ac", name: "AC output", type: "line", area: true, color: SERIES.ac, y: timeseries.map((r) => r.pac_kw), unit: "kW" },
+          ],
         },
       ],
-      layout: {
-        margin: { l: 55, r: 25, t: 28, b: 45 },
-        xaxis: { title: "Timestamp (5-Min Intervals)" },
-        yaxis: { title: "Power (kW)", rangemode: "tozero" },
-        legend: { orientation: "h", y: 1.14, x: 0 },
-      },
     };
   }, [timeseries]);
 
-  // 3. Energy Loss Waterfall Chart
-  const waterfallFig = useMemo(() => {
+  // 3. Energy loss waterfall: each loss floats from the running total
+  const waterfallSpec = useMemo<PanelChartSpec | null>(() => {
     if (waterfall.length === 0) return null;
+    let running = 0;
+    const y: number[] = [];
+    const y0: number[] = [];
+    for (const w of waterfall) {
+      if (w.type === "loss") {
+        y0.push(running + w.kwh);
+        y.push(running);
+        running += w.kwh;
+      } else {
+        y0.push(0);
+        y.push(w.kwh);
+        running = w.kwh;
+      }
+    }
     return {
-      data: [
+      xKind: "band",
+      x: waterfall.map((w) => w.stage),
+      legend: [
+        { label: "Reference energy", color: SERIES.ambient, shape: "bar" },
+        { label: "Loss", color: STATUS.crit, shape: "bar" },
+        { label: "Net AC export", color: STATUS.good, shape: "bar" },
+      ],
+      panels: [
         {
-          x: waterfall.map((w) => w.stage),
-          y: waterfall.map((w) => Math.abs(w.kwh)),
-          type: "bar",
-          marker: {
-            color: waterfall.map((w) =>
-              w.type === "base" ? "#38bdf8" : w.type === "net" ? "#10b981" : "#f43f5e"
-            ),
-          },
-          text: waterfall.map((w) => `${w.kwh > 0 && w.type === "loss" ? "-" : ""}${fmt(w.kwh, 1)} kWh`),
-          textposition: "auto",
+          key: "e",
+          title: "Energy (kWh)",
+          series: [
+            {
+              key: "e",
+              name: "Energy",
+              type: "bar",
+              color: SERIES.ambient,
+              y,
+              y0,
+              colors: waterfall.map((w) => (w.type === "base" ? SERIES.ambient : w.type === "net" ? STATUS.good : STATUS.crit)),
+              labels: waterfall.map((w) => fmt(w.kwh, 1)),
+              noTip: true,
+            },
+          ],
         },
       ],
-      layout: {
-        margin: { l: 55, r: 20, t: 24, b: 70 },
-        xaxis: { title: "Loss Stage", tickangle: -20 },
-        yaxis: { title: "Energy (kWh)", rangemode: "tozero" },
-      },
+      tipExtra: (i) => [{ label: waterfall[i].type === "loss" ? "Loss" : "Energy", value: `${fmt(waterfall[i].kwh, 1)} kWh` }],
     };
   }, [waterfall]);
 
-  // 4. Thermal Derating & Efficiency Chart
-  const thermalFig = useMemo(() => {
+  // 4. Inverter temperature (avg / peak) above conversion efficiency
+  const thermalSpec = useMemo<PanelChartSpec | null>(() => {
     if (inverters.length === 0) return null;
     return {
-      data: [
+      xKind: "band",
+      x: inverters.map((i) => i.device_sn),
+      panels: [
         {
-          x: inverters.map((i) => i.device_sn),
-          y: inverters.map((i) => i.avg_temp_c),
-          name: "Avg Operating Temp (°C)",
-          type: "bar",
-          marker: { color: "#f59e0b" },
+          key: "t",
+          title: "Inverter temperature (°C)",
+          weight: 1.4,
+          tickSuffix: "°",
+          series: [
+            { key: "avg", name: "Avg temp", type: "bar", color: SERIES.dc, y: inverters.map((i) => i.avg_temp_c), unit: "°C" },
+            { key: "max", name: "Peak temp", type: "bar", color: SERIES.temp, y: inverters.map((i) => i.max_temp_c), unit: "°C" },
+          ],
         },
         {
-          x: inverters.map((i) => i.device_sn),
-          y: inverters.map((i) => i.max_temp_c),
-          name: "Peak Temp (°C)",
-          type: "bar",
-          marker: { color: "#ef4444" },
-        },
-        {
-          x: inverters.map((i) => i.device_sn),
-          y: inverters.map((i) => i.efficiency_pct),
-          name: "Conversion Efficiency (%)",
-          type: "scatter",
-          mode: "lines+markers",
-          yaxis: "y2",
-          line: { color: "#22d3ee", width: 2.2 },
-          marker: { size: 7, color: "#22d3ee" },
+          key: "eff",
+          title: "DC→AC efficiency (%)",
+          zero: false,
+          tickSuffix: "%",
+          series: [
+            {
+              key: "eff",
+              name: "Efficiency",
+              type: "line",
+              color: SERIES.ac,
+              y: inverters.map((i) => i.efficiency_pct),
+              format: (v) => `${fmt(v, 1)}%`,
+            },
+          ],
         },
       ],
-      layout: {
-        barmode: "group",
-        margin: { l: 50, r: 55, t: 28, b: 65 },
-        xaxis: { title: "Inverter Serial Number", tickangle: -25 },
-        yaxis: { title: "Temperature (°C)", range: [0, 85] },
-        yaxis2: {
-          title: "Efficiency (%)",
-          overlaying: "y",
-          side: "right",
-          showgrid: false,
-          range: [85, 100],
-        },
-        legend: { orientation: "h", y: 1.14, x: 0 },
-      },
     };
   }, [inverters]);
 
@@ -271,6 +277,21 @@ export const GenerationPrPage: React.FC = () => {
         />
       </div>
 
+      {/* Weather station: measured irradiance / temperatures behind the IEC PR (moved from Plant Overview) */}
+      {plant && selectedPlantOverview && (
+        <WeatherStationPanel
+          plantId={plant.plant_id}
+          day={selectedPlantOverview.meta.day ?? null}
+          dataUntil={selectedPlantOverview.meta.data_until ?? null}
+          iecPr={selectedPlantOverview.weather?.iec_pr ?? null}
+        />
+      )}
+
+      {/* Google Maps Weather (modelled): rain at 09/12/17, cloud cover, days since rain */}
+      {plant && selectedPlantOverview && (
+        <GoogleWeatherPanel plantId={plant.plant_id} day={selectedPlantOverview.meta.day ?? null} />
+      )}
+
       {/* Row 1 Charts: Per-Inverter PR Comparison + 5-Min Power Profile */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
         <Panel
@@ -279,7 +300,7 @@ export const GenerationPrPage: React.FC = () => {
           title={`Per-Inverter Performance Ratio & Specific Yield (${inverters.length} Inverters)`}
           subtitle={`Comparison across all inverters at ${plant?.name || "selected plant"}`}
         >
-          <PlotlyChart figure={inverterPrFig} height={360} bare />
+          <PanelChart spec={inverterPrSpec} height={380} />
         </Panel>
 
         <Panel
@@ -288,7 +309,7 @@ export const GenerationPrPage: React.FC = () => {
           title="5-Minute AC Output vs. DC Input & Reference Envelope"
           subtitle="Real-time power conversion tracking across 5-minute intervals"
         >
-          <PlotlyChart figure={powerProfileFig} height={360} bare />
+          <PanelChart spec={powerProfileSpec} height={380} />
         </Panel>
       </div>
 
@@ -300,7 +321,7 @@ export const GenerationPrPage: React.FC = () => {
           title="Plant Energy Loss Waterfall (IEC 61724)"
           subtitle="Breakdown from nominal DC reference to net AC grid export"
         >
-          <PlotlyChart figure={waterfallFig} height={340} bare />
+          <PanelChart spec={waterfallSpec} height={340} />
         </Panel>
 
         <Panel
@@ -309,7 +330,7 @@ export const GenerationPrPage: React.FC = () => {
           title="Inverter Thermal Operating Profile vs. Conversion Efficiency"
           subtitle="Operating temperature (°C) and DC→AC conversion efficiency (%) per inverter"
         >
-          <PlotlyChart figure={thermalFig} height={340} bare />
+          <PanelChart spec={thermalSpec} height={340} />
         </Panel>
       </div>
 
@@ -327,8 +348,10 @@ export const GenerationPrPage: React.FC = () => {
                 <th>Status</th>
                 <th>Inverter SN</th>
                 <th>Model</th>
+                <th>Datalogger</th>
                 <th className="text-right">Strings</th>
                 <th className="text-right">Rated Cap (kWp)</th>
+                <th className="text-right">Current AC (kW)</th>
                 <th className="text-right">Peak DC (kW)</th>
                 <th className="text-right">Peak AC (kW)</th>
                 <th className="text-right">Efficiency (%)</th>
@@ -336,6 +359,7 @@ export const GenerationPrPage: React.FC = () => {
                 <th className="text-right">Specific Yield (kWh/kWp)</th>
                 <th className="text-right">PR (%)</th>
                 <th className="text-right">Temp Avg / Max (°C)</th>
+                <th className="text-right">Grid Freq (Hz)</th>
                 <th className="text-right">Total Yield (MWh)</th>
               </tr>
             </thead>
@@ -359,8 +383,10 @@ export const GenerationPrPage: React.FC = () => {
                     </td>
                     <td className="num font-bold text-white">{inv.device_sn}</td>
                     <td className="num text-xs text-slate-400">{inv.model}</td>
+                    <td className="num text-xs text-slate-500">{inv.datalogger_sn}</td>
                     <td className="num text-right text-sky-300">{inv.string_count}</td>
                     <td className="num text-right text-slate-300">{fmt(inv.capacity_kwp, 2)}</td>
+                    <td className="num text-right font-semibold text-energy-300">{fmt(inv.current_ac_kw, 2)}</td>
                     <td className="num text-right text-amber-300">{fmt(inv.peak_dc_kw, 2)}</td>
                     <td className="num text-right text-energy-300">{fmt(inv.peak_ac_kw, 2)}</td>
                     <td className="num text-right text-emerald-300">{fmt(inv.efficiency_pct, 2)}%</td>
@@ -384,6 +410,7 @@ export const GenerationPrPage: React.FC = () => {
                     <td className="num text-right text-slate-300">
                       {fmt(inv.avg_temp_c, 1)} / {fmt(inv.max_temp_c, 1)}
                     </td>
+                    <td className="num text-right text-slate-300">{fmt(inv.avg_freq_hz, 2)}</td>
                     <td className="num text-right font-bold text-emerald-300">
                       {fmt(inv.total_yield_kwh == null ? null : inv.total_yield_kwh / 1000, 2)}
                     </td>

@@ -15,7 +15,7 @@ from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
-from solar_core.growatt import GrowattAPIError
+from solar_core.growatt import GrowattAPIError, GrowattClient
 
 PLANT = 111
 SN_A, SN_B = "INVA", "INVB"
@@ -132,6 +132,53 @@ def test_string_detail_day_and_peer(client):
     assert d["summary"]["energy_kwh"] == pytest.approx(3.0, abs=0.2)
     assert d["timeseries"][0]["peer_current_a"] == pytest.approx(5.0)
     assert client.get(f"/api/growatt/plants/{PLANT}/strings/{SN_A}/1", params={"day": "2026-11-01"}).status_code == 404
+
+
+def test_inverter_timeseries_5min_slots_and_modelled_reference(client):
+    d = client.get(f"/api/growatt/plants/{PLANT}/inverters/{SN_A}/timeseries").json()
+    assert d["meta"] == {"source": "db", "day": "2026-11-11"}
+    # No layout entries: the modelled reference uses plant kWp / 3 inverters.
+    assert d["capacity_basis"] == "plant_share"
+    assert d["capacity_kwp"] == pytest.approx(6.67)
+    day_rows = [r for r in d["timeseries"] if r["timestamp"].startswith("2026-11-11 10:") or "T10:" in r["timestamp"]]
+    assert len(day_rows) == 12  # 1-minute records averaged into 5-minute slots
+    assert day_rows[0]["pac_kw"] == pytest.approx(6.0)
+    assert day_rows[0]["ppv_kw"] == pytest.approx(6.2)
+    assert day_rows[0]["temp_c"] == pytest.approx(40.0)
+    assert day_rows[0]["expected_kw"] > 0
+    # Missing temperature stays null; an inverter with no readings has an empty series.
+    b = client.get(f"/api/growatt/plants/{PLANT}/inverters/{SN_B}/timeseries").json()
+    assert all(r["temp_c"] is None for r in b["timeseries"])
+    c = client.get(f"/api/growatt/plants/{PLANT}/inverters/INVC/timeseries").json()
+    assert c["timeseries"] == [] and c["meta"]["day"] is None
+    assert client.get(f"/api/growatt/plants/{PLANT}/inverters/NOPE/timeseries").status_code == 404
+
+
+def test_inverter_timeseries_string_heatmap_and_rating(client):
+    d = client.get(f"/api/growatt/plants/{PLANT}/inverters/{SN_A}/timeseries").json()
+    h = d["strings"]
+    assert h["string_nos"] == [1, 2]
+    assert len(h["timestamps"]) == 12 and len(h["current_a"]) == 2 and len(h["current_a"][0]) == 12
+    assert h["current_a"][0][0] == pytest.approx(5.0)
+    assert d["nominal_power_kw"] is None  # not read from Growatt yet: null, not a guess
+    b = client.get(f"/api/growatt/plants/{PLANT}/inverters/{SN_B}/timeseries").json()
+    assert b["strings"] == {"string_nos": [], "timestamps": [], "current_a": []}
+
+
+def test_inverter_daily_trend_vs_plant_average(client):
+    d = client.get(f"/api/growatt/plants/{PLANT}/inverters/{SN_A}/daily", params={"days": 3}).json()
+    assert d["meta"] == {"source": "db", "from": "2026-11-09", "to": "2026-11-11", "days": 3}
+    last = d["daily"][-1]
+    # last eac_today of the day (5.9), not the 99 kWh carried over from the day before
+    assert last["yield_kwh"] == pytest.approx(5.9)
+    assert last["plant_avg_yield_kwh"] == pytest.approx(4.95)  # (5.9 + 4.0) / 2 reporting inverters
+    assert last["inverters_reporting"] == 2
+    assert last["vs_plant_pct"] == pytest.approx(119.2)
+    assert last["peak_ac_kw"] == pytest.approx(6.0) and last["max_temp_c"] == pytest.approx(40.0)
+    # days without records are null, never zero
+    assert d["daily"][0]["yield_kwh"] is None and d["daily"][0]["vs_plant_pct"] is None
+    assert client.get(f"/api/growatt/plants/{PLANT}/inverters/{SN_A}/daily", params={"days": 91}).status_code == 422
+    assert client.get(f"/api/growatt/plants/{PLANT}/inverters/NOPE/daily").status_code == 404
 
 
 class _FakeClient:
@@ -570,3 +617,65 @@ def test_overview_inactive_inputs_fill_mppt_slots_and_dead_strings_stay_critical
     assert strings[4]["status"] == "Critical"
     assert any(a["string_no"] == 4 and a["category"] == "Open String Fault" for a in ov["anomalies"])
     assert ov["kpis"]["inactive_strings"] == 2 and ov["kpis"]["string_count"] == 4
+
+
+class _FakeAlarmClient(GrowattClient):
+    """Answers device/max/alarm_data: INVA has 3 alarms over two pages, INVB fails, INVC none."""
+
+    def __init__(self):
+        self.calls, self.dates = [], []
+
+    def _request(self, method, path, params):
+        assert method == "POST" and path == "device/max/alarm_data"
+        self.calls.append((params["max_sn"], params["page"]))
+        self.dates.append((params["max_sn"], params["date"]))
+        if params["max_sn"] == SN_B:
+            raise GrowattAPIError("device offline", error_code=10001)
+        if params["max_sn"] == "INVC" or params["date"] != "2026-11-10":
+            return {"alarms": [], "count": 0}
+        rows = [
+            {"start_time": f"2026-11-10 0{h}:00:00", "end_time": f"2026-11-10 0{h}:05:00", "alarm_code": 200 + h,
+             "alarm_message": "PV Circuit short", "fault_type": "Warning", "status": 1}
+            for h in (6, 9, 7)
+        ]
+        per = 2  # force a second page regardless of perpage
+        page = rows[(params["page"] - 1) * per: params["page"] * per]
+        return {"alarms": page, "count": len(rows), "max_sn": params["max_sn"]}
+
+
+def test_live_alarms_route_merges_pages_newest_first_and_caches_past_day(client):
+    from datetime import date as _d, datetime as _dt
+
+    fake, clock = _FakeAlarmClient(), [0.0]
+    svc = GrowattLiveService(
+        client_factory=lambda phase: fake, ttl_s=60, clock=lambda: clock[0],
+        now_local=lambda: _dt(2026, 11, 12, 12, 0),
+    )
+    client.app_ref.dependency_overrides[get_live_service] = lambda: svc
+    before = client.get("/api/growatt/plants").json()
+
+    q = {"day": "2026-11-10", "days": 1}
+    r = client.get(f"/api/growatt/live/plants/{PLANT}/alarms", params=q)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["source"] == "live" and body["data"]["from"] == body["data"]["to"] == "2026-11-10"
+    alarms = body["data"]["alarms"]
+    assert [a["alarm_code"] for a in alarms] == [209, 207, 206]  # both pages, newest first
+    assert all(a["device_sn"] == SN_A for a in alarms)
+    assert body["data"]["errors"].keys() == {f"{SN_B} 2026-11-10"}
+    assert body["refresh_in_s"] >= 60  # INVB is cooling down; past days stay cached far longer
+    assert client.get("/api/growatt/plants").json() == before  # nothing written
+
+    n = len(fake.calls)
+    clock[0] = 3600.0  # past day: still cached for INVA / INVC
+    client.get(f"/api/growatt/live/plants/{PLANT}/alarms", params=q)
+    assert [c for c in fake.calls[n:] if c[0] != SN_B] == []
+
+    # Default window: 7 days ending today, one call per inverter-day.
+    fake.dates.clear()
+    w = client.get(f"/api/growatt/live/plants/{PLANT}/alarms", params={"day": "2026-11-12"}).json()["data"]
+    assert (w["from"], w["to"]) == ("2026-11-06", "2026-11-12")
+    asked = {(sn, d) for sn, d in fake.dates if sn != SN_B}
+    assert len(asked) == 2 * 6  # INVA + INVC, 6 new days (2026-11-10 still cached)
+    assert [a["alarm_code"] for a in w["alarms"]] == [209, 207, 206]
+    assert client.get(f"/api/growatt/live/plants/{PLANT}/alarms", params={"days": 40}).status_code == 422

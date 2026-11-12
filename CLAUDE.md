@@ -27,14 +27,16 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                  │              (never stored anywhere)
                  └─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
                                                                          └─► daily summaries ─► Firestore
+Google Maps Weather ─┬─ current ─► backend memory cache (30 min per cell) ─► /growatt/live/plants/{id}/google-weather
+  (modelled)         └─ history/hours ─► growatt-worker (18:15 daily) ─► SQL ─► daily summaries (rain at 09/12/17) ─► Firestore
 ```
 
 Rules for every layer:
 
-1. **Never store realtime values.** Live data stays in backend memory; SQL gets only Growatt-timestamped history.
-2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 250 writes, capped at `PUBLISH_DAILY_WRITE_BUDGET`.
+1. **Never store realtime values.** Live data stays in backend memory; SQL gets only source-timestamped history (Growatt records, Google Weather hours).
+2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 500 writes (250 for the day, plus about 235 when `google_weather` re-publishes yesterday), capped at `PUBLISH_DAILY_WRITE_BUDGET`.
 3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load; irradiance only where a plant has a weather sensor), and label modelled values as modelled.
-4. **The Growatt tokens stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
+4. **The Growatt tokens and the Google Weather key stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
 
 ## Deploy (GCP, sized for < $10/month)
 
@@ -57,5 +59,6 @@ Rules for every layer:
 - `WORKER_HISTORY_INTERVAL_MIN`
 - `HISTORY_RETENTION_DAYS` (90)
 - `APP_ENV` (`dev` | `prod`), `ADMIN_USERNAME`, `ADMIN_PASSWORD`
+- `GOOGLE_WEATHER_API_KEY` (Secret Manager `tcroof-google-weather-key`), `GOOGLE_WEATHER_MONTHLY_BUDGET` (10000): Google Maps Weather uses its whole free tier; each day gets what is left of the month ÷ days left. `GOOGLE_WEATHER_DAY_START_H` / `_END_H` (6 / 18): daytime-only hours stored and fetched live
 
 Firebase CLI config is in `firebase.json`, `.firebaserc` and `firestore.rules`. The rules deny all browser access; the backend writes through the Admin SDK. Use `bunx firebase-tools`.

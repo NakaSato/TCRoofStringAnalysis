@@ -15,7 +15,9 @@ const PlantSatelliteMap: React.FC<{
   lon: number;
   name: string;
   capacityKwp: number | null;
-}> = ({ lat, lon, name, capacityKwp }) => {
+  /** Tailwind height classes of the map (default h-60). */
+  heightClass?: string;
+}> = ({ lat, lon, name, capacityKwp, heightClass = "h-60" }) => {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const marker = useRef<L.CircleMarker | null>(null);
@@ -34,7 +36,11 @@ const PlantSatelliteMap: React.FC<{
       fillOpacity: 0.95,
     }).addTo(m);
     map.current = m;
+    // the map's box follows the window (e.g. a vh height), so Leaflet must re-measure it
+    const ro = new ResizeObserver(() => m.invalidateSize());
+    ro.observe(el.current);
     return () => {
+      ro.disconnect();
       m.remove();
       map.current = null;
       marker.current = null;
@@ -55,7 +61,7 @@ const PlantSatelliteMap: React.FC<{
 
   return (
     <div className="relative">
-      <div ref={el} className="plant-map h-60 w-full" aria-label={`Satellite view of ${name}`} />
+      <div ref={el} className={`plant-map w-full ${heightClass}`} aria-label={`Satellite view of ${name}`} />
       <button
         type="button"
         className="btn-ghost btn-sm absolute right-2 top-2 z-[400] bg-ink-950/80"

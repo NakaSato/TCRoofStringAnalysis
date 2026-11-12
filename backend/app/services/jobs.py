@@ -177,9 +177,27 @@ def job_publish_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
 
 def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Delete raw readings older than HISTORY_RETENTION_DAYS (daily summaries are kept)."""
+    from app.services import google_weather
     from app.services.growatt_sync import prune_history
 
-    return "ok", prune_history(db, _today(), settings.history_retention_days)
+    detail = prune_history(db, _today(), settings.history_retention_days)
+    detail["google_weather_rows"] = google_weather.prune(db, _today(), settings.history_retention_days)
+    return "ok", detail
+
+
+def job_google_weather(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Past 24 h of Google Maps Weather (hourly, modelled) for every plant grid cell."""
+    from app.services import google_weather
+
+    status, detail = google_weather.run_history_job(db)
+    if detail.get("hours_stored"):
+        # Yesterday's 18:00–23:00 hours only arrive now: re-publish its daily docs (only docs
+        # whose content changed are written). Today's slots go out with publish_today (19:30).
+        pub_status, pub = _publish(db, _today() - timedelta(days=1))
+        detail["republished_yesterday"] = {k: pub[k] for k in ("written", "unchanged", "over_budget")}
+        if pub_status != "ok":
+            status = "partial"
+    return status, detail
 
 
 JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
@@ -189,6 +207,7 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "publish_today": job_publish_today,
     "publish_yesterday": job_publish_yesterday,
     "retention": job_retention,
+    "google_weather": job_google_weather,
 }
 
 

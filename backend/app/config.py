@@ -54,6 +54,19 @@ class Settings(BaseSettings):
     # Raw 1–5 min Growatt readings older than this are deleted daily (`retention` job). Daily
     # summaries in Firestore are kept. ~0.35–0.5 MB per inverter-day: 629 inverters x 90 days ≈ 30–45 GB.
     history_retention_days: int = 90
+    # Google Maps Platform Weather API (modelled weather per plant; backend only, never sent to
+    # the browser). 10,000 free calls/month, then $0.15 per 1,000. Plants within one grid cell
+    # share a lookup. Every call (worker + API) is counted per billing day (US/Pacific) in SQL;
+    # each day may use what is left of the month spread over the days left.
+    google_weather_api_key: str = ""
+    google_weather_base_url: str = "https://weather.googleapis.com/v1/"
+    google_weather_cell_deg: float = 0.01  # ~1 km; 234 plants -> ~227 lookup points
+    google_weather_monthly_budget: int = 10000  # = the free tier; lower it if the key is used elsewhere too
+    google_weather_live_ttl_s: int = 1800  # current conditions are cached 30 min per cell (memory only)
+    # Daytime window (plant-local hours, end exclusive): only these hours are stored, and live
+    # current conditions are only fetched inside it (night: last value, no Google call).
+    google_weather_day_start_h: int = 6
+    google_weather_day_end_h: int = 18
 
     model_config = SettingsConfigDict(
         env_file=".env",

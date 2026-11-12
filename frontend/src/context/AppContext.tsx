@@ -216,6 +216,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           status_label: l.status == null ? inv.status_label : INVERTER_STATUS_NAMES[l.status] ?? `Status ${l.status}`,
           mppt_latest: l.mppt.length ? l.mppt : inv.mppt_latest,
           live_at: l.timestamp,
+          live_grid: l.grid ?? null,
+          live_diagnostics: l.diagnostics ?? null,
+          live_mppt_energy: l.mppt_energy ?? null,
         };
       }),
       strings: ov.strings.map((s) => {

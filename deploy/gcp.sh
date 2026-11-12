@@ -66,6 +66,7 @@ phase_token_env() {  # phase -> token from .env (may be empty)
   [ -z "$v" ] && [ "$1" = 1 ] && v="$(env_value GROWATT_API_TOKEN)"
   printf '%s' "$v"
 }
+google_weather_secret() { secret_exists tcroof-google-weather-key && echo tcroof-google-weather-key; return 0; }
 phase_secrets() { for p in $PHASES; do secret_exists "tcroof-growatt-token-phase$p" && echo "$p"; done; return 0; }
 
 cmd_setup() {
@@ -119,6 +120,9 @@ EOF
     echo "  gcloud secrets versions access latest --secret tcroof-admin-password --project $PROJECT"
   fi
   secret_exists tcroof-db-password || secret_put tcroof-db-password "$(openssl rand -hex 24)"
+  # Optional: Google Maps Weather API key (GOOGLE_WEATHER_API_KEY in .env)
+  local gw_key; gw_key="$(env_value GOOGLE_WEATHER_API_KEY)"
+  [ -z "$gw_key" ] || secret_put tcroof-google-weather-key "$gw_key"
 
   log "Static internal IP + VM $VM (e2-micro, 30 GB pd-standard = free tier)"
   g compute addresses describe "$DB_IP_NAME" --region "$REGION" >/dev/null 2>&1 || \
@@ -150,7 +154,7 @@ EOF
   log "Cloud Run service account"
   g iam service-accounts describe "${API_SA}@${PROJECT}.iam.gserviceaccount.com" >/dev/null 2>&1 || \
     g iam service-accounts create "$API_SA" --display-name "TC Roof API (Cloud Run)"
-  for s in $(phase_secrets | sed 's/^/tcroof-growatt-token-phase/') tcroof-jwt-secret tcroof-database-url tcroof-admin-password; do
+  for s in $(phase_secrets | sed 's/^/tcroof-growatt-token-phase/') $(google_weather_secret) tcroof-jwt-secret tcroof-database-url tcroof-admin-password; do
     g secrets add-iam-policy-binding "$s" --member "serviceAccount:${API_SA}@${PROJECT}.iam.gserviceaccount.com" \
       --role roles/secretmanager.secretAccessor >/dev/null
   done
@@ -200,6 +204,7 @@ PUBLISH_SINK=firestore
 PUBLISH_DAILY_WRITE_BUDGET=15000
 WORKER_HISTORY_INTERVAL_MIN=30
 HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
+$([ -z "$(google_weather_secret)" ] || echo "GOOGLE_WEATHER_API_KEY=$(secret_get tcroof-google-weather-key)")
 EOF
   cp deploy/vm/compose.yml "$tmp/compose.yml"
   cp secrets/firebase-service-account.json "$tmp/firebase-service-account.json"
@@ -218,6 +223,7 @@ EOF
 
   local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest" p
   for p in $(phase_secrets); do secrets+=",GROWATT_TOKEN_PHASE$p=tcroof-growatt-token-phase$p:latest"; done
+  [ -z "$(google_weather_secret)" ] || secrets+=",GOOGLE_WEATHER_API_KEY=tcroof-google-weather-key:latest"
 
   log "Deploying Cloud Run $SERVICE"
   g run deploy "$SERVICE" --region "$REGION" --image "$image" \

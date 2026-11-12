@@ -14,6 +14,8 @@ Schedule (plant-local time, Asia/Bangkok):
     publish_yesterday  06:00   finalize yesterday's daily summaries
     publish_today      19:30   publish today after sunset
     retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
+    google_weather     18:15   Google Maps Weather: previous 24 h hourly (incl. 17:00), one call per
+                               plant cell; then re-publishes yesterday's daily docs
 Runs queued from the API (`POST /growatt/sync/{job}`) start on the next tick (≤ 1 min).
 Daily jobs only fire within `GRACE` after their slot, so a worker started at noon does not
 publish a half day. Exception: `fleet` also runs at once when the inverter registry is empty
@@ -74,6 +76,7 @@ def default_schedule() -> List[Schedule]:
         Schedule("publish_yesterday", at=dtime(6, 0)),
         Schedule("publish_today", at=dtime(19, 30)),
         Schedule("retention", at=dtime(3, 0)),
+        Schedule("google_weather", at=dtime(18, 15)),
     ]
 
 

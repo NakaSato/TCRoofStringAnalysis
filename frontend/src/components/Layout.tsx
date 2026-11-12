@@ -11,6 +11,7 @@ import {
   Settings,
   Save,
   LayoutDashboard,
+  Cpu,
   Bell,
   SlidersHorizontal,
   Menu,
@@ -46,6 +47,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { to: "/", label: "Plant Overview", icon: LayoutDashboard },
       { to: "/generation", label: "Generation & PR", icon: TrendingUp, description: "Daily / monthly yield, PR & loss waterfall" },
+      { to: "/inverters", label: "Inverters", icon: Cpu, description: "Inverter status, MPPT, 5-minute profile & fault log" },
       { to: "/strings", label: "String Diagnostics", icon: Activity, description: "String performance, heatmap & I-V / P-V curves" },
       { to: "/growatt", label: "Growatt Fleet", icon: Radio, description: "Live Growatt OpenAPI plants & inverter status" },
     ],
@@ -67,7 +69,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "System",
     items: [
-      { to: "/settings", label: "Plant Configuration", icon: Settings, description: "Plant parameters & string specifications" },
+      { to: "/settings", label: "Global Settings", icon: Settings, description: "Fleet-wide module & settings for every plant" },
       { to: "/users", label: "Users & Access", icon: Users, description: "Accounts, roles & plant assignments" },
     ],
   },
@@ -216,7 +218,7 @@ export const Layout: React.FC = () => {
         </div>
         <div className="min-w-0">
           <div className="text-sm font-extrabold tracking-tight text-white">GenZ Monitoring</div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
         </div>
       </div>
 
@@ -224,7 +226,7 @@ export const Layout: React.FC = () => {
       <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-ink-850/80 p-3">
         <div className="flex items-center justify-between">
           <span className="eyebrow">Active Fleet</span>
-          <span className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
             <Led level={plantLevel} pulse />
             {plantStateLabel}
           </span>
@@ -283,7 +285,7 @@ export const Layout: React.FC = () => {
                         <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-solar-400" : "text-slate-500 group-hover:text-slate-300"}`} />
                         <span className="flex-1 truncate">{item.label}</span>
                         {badge && (
-                          <span className={`num rounded-full border px-1.5 py-px text-[10px] font-bold ${badge.cls}`}>{badge.n}</span>
+                          <span className={`num rounded-full border px-1.5 py-px text-[11px] font-bold ${badge.cls}`}>{badge.n}</span>
                         )}
                       </>
                     )}
@@ -305,7 +307,7 @@ export const Layout: React.FC = () => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-semibold text-slate-100">{user ? user.full_name : "Sign In"}</div>
-          <div className="truncate text-[10px] uppercase tracking-wider text-slate-500">
+          <div className="truncate text-[11px] uppercase tracking-wider text-slate-500">
             {user ? `${user.username ?? user.email} · ${user.role}` : "guest"}
           </div>
         </div>
@@ -361,7 +363,7 @@ export const Layout: React.FC = () => {
               <span className="num">
                 {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok" })}
               </span>
-              <span className="text-slate-600">ICT</span>
+              <span className="text-slate-500">ICT</span>
             </div>
 
             {/* Quick Jump / Command Palette (⌘K) */}
@@ -373,7 +375,7 @@ export const Layout: React.FC = () => {
             >
               <Search className="h-3.5 w-3.5 text-solar-400" />
               <span className="hidden lg:inline">Quick Jump…</span>
-              <kbd className="num hidden rounded border border-white/10 bg-ink-850 px-1.5 py-px text-[10px] text-slate-400 lg:inline">
+              <kbd className="num hidden rounded border border-white/10 bg-ink-850 px-1.5 py-px text-[11px] text-slate-400 lg:inline">
                 ⌘K
               </kbd>
             </button>
@@ -396,7 +398,7 @@ export const Layout: React.FC = () => {
             >
               <Bell className="h-4 w-4" />
               {alarmCount > 0 && (
-                <span className="num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white shadow-[0_0_8px_rgba(239,68,68,0.8)]">
+                <span className="num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-[0_0_8px_rgba(239,68,68,0.8)]">
                   {alarmCount}
                 </span>
               )}
@@ -464,7 +466,7 @@ export const Layout: React.FC = () => {
                   strings on the default; the {customStrings} strings set individually keep their own values. Edit
                   those under{" "}
                   <NavLink to="/settings" className="font-semibold text-solar-400 underline" onClick={() => setSpecsOpen(false)}>
-                    Plant Configuration
+                    Global Settings → Legacy analysis plant
                   </NavLink>
                   .
                 </div>

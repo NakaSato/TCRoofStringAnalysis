@@ -15,7 +15,9 @@ import {
 import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
 import type { GrowattStringDetail } from "../api/client";
-import { PlotlyChart } from "./PlotlyChart";
+import { PanelChart } from "./PanelChart";
+import type { PanelChartSpec } from "./PanelChart";
+import { ivPvSpecFrom } from "./ivPvSpec";
 import { StatusBadge, Led, Meter, LoadingState, statusLevel, fmt } from "./ui";
 
 export const StringInspectorDrawer: React.FC = () => {
@@ -58,69 +60,10 @@ export const StringInspectorDrawer: React.FC = () => {
     };
   }, [inspectedStringId, row?.device_sn, row?.string_no, selectedGrowattPlantId]);
 
-  const ivPvFig = useMemo(() => {
-    if (!stringDetail) return null;
-    const { nominal_points, actual_points, measured_scatter, mpp_actual } = stringDetail.iv_pv_curve;
-    return {
-      data: [
-        {
-          x: nominal_points.map((p) => p.v),
-          y: nominal_points.map((p) => p.i),
-          name: "Ref I-V (A)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#64748b", width: 1.5, dash: "dash" },
-        },
-        {
-          x: actual_points.map((p) => p.v),
-          y: actual_points.map((p) => p.i),
-          name: "Actual I-V (A)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#22d3ee", width: 2.5 },
-        },
-        {
-          x: measured_scatter.map((p) => p.v),
-          y: measured_scatter.map((p) => p.i),
-          name: "Operating (V, I)",
-          type: "scatter",
-          mode: "markers",
-          marker: { color: "#38bdf8", size: 5, opacity: 0.65 },
-        },
-        {
-          x: actual_points.map((p) => p.v),
-          y: actual_points.map((p) => p.p),
-          name: "P-V Curve (W)",
-          type: "scatter",
-          mode: "lines",
-          yaxis: "y2",
-          line: { color: "#f59e0b", width: 2 },
-        },
-        {
-          x: [mpp_actual.v],
-          y: [mpp_actual.p],
-          name: `MPP (${fmt(mpp_actual.p, 0)} W)`,
-          type: "scatter",
-          mode: "markers",
-          yaxis: "y2",
-          marker: { color: "#10b981", size: 10, symbol: "diamond" },
-        },
-      ],
-      layout: {
-        margin: { l: 44, r: 48, t: 22, b: 38 },
-        xaxis: { title: "Voltage (V)", rangemode: "tozero" },
-        yaxis: { title: "Current (A)", rangemode: "tozero" },
-        yaxis2: {
-          title: "Power (W)",
-          overlaying: "y",
-          side: "right",
-          showgrid: false,
-          rangemode: "tozero",
-        },
-        legend: { orientation: "h", y: 1.18, x: 0 },
-      },
-    };
-  }, [stringDetail]);
+  const ivPvSpec = useMemo<PanelChartSpec | null>(
+    () => (stringDetail ? ivPvSpecFrom(stringDetail.iv_pv_curve) : null),
+    [stringDetail],
+  );
 
   if (!inspectedStringId || !analysisRun || !row) return null;
 
@@ -166,7 +109,7 @@ export const StringInspectorDrawer: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="eyebrow">String I-V & Telemetry Inspector</span>
-                <span className="num inline-flex items-center gap-1 rounded border border-energy-400/25 bg-energy-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-energy-300">
+                <span className="num inline-flex items-center gap-1 rounded border border-energy-400/25 bg-energy-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-energy-300">
                   <Cpu className="h-3 w-3" />
                   {row.inverter_id} / {row.mppt_id}
                 </span>
@@ -265,7 +208,7 @@ export const StringInspectorDrawer: React.FC = () => {
                 {fmt(row.pr_pct, 1)}
                 <span className="text-xs text-slate-500">%</span>
               </div>
-              <div className="num mt-1 text-[10px] text-slate-400">
+              <div className="num mt-1 text-[11px] text-slate-400">
                 Energy: {fmt(row.actual_energy_kwh, 1)} kWh
               </div>
             </div>
@@ -280,7 +223,7 @@ export const StringInspectorDrawer: React.FC = () => {
                 {peerGap >= 0 ? "+" : ""}
                 {fmt(peerGap, 1)}%
               </div>
-              <div className="num mt-1 text-[10px] text-slate-400">
+              <div className="num mt-1 text-[11px] text-slate-400">
                 Peak: {fmt(Number(row.p_max_w || 0) / 1000, 2)} kW
               </div>
             </div>
@@ -290,7 +233,7 @@ export const StringInspectorDrawer: React.FC = () => {
               <div className="num mt-1 text-xl font-bold text-red-400">
                 {fmt(lossKwh, 1)} <span className="text-xs text-slate-500">kWh</span>
               </div>
-              <div className="num mt-1 text-[10px] text-amber-300">
+              <div className="num mt-1 text-[11px] text-amber-300">
                 ≈ ฿{Math.round(lossThb).toLocaleString()}
               </div>
             </div>
@@ -311,8 +254,8 @@ export const StringInspectorDrawer: React.FC = () => {
             </div>
             {loadingCurve ? (
               <LoadingState label="Reconstructing I-V & P-V curves…" />
-            ) : ivPvFig ? (
-              <PlotlyChart figure={ivPvFig} height={250} bare />
+            ) : ivPvSpec ? (
+              <PanelChart spec={ivPvSpec} height={300} />
             ) : null}
           </div>
 

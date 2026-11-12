@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 
 from app.config import DATA_DIR, settings
 from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PublishedDoc, PublishWriteCount
+from app.services import google_weather
 from app.services.fleet_settings import config_docs
 from app.services.growatt_overview import build_plant_overview
 
@@ -124,6 +125,8 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                         "avg_ambient_temp_c": k["avg_ambient_temp_c"],
                         "pr_coverage_pct": ov["weather"]["iec_pr"]["coverage_pct"],
                     },
+                    # Google Maps Weather for the plant's grid cell: modelled, not measured
+                    "google_weather": google_weather.day_summary(db, plant, day),
                     "conversion_efficiency_pct": k["conversion_efficiency_pct"],
                     "avg_temp_c": k["avg_temp_c"],
                     "max_temp_c": k["max_temp_c"],

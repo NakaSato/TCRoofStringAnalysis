@@ -1,5 +1,4 @@
-import React, { Suspense, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { Suspense } from "react";
 import {
   Zap,
   Gauge,
@@ -9,12 +8,9 @@ import {
   Sun,
   Cpu,
   UtilityPole,
-  Bell,
-  Grid3x3,
   Activity,
   Thermometer,
-  ArrowRight,
-  CheckCircle2,
+  ArrowDown,
   Building2,
   MapPin,
   Radio,
@@ -23,11 +19,11 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { PlotlyChart } from "../components/PlotlyChart";
-import { Panel, KpiTile, StatusBadge, Led, Meter, EmptyState, LoadingState, statusLevel, fmt, LOADING_STATUS } from "../components/ui";
+import { Panel, KpiTile, Led, EmptyState, LoadingState, fmt } from "../components/ui";
 import { FleetPlantDirectoryPanel } from "../components/FleetPlantDirectoryPanel";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
-import { WeatherStationPanel } from "../components/WeatherStationPanel";
+import { GrowattAlarmLogPanel } from "../components/GrowattAlarmLogPanel";
+import { OverviewTabSummaries } from "../components/OverviewTabSummaries";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
@@ -114,7 +110,7 @@ const FlowNode: React.FC<{
       <Icon className="h-4.5 w-4.5" />
     </div>
     <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
       <div className="num truncate text-base font-bold text-white">
         {value} <span className="text-xs font-normal text-slate-400">{unit}</span>
       </div>
@@ -123,9 +119,9 @@ const FlowNode: React.FC<{
 );
 
 const FlowArrow: React.FC<{ label: string }> = ({ label }) => (
-  <div className="hidden flex-col items-center justify-center px-0.5 sm:flex">
-    <ArrowRight className="h-3.5 w-3.5 animate-pulse text-energy-400" />
-    <span className="mt-0.5 font-mono text-[8px] uppercase text-slate-500">{label}</span>
+  <div className="flex items-center justify-center gap-1.5">
+    <ArrowDown className="h-3 w-3 animate-pulse text-energy-400" />
+    <span className="font-mono text-[10px] uppercase text-slate-500">{label}</span>
   </div>
 );
 
@@ -136,12 +132,12 @@ const MiniStat: React.FC<{ icon: LucideIcon; label: string; value: React.ReactNo
   unit,
 }) => (
   <div className="rounded-lg border border-white/[0.05] bg-ink-950/50 p-2.5">
-    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
       <Icon className="h-3 w-3 text-slate-500" />
       {label}
     </div>
     <div className="num mt-1 text-sm font-bold text-white">
-      {value} <span className="text-[10px] font-normal text-slate-400">{unit}</span>
+      {value} <span className="text-[11px] font-normal text-slate-400">{unit}</span>
     </div>
   </div>
 );
@@ -155,201 +151,11 @@ export const OverviewPage: React.FC = () => {
     plantOverviewLoading,
     dashboardMode,
     setDashboardMode,
-    setInspectedStringId,
     growattPlants,
-    plantLiveLoading,
   } = useAppContext();
-
-  const [selectedInverterSn, setSelectedInverterSn] = useState<string>("ALL");
-
-  // Build 5-minute Plotly figure from selectedPlantOverview.timeseries
-  const powerCurveFig = useMemo(() => {
-    const ts = selectedPlantOverview?.timeseries || [];
-    if (ts.length === 0) return null;
-    const x = ts.map((r) => r.timestamp);
-    return {
-      data: [
-        {
-          x,
-          y: ts.map((r) => r.expected_kw),
-          name: "Expected Reference (kW)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#64748b", width: 1.5, dash: "dot" },
-        },
-        {
-          x,
-          y: ts.map((r) => r.ppv_kw),
-          name: "DC Input Power (kW)",
-          type: "scatter",
-          mode: "lines",
-          line: { color: "#f59e0b", width: 2 },
-        },
-        {
-          x,
-          y: ts.map((r) => r.pac_kw),
-          name: "AC Grid Power (kW)",
-          type: "scatter",
-          mode: "lines",
-          fill: "tozeroy",
-          fillcolor: "rgba(34, 211, 238, 0.10)",
-          line: { color: "#22d3ee", width: 2.2 },
-        },
-        {
-          x,
-          y: ts.map((r) => r.temp_c),
-          name: "Inverter Temp (°C)",
-          type: "scatter",
-          mode: "lines",
-          yaxis: "y2",
-          line: { color: "#f43f5e", width: 1.5 },
-        },
-      ],
-      layout: {
-        margin: { l: 50, r: 50, t: 24, b: 40 },
-        xaxis: { title: "Timestamp (5-Min Intervals)" },
-        yaxis: { title: "Power (kW)", rangemode: "tozero" },
-        yaxis2: {
-          title: "Temp (°C)",
-          overlaying: "y",
-          side: "right",
-          showgrid: false,
-          range: [20, 80],
-        },
-        legend: { orientation: "h", y: 1.12, x: 0 },
-      },
-    };
-  }, [selectedPlantOverview]);
 
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
-  const inverters = selectedPlantOverview?.inverters || [];
-  const strings = selectedPlantOverview?.strings || [];
-  const anomalies = selectedPlantOverview?.anomalies || [];
-
-  const filteredStrings = useMemo(() => {
-    if (selectedInverterSn === "ALL") return strings;
-    return strings.filter((s) => s.device_sn === selectedInverterSn);
-  }, [strings, selectedInverterSn]);
-
-  // String Status Matrix grouped by inverter (registry order), each inverter laid out by MPPT
-  // with one tile per string input (string n sits on MPPT ⌈n/2⌉), including inputs that carry
-  // no current today ("Not Active"). Inverters with no string rows stay listed.
-  const [groupByInverter, setGroupByInverter] = useState(true);
-  const inactiveStrings = selectedPlantOverview?.inactive_strings || [];
-  type StringRow = (typeof strings)[number];
-  type InactiveRow = (typeof inactiveStrings)[number];
-  type Slot = { kind: "active"; s: StringRow } | { kind: "inactive"; s: InactiveRow };
-  const stringGroups = useMemo(() => {
-    const bySn = new Map<string, Slot[]>();
-    const add = (sn: string, slot: Slot) => bySn.set(sn, [...(bySn.get(sn) ?? []), slot]);
-    for (const s of filteredStrings) add(s.device_sn, { kind: "active", s });
-    for (const s of inactiveStrings) {
-      if (selectedInverterSn === "ALL" || s.device_sn === selectedInverterSn) add(s.device_sn, { kind: "inactive", s });
-    }
-    const shown = selectedInverterSn === "ALL" ? inverters : inverters.filter((i) => i.device_sn === selectedInverterSn);
-    return shown.map((inv) => {
-      const slots = (bySn.get(inv.device_sn) ?? []).sort((a, b) => a.s.string_no - b.s.string_no);
-      const mppts = new Map<number, Slot[]>();
-      for (const slot of slots) mppts.set(slot.s.mppt_no, [...(mppts.get(slot.s.mppt_no) ?? []), slot]);
-      const levels = slots.filter((x) => x.kind === "active").map((x) => statusLevel(x.s.status));
-      return {
-        inv,
-        mppts: [...mppts.entries()].sort((a, b) => a[0] - b[0]),
-        active: levels.length,
-        inactive: slots.length - levels.length,
-        crit: levels.filter((l) => l === "crit").length,
-        warn: levels.filter((l) => l === "warn").length,
-      };
-    });
-  }, [filteredStrings, inactiveStrings, inverters, selectedInverterSn]);
-
-  const renderInactiveTile = (s: InactiveRow) => (
-    <div
-      key={s.string_id}
-      title={
-        s.reason === "no_current"
-          ? `${s.string_id}: MPPT voltage present, no string current today (unused input or no light yet)`
-          : `${s.string_id}: input not reported today`
-      }
-      className="rounded-xl border border-dashed border-white/[0.08] bg-transparent p-3 opacity-70"
-    >
-      <div className="flex items-center justify-between">
-        <span className="num text-xs font-bold text-slate-400">{s.short_label}</span>
-        <Led level="neutral" />
-      </div>
-      <div className="num mt-0.5 truncate text-[10px] text-slate-600">
-        {s.device_sn} · {s.mppt_id}
-      </div>
-      <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Not active</div>
-      <div className="num mt-2 text-[10px] text-slate-600">
-        {s.reason === "no_current" ? `MPPT ${fmt(s.v_max, 0)}V · 0 A` : "No data"}
-      </div>
-    </div>
-  );
-
-  const renderStringTile = (s: (typeof strings)[number]) => {
-    const lvl = statusLevel(s.status);
-    const pr = s.pr_pct;
-    const isLive = s.live_current_a != null;
-    const border =
-      lvl === "crit"
-        ? "border-red-500/40 bg-red-500/[0.04] hover:border-red-400/70"
-        : lvl === "warn"
-        ? "border-amber-400/35 bg-amber-400/[0.03] hover:border-amber-400/60"
-        : "border-white/[0.07] bg-ink-850/90 hover:border-emerald-400/40";
-    return (
-      <div
-        key={s.string_id}
-        onClick={() => setInspectedStringId(s.string_id)}
-        title={`Click to inspect ${s.string_id} I-V & P-V curves`}
-        className={`group relative cursor-pointer rounded-xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${border}`}
-      >
-        <div className="flex items-center justify-between">
-          <span className="num text-xs font-bold text-white group-hover:text-solar-300">
-            {s.short_label}
-          </span>
-          <Led level={lvl} pulse={lvl === "crit"} />
-        </div>
-        <div className="num mt-0.5 truncate text-[10px] text-slate-500">
-          {s.device_sn} · {s.mppt_id}
-        </div>
-
-        <div className="mt-2 flex items-baseline justify-between">
-          <div>
-            <div className="text-[9px] uppercase text-slate-500">PR</div>
-            <div className="num text-base font-bold text-white">{pr == null ? "—" : `${fmt(pr, 1)}%`}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-[9px] uppercase text-slate-500">Peak</div>
-            <div className="num text-xs font-semibold text-slate-200">
-              {fmt(s.p_max_w / 1000, 2)} kW
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-2">
-          <Meter value={pr ?? 0} tone={lvl === "crit" ? "crit" : lvl === "warn" ? "warn" : "ok"} />
-        </div>
-
-        <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
-          {isLive ? (
-            <span className="num text-sky-300" title={`Live record ${s.live_at ?? ""}`}>
-              Now {fmt(s.live_voltage_v, 0)}V · {fmt(s.live_current_a, 1)}A ·{" "}
-              {fmt((s.live_power_w ?? 0) / 1000, 2)}kW
-            </span>
-          ) : (
-            <span className="num" title="Today's average from the database (no live value)">
-              Avg {fmt(s.v_avg, 0)}V · {fmt(s.i_avg, 1)}A
-            </span>
-          )}
-          <span className="text-solar-400 opacity-0 transition group-hover:opacity-100">
-            I-V →
-          </span>
-        </div>
-      </div>
-    );
-  };
 
   const capacity = Number(kpis?.capacity_kwp || 0);
   const yieldTodayKwh = Number(kpis?.yield_today_kwh || 0);
@@ -361,11 +167,8 @@ export const OverviewPage: React.FC = () => {
   const tariff = Number(kpis?.tariff_thb_per_kwh || 4.2);
   const revenueToday = yieldTodayKwh * tariff;
   const co2TodayTonnes = (yieldTodayKwh * GRID_EF_KG_PER_KWH) / 1000;
-  const healthy = Number(kpis?.healthy_strings || 0);
   const warning = Number(kpis?.warning_strings || 0);
   const critical = Number(kpis?.critical_strings || 0);
-  const totalStrings = Number(kpis?.string_count || strings.length || 0);
-  const availability = totalStrings > 0 ? ((totalStrings - critical) / totalStrings) * 100 : 100;
   const plantLevel = critical > 0 ? "warn" : warning > 0 ? "warn" : "ok";
 
   // PV power: live inverter sum when available (AppContext overlay), else last synced value.
@@ -461,25 +264,25 @@ export const OverviewPage: React.FC = () => {
                 />
               </div>
 
-              {/* Row 2: power flow + PR gauge | satellite map + string health */}
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-                <section className="panel flex flex-col overflow-hidden xl:col-span-7">
-                  <header className="panel-header">
+              {/* Row 2: compact realtime generation (1/4) | site map (3/4 of the width, 56 % of the window height) */}
+              <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-4">
+              <section className="panel flex flex-col overflow-hidden">
+                  <header className="panel-header flex-wrap gap-2">
                     <div className="min-w-0">
                       <h2 className="panel-title">
                         <Activity className="h-4 w-4 text-solar-400" />
                         <span className="truncate">Realtime Generation</span>
                       </h2>
-                      <p className="panel-subtitle mt-0.5">DC solar array → inverters → AC output</p>
+                      <p className="panel-subtitle mt-0.5">DC → inverters → AC</p>
                     </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <span className={`badge ${plantLevel === "ok" ? "badge-ok" : "badge-warn"} px-2.5 py-1 text-[10px] font-semibold`}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`badge ${plantLevel === "ok" ? "badge-ok" : "badge-warn"} px-2.5 py-1 text-[11px] font-semibold`}>
                         <Led level={plantLevel} pulse />
                         {plantLevel === "ok" ? "ALL NORMAL" : `${critical} CRIT · ${warning} WARN`}
                       </span>
                       {selectedPlantOverview?.live && (
                         <span
-                          className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-300"
+                          className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-bold tracking-wider text-emerald-300"
                           title={`Live telemetry fetched ${new Date(selectedPlantOverview.live.fetched_at).toLocaleTimeString()}`}
                         >
                           <Radio className="h-2.5 w-2.5 animate-pulse text-emerald-400" />
@@ -489,12 +292,12 @@ export const OverviewPage: React.FC = () => {
                     </div>
                   </header>
 
-                  <div className="grid flex-1 grid-cols-1 items-center gap-6 p-5 sm:p-6 lg:grid-cols-[auto_1fr]">
+                  <div className="flex flex-1 flex-col gap-3 p-4">
                     <div className="flex justify-center">
                       {shownPr != null ? (
-                        <RingGauge value={shownPr} target={targetPr} size={168} />
+                        <RingGauge value={shownPr} target={targetPr} size={120} />
                       ) : (
-                        <div className="flex h-[168px] w-[168px] flex-col items-center justify-center rounded-full border border-white/[0.08]">
+                        <div className="flex h-[120px] w-[120px] flex-col items-center justify-center rounded-full border border-white/[0.08]">
                           <div className="eyebrow">Plant PR</div>
                           <div className="num text-3xl font-bold text-slate-500">—</div>
                         </div>
@@ -503,7 +306,7 @@ export const OverviewPage: React.FC = () => {
 
                     <div className="min-w-0 space-y-3">
                       {/* DC → Inverters → AC */}
-                      <div className="grid grid-cols-1 gap-2 rounded-xl border border-white/[0.08] bg-gradient-to-r from-ink-900 via-[#101a33] to-ink-900 p-3 shadow-inner sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
+                      <div className="grid grid-cols-1 gap-1 rounded-xl border border-white/[0.08] bg-gradient-to-b from-ink-900 via-[#101a33] to-ink-900 p-2 shadow-inner">
                         <FlowNode icon={Sun} tone="solar" label="PV (DC)" value={fmt(pvPowerKw, 1)} unit="kW" />
                         <FlowArrow label="DC" />
                         <FlowNode
@@ -518,7 +321,7 @@ export const OverviewPage: React.FC = () => {
                       </div>
 
                       {/* secondary metrics */}
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-2">
                         <MiniStat icon={Gauge} label="Peak today" value={fmt(kpis?.peak_power_kw, 1)} unit="kW" />
                         <MiniStat icon={Activity} label="Lifetime" value={fmt(kpis?.total_yield_kwh == null ? null : totalYieldKwh / 1000, 2)} unit="MWh" />
                         <MiniStat icon={Thermometer} label="Max temp" value={fmt(kpis?.max_temp_c, 1)} unit="°C" />
@@ -534,10 +337,9 @@ export const OverviewPage: React.FC = () => {
                 </section>
 
                 <Panel
-                  className="xl:col-span-5"
+                  className="xl:col-span-3"
                   icon={Satellite}
                   title="Site"
-                  subtitle={plant?.city ? `${plant.name} · ${plant.city}` : plant?.name}
                   bodyClassName=""
                   actions={
                     plant?.latitude != null && plant?.longitude != null ? (
@@ -554,12 +356,13 @@ export const OverviewPage: React.FC = () => {
                   }
                 >
                   {plant?.latitude != null && plant?.longitude != null ? (
-                    <Suspense fallback={<div className="flex h-60 items-center justify-center text-xs text-slate-500">Loading map…</div>}>
+                    <Suspense fallback={<div className="flex h-[56vh] min-h-[240px] items-center justify-center text-xs text-slate-500">Loading map…</div>}>
                       <PlantSatelliteMap
                         lat={plant.latitude}
                         lon={plant.longitude}
                         name={plant.name}
                         capacityKwp={plant.peak_power_kwp}
+                        heightClass="h-[56vh] min-h-[240px]"
                       />
                     </Suspense>
                   ) : (
@@ -572,333 +375,21 @@ export const OverviewPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* string health */}
-                  <div className="space-y-2.5 border-t border-white/[0.06] p-4">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="eyebrow">String health · {totalStrings} wired</span>
-                      <span className="text-slate-400">
-                        Availability <span className="num font-semibold text-emerald-400">{availability.toFixed(1)}%</span>
-                      </span>
-                    </div>
-                    <div className="flex h-2.5 overflow-hidden rounded-full bg-white/[0.05]">
-                      {totalStrings > 0 && (
-                        <>
-                          <div style={{ width: `${(healthy / totalStrings) * 100}%` }} className="bg-emerald-400" />
-                          <div style={{ width: `${(warning / totalStrings) * 100}%` }} className="bg-amber-400" />
-                          <div style={{ width: `${(critical / totalStrings) * 100}%` }} className="bg-red-500" />
-                        </>
-                      )}
-                    </div>
-                    <div className="flex justify-between text-[11px]">
-                      <span className="flex items-center gap-1.5 text-emerald-400">
-                        <Led level="ok" /> <span className="num font-semibold text-white">{healthy}</span> healthy
-                      </span>
-                      <span className="flex items-center gap-1.5 text-amber-400">
-                        <Led level="warn" /> <span className="num font-semibold text-white">{warning}</span> warning
-                      </span>
-                      <span className="flex items-center gap-1.5 text-red-400">
-                        <Led level="crit" /> <span className="num font-semibold text-white">{critical}</span> critical
-                      </span>
-                    </div>
-                  </div>
                 </Panel>
               </div>
 
-              {/* Weather station: measured irradiance / temperatures, IEC PR */}
+              {/* High-level view of tabs 2–4, each linking to its tab */}
+              {selectedPlantOverview && <OverviewTabSummaries overview={selectedPlantOverview} />}
+
+              {/* Fault log reported by Growatt (string diagnostics are on String Diagnostics) */}
               {plant && (
-                <WeatherStationPanel
+                <GrowattAlarmLogPanel
                   plantId={plant.plant_id}
-                  day={selectedPlantOverview.meta.day ?? null}
-                  dataUntil={selectedPlantOverview.meta.data_until ?? null}
-                  iecPr={selectedPlantOverview.weather?.iec_pr ?? null}
+                  plantName={plant.name}
+                  day={selectedPlantOverview?.meta.day ?? null}
                 />
               )}
 
-              {/* 5-Minute Power & Thermal Profile + Active Alarms */}
-              <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-                <Panel
-                  className="xl:col-span-8"
-                  icon={Activity}
-                  title="5-Minute Plant Generation & Thermal Profile"
-                  subtitle={`AC power, DC input power, modelled clear-sky reference & inverter temperature for ${plant?.name}`}
-                  actions={
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link to="/generation" className="btn-ghost btn-sm">
-                        PR Details <ArrowRight className="h-3.5 w-3.5" />
-                      </Link>
-                    </div>
-                  }
-                >
-                  <PlotlyChart
-                    figure={powerCurveFig}
-                    height={330}
-                    bare
-                  />
-                </Panel>
-
-                <Panel
-                  className="xl:col-span-4"
-                  icon={Bell}
-                  title="Plant String Faults & Alarms"
-                  subtitle={`${anomalies.length} anomalies detected on ${plant?.name}`}
-                  bodyClassName="p-0"
-                  actions={
-                    <Link to="/strings" className="btn-ghost btn-sm">
-                      3. String I-V Curves <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
-                  }
-                >
-                  {anomalies.length === 0 ? (
-                    <EmptyState
-                      icon={CheckCircle2}
-                      title="No active string faults"
-                      description="All strings on this plant are operating within peer tolerance."
-                    />
-                  ) : (
-                    <ul className="max-h-[340px] divide-y divide-white/[0.05] overflow-y-auto">
-                      {anomalies.slice(0, 15).map((a, i) => {
-                        const lvl = statusLevel(a.severity);
-                        return (
-                          <li
-                            key={i}
-                            onClick={() => setInspectedStringId(a.string_id)}
-                            className="flex cursor-pointer items-start gap-3 px-4 py-3 transition hover:bg-white/[0.03]"
-                          >
-                            <Led level={lvl} pulse={lvl === "crit"} className="mt-1.5" />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="num text-xs font-bold text-white hover:text-sky-300">
-                                  {a.string_id}
-                                </span>
-                                <StatusBadge status={a.severity} dot={false} />
-                              </div>
-                              <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-400">
-                                {a.description}
-                              </p>
-                              <div className="mt-1 flex items-center gap-3 text-[10px] text-slate-500">
-                                <span className="num text-solar-300">PR {fmt(a.pr_pct, 1)}%</span>
-                                <span>·</span>
-                                <span className="num">Loss {fmt(a.energy_loss_kwh, 2)} kWh</span>
-                                <span className="ml-auto text-sky-400">Inspect I-V →</span>
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </Panel>
-              </div>
-
-              {/* Plant Inverters Table / Topology */}
-              <Panel
-                icon={Cpu}
-                title={`Monitored Growatt MAX Inverters (${inverters.length})`}
-                subtitle={`Click any inverter serial to filter the String Matrix below, or click '3. String Diagnostics' for full I-V / P-V analysis`}
-                bodyClassName="p-0"
-                actions={
-                  selectedInverterSn !== "ALL" ? (
-                    <button
-                      onClick={() => setSelectedInverterSn("ALL")}
-                      className="btn-ghost btn-sm text-sky-400"
-                    >
-                      Show All Inverters ({inverters.length})
-                    </button>
-                  ) : null
-                }
-              >
-                <div className="scroll-x-hint overflow-x-auto">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Status</th>
-                        <th>Inverter SN</th>
-                        <th>Model</th>
-                        <th>Datalogger</th>
-                        <th className="text-right">Strings</th>
-                        <th className="text-right">Current AC (kW)</th>
-                        <th className="text-right">Peak AC (kW)</th>
-                        <th className="text-right">Efficiency (%)</th>
-                        <th className="text-right">PR (%)</th>
-                        <th className="text-right">Temp Avg/Max (°C)</th>
-                        <th className="text-right">Grid Freq (Hz)</th>
-                        <th className="text-right">Yield Today (kWh)</th>
-                        <th className="text-right">Total Yield (MWh)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {inverters.map((inv) => {
-                        const isSelected = selectedInverterSn === inv.device_sn;
-                        const lvl =
-                          inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
-                        return (
-                          <tr
-                            key={inv.device_sn}
-                            onClick={() =>
-                              setSelectedInverterSn(
-                                selectedInverterSn === inv.device_sn ? "ALL" : inv.device_sn
-                              )
-                            }
-                            className={`cursor-pointer transition ${
-                              isSelected ? "bg-sky-500/10" : "hover:bg-white/[0.03]"
-                            }`}
-                          >
-                            <td>
-                              <StatusBadge
-                                status={inv.status_label ?? LOADING_STATUS}
-                                level={lvl}
-                                loading={inv.status_label == null}
-                                dot
-                              />
-                            </td>
-                            <td className="num font-bold text-white hover:text-sky-300">
-                              {inv.device_sn}
-                            </td>
-                            <td className="num text-xs text-slate-400">{inv.model}</td>
-                            <td className="num text-xs text-slate-500">{inv.datalogger_sn}</td>
-                            <td className="num text-right font-semibold text-sky-300">
-                              {inv.string_count}
-                            </td>
-                            <td className="num text-right font-semibold text-energy-300">
-                              {fmt(inv.current_ac_kw, 2)}
-                            </td>
-                            <td className="num text-right text-slate-200">
-                              {fmt(inv.peak_ac_kw, 2)}
-                            </td>
-                            <td className="num text-right text-emerald-300">
-                              {fmt(inv.efficiency_pct, 1)}%
-                            </td>
-                            <td className="num text-right font-semibold text-solar-300">
-                              {fmt(inv.pr_pct, 1)}%
-                            </td>
-                            <td className="num text-right text-slate-300">
-                              {fmt(inv.avg_temp_c, 1)} / {fmt(inv.max_temp_c, 1)}
-                            </td>
-                            <td className="num text-right text-slate-300">
-                              {fmt(inv.avg_freq_hz, 2)}
-                            </td>
-                            <td className="num text-right font-semibold text-solar-300">
-                              {fmt(inv.yield_today_kwh, 1)}
-                            </td>
-                            <td className="num text-right font-bold text-emerald-300">
-                              {fmt(inv.total_yield_kwh == null ? null : inv.total_yield_kwh / 1000, 2)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </Panel>
-
-              {/* Selected Plant String Status Matrix */}
-              <Panel
-                icon={Grid3x3}
-                title={`String Status Matrix (${filteredStrings.length} Strings${
-                  selectedInverterSn !== "ALL" ? ` on ${selectedInverterSn}` : ""
-                })`}
-                subtitle={
-                  selectedPlantOverview?.live
-                    ? `Now = newest Growatt record per string (live, refreshes every 60 s; fetched ${new Date(
-                        selectedPlantOverview.live.fetched_at
-                      ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}). PR & Peak = today from the database. Click a tile for its I-V curve.`
-                    : plantLiveLoading
-                    ? "Loading live values… showing today's averages from the database meanwhile. Click a tile for its I-V curve."
-                    : "Live values unavailable — showing today's averages from the database. Click a tile for its I-V curve."
-                }
-                actions={
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={groupByInverter}
-                        onChange={(e) => setGroupByInverter(e.target.checked)}
-                        className="accent-sky-400"
-                      />
-                      Group by inverter
-                    </label>
-                    <select
-                      value={selectedInverterSn}
-                      onChange={(e) => setSelectedInverterSn(e.target.value)}
-                      className="select input-sm w-44"
-                    >
-                      <option value="ALL">All Inverters ({strings.length} strings)</option>
-                      {inverters.map((inv) => (
-                        <option key={inv.device_sn} value={inv.device_sn}>
-                          {inv.device_sn} ({inv.string_count} strings)
-                        </option>
-                      ))}
-                    </select>
-                    <Link to="/strings" className="btn-ghost btn-sm">
-                      Full String Diagnostics <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
-                  </div>
-                }
-              >
-                {groupByInverter ? (
-                  <div className="space-y-4">
-                    {stringGroups.map(({ inv, mppts, active, inactive, crit, warn }) => {
-                      const lvl =
-                        inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
-                      return (
-                        <section key={inv.device_sn} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
-                          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                            {inv.status == null && !inv.lost ? (
-                              <span
-                                className="h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-slate-500 border-t-sky-300"
-                                title="Loading live status…"
-                              />
-                            ) : (
-                              <Led level={lvl} />
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setSelectedInverterSn(selectedInverterSn === inv.device_sn ? "ALL" : inv.device_sn)}
-                              className="num font-bold text-white hover:text-sky-300"
-                              title="Show only this inverter"
-                            >
-                              {inv.device_sn}
-                            </button>
-                            <span className="num text-slate-500">{inv.model}</span>
-                            <span className="num text-sky-300">{active} active</span>
-                            {inactive > 0 && <span className="num text-slate-500">{inactive} not active</span>}
-                            {crit > 0 && <span className="num text-red-300">{crit} critical</span>}
-                            {warn > 0 && <span className="num text-amber-300">{warn} warning</span>}
-                            <span className="num ml-auto text-slate-400">
-                              Now {fmt(inv.current_ac_kw, 2)} kW · Peak {fmt(inv.peak_ac_kw, 2)} kW
-                            </span>
-                          </div>
-                          {mppts.length ? (
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                              {mppts.map(([mppt, slots]) => (
-                                <div key={mppt} className="rounded-lg border border-white/[0.05] p-2">
-                                  <div className="num mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                                    MPPT {mppt}
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {slots.map((x) => (x.kind === "active" ? renderStringTile(x.s) : renderInactiveTile(x.s)))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-slate-500">No string data stored for this inverter today.</div>
-                          )}
-                        </section>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">{filteredStrings.slice(0, 64).map(renderStringTile)}</div>
-                    {filteredStrings.length > 64 && (
-                      <div className="mt-3 text-xs text-slate-500">
-                        Showing 64 of {filteredStrings.length} strings. Group by inverter or pick an inverter to see all.
-                      </div>
-                    )}
-                  </>
-                )}
-              </Panel>
             </>
           )}
         </div>

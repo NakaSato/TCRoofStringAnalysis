@@ -16,9 +16,10 @@ import {
   RefreshCw,
   Search,
   X,
+  Rows3,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { StatusBadge, fmt, fmtInt, LOADING_STATUS } from "./ui";
+import { StatusBadge, fmt, LOADING_STATUS } from "./ui";
 import type { StatusLevel } from "./ui";
 
 export const SelectedPlantBanner: React.FC = () => {
@@ -98,6 +99,14 @@ export const SelectedPlantBanner: React.FC = () => {
     },
     {
       step: "3",
+      label: "Inverters",
+      to: "/inverters",
+      icon: Cpu,
+      active: location.pathname === "/inverters",
+      onClick: () => navigate("/inverters"),
+    },
+    {
+      step: "4",
       label: "String Diagnostics & I-V / P-V Curves",
       to: "/strings",
       icon: Activity,
@@ -105,7 +114,15 @@ export const SelectedPlantBanner: React.FC = () => {
       onClick: () => navigate("/strings"),
     },
     {
-      step: "4",
+      step: "5",
+      label: "String Layout",
+      to: "/string-layout",
+      icon: Rows3,
+      active: location.pathname === "/string-layout",
+      onClick: () => navigate("/string-layout"),
+    },
+    {
+      step: "6",
       label: "Alarms & Maintenance",
       to: "/maintenance",
       icon: Wrench,
@@ -113,7 +130,7 @@ export const SelectedPlantBanner: React.FC = () => {
       onClick: () => navigate("/maintenance"),
     },
     {
-      step: "5",
+      step: "7",
       label: "Power Quality & Reports",
       to: "/quality",
       icon: ShieldCheck,
@@ -170,105 +187,64 @@ export const SelectedPlantBanner: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Side (ชิดขวา): Live KPI Badges + Quick Plant Switcher */}
-        <div className="ml-auto flex flex-wrap items-center gap-3">
-          {kpis && location.pathname !== "/" && (
-            <div className="hidden items-center gap-4 rounded-lg border border-white/[0.08] bg-ink-950/60 px-3.5 py-1.5 text-xs xl:flex">
-              <div
-                title={
-                  selectedPlantOverview?.live
-                    ? `Live from Growatt (memory only), fetched ${new Date(selectedPlantOverview.live.fetched_at).toLocaleTimeString()}`
-                    : "Last synced value from the database"
+        {/* Right Side (ชิดขวา): Quick Plant Switcher */}
+        <div className="ml-auto flex items-center gap-2">
+          <label className="whitespace-nowrap text-[11px] font-medium text-slate-400">Switch Plant:</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              value={plantSearch}
+              onChange={(e) => setPlantSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && filteredPlants.length > 0) {
+                  selectGrowattPlant(filteredPlants[0].plant_id, false);
                 }
-              >
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">
-                  {selectedPlantOverview?.live && !selectedPlantOverview.live.stale ? "Power · Live" : "Power · Last sync"}
-                </span>
-                <div className="num font-bold text-sky-300">{fmt(kpis.current_power_kw, 1)} kW</div>
-              </div>
-              <div className="h-5 w-px bg-white/[0.07]" />
-              <div>
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">Capacity</span>
-                <div className="num font-bold text-solar-300">{fmt(kpis.capacity_kwp, 2)} kWp</div>
-              </div>
-              <div className="h-5 w-px bg-white/[0.07]" />
-              <div>
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">Inverters</span>
-                <div className="num font-bold text-white">
-                  {fmtInt(kpis.online_inverters)}/{kpis.inverter_count}
-                </div>
-              </div>
-              <div className="h-5 w-px bg-white/[0.07]" />
-              <div>
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">Strings</span>
-                <div className="num font-bold text-energy-300">{kpis.string_count}</div>
-              </div>
-              <div className="h-5 w-px bg-white/[0.07]" />
-              <div>
-                <span className="text-[10px] uppercase tracking-wider text-slate-500">Plant PR</span>
-                <div className="num font-bold text-emerald-400">{fmt(kpis.plant_pr_pct, 1)}%</div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="whitespace-nowrap text-[11px] font-medium text-slate-400">Switch Plant:</label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={plantSearch}
-                onChange={(e) => setPlantSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && filteredPlants.length > 0) {
-                    selectGrowattPlant(filteredPlants[0].plant_id, false);
-                  }
-                }}
-                placeholder="Search plant…"
-                className="input input-sm w-36 pl-8 pr-7 text-xs border-white/10 bg-ink-950/90 placeholder:text-slate-500 focus:border-sky-400/40 focus:ring-1 focus:ring-sky-400/20 sm:w-44"
-              />
-              {plantSearch && (
-                <button
-                  type="button"
-                  onClick={() => setPlantSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                  title="Clear search"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-            <select
-              value={
-                filteredPlants.some((gp) => gp.plant_id === selectedGrowattPlantId)
-                  ? (selectedGrowattPlantId ?? "")
-                  : ""
-              }
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                if (val) selectGrowattPlant(val, false);
               }}
-              className="select input-sm w-56 border-sky-400/30 bg-ink-950/90 text-xs font-medium text-white"
-              title="Select plant"
-            >
-              {plantSearch && !filteredPlants.some((gp) => gp.plant_id === selectedGrowattPlantId) && (
-                <option value="" disabled>
-                  {filteredPlants.length > 0
-                    ? `Select from ${filteredPlants.length} matching…`
-                    : `No plants match "${plantSearch}"`}
-                </option>
-              )}
-              {filteredPlants.map((gp) => (
-                <option key={gp.plant_id} value={gp.plant_id}>
-                  {gp.name} ({fmt(Number(gp.peak_power_kwp || 0), 1)} kWp)
-                </option>
-              ))}
-            </select>
+              placeholder="Search plant…"
+              className="input input-sm w-36 pl-8 pr-7 text-xs border-white/10 bg-ink-950/90 placeholder:text-slate-500 focus:border-sky-400/40 focus:ring-1 focus:ring-sky-400/20 sm:w-44"
+            />
+            {plantSearch && (
+              <button
+                type="button"
+                onClick={() => setPlantSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                title="Clear search"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </div>
+          <select
+            value={
+              filteredPlants.some((gp) => gp.plant_id === selectedGrowattPlantId)
+                ? (selectedGrowattPlantId ?? "")
+                : ""
+            }
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              if (val) selectGrowattPlant(val, false);
+            }}
+            className="select input-sm w-56 border-sky-400/30 bg-ink-950/90 text-xs font-medium text-white"
+            title="Select plant"
+          >
+            {plantSearch && !filteredPlants.some((gp) => gp.plant_id === selectedGrowattPlantId) && (
+              <option value="" disabled>
+                {filteredPlants.length > 0
+                  ? `Select from ${filteredPlants.length} matching…`
+                  : `No plants match "${plantSearch}"`}
+              </option>
+            )}
+            {filteredPlants.map((gp) => (
+              <option key={gp.plant_id} value={gp.plant_id}>
+                {gp.name} ({fmt(Number(gp.peak_power_kwp || 0), 1)} kWp)
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Bottom Row: 1..5 Single-Plant Module Navigation Tabs */}
+      {/* Bottom Row: 1..6 Single-Plant Module Navigation Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-ink-950/50 px-5 py-2">
         <div className="flex flex-wrap items-center gap-1.5">
           {navItems.map((item) => {
@@ -285,7 +261,7 @@ export const SelectedPlantBanner: React.FC = () => {
                 }`}
               >
                 <span
-                  className={`num flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+                  className={`num flex h-4 w-4 items-center justify-center rounded-full text-[11px] font-bold ${
                     item.active ? "bg-sky-400 text-ink-950" : "bg-white/10 text-slate-400"
                   }`}
                 >

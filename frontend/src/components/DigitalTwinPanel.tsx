@@ -141,7 +141,7 @@ export const DigitalTwinPanel: React.FC = () => {
             {/* Roof Perimeter Safety Lifeline & Compass HUD */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] pb-3 text-[11px]">
               <div className="flex items-center gap-3">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
                   Perimeter Lifeline & Fall-Arrest Zone (ISO 45001)
                 </span>
                 <span className="text-slate-500">
@@ -149,7 +149,7 @@ export const DigitalTwinPanel: React.FC = () => {
                   <strong className="num text-slate-300">180°</strong>
                 </span>
               </div>
-              <div className="flex items-center gap-3 text-[10px] text-slate-400">
+              <div className="flex items-center gap-3 text-[11px] text-slate-400">
                 <span className="inline-flex items-center gap-1">
                   <span className="h-2.5 w-2.5 rounded-xs bg-sky-500/60 ring-1 ring-sky-300/50" /> Healthy Module
                 </span>
@@ -209,9 +209,9 @@ export const DigitalTwinPanel: React.FC = () => {
                                 pulse={lvl === "crit"}
                               />
                               <span className="num font-bold text-white">{s.string_id}</span>
-                              <span className="num text-[10px] text-slate-500">{s.mppt_id}</span>
+                              <span className="num text-[11px] text-slate-500">{s.mppt_id}</span>
                               {lvl !== "ok" && (
-                                <span className="inline-flex items-center gap-1 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-amber-300">
+                                <span className="inline-flex items-center gap-1 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-amber-300">
                                   <AlertTriangle className="h-2.5 w-2.5" />
                                   {s.primary_diagnosis}
                                 </span>
@@ -289,18 +289,18 @@ export const DigitalTwinPanel: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <Led level={lvl === "info" || lvl === "neutral" ? "ok" : lvl} pulse={isCrit} />
                         <span className="num font-bold">{s.string_id}</span>
-                        <span className="num text-[10px] text-slate-500">
+                        <span className="num text-[11px] text-slate-500">
                           {s.inverter_id}/{s.mppt_id}
                         </span>
                       </div>
-                      <div className="num flex items-center gap-2 text-[10px]">
+                      <div className="num flex items-center gap-2 text-[11px]">
                         <span>{fmt(s.avg_vmp_v, 0)} V</span>
                         <span>·</span>
                         <span className={isCrit ? "font-bold text-red-400" : "text-energy-300"}>
                           {fmt(s.avg_imp_a, 2)} A
                         </span>
                         <span
-                          className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${
+                          className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${
                             isCrit
                               ? "border-red-400/50 bg-red-500/20 text-red-300"
                               : "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
@@ -329,17 +329,17 @@ export const DigitalTwinPanel: React.FC = () => {
                       </div>
                       <Led level={inv.worst === 2 ? "crit" : inv.worst === 1 ? "warn" : "ok"} />
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400">
+                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                       <span>MPPT 1000V DC → 400V AC</span>
                       <span className="num font-semibold text-energy-300">{inv.strings.length} Strings</span>
                     </div>
                     <div className="num mt-2 grid grid-cols-2 gap-2 border-t border-white/[0.06] pt-2 text-[11px]">
                       <div>
-                        <div className="text-[10px] text-slate-500">Capacity</div>
+                        <div className="text-[11px] text-slate-500">Capacity</div>
                         <div className="font-bold text-solar-400">{fmt(inv.cap, 1)} kWp</div>
                       </div>
                       <div>
-                        <div className="text-[10px] text-slate-500">Yield</div>
+                        <div className="text-[11px] text-slate-500">Yield</div>
                         <div className="font-bold text-white">{fmt(inv.energy, 1)} kWh</div>
                       </div>
                     </div>
@@ -383,13 +383,13 @@ export const DigitalTwinPanel: React.FC = () => {
                   </div>
                   <div className="num mt-2 grid grid-cols-2 gap-2 border-t border-white/10 pt-2 text-xs">
                     <div>
-                      <div className="text-[10px] text-slate-400">Net Energy Export</div>
+                      <div className="text-[11px] text-slate-400">Net Energy Export</div>
                       <div className="font-bold text-emerald-300">
                         {fmt(kpis.total_energy_kwh, 1)} kWh
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-slate-400">Plant PR</div>
+                      <div className="text-[11px] text-slate-400">Plant PR</div>
                       <div className="font-bold text-solar-300">{fmt(kpis.plant_pr_pct, 2)}%</div>
                     </div>
                   </div>
