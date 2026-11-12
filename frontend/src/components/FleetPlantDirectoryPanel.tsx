@@ -45,12 +45,12 @@ export interface UnifiedPlantItem {
   name: string;
   location: string;
   capacityKwp: number;
-  currentPowerKw: number;
+  currentPowerKw: number | null; // realtime (live overlay); null when live is unavailable
   yieldTodayKwh: number;
-  totalEnergyKwh: number;
+  totalEnergyKwh: number | null;
   specificEnergyKwhPerKwp: number;
   prPct: number | null;
-  statusLabel: "Normal" | "Faulty" | "Disconnected";
+  statusLabel: "Normal" | "Faulty" | "Disconnected" | "Unknown";
   statusLevel: StatusLevel;
   stringsCount: number | null;
   modulesCount: number | null;
@@ -258,11 +258,13 @@ export const FleetPlantDirectoryPanel: React.FC<{
     const items: UnifiedPlantItem[] = [];
 
     for (const gp of growattPlants) {
+      // status / power are realtime (live overlay only); null means live data is unavailable
+      const isUnknown = gp.status == null;
       const isNormal = gp.status === 1;
       const isDisconnected = gp.status === 0 || gp.status === 4;
       const capKwp = Number(gp.peak_power_kwp || 0);
-      const totalKwh = Number(gp.total_energy_kwh || 0);
-      const curKw = Number(gp.current_power_w || 0) / 1000;
+      const totalKwh = gp.total_energy_kwh ?? null;
+      const curKw = gp.current_power_w == null ? null : gp.current_power_w / 1000;
       // Measured energy of the latest synced day only — no estimate when it is missing.
       const estTodayKwh = Number(gp.today_energy_kwh ?? 0);
       const invCnt = gp.inverter_count ?? 1;
@@ -279,8 +281,8 @@ export const FleetPlantDirectoryPanel: React.FC<{
         totalEnergyKwh: totalKwh,
         specificEnergyKwhPerKwp: capKwp > 0 ? estTodayKwh / capKwp : 0,
         prPct: null,
-        statusLabel: isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
-        statusLevel: isNormal ? "ok" : isDisconnected ? "info" : "crit",
+        statusLabel: isUnknown ? "Unknown" : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
+        statusLevel: isUnknown ? "neutral" : isNormal ? "ok" : isDisconnected ? "info" : "crit",
         stringsCount: invCnt,
         modulesCount: null,
         invertersCount: invCnt,
@@ -296,9 +298,14 @@ export const FleetPlantDirectoryPanel: React.FC<{
 
   // Compute Fleet KPIs, Plant Status breakdown, and Active Alarms breakdown for the 3-column Hero Banner
   const heroMetrics = useMemo(() => {
-    const currentPowerKw = unifiedPlants.reduce((a, p) => a + p.currentPowerKw, 0);
+    // Sum only known values; null (shown as "—") when no plant has one.
+    const sumKnown = (vals: Array<number | null>) => {
+      const known = vals.filter((v): v is number => v != null);
+      return known.length ? known.reduce((a, v) => a + v, 0) : null;
+    };
+    const currentPowerKw = sumKnown(unifiedPlants.map((p) => p.currentPowerKw));
     const yieldTodayKwh = unifiedPlants.reduce((a, p) => a + p.yieldTodayKwh, 0);
-    const totalYieldKwh = unifiedPlants.reduce((a, p) => a + p.totalEnergyKwh, 0);
+    const totalYieldKwh = sumKnown(unifiedPlants.map((p) => p.totalEnergyKwh));
     const ratedPowerKwp = unifiedPlants.reduce((a, p) => a + p.capacityKwp, 0);
     const tariff = activePlant?.tariff_thb_per_kwh ?? analysisRun?.tariff_thb_per_kwh ?? 4.2;
     const revenueTodayThb = yieldTodayKwh * tariff;
@@ -1049,7 +1056,9 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 pagedPlants.map((p) => {
                   const isSelected = p.id === selectedGrowattPlantId;
                   const loadPct =
-                    p.capacityKwp > 0 ? Math.min(100, (p.currentPowerKw / p.capacityKwp) * 100) : 0;
+                    p.capacityKwp > 0 && p.currentPowerKw != null
+                      ? Math.min(100, (p.currentPowerKw / p.capacityKwp) * 100)
+                      : 0;
 
                   return (
                     <tr

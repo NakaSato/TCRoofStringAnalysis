@@ -50,6 +50,9 @@ const OVERVIEW_REFRESH_MS = 5 * 60_000; // DB history refresh (worker syncs ever
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
+/** Same names as the backend's solar_core.growatt.INVERTER_STATUS_NAMES. */
+const INVERTER_STATUS_NAMES: Record<number, string> = { 0: "Offline", 1: "Normal", 3: "Fault" };
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(getStoredUser());
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -170,17 +173,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const liveW = live.inverters.reduce((a, i) => a + (i.pac_w ?? 0), 0);
     const hasLive = live.inverters.length > 0;
+    // Status is realtime only (null in the DB): plant status from the fleet poll,
+    // online count from the newest record of each inverter.
+    const liveStatus = livePlantMap.get(ov.plant.plant_id)?.status ?? ov.plant.status;
+    const online = hasLive ? live.inverters.filter((i) => i.status === 1).length : ov.kpis.online_inverters;
     return {
       ...ov,
       live: { fetched_at: selectedPlantLive!.fetched_at, stale: selectedPlantLive!.stale },
-      plant: hasLive ? { ...ov.plant, current_power_w: liveW } : ov.plant,
-      kpis: hasLive ? { ...ov.kpis, current_power_kw: Math.round(liveW / 10) / 100 } : ov.kpis,
+      plant: { ...ov.plant, status: liveStatus, ...(hasLive ? { current_power_w: liveW } : {}) },
+      kpis: {
+        ...ov.kpis,
+        online_inverters: online,
+        ...(hasLive ? { current_power_kw: Math.round(liveW / 10) / 100 } : {}),
+      },
       inverters: ov.inverters.map((inv) => {
         const l = byInv.get(inv.device_sn);
         if (!l) return inv;
         return {
           ...inv,
           current_ac_kw: l.pac_w == null ? inv.current_ac_kw : Math.round(l.pac_w / 10) / 100,
+          // status is realtime only (null in the DB): take it from the newest record
+          status: l.status ?? inv.status,
+          status_label: l.status == null ? inv.status_label : INVERTER_STATUS_NAMES[l.status] ?? `Status ${l.status}`,
           mppt_latest: l.mppt.length ? l.mppt : inv.mppt_latest,
           live_at: l.timestamp,
         };
@@ -192,7 +206,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : s;
       }),
     };
-  }, [dbPlantOverview, selectedPlantLive]);
+  }, [dbPlantOverview, selectedPlantLive, livePlantMap]);
 
   const loadPlantContext = useCallback(async (plantId?: number) => {
     setLoading(true);

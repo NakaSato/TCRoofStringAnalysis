@@ -14,7 +14,8 @@ Schedule (plant-local time, Asia/Bangkok):
     publish_yesterday  06:00   finalize yesterday's daily summaries
     publish_today      19:30   publish today after sunset
 Daily jobs only fire within `GRACE` after their slot, so a worker started at noon does not
-publish a half day. Last-run times come from `sync_runs`, so restarts don't re-run jobs.
+publish a half day. Exception: `fleet` also runs at once when the inverter registry is empty
+(fresh database), otherwise `history` would have nothing to sync until 05:30. Last-run times come from `sync_runs`, so restarts don't re-run jobs.
 """
 
 from __future__ import annotations
@@ -27,7 +28,10 @@ from dataclasses import dataclass
 from datetime import datetime, time as dtime, timedelta
 from typing import List, Optional
 
+from sqlalchemy import select
+
 from app.config import settings
+from app.db.models import GrowattInverter
 from app.db.session import Base, SessionLocal
 from app.services import jobs
 
@@ -35,6 +39,7 @@ log = logging.getLogger("worker")
 
 GRACE = timedelta(hours=3)
 TICK_S = 60
+REGISTRY_RETRY = timedelta(minutes=15)
 
 
 @dataclass(frozen=True)
@@ -56,13 +61,24 @@ class Schedule:
 
 
 def default_schedule() -> List[Schedule]:
+    # `fleet` first: on an empty registry it runs before `history` in the same tick.
     return [
+        Schedule("fleet", at=dtime(5, 30)),
         Schedule("history", every=timedelta(minutes=settings.worker_history_interval_min)),
         Schedule("backfill", at=dtime(2, 0)),
-        Schedule("fleet", at=dtime(5, 30)),
         Schedule("publish_yesterday", at=dtime(6, 0)),
         Schedule("publish_today", at=dtime(19, 30)),
     ]
+
+
+def _registry_empty(db) -> bool:
+    return db.scalar(select(GrowattInverter.device_sn).limit(1)) is None
+
+
+def _bootstrap_due(job: str, db, now: datetime, last: Optional[datetime]) -> bool:
+    """`fleet` also runs whenever the inverter registry is empty (fresh deploy), retrying every
+    REGISTRY_RETRY if Growatt fails, so `history` is not idle until the next 05:30 slot."""
+    return job == "fleet" and (last is None or now - last >= REGISTRY_RETRY) and _registry_empty(db)
 
 
 def tick(session_factory, schedule: List[Schedule], now: datetime) -> List[str]:
@@ -70,7 +86,8 @@ def tick(session_factory, schedule: List[Schedule], now: datetime) -> List[str]:
     started = []
     for s in schedule:
         with session_factory() as db:
-            if not s.is_due(now, jobs.last_started(db, s.job)):
+            last = jobs.last_started(db, s.job)
+            if not (s.is_due(now, last) or _bootstrap_due(s.job, db, now, last)):
                 continue
             try:
                 run_id = jobs.claim(db, s.job, "schedule", now=now)

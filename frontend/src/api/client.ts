@@ -198,7 +198,8 @@ export interface GrowattPlant {
   today_energy_kwh?: number | null;
   total_energy_kwh: number | null;
   inverter_count?: number;
-  status: number;
+  /** realtime: always null from the DB, filled by the live overlay */
+  status: number | null;
   create_date: string | null;
   energy_date?: string | null;
   synced_at?: string | null;
@@ -271,7 +272,8 @@ export interface GrowattPlantOverview {
     max_temp_c: number | null;
     avg_freq_hz: number | null;
     inverter_count: number;
-    online_inverters: number;
+    /** realtime: null from the DB, counted from live inverter status by AppContext */
+    online_inverters: number | null;
     string_count: number;
     healthy_strings: number;
     warning_strings: number;
@@ -284,8 +286,8 @@ export interface GrowattPlantOverview {
     model: string;
     datalogger_sn: string;
     status: number | null;
-    status_label: string;
-    lost: boolean;
+    status_label: string | null;
+    lost: boolean | null;
     last_update_time: string | null;
     capacity_kwp: number | null;
     current_ac_kw: number | null;
@@ -409,8 +411,8 @@ export interface GrowattInverter {
   datalogger_sn: string;
   manufacturer: string;
   status: number | null;
-  status_label: string;
-  lost: boolean;
+  status_label: string | null;
+  lost: boolean | null;
   last_update_time: string | null;
   device_types: string[];
   synced_at?: string | null;

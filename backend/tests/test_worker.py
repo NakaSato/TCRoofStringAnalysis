@@ -15,7 +15,7 @@ from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
 from app.services import jobs
-from app.worker import Schedule, tick
+from app.worker import REGISTRY_RETRY, Schedule, default_schedule, tick
 from solar_core.growatt import GrowattClient
 
 BKK = jobs.PLANT_TZ
@@ -67,7 +67,16 @@ def test_interval_and_daily_due_rules():
     assert daily.is_due(datetime(2026, 11, 12, 12, 30, tzinfo=timezone.utc), None)
 
 
+def _seed_registry(factory) -> None:
+    with factory() as db:
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.flush()
+        db.add(GrowattInverter(device_sn="INV1", plant_id=1))
+        db.commit()
+
+
 def test_tick_runs_due_jobs_once_and_records_failures(factory, fake_jobs):
+    _seed_registry(factory)  # non-empty registry: fleet follows its daily slot only
     schedule = [Schedule("history", every=timedelta(minutes=30)), Schedule("fleet", at=dtime(5, 30))]
     now = datetime(2026, 11, 12, 6, 0, tzinfo=BKK)
     assert tick(factory, schedule, now) == ["history", "fleet"]
@@ -80,6 +89,39 @@ def test_tick_runs_due_jobs_once_and_records_failures(factory, fake_jobs):
     assert "growatt down" in runs[1].error
     assert runs[0].detail_json == {"n": 1, "when": "2026-11-12"}
     assert runs[0].finished_at is not None
+
+
+def test_empty_registry_runs_fleet_outside_its_slot_and_retries(factory, monkeypatch):
+    """Fresh deploy at noon: fleet runs at once (before history), retrying while Growatt fails."""
+    calls: list = []
+    fleet_ok = [False]
+
+    def history(db):
+        calls.append("history")
+        return "ok", {}
+
+    def fleet(db):
+        calls.append("fleet")
+        if not fleet_ok[0]:
+            raise RuntimeError("growatt down")
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.flush()
+        db.add(GrowattInverter(device_sn="INV1", plant_id=1))
+        db.commit()
+        return "ok", {"inverters": 1}
+
+    monkeypatch.setattr(jobs, "JOBS", {"history": history, "fleet": fleet})
+    schedule = default_schedule()
+    schedule = [s for s in schedule if s.job in ("fleet", "history")]
+    noon = datetime(2026, 11, 12, 12, 0, tzinfo=BKK)  # far outside the 05:30 fleet slot
+
+    assert tick(factory, schedule, noon) == ["fleet", "history"]  # fleet first, even though it failed
+    assert tick(factory, schedule, noon + timedelta(minutes=10)) == []  # retry waits REGISTRY_RETRY
+    fleet_ok[0] = True
+    assert tick(factory, schedule, noon + REGISTRY_RETRY) == ["fleet"]
+    # registry filled: fleet goes back to its daily slot
+    assert tick(factory, schedule, noon + timedelta(hours=1)) == ["history"]
+    assert calls == ["fleet", "history", "fleet", "history"]
 
 
 # --------------------------------------------------------------------------- lock

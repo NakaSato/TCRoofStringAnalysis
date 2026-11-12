@@ -11,16 +11,23 @@ const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
   4: { label: "Offline / Fault", level: "crit" },
 };
 
-const plantStatus = (s: number) => PLANT_STATUS[s] ?? { label: `Status ${s}`, level: "warn" as StatusLevel };
+// Status is realtime only (never stored): null means live data is unavailable.
+const plantStatus = (s: number | null): { label: string; level: StatusLevel } =>
+  s == null ? { label: "Unknown", level: "neutral" } : PLANT_STATUS[s] ?? { label: `Status ${s}`, level: "warn" };
 
 const inverterLevel = (inv: GrowattInverter): StatusLevel =>
-  inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : "warn";
+  inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
+
+const sumKnown = (vals: Array<number | null>, div = 1): number | null => {
+  const known = vals.filter((v): v is number => v != null);
+  return known.length ? known.reduce((a, v) => a + v, 0) / div : null;
+};
 
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 const liveLabel = (s: { fetchedAt: string | null; stale: boolean; error: string | null }) =>
   !s.fetchedAt
-    ? "Live data unavailable — showing last synced values."
+    ? "Live data unavailable — power and status not shown."
     : s.stale
     ? `Live data stale (last ${fmtTime(s.fetchedAt)}).`
     : `Live · ${fmtTime(s.fetchedAt)}.`;
@@ -64,7 +71,7 @@ export const GrowattFleetPage: React.FC = () => {
         setInverters(dbList.map((i) => ({ ...i, ...(bySn.get(i.device_sn) ?? {}) })));
         setLiveInvAt(live.stale ? null : live.fetched_at);
       } catch {
-        // live unavailable: keep last synced status from the DB
+        // live unavailable: status stays unknown (realtime values are never stored)
       }
     } catch (e) {
       setInverters(null);
@@ -89,9 +96,11 @@ export const GrowattFleetPage: React.FC = () => {
     return {
       count: list.length,
       kwp: list.reduce((a, p) => a + (p.peak_power_kwp ?? 0), 0),
-      kw: list.reduce((a, p) => a + (p.current_power_w ?? 0), 0) / 1000,
-      mwh: list.reduce((a, p) => a + (p.total_energy_kwh ?? 0), 0) / 1000,
-      abnormal: list.filter((p) => p.status !== 1).length,
+      // realtime values: null ("—") until live data has arrived for at least one plant
+      kw: sumKnown(list.map((p) => p.current_power_w), 1000),
+      mwh: sumKnown(list.map((p) => p.total_energy_kwh), 1000),
+      abnormal: list.filter((p) => p.status != null && p.status !== 1).length,
+      unknown: list.filter((p) => p.status == null).length,
     };
   }, [plants]);
 
@@ -123,7 +132,8 @@ export const GrowattFleetPage: React.FC = () => {
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <KpiTile label="Plants" value={fmtInt(totals.count)} icon={Radio} tone="solar"
-              hint={totals.abnormal ? `${totals.abnormal} not normal` : "All normal"} hintTone={totals.abnormal ? "crit" : "ok"} />
+              hint={totals.abnormal ? `${totals.abnormal} not normal` : totals.unknown ? `${totals.unknown} status unknown` : "All normal"}
+              hintTone={totals.abnormal ? "crit" : totals.unknown ? "warn" : "ok"} />
             <KpiTile label="Installed capacity" value={fmt(totals.kwp / 1000, 2)} unit="MWp" icon={Gauge} tone="info" />
             <KpiTile label="Current power" value={fmt(totals.kw, 0)} unit="kW" icon={Zap} tone="energy" />
             <KpiTile label="Lifetime energy" value={fmt(totals.mwh, 0)} unit="MWh" icon={Zap} tone="ok" />
@@ -156,8 +166,8 @@ export const GrowattFleetPage: React.FC = () => {
                   <tbody>
                     {filtered.map((p) => {
                       const st = plantStatus(p.status);
-                      const kw = (p.current_power_w ?? 0) / 1000;
-                      const load = p.peak_power_kwp ? (kw / p.peak_power_kwp) * 100 : null;
+                      const kw = p.current_power_w == null ? null : p.current_power_w / 1000;
+                      const load = kw != null && p.peak_power_kwp ? (kw / p.peak_power_kwp) * 100 : null;
                       return (
                         <tr
                           key={p.plant_id}
@@ -187,7 +197,7 @@ export const GrowattFleetPage: React.FC = () => {
               subtitle={
                 selected
                   ? `Plant ${selected.plant_id}${inverters ? ` · ${inverters.length} inverters` : ""} · ${
-                      liveInvAt ? `Live ${fmtTime(liveInvAt)}` : "Last synced status"
+                      liveInvAt ? `Live ${fmtTime(liveInvAt)}` : "Live status unavailable"
                     }`
                   : "Select a plant"
               }
@@ -222,7 +232,7 @@ export const GrowattFleetPage: React.FC = () => {
                               {inv.device_types.join("/").toUpperCase()} · logger {inv.datalogger_sn}
                             </div>
                           </td>
-                          <td><StatusBadge status={inv.lost ? "Lost" : inv.status_label} level={inverterLevel(inv)} /></td>
+                          <td><StatusBadge status={inv.lost ? "Lost" : inv.status_label ?? "Unknown"} level={inverterLevel(inv)} /></td>
                           <td className="num text-[11px] text-slate-400">{inv.last_update_time ?? "—"}</td>
                         </tr>
                       ))}

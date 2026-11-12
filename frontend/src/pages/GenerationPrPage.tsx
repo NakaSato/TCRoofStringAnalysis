@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { PlotlyChart } from "../components/PlotlyChart";
-import { Panel, KpiTile, StatusBadge, LoadingState, fmt } from "../components/ui";
+import { Panel, KpiTile, StatusBadge, LoadingState, fmt, fmtInt } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 
 export const GenerationPrPage: React.FC = () => {
@@ -244,7 +244,7 @@ export const GenerationPrPage: React.FC = () => {
           unit="%"
           icon={Cpu}
           tone="energy"
-          hint={`${kpis?.online_inverters ?? inverters.length}/${inverters.length} inverters active`}
+          hint={`${fmtInt(kpis?.online_inverters)}/${inverters.length} inverters active`}
         />
         <KpiTile
           label="Inverter Temp (Avg/Max)"
@@ -350,7 +350,7 @@ export const GenerationPrPage: React.FC = () => {
                 return (
                   <tr key={inv.device_sn}>
                     <td>
-                      <StatusBadge status={inv.status_label} level={lvl} dot />
+                      <StatusBadge status={inv.status_label ?? "Unknown"} level={lvl} dot />
                     </td>
                     <td className="num font-bold text-white">{inv.device_sn}</td>
                     <td className="num text-xs text-slate-400">{inv.model}</td>

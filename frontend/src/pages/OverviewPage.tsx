@@ -17,6 +17,8 @@ import {
   CheckCircle2,
   Building2,
   Eye,
+  MapPin,
+  Radio,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { PlotlyChart } from "../components/PlotlyChart";
@@ -257,93 +259,222 @@ export const OverviewPage: React.FC = () => {
               {/* Hero: Selected Plant PR Gauge + Energy Flow + String Health */}
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
                 <section className="panel overflow-hidden xl:col-span-8">
-                  <div className="relative grid grid-cols-1 items-center gap-6 p-6 md:grid-cols-[auto_1fr]">
-                    <div className="flex justify-center">
-                      <RingGauge value={plantPr} target={targetPr} />
-                    </div>
-                    <div className="space-y-6">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span
-                          className={`badge ${
-                            plantLevel === "ok" ? "badge-ok" : "badge-warn"
-                          } px-2.5 py-1 text-[11px]`}
-                        >
-                          <Led level={plantLevel} pulse />
-                          {plantLevel === "ok"
-                            ? "ALL INVERTERS & STRINGS NORMAL"
-                            : `${critical} CRITICAL · ${warning} WARNING STRINGS`}
-                        </span>
-                        <span className="text-[11px] text-slate-400">
-                          Plant <span className="font-semibold text-white">{plant?.name}</span> ·{" "}
-                          <span className="num text-slate-300">#{plant?.plant_id}</span>
-                        </span>
+                  <div className="relative grid grid-cols-1 gap-6 p-5 sm:p-6 lg:grid-cols-[auto_1fr] items-center">
+                    {/* Left: PR Gauge & Standard Target Benchmark */}
+                    <div className="flex flex-col items-center justify-center border-b border-white/[0.06] pb-5 lg:border-b-0 lg:border-r lg:border-white/[0.06] lg:pb-0 lg:pr-6">
+                      <RingGauge value={plantPr} target={targetPr} size={168} />
+                      <div className="mt-2.5 text-center">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          IEC 61724-1 Standard
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          Target: <span className="font-semibold text-slate-300">{targetPr.toFixed(1)}%</span> · Δ{" "}
+                          <span
+                            className={`font-semibold ${
+                              plantPr >= targetPr ? "text-emerald-400" : "text-amber-400"
+                            }`}
+                          >
+                            {(plantPr - targetPr >= 0 ? "+" : "") + (plantPr - targetPr).toFixed(1)}%
+                          </span>
+                        </div>
                       </div>
+                    </div>
 
-                      {/* Redesigned Realtime Status Flow (4-Node SCADA Topology) */}
-                      <div className="relative overflow-hidden rounded-xl border border-sky-400/20 bg-[#161f44] p-3.5 shadow-inner">
-                        {/* Top Node: Solar PV Module */}
-                        <div className="flex flex-col items-center">
-                          <div className="mb-1 text-xs font-medium text-[#9bb0db]">
-                            PV Power:&nbsp;&nbsp;
-                            <span className="font-bold text-white tracking-tight">{fmt(pvPowerKw, 1)}kW</span>
+                    {/* Right: Comprehensive High-Level Power Plant Command View */}
+                    <div className="min-w-0 space-y-3.5">
+                      {/* 1. Plant Header & Live Status */}
+                      <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-white/[0.06] pb-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-base font-bold text-white sm:text-lg">
+                              {plant?.name || "Solar Power Plant"}
+                            </h3>
+                            <span className="num rounded bg-white/[0.05] px-1.5 py-0.5 text-xs text-slate-400">
+                              #{plant?.plant_id}
+                            </span>
                           </div>
-                          <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#1e254e] shadow-[0_6px_16px_rgba(10,14,35,0.6)]">
-                            <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-gradient-to-b from-[#343e70] to-[#1f264c] shadow-inner">
-                              <svg viewBox="0 0 64 64" className="h-7 w-7 sm:h-8 sm:w-8 drop-shadow">
-                                <defs>
-                                  <linearGradient id="scadaSolarFrame" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#94a3b8" />
-                                    <stop offset="100%" stopColor="#475569" />
-                                  </linearGradient>
-                                  <linearGradient id="scadaSolarWafer" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#38bdf8" />
-                                    <stop offset="100%" stopColor="#1d4ed8" />
-                                  </linearGradient>
-                                </defs>
-                                <polygon points="6,44 18,18 46,18 58,44" fill="url(#scadaSolarFrame)" stroke="#cbd5e1" strokeWidth="1.2" strokeLinejoin="round" />
-                                <polygon points="19.5,20 25.5,20 24,30 17,30" fill="url(#scadaSolarWafer)" />
-                                <polygon points="26.5,20 32.5,20 32,30 25,30" fill="url(#scadaSolarWafer)" />
-                                <polygon points="33.5,20 39.5,20 40,30 33,30" fill="url(#scadaSolarWafer)" />
-                                <polygon points="40.5,20 44.5,20 47,30 41,30" fill="url(#scadaSolarWafer)" />
-                                <polygon points="16,32 23.5,32 21.5,42 13,42" fill="url(#scadaSolarWafer)" />
-                                <polygon points="24.5,32 31.5,32 30.5,42 22.5,42" fill="url(#scadaSolarWafer)" />
-                                <polygon points="32.5,32 39.5,32 39.5,42 31.5,42" fill="url(#scadaSolarWafer)" />
-                                <polygon points="40.5,32 48,32 51,42 40.5,42" fill="url(#scadaSolarWafer)" />
-                                <polygon points="20,20 44,20 36,42 14,42" fill="#ffffff" fillOpacity="0.10" />
-                              </svg>
-                            </div>
-                          </div>
-                          {/* Down Triangle Arrow */}
-                          <div className="my-1.5 flex items-center justify-center">
-                            <svg className="h-2 w-3 drop-shadow animate-pulse" viewBox="0 0 16 10">
-                              <polygon points="0,0 16,0 8,10" fill="#ffffff" />
-                            </svg>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                            <span className="inline-flex items-center gap-1 text-slate-400">
+                              <MapPin className="h-3.5 w-3.5 text-slate-500" />
+                              {[plant?.city, plant?.country].filter(Boolean).join(", ") || "Thailand"}
+                            </span>
+                            {plant?.create_date && (
+                              <>
+                                <span className="text-slate-600">·</span>
+                                <span>Connected: {plant.create_date}</span>
+                              </>
+                            )}
                           </div>
                         </div>
 
-                        {/* Bottom: Inverters (no grid / load meter data available) */}
-                        <div className="flex items-center justify-center gap-1 sm:gap-2">
-                          {/* Inverter Node */}
-                          <div className="flex flex-1 flex-col items-center text-center">
-                            <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-[#1e254e] shadow-[0_6px_16px_rgba(10,14,35,0.6)]">
-                              <div className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-gradient-to-b from-[#343e70] to-[#1f264c] shadow-inner">
-                                <div className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-xl bg-gradient-to-b from-white via-[#f8fafc] to-[#e2e8f0] shadow-md">
-                                  <div className="flex h-4 w-4 sm:h-4.5 sm:w-4.5 items-center justify-center rounded-md bg-[#0f172a] shadow-inner">
-                                    <svg className="h-3 w-3 text-[#10b981]" viewBox="0 0 24 24" fill="currentColor">
-                                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14.5c0 .28-.22.5-.5.5s-.5-.22-.5-.5V14c-2.21 0-4-1.79-4-4 0-1.66 1.34-3 3-3 .28 0 .5.22.5.5s-.22.5-.5.5c-1.1 0-2 .9-2 2 0 1.66 1.34 3 3 3v-2.5c0-.28.22-.5.5-.5s.5.22.5.5v5.5zm2.5-4c-.28 0-.5-.22-.5-.5 0-1.66-1.34-3-3-3-.28 0-.5-.22-.5-.5s.22-.5.5-.5c2.21 0 4 1.79 4 4 0 .28-.22.5-.5.5z" />
-                                    </svg>
-                                  </div>
-                                </div>
-                              </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`badge ${
+                              plantLevel === "ok" ? "badge-ok" : "badge-warn"
+                            } px-2.5 py-1 text-xs font-semibold`}
+                          >
+                            <Led level={plantLevel} pulse />
+                            {plantLevel === "ok"
+                              ? "ALL INVERTERS & STRINGS NORMAL"
+                              : `${critical} CRITICAL · ${warning} WARNING STRINGS`}
+                          </span>
+                          {selectedPlantOverview?.live && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-emerald-300"
+                              title={`Live telemetry fetched ${new Date(
+                                selectedPlantOverview.live.fetched_at
+                              ).toLocaleTimeString()}`}
+                            >
+                              <Radio className="h-2.5 w-2.5 animate-pulse text-emerald-400" />
+                              LIVE
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 2. Visual 3-Stage SCADA Power Conversion Flow */}
+                      <div className="rounded-xl border border-white/[0.08] bg-gradient-to-r from-ink-900 via-[#101a33] to-ink-900 p-3 shadow-inner">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
+                          {/* Node 1: DC Solar PV Array */}
+                          <div className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-ink-950/70 p-2.5">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solar-400/30 bg-solar-500/10 text-solar-400 shadow-[0_0_12px_rgba(245,180,42,0.15)]">
+                              <Sun className="h-5 w-5" />
                             </div>
-                            <div className="mt-1.5 text-[11px] sm:text-xs font-medium text-slate-400 whitespace-nowrap">
-                              Inverters online:&nbsp;
-                              <span className="font-bold text-white">
-                                {kpis?.online_inverters ?? "—"}/{kpis?.inverter_count ?? "—"}
-                              </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                PV Generation (DC)
+                              </div>
+                              <div className="num text-base font-bold text-white sm:text-lg">
+                                {fmt(pvPowerKw, 1)}{" "}
+                                <span className="text-xs font-normal text-slate-400">kW</span>
+                              </div>
+                              <div className="truncate text-[11px] text-slate-400">
+                                Capacity: <span className="num text-slate-300">{fmt(capacity, 1)} kWp</span>
+                                {capacity > 0 && pvPowerKw != null && pvPowerKw > 0 && (
+                                  <span className="ml-1 font-semibold text-solar-400">
+                                    ({((pvPowerKw / capacity) * 100).toFixed(0)}%)
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
+                          {/* Arrow 1 */}
+                          <div className="hidden sm:flex flex-col items-center justify-center px-0.5">
+                            <div className="flex items-center text-solar-400">
+                              <div className="h-0.5 w-4 bg-gradient-to-r from-solar-400/60 to-energy-400/80" />
+                              <ArrowRight className="h-3.5 w-3.5 animate-pulse text-energy-400" />
+                            </div>
+                            <span className="mt-0.5 text-[8px] font-mono uppercase text-slate-500">DC</span>
+                          </div>
+
+                          {/* Node 2: Inverters (Conversion) */}
+                          <div className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-ink-950/70 p-2.5">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-400/30 bg-emerald-500/10 text-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.15)]">
+                              <Cpu className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                Inverter Fleet
+                              </div>
+                              <div className="num text-base font-bold text-white sm:text-lg">
+                                {kpis?.online_inverters ?? "—"} / {kpis?.inverter_count ?? "—"}{" "}
+                                <span className="text-xs font-normal text-emerald-400">Online</span>
+                              </div>
+                              <div className="truncate text-[11px] text-slate-400">
+                                Temp: <span className="num text-slate-300">{fmt(kpis?.avg_temp_c, 1)}°C</span>
+                                {kpis?.avg_freq_hz && (
+                                  <span className="ml-1 text-slate-500">· {fmt(kpis.avg_freq_hz, 1)} Hz</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Arrow 2 */}
+                          <div className="hidden sm:flex flex-col items-center justify-center px-0.5">
+                            <div className="flex items-center text-emerald-400">
+                              <div className="h-0.5 w-4 bg-gradient-to-r from-energy-400/80 to-emerald-400/80" />
+                              <ArrowRight className="h-3.5 w-3.5 animate-pulse text-emerald-400" />
+                            </div>
+                            <span className="mt-0.5 text-[8px] font-mono uppercase text-slate-500">AC</span>
+                          </div>
+
+                          {/* Node 3: Grid Output (AC) */}
+                          <div className="flex items-center gap-2.5 rounded-lg border border-white/[0.06] bg-ink-950/70 p-2.5">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-500/10 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.15)]">
+                              <UtilityPole className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                                Daily Yield (AC)
+                              </div>
+                              <div className="num text-base font-bold text-white sm:text-lg">
+                                {fmt(yieldTodayKwh, 1)}{" "}
+                                <span className="text-xs font-normal text-slate-400">kWh</span>
+                              </div>
+                              <div className="truncate text-[11px] text-slate-400">
+                                Revenue: <span className="num font-semibold text-emerald-400">฿{fmt(revenueToday, 0)}</span>
+                                <span className="ml-1 text-slate-500">· {co2TodayTonnes.toFixed(2)} tCO₂</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. High-Level Plant KPI Metrics Strip */}
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="rounded-lg border border-white/[0.05] bg-ink-950/50 p-2.5">
+                          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                            <Gauge className="h-3 w-3 text-solar-400" />
+                            Peak Power Today
+                          </div>
+                          <div className="num mt-1 text-sm font-bold text-white sm:text-base">
+                            {fmt(peakKw, 1)} <span className="text-[10px] font-normal text-slate-400">kW</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 truncate">
+                            {capacity > 0 ? `${((peakKw / capacity) * 100).toFixed(0)}% of capacity` : "Daily peak"}
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-white/[0.05] bg-ink-950/50 p-2.5">
+                          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                            <Zap className="h-3 w-3 text-energy-400" />
+                            Specific Yield
+                          </div>
+                          <div className="num mt-1 text-sm font-bold text-white sm:text-base">
+                            {fmt(specificYield, 2)}{" "}
+                            <span className="text-[10px] font-normal text-slate-400">kWh/kWp</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 truncate">Benchmark PR factor</div>
+                        </div>
+
+                        <div className="rounded-lg border border-white/[0.05] bg-ink-950/50 p-2.5">
+                          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                            <Activity className="h-3 w-3 text-cyan-400" />
+                            Lifetime Energy
+                          </div>
+                          <div className="num mt-1 text-sm font-bold text-white sm:text-base">
+                            {fmt(totalYieldKwh / 1000, 2)}{" "}
+                            <span className="text-[10px] font-normal text-slate-400">MWh</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 truncate">Cumulative yield</div>
+                        </div>
+
+                        <div className="rounded-lg border border-white/[0.05] bg-ink-950/50 p-2.5">
+                          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                            <HeartPulse className="h-3 w-3 text-emerald-400" />
+                            String Health ({totalStrings})
+                          </div>
+                          <div className="num mt-1 text-sm font-bold text-white sm:text-base">
+                            {availability.toFixed(1)}%
+                          </div>
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate">
+                            <span className="font-semibold text-emerald-400">{healthy} OK</span>
+                            <span>·</span>
+                            <span className="font-semibold text-amber-400">{warning} W</span>
+                            <span>·</span>
+                            <span className="font-semibold text-red-400">{critical} C</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -590,7 +721,8 @@ export const OverviewPage: React.FC = () => {
                     <tbody>
                       {inverters.map((inv) => {
                         const isSelected = selectedInverterSn === inv.device_sn;
-                        const lvl = inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : "warn";
+                        const lvl =
+                          inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
                         return (
                           <tr
                             key={inv.device_sn}
@@ -604,7 +736,7 @@ export const OverviewPage: React.FC = () => {
                             }`}
                           >
                             <td>
-                              <StatusBadge status={inv.status_label} level={lvl} dot />
+                              <StatusBadge status={inv.status_label ?? "Unknown"} level={lvl} dot />
                             </td>
                             <td className="num font-bold text-white hover:text-sky-300">
                               {inv.device_sn}

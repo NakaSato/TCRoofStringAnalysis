@@ -21,7 +21,6 @@ from app.db.models import (
     GrowattPlant,
     GrowattStringReading,
 )
-from solar_core.growatt import INVERTER_STATUS_NAMES
 
 SAMPLE_H = 5.0 / 60.0  # nominal max_data interval (5 min), in hours
 MAX_GAP_H = 10.0 / 60.0  # longest interval credited when integrating energy
@@ -97,15 +96,17 @@ def _get_plant(db: Session, plant_id: int) -> GrowattPlant:
 
 
 def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
+    """Registry fields. Status, lost and last upload time are realtime: null here, the UI
+    fills them from `/growatt/live/plants/{id}/inverters`."""
     return {
         "device_sn": inv.device_sn,
         "model": inv.model or "",
         "datalogger_sn": inv.datalogger_sn or "",
         "manufacturer": "Growatt",
-        "status": inv.status,
-        "status_label": "Unknown" if inv.status is None else INVERTER_STATUS_NAMES.get(inv.status, f"Status {inv.status}"),
-        "lost": bool(inv.lost),
-        "last_update_time": _fmt_ts(inv.last_update_time),
+        "status": None,
+        "status_label": None,
+        "lost": None,
+        "last_update_time": None,
         "device_types": (inv.device_types or "").split(",") if inv.device_types else [],
         "synced_at": inv.synced_at.isoformat() if inv.synced_at else None,
     }
@@ -140,10 +141,11 @@ def _synthesize_iv_pv_curve(
 
 
 def list_plants_summary(db: Session) -> List[Dict[str, Any]]:
-    """Plant registry from the DB, with inverter counts and the latest synced day's energy.
+    """Plant registry from the DB, with inverter counts and energy from stored history.
 
-    `current_power_w` / `status` are the last values written by the sync job (see `synced_at`);
-    use `/growatt/live/plants` for realtime values.
+    `total_energy_kwh` is the sum of each inverter's newest stored `eac_total`.
+    `current_power_w` and `status` are realtime and always null here; the UI fills them from
+    `/growatt/live/plants`.
     """
     db_plants = list(db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)))
 
@@ -174,6 +176,22 @@ def list_plants_summary(db: Session) -> List[Dict[str, Any]]:
             if kwh is not None:
                 day_energy[int(pid)] = float(kwh)
 
+    # Lifetime energy: each inverter's newest stored eac_total counter, summed per plant.
+    last_total_ts = (
+        select(R.device_sn, func.max(R.timestamp).label("ts"))
+        .where(R.eac_total_kwh.is_not(None))
+        .group_by(R.device_sn)
+    ).subquery()
+    lifetime: Dict[int, float] = {}
+    for pid, kwh in db.execute(
+        select(GrowattInverter.plant_id, func.sum(R.eac_total_kwh))
+        .join(last_total_ts, (R.device_sn == last_total_ts.c.device_sn) & (R.timestamp == last_total_ts.c.ts))
+        .join(GrowattInverter, GrowattInverter.device_sn == R.device_sn)
+        .group_by(GrowattInverter.plant_id)
+    ):
+        if kwh is not None:
+            lifetime[int(pid)] = float(kwh)
+
     return [
         {
             "plant_id": p.plant_id,
@@ -183,12 +201,12 @@ def list_plants_summary(db: Session) -> List[Dict[str, Any]]:
             "latitude": p.latitude,
             "longitude": p.longitude,
             "peak_power_kwp": p.peak_power_kwp,
-            "current_power_w": p.current_power_w,
+            "current_power_w": None,  # realtime: /growatt/live/plants
             "today_energy_kwh": _round(day_energy.get(p.plant_id), 2),
             "energy_date": energy_date.isoformat() if energy_date and p.plant_id in day_energy else None,
-            "total_energy_kwh": p.total_energy_kwh,
+            "total_energy_kwh": _round(lifetime.get(p.plant_id), 2),
             "inverter_count": inv_counts.get(p.plant_id, 0),
-            "status": p.status,
+            "status": None,  # realtime: /growatt/live/plants
             "create_date": p.create_date,
             "synced_at": p.synced_at.isoformat() if p.synced_at else None,
         }
@@ -522,7 +540,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     inv_yields = [i["yield_today_kwh"] for i in inverters_out if i["yield_today_kwh"] is not None]
     yield_today_kwh = round(sum(inv_yields), 2) if inv_yields else None
     inv_totals = [i["total_yield_kwh"] for i in inverters_out if i["total_yield_kwh"] is not None]
-    total_yield_kwh = _round(plant.total_energy_kwh if plant.total_energy_kwh is not None else (sum(inv_totals) if inv_totals else None), 2)
+    total_yield_kwh = _round(sum(inv_totals) if inv_totals else None, 2)
     peak_power_kw = _round(_max(r["pac_kw"] for r in timeseries), 2)
     avg_temp_c = _round(_mean(i["avg_temp_c"] for i in inverters_out), 1)
     max_temp_c = _round(_max(i["max_temp_c"] for i in inverters_out), 1)
@@ -563,15 +581,14 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "latitude": plant.latitude,
             "longitude": plant.longitude,
             "peak_power_kwp": cap_kwp,
-            "current_power_w": plant.current_power_w,
+            "current_power_w": None,  # realtime: the UI overlays /growatt/live/*
             "total_energy_kwh": total_yield_kwh,
-            "status": plant.status,
+            "status": None,  # realtime: the UI overlays /growatt/live/plants
             "create_date": plant.create_date,
         },
         "kpis": {
             "capacity_kwp": cap_kwp,
-            # last value written by the sync job — use /growatt/live/plants for realtime
-            "current_power_kw": _round(plant.current_power_w / 1000.0, 2) if plant.current_power_w is not None else None,
+            "current_power_kw": None,  # realtime: the UI overlays /growatt/live/*
             "peak_power_kw": peak_power_kw,
             "yield_today_kwh": yield_today_kwh,
             "total_yield_kwh": total_yield_kwh,
@@ -583,7 +600,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "max_temp_c": max_temp_c,
             "avg_freq_hz": avg_freq_hz,
             "inverter_count": len(inverters_out),
-            "online_inverters": sum(1 for i in inverters_out if not i["lost"] and i["status"] == 1),
+            "online_inverters": None,  # realtime: the UI counts live inverter status
             "string_count": len(strings_summary),
             "healthy_strings": healthy_cnt,
             "warning_strings": warning_cnt,

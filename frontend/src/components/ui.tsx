@@ -231,12 +231,14 @@ export const LoadingState: React.FC<{ label?: string }> = ({ label = "Connecting
 /* Formatting helpers                                                         */
 /* -------------------------------------------------------------------------- */
 export const fmt = (v: unknown, digits = 1): string => {
+  if (v == null || v === "") return "—"; // Number(null) is 0: missing must not render as 0
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 };
 
 export const fmtInt = (v: unknown): string => {
+  if (v == null || v === "") return "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
   return Math.round(n).toLocaleString();

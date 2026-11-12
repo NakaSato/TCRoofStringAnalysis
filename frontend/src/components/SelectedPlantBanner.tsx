@@ -16,7 +16,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { StatusBadge, fmt } from "./ui";
+import { StatusBadge, fmt, fmtInt } from "./ui";
 import type { StatusLevel } from "./ui";
 
 export const SelectedPlantBanner: React.FC = () => {
@@ -34,15 +34,19 @@ export const SelectedPlantBanner: React.FC = () => {
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
 
-  const statusLevel: StatusLevel =
-    !plant || plant.status === 1
+  // plant.status is realtime only: null until live data arrives, so show it as unknown.
+  const statusUnknown = !!plant && plant.status == null;
+  const statusLevel: StatusLevel = statusUnknown
+    ? "neutral"
+    : !plant || plant.status === 1
       ? kpis && kpis.critical_strings > 0
         ? "warn"
         : "ok"
       : "crit";
 
-  const statusLabel =
-    !plant || plant.status === 1
+  const statusLabel = statusUnknown
+    ? "Status unknown"
+    : !plant || plant.status === 1
       ? kpis && kpis.critical_strings > 0
         ? "String Warning"
         : "Normal"
@@ -174,7 +178,7 @@ export const SelectedPlantBanner: React.FC = () => {
               <div>
                 <span className="text-[10px] uppercase tracking-wider text-slate-500">Inverters</span>
                 <div className="num font-bold text-white">
-                  {kpis.online_inverters}/{kpis.inverter_count}
+                  {fmtInt(kpis.online_inverters)}/{kpis.inverter_count}
                 </div>
               </div>
               <div className="h-5 w-px bg-white/[0.07]" />

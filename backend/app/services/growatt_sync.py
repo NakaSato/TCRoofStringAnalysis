@@ -57,13 +57,6 @@ def _upsert(db: Session, model, rows: Sequence[Dict[str, Any]], update_cols: Opt
         db.execute(stmt)
 
 
-def _parse_dt(v: Any) -> Optional[datetime]:
-    try:
-        return datetime.strptime(str(v), "%Y-%m-%d %H:%M:%S") if v else None
-    except ValueError:
-        return None
-
-
 def _fnum(v: Any) -> Optional[float]:
     try:
         return float(v)
@@ -87,9 +80,7 @@ def sync_fleet(db: Session, client: GrowattClient, pause_s: float = 0.5) -> List
                 "latitude": _fnum(p.get("latitude")),
                 "longitude": _fnum(p.get("longitude")),
                 "peak_power_kwp": _fnum(p.get("peak_power")),
-                "current_power_w": _fnum(p.get("current_power")),
-                "total_energy_kwh": _fnum(p.get("total_energy")),
-                "status": p.get("status"),
+                # current power / total energy / status are realtime: served live, never stored
                 "create_date": p.get("create_date"),
                 "synced_at": now,
             }
@@ -112,9 +103,7 @@ def sync_fleet(db: Session, client: GrowattClient, pause_s: float = 0.5) -> List
                     "datalogger_sn": inv["datalogger_sn"],
                     "model": inv["model"],
                     "device_types": ",".join(inv["device_types"]),
-                    "status": inv["status"],
-                    "lost": inv["lost"],
-                    "last_update_time": _parse_dt(inv["last_update_time"]),
+                    # status / lost / last_update_time are realtime: served live, never stored
                     "synced_at": now,
                 }
                 for inv in invs

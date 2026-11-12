@@ -336,7 +336,11 @@ class PQTestRecord(Base):
 
 
 class GrowattPlant(Base):
-    """Plant as listed by Growatt `plant/list` (keyed by Growatt plant_id)."""
+    """Plant as listed by Growatt `plant/list` (keyed by Growatt plant_id).
+
+    Static registry fields only. Current power, lifetime energy and status are realtime
+    and come from `/growatt/live/*` (memory only); they are never stored.
+    """
 
     __tablename__ = "growatt_plants"
 
@@ -347,9 +351,6 @@ class GrowattPlant(Base):
     latitude: Mapped[Optional[float]] = mapped_column(Float)
     longitude: Mapped[Optional[float]] = mapped_column(Float)
     peak_power_kwp: Mapped[Optional[float]] = mapped_column(Float)
-    current_power_w: Mapped[Optional[float]] = mapped_column(Float)
-    total_energy_kwh: Mapped[Optional[float]] = mapped_column(Float)
-    status: Mapped[Optional[int]] = mapped_column(Integer)
     create_date: Mapped[Optional[str]] = mapped_column(String(32))
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
@@ -357,7 +358,10 @@ class GrowattPlant(Base):
 
 
 class GrowattInverter(Base):
-    """Inverter from Growatt `device/list` (MAX type 1/4 entries merged by serial)."""
+    """Inverter from Growatt `device/list` (MAX type 1/4 entries merged by serial).
+
+    Static registry fields only; status / lost / last upload time are realtime (`/growatt/live/*`).
+    """
 
     __tablename__ = "growatt_inverters"
 
@@ -366,9 +370,6 @@ class GrowattInverter(Base):
     datalogger_sn: Mapped[Optional[str]] = mapped_column(String(64))
     model: Mapped[Optional[str]] = mapped_column(String(64))
     device_types: Mapped[Optional[str]] = mapped_column(String(64))  # e.g. "inverter,max"
-    status: Mapped[Optional[int]] = mapped_column(Integer)  # 0 offline, 1 normal, 3 fault
-    lost: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    last_update_time: Mapped[Optional[datetime]] = mapped_column(DateTime)  # plant-local time
     history_synced_until: Mapped[Optional[datetime]] = mapped_column(DateTime)  # latest reading stored
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 

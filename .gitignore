@@ -32,3 +32,6 @@ data/*.json
 *.db
 *.sqlite3
 *.tsbuildinfo
+*.db-journal
+*.db-wal
+*.db-shm

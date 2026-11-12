@@ -22,13 +22,13 @@ SN_A, SN_B = "INVA", "INVB"
 
 
 def _seed_growatt(session) -> None:
-    session.add(GrowattPlant(plant_id=PLANT, name="Test Plant", peak_power_kwp=20.0, current_power_w=5000.0, status=1))
+    session.add(GrowattPlant(plant_id=PLANT, name="Test Plant", peak_power_kwp=20.0))
     session.flush()
     session.add_all(
         [
-            GrowattInverter(device_sn=SN_A, plant_id=PLANT, status=1, device_types="inverter,max"),
-            GrowattInverter(device_sn=SN_B, plant_id=PLANT, status=1, device_types="inverter,max"),
-            GrowattInverter(device_sn="INVC", plant_id=PLANT, status=0),  # no readings at all
+            GrowattInverter(device_sn=SN_A, plant_id=PLANT, device_types="inverter,max"),
+            GrowattInverter(device_sn=SN_B, plant_id=PLANT, device_types="inverter,max"),
+            GrowattInverter(device_sn="INVC", plant_id=PLANT),  # no readings at all
         ]
     )
     session.flush()
@@ -41,7 +41,7 @@ def _seed_growatt(session) -> None:
         session.add(
             GrowattInverterReading(
                 device_sn=SN_A, timestamp=ts, pac_w=6000, ppv_w=6200, eac_today_kwh=round(m / 10, 1),
-                temperature_c=40.0, fac_hz=50.0,
+                eac_total_kwh=1000.0 + round(m / 10, 1), temperature_c=40.0, fac_hz=50.0,
             )
         )
         session.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=1, mppt_no=1, voltage_v=600, current_a=5.0, power_w=3000))
@@ -87,6 +87,10 @@ def test_plants_list_is_db_only_and_uses_last_counter_value(client):
     assert p["energy_date"] == "2026-11-11"
     assert p["inverter_count"] == 3
     assert "synced_at" in p
+    # lifetime = newest stored eac_total per inverter (INVA 1005.9; INVB/INVC report none)
+    assert p["total_energy_kwh"] == pytest.approx(1005.9)
+    # realtime fields are never stored, so the DB list returns them as null
+    assert p["current_power_w"] is None and p["status"] is None
 
 
 def test_overview_day_filter_energy_integration_and_nulls(client):
@@ -103,6 +107,11 @@ def test_overview_day_filter_energy_integration_and_nulls(client):
     assert invs[SN_B]["avg_temp_c"] is None and invs[SN_B]["avg_freq_hz"] is None
     assert invs["INVC"]["efficiency_pct"] is None and invs["INVC"]["current_ac_kw"] is None
     assert invs[SN_A]["avg_temp_c"] == 40.0
+    # realtime fields are null in the DB overview; the UI overlays /growatt/live/*
+    assert all(i["status"] is None and i["lost"] is None and i["last_update_time"] is None for i in invs.values())
+    assert ov["plant"]["current_power_w"] is None and ov["plant"]["status"] is None
+    assert ov["kpis"]["current_power_kw"] is None and ov["kpis"]["online_inverters"] is None
+    assert ov["kpis"]["total_yield_kwh"] == pytest.approx(1005.9)
 
     # plant curve sums the per-inverter mean in each 5-minute slot: 6 kW + 4 kW
     peak = max(r["pac_kw"] for r in ov["timeseries"])
