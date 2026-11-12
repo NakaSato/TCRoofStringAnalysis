@@ -41,3 +41,6 @@ data/exports/
 
 # macOS
 .DS_Store
+
+# Firebase CLI deploy cache
+.firebase/
