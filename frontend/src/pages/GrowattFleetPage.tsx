@@ -12,11 +12,9 @@ const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
 };
 
 // Status is realtime only (never stored): null means live data is still loading or unavailable.
-const plantStatus = (s: number | null, loading = false): { label: string; level: StatusLevel; loading?: boolean } =>
+const plantStatus = (s: number | null): { label: string; level: StatusLevel; loading?: boolean } =>
   s == null
-    ? loading
-      ? { label: LOADING_STATUS, level: "neutral", loading: true }
-      : { label: "Unknown", level: "neutral" }
+    ? { label: LOADING_STATUS, level: "neutral", loading: true }
     : PLANT_STATUS[s] ?? { label: `Status ${s}`, level: "warn" };
 
 const inverterLevel = (inv: GrowattInverter): StatusLevel =>
@@ -171,7 +169,7 @@ export const GrowattFleetPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {filtered.map((p) => {
-                      const st = plantStatus(p.status, growattLiveStatus.loading);
+                      const st = plantStatus(p.status);
                       const kw = p.current_power_w == null ? null : p.current_power_w / 1000;
                       const load = kw != null && p.peak_power_kwp ? (kw / p.peak_power_kwp) * 100 : null;
                       return (
@@ -240,9 +238,9 @@ export const GrowattFleetPage: React.FC = () => {
                           </td>
                           <td>
                             <StatusBadge
-                              status={inv.lost ? "Lost" : inv.status_label ?? (invLoading ? LOADING_STATUS : "Unknown")}
+                              status={inv.lost ? "Lost" : inv.status_label ?? LOADING_STATUS}
                               level={inverterLevel(inv)}
-                              loading={!inv.lost && inv.status_label == null && invLoading}
+                              loading={!inv.lost && inv.status_label == null}
                             />
                           </td>
                           <td className="num text-[11px] text-slate-400">{inv.last_update_time ?? "—"}</td>

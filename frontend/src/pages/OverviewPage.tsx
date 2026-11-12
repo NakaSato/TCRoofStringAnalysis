@@ -16,7 +16,6 @@ import {
   ArrowRight,
   CheckCircle2,
   Building2,
-  Eye,
   MapPin,
   Radio,
 } from "lucide-react";
@@ -173,28 +172,61 @@ export const OverviewPage: React.FC = () => {
     return strings.filter((s) => s.device_sn === selectedInverterSn);
   }, [strings, selectedInverterSn]);
 
-  // String Status Matrix grouped by inverter (registry order). Inverters with no string rows
-  // stay listed so an inverter without data is visible instead of silently missing.
+  // String Status Matrix grouped by inverter (registry order), each inverter laid out by MPPT
+  // with one tile per string input (string n sits on MPPT ⌈n/2⌉), including inputs that carry
+  // no current today ("Not Active"). Inverters with no string rows stay listed.
   const [groupByInverter, setGroupByInverter] = useState(true);
+  const inactiveStrings = selectedPlantOverview?.inactive_strings || [];
+  type StringRow = (typeof strings)[number];
+  type InactiveRow = (typeof inactiveStrings)[number];
+  type Slot = { kind: "active"; s: StringRow } | { kind: "inactive"; s: InactiveRow };
   const stringGroups = useMemo(() => {
-    const bySn = new Map<string, typeof strings>();
-    for (const s of filteredStrings) {
-      const list = bySn.get(s.device_sn) ?? [];
-      list.push(s);
-      bySn.set(s.device_sn, list);
+    const bySn = new Map<string, Slot[]>();
+    const add = (sn: string, slot: Slot) => bySn.set(sn, [...(bySn.get(sn) ?? []), slot]);
+    for (const s of filteredStrings) add(s.device_sn, { kind: "active", s });
+    for (const s of inactiveStrings) {
+      if (selectedInverterSn === "ALL" || s.device_sn === selectedInverterSn) add(s.device_sn, { kind: "inactive", s });
     }
     const shown = selectedInverterSn === "ALL" ? inverters : inverters.filter((i) => i.device_sn === selectedInverterSn);
     return shown.map((inv) => {
-      const list = bySn.get(inv.device_sn) ?? [];
-      const levels = list.map((s) => statusLevel(s.status));
+      const slots = (bySn.get(inv.device_sn) ?? []).sort((a, b) => a.s.string_no - b.s.string_no);
+      const mppts = new Map<number, Slot[]>();
+      for (const slot of slots) mppts.set(slot.s.mppt_no, [...(mppts.get(slot.s.mppt_no) ?? []), slot]);
+      const levels = slots.filter((x) => x.kind === "active").map((x) => statusLevel(x.s.status));
       return {
         inv,
-        strings: list,
+        mppts: [...mppts.entries()].sort((a, b) => a[0] - b[0]),
+        active: levels.length,
+        inactive: slots.length - levels.length,
         crit: levels.filter((l) => l === "crit").length,
         warn: levels.filter((l) => l === "warn").length,
       };
     });
-  }, [filteredStrings, inverters, selectedInverterSn]);
+  }, [filteredStrings, inactiveStrings, inverters, selectedInverterSn]);
+
+  const renderInactiveTile = (s: InactiveRow) => (
+    <div
+      key={s.string_id}
+      title={
+        s.reason === "no_current"
+          ? `${s.string_id}: MPPT voltage present, no string current today (unused input or no light yet)`
+          : `${s.string_id}: input not reported today`
+      }
+      className="rounded-xl border border-dashed border-white/[0.08] bg-transparent p-3 opacity-70"
+    >
+      <div className="flex items-center justify-between">
+        <span className="num text-xs font-bold text-slate-400">{s.short_label}</span>
+        <Led level="neutral" />
+      </div>
+      <div className="num mt-0.5 truncate text-[10px] text-slate-600">
+        {s.device_sn} · {s.mppt_id}
+      </div>
+      <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Not active</div>
+      <div className="num mt-2 text-[10px] text-slate-600">
+        {s.reason === "no_current" ? `MPPT ${fmt(s.v_max, 0)}V · 0 A` : "No data"}
+      </div>
+    </div>
+  );
 
   const renderStringTile = (s: (typeof strings)[number]) => {
     const lvl = statusLevel(s.status);
@@ -283,37 +315,6 @@ export const OverviewPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Mode Switcher Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="tabs">
-          <button
-            onClick={() => setDashboardMode("directory")}
-            className={`tab ${dashboardMode === "directory" ? "tab-active" : ""}`}
-          >
-            <Building2 className="h-3.5 w-3.5" />
-            Plant Directory ({growattPlants.length || 43} Plants)
-          </button>
-          <button
-            onClick={() => setDashboardMode("plant")}
-            className={`tab ${dashboardMode === "plant" ? "tab-active" : ""}`}
-          >
-            <Eye className="h-3.5 w-3.5" />
-            1. Selected Plant Overview ({plant?.name ? plant.name.slice(0, 28) : "Active Plant"})
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link to="/generation" className="btn btn-sm">
-            2. Performance Ratio
-          </Link>
-          <Link to="/strings" className="btn btn-sm">
-            3. String Diagnostics & I-V
-          </Link>
-          <Link to="/reports" className="btn btn-sm">
-            Export Report
-          </Link>
-        </div>
-      </div>
-
       {/* ==================================================================== */}
       {/* MODE A: FLEET PLANT DIRECTORY (Default; clicking any plant switches) */}
       {/* ==================================================================== */}
@@ -754,9 +755,9 @@ export const OverviewPage: React.FC = () => {
                           >
                             <td>
                               <StatusBadge
-                                status={inv.status_label ?? (plantLiveLoading ? LOADING_STATUS : "Unknown")}
+                                status={inv.status_label ?? LOADING_STATUS}
                                 level={lvl}
-                                loading={inv.status_label == null && plantLiveLoading}
+                                loading={inv.status_label == null}
                                 dot
                               />
                             </td>
@@ -846,13 +847,20 @@ export const OverviewPage: React.FC = () => {
               >
                 {groupByInverter ? (
                   <div className="space-y-4">
-                    {stringGroups.map(({ inv, strings: list, crit, warn }) => {
+                    {stringGroups.map(({ inv, mppts, active, inactive, crit, warn }) => {
                       const lvl =
                         inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
                       return (
                         <section key={inv.device_sn} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
                           <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                            <Led level={lvl} />
+                            {inv.status == null && !inv.lost ? (
+                              <span
+                                className="h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-slate-500 border-t-sky-300"
+                                title="Loading live status…"
+                              />
+                            ) : (
+                              <Led level={lvl} />
+                            )}
                             <button
                               type="button"
                               onClick={() => setSelectedInverterSn(selectedInverterSn === inv.device_sn ? "ALL" : inv.device_sn)}
@@ -862,15 +870,27 @@ export const OverviewPage: React.FC = () => {
                               {inv.device_sn}
                             </button>
                             <span className="num text-slate-500">{inv.model}</span>
-                            <span className="num text-sky-300">{list.length} strings</span>
+                            <span className="num text-sky-300">{active} active</span>
+                            {inactive > 0 && <span className="num text-slate-500">{inactive} not active</span>}
                             {crit > 0 && <span className="num text-red-300">{crit} critical</span>}
                             {warn > 0 && <span className="num text-amber-300">{warn} warning</span>}
                             <span className="num ml-auto text-slate-400">
                               Now {fmt(inv.current_ac_kw, 2)} kW · Peak {fmt(inv.peak_ac_kw, 2)} kW
                             </span>
                           </div>
-                          {list.length ? (
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">{list.map(renderStringTile)}</div>
+                          {mppts.length ? (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                              {mppts.map(([mppt, slots]) => (
+                                <div key={mppt} className="rounded-lg border border-white/[0.05] p-2">
+                                  <div className="num mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                    MPPT {mppt}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {slots.map((x) => (x.kind === "active" ? renderStringTile(x.s) : renderInactiveTile(x.s)))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           ) : (
                             <div className="text-xs text-slate-500">No string data stored for this inverter today.</div>
                           )}

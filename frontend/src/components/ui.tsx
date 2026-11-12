@@ -144,7 +144,8 @@ export function statusLevel(raw: unknown): StatusLevel {
   return "info";
 }
 
-/** Label for a realtime status whose live request has not answered yet. */
+/** Label for a realtime status not received yet (first poll running, or live unavailable and
+ *  still retrying every 60 s). There is no "Unknown" status: it always shows as loading. */
 export const LOADING_STATUS = "Loading…" as const;
 
 export const StatusBadge: React.FC<{
@@ -158,7 +159,13 @@ export const StatusBadge: React.FC<{
   const lvl = loading ? "neutral" : level ?? statusLevel(status);
   return (
     <span className={`badge badge-${lvl} ${className}`} aria-busy={loading || undefined}>
-      {dot && <span className={`h-1.5 w-1.5 rounded-full ${loading ? "animate-pulse " : ""}${lvl === "ok" ? "bg-emerald-400" : lvl === "warn" ? "bg-amber-400" : lvl === "crit" ? "bg-red-400" : lvl === "info" ? "bg-sky-400" : "bg-slate-500"}`} />}
+      {loading && (
+        <span
+          className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-slate-500 border-t-sky-300"
+          aria-hidden
+        />
+      )}
+      {dot && !loading && <span className={`h-1.5 w-1.5 rounded-full ${lvl === "ok" ? "bg-emerald-400" : lvl === "warn" ? "bg-amber-400" : lvl === "crit" ? "bg-red-400" : lvl === "info" ? "bg-sky-400" : "bg-slate-500"}`} />}
       {String(status ?? "—")}
     </span>
   );

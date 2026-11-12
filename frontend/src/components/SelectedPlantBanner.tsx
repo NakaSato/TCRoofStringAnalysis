@@ -27,7 +27,6 @@ export const SelectedPlantBanner: React.FC = () => {
     plantOverviewLoading,
     selectGrowattPlant,
     setDashboardMode,
-    growattLiveStatus,
   } = useAppContext();
   const navigate = useNavigate();
   const location = useLocation();
@@ -45,12 +44,10 @@ export const SelectedPlantBanner: React.FC = () => {
         : "ok"
       : "crit";
 
-  // live poll still running: "Loading…" rather than "unknown"
-  const statusLoading = statusUnknown && growattLiveStatus.loading;
+  // no live status yet (first poll running or live retrying): always "Loading…", never "unknown"
+  const statusLoading = statusUnknown;
   const statusLabel = statusLoading
     ? LOADING_STATUS
-    : statusUnknown
-    ? "Status unknown"
     : !plant || plant.status === 1
       ? kpis && kpis.critical_strings > 0
         ? "String Warning"

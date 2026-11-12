@@ -282,6 +282,8 @@ export interface GrowattPlantOverview {
     healthy_strings: number;
     warning_strings: number;
     critical_strings: number;
+    /** string inputs with no current today (not in `strings`) */
+    inactive_strings?: number;
     avg_health_score: number | null;
     tariff_thb_per_kwh: number;
   };
@@ -354,6 +356,19 @@ export interface GrowattPlantOverview {
     live_current_a?: number | null;
     live_power_w?: number | null;
     live_at?: string | null;
+  }>;
+  /** String inputs with no current today, one per input slot (2 per MPPT). Not in `strings`. */
+  inactive_strings?: Array<{
+    string_id: string;
+    short_label: string;
+    device_sn: string;
+    string_no: number;
+    mppt_no: number;
+    mppt_id: string;
+    status: "Not Active";
+    /** no_current: MPPT has voltage, string carries no current; no_data: input not reported */
+    reason: "no_current" | "no_data";
+    v_max: number | null;
   }>;
   anomalies: Array<{
     string_id: string;

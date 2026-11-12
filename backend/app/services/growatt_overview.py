@@ -342,6 +342,71 @@ def _classify_strings(
 
 
 
+INACTIVE_MAX_A = 0.15  # a string whose current never exceeds this all day carries no PV
+DEAD_LOOKBACK = timedelta(days=7)
+DEAD_PEER_MIN_A = 1.0  # peers must produce this much before a silent string counts as a fault
+
+
+def _split_inactive(
+    db: Session,
+    active: List[Dict[str, Any]],
+    idle: Dict[Tuple[str, int], Dict[str, Any]],
+    mppt_max: Dict[str, int],
+    day_start: datetime,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """String inputs without current today, one per input slot 1..2 x highest MPPT seen.
+
+    An input that carried current in the last DEAD_LOOKBACK while its inverter's other strings
+    produce today is a fault (open circuit / fuse): returned as a zero aggregate for
+    `_classify_strings` (→ Critical). The rest are "Not Active": `reason` is `no_current`
+    (MPPT has voltage, string has no current) or `no_data` (input not reported at all).
+    """
+    present = {(x["device_sn"], x["string_no"]) for x in active} | set(idle)
+    peer_ok = {x["device_sn"] for x in active if x["i_max"] >= DEAD_PEER_MIN_A}
+    slots: List[Tuple[str, int]] = [
+        (sn, n) for sn, m in sorted(mppt_max.items()) for n in range(1, 2 * m + 1)
+        if (sn, n) not in present or (sn, n) in idle
+    ]
+    recent: set = set()
+    check = sorted({sn for sn, _ in slots if sn in peer_ok})
+    if check:
+        recent = {
+            (sn, int(no))
+            for sn, no in db.execute(
+                select(S.device_sn, S.string_no)
+                .where(
+                    S.device_sn.in_(check),
+                    S.timestamp >= day_start - DEAD_LOOKBACK,
+                    S.timestamp < day_start,
+                    S.current_a >= 0.3,
+                )
+                .group_by(S.device_sn, S.string_no)
+            )
+        }
+    dead: List[Dict[str, Any]] = []
+    inactive: List[Dict[str, Any]] = []
+    for sn, n in slots:
+        mppt_no = (n + 1) // 2
+        row = idle.get((sn, n))
+        if (sn, n) in recent:
+            v = row["v_max"] if row else 0.0
+            dead.append({"device_sn": sn, "string_no": n, "mppt_no": mppt_no, "samples": 0, "v_avg": v, "v_max": v,
+                         "i_avg": 0.0, "i_max": 0.0, "p_max_w": 0.0, "energy_kwh": 0.0})
+            continue
+        inactive.append({
+            "string_id": f"{sn} · STR-{n:02d}",
+            "short_label": f"STR-{n:02d}",
+            "device_sn": sn,
+            "string_no": n,
+            "mppt_no": mppt_no,
+            "mppt_id": f"MPPT-{mppt_no}",
+            "status": "Not Active",
+            "reason": "no_current" if row else "no_data",
+            "v_max": row["v_max"] if row else None,
+        })
+    return dead, inactive
+
+
 def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None) -> Dict[str, Any]:
     """Single-plant overview for one day (default: latest day with data)."""
     """Single-plant overview for one day from persisted max_data history.
@@ -366,6 +431,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     latest_mppt: Dict[str, Dict[str, Any]] = {}
     timeseries: List[Dict[str, Any]] = []
     string_aggs: List[Dict[str, Any]] = []
+    inactive_strings: List[Dict[str, Any]] = []
 
     if sns and day is not None:
         start, end = _day_bounds(day)
@@ -465,6 +531,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             )
 
         # 2. Per-string aggregates
+        mppt_max: Dict[str, int] = {}
+        idle: Dict[Tuple[str, int], Dict[str, Any]] = {}
         s_in_day = (S.device_sn.in_(sns), S.timestamp >= start, S.timestamp < end)
         str_series: Dict[Tuple[str, int], List[Tuple[datetime, float]]] = {}
         for sn, sno, ts, p in db.execute(
@@ -487,9 +555,12 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             )
             .where(*s_in_day)
             .group_by(S.device_sn, S.string_no, S.mppt_no)
-            .having(func.max(S.current_a) > 0.15)
             .order_by(S.device_sn, S.string_no)
         ):
+            mppt_max[sn] = max(mppt_max.get(sn, 0), int(mppt_no))
+            if float(i_max or 0.0) <= INACTIVE_MAX_A:
+                idle[(sn, int(sno))] = {"mppt_no": int(mppt_no), "v_max": round(float(v_max or 0.0), 1)}
+                continue
             string_aggs.append(
                 {
                     "device_sn": sn,
@@ -504,6 +575,10 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
                     "energy_kwh": round(_integrate_kwh(str_series.get((sn, int(sno)), [])), 2),
                 }
             )
+
+        dead, inactive_strings = _split_inactive(db, string_aggs, idle, mppt_max, start)
+        string_aggs.extend(dead)
+        string_aggs.sort(key=lambda x: (x["device_sn"], x["string_no"]))
 
     strings_summary, anomalies, inv_string_counts, inv_pr_list = _classify_strings(string_aggs, inv_cap_kwp)
 
@@ -611,6 +686,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "healthy_strings": healthy_cnt,
             "warning_strings": warning_cnt,
             "critical_strings": critical_cnt,
+            "inactive_strings": len(inactive_strings),
             "avg_health_score": avg_health,
             "tariff_thb_per_kwh": 4.2,
         },
@@ -618,6 +694,9 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         "timeseries": timeseries,
         "loss_waterfall": loss_waterfall,
         "strings": strings_summary,
+        # String inputs with no current today (unused inputs, or no light yet). Kept out of
+        # `strings` so KPIs and diagnostics only cover connected strings.
+        "inactive_strings": inactive_strings,
         "anomalies": anomalies[:40],
     }
 

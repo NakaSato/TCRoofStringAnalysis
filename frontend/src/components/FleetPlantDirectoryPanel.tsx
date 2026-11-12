@@ -52,7 +52,7 @@ export interface UnifiedPlantItem {
   totalEnergyKwh: number | null;
   specificEnergyKwhPerKwp: number;
   prPct: number | null;
-  statusLabel: "Normal" | "Faulty" | "Disconnected" | "Unknown" | "Loading…";
+  statusLabel: "Normal" | "Faulty" | "Disconnected" | "Loading…";
   statusLevel: StatusLevel;
   stringsCount: number | null;
   modulesCount: number | null;
@@ -264,8 +264,6 @@ export const FleetPlantDirectoryPanel: React.FC<{
     for (const gp of growattPlants) {
       // status / power are realtime (live overlay only); null means live data is unavailable
       const isUnknown = gp.status == null;
-      // no status yet because the first live poll is still running
-      const isLoading = isUnknown && growattLiveStatus.loading;
       const isNormal = gp.status === 1;
       const isDisconnected = gp.status === 0 || gp.status === 4;
       const capKwp = Number(gp.peak_power_kwp || 0);
@@ -288,7 +286,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
         totalEnergyKwh: totalKwh,
         specificEnergyKwhPerKwp: capKwp > 0 ? estTodayKwh / capKwp : 0,
         prPct: null,
-        statusLabel: isLoading ? LOADING_STATUS : isUnknown ? "Unknown" : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
+        statusLabel: isUnknown ? LOADING_STATUS : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
         statusLevel: isUnknown ? "neutral" : isNormal ? "ok" : isDisconnected ? "info" : "crit",
         stringsCount: invCnt,
         modulesCount: null,

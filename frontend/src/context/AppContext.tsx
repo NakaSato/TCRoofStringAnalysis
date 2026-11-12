@@ -45,7 +45,7 @@ interface AppContextValue {
   selectGrowattPlant: (plantId: number, switchToPlantOverview?: boolean) => void;
   refreshGrowattPlants: (force?: boolean) => Promise<void>;
   /** Freshness of the realtime overlay (backend memory cache; never persisted). */
-  /** `loading`: the first fleet live poll has not answered yet (status shows "Loading…", not "Unknown"). */
+  /** `loading`: the first fleet live poll has not answered yet (status shows "Loading…"; there is no "Unknown"). */
   growattLiveStatus: { fetchedAt: string | null; stale: boolean; error: string | null; loading: boolean };
   /** The selected plant's live record (inverter status) has not answered yet. */
   plantLiveLoading: boolean;
@@ -304,7 +304,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         })
         .catch(() => {
-          // live unavailable: DB values remain, status shows "Unknown"
+          // live unavailable: DB values remain, status keeps showing "Loading…" until a retry succeeds
           if (!cancelled) setPlantLiveFailed(true);
         });
     };

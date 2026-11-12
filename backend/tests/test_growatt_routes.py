@@ -337,3 +337,44 @@ def test_history_sync_waits_longer_on_rate_limit(monkeypatch):
     db.scalar.return_value = None
     growatt_sync.sync_inverter_history(db, Flaky(), inv, _date(2026, 11, 12), _date(2026, 11, 12))
     assert waits == [60, 120]
+
+
+def test_overview_inactive_inputs_fill_mppt_slots_and_dead_strings_stay_critical(tmp_path):
+    """Inputs without current are "Not Active" in their MPPT slot; one that carried current in
+    the last 7 days while its peers produce today is a Critical open-string fault instead."""
+    from app.services.growatt_overview import build_plant_overview
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'inactive.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    day = datetime(2026, 11, 11)
+    with Session() as s:
+        s.add(GrowattPlant(plant_id=PLANT, name="P", peak_power_kwp=20.0))
+        s.flush()
+        s.add(GrowattInverter(device_sn=SN_A, plant_id=PLANT))
+        s.flush()
+        # yesterday: string 4 produced
+        s.add(GrowattStringReading(device_sn=SN_A, timestamp=day - timedelta(hours=14), string_no=4, mppt_no=2,
+                                   voltage_v=600, current_a=5.0, power_w=3000))
+        for m in range(0, 60, 5):
+            ts = day + timedelta(hours=10, minutes=m)
+            s.add(GrowattInverterReading(device_sn=SN_A, timestamp=ts, pac_w=9000, ppv_w=9200, eac_today_kwh=1.0))
+            for no, mppt, cur in ((1, 1, 5.0), (2, 1, 5.0), (3, 2, 0.0), (4, 2, 0.0), (5, 3, 5.0)):
+                s.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=no, mppt_no=mppt,
+                                           voltage_v=600, current_a=cur, power_w=600 * cur))
+        s.commit()
+
+    with Session() as s:
+        ov = build_plant_overview(s, PLANT)
+
+    inactive = {x["string_no"]: x for x in ov["inactive_strings"]}
+    assert set(inactive) == {3, 6}  # slots 1..2 x highest MPPT (3)
+    assert inactive[3]["reason"] == "no_current" and inactive[3]["mppt_no"] == 2 and inactive[3]["v_max"] == 600
+    assert inactive[6]["reason"] == "no_data" and inactive[6]["v_max"] is None
+    assert all(x["status"] == "Not Active" for x in inactive.values())
+
+    strings = {x["string_no"]: x for x in ov["strings"]}
+    assert set(strings) == {1, 2, 4, 5}
+    assert strings[4]["status"] == "Critical"
+    assert any(a["string_no"] == 4 and a["category"] == "Open String Fault" for a in ov["anomalies"])
+    assert ov["kpis"]["inactive_strings"] == 2 and ov["kpis"]["string_count"] == 4

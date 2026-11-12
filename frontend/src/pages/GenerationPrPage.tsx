@@ -17,7 +17,7 @@ import { Panel, KpiTile, StatusBadge, LoadingState, fmt, fmtInt, LOADING_STATUS 
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 
 export const GenerationPrPage: React.FC = () => {
-  const { selectedPlantOverview, plantOverviewLoading, plantLiveLoading } = useAppContext();
+  const { selectedPlantOverview, plantOverviewLoading } = useAppContext();
 
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
@@ -351,9 +351,9 @@ export const GenerationPrPage: React.FC = () => {
                   <tr key={inv.device_sn}>
                     <td>
                       <StatusBadge
-                        status={inv.status_label ?? (plantLiveLoading ? LOADING_STATUS : "Unknown")}
+                        status={inv.status_label ?? LOADING_STATUS}
                         level={lvl}
-                        loading={inv.status_label == null && plantLiveLoading}
+                        loading={inv.status_label == null}
                         dot
                       />
                     </td>
