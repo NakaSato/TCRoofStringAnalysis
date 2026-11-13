@@ -25,6 +25,8 @@ Seeded logins (username / password): `admin` / `admin123`, `engineer` / `enginee
 ```
 Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /growatt/live/* ─► UI polls when refresh_in_s says
                  │              (never stored anywhere)
+                 ├─ env_list sensor status ─► memory sweep (12 dataloggers/request, 300 s) ─► /growatt/live/sensors/status
+                 │              (only while Weather Sensors / Active Alarm is open; never stored)
                  ├─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
                  │                                                       └─► daily summaries ─► Firestore
                  └─ alarm_data log ─► growatt-worker (every 30 min, 05–21; yesterday at 00:30) ─► SQL ─► /growatt/alarms (Active Alarm)
@@ -57,7 +59,7 @@ Rules for every layer:
 - `DATABASE_URL`
 - `GROWATT_TOKEN_PHASE1`..`4`: one Growatt account per project phase. The legacy `GROWATT_API_TOKEN` is used as phase 1 when `GROWATT_TOKEN_PHASE1` is empty.
 - `GROWATT_LIVE_TTL_S`
-- `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open)
+- `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open); `SENSOR_ALARM_COVERAGE_PCT` (80): Active Alarm, past day: stored daylight coverage below this = data gap
 - `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_FILE`
 - `PUBLISH_SINK` (`json` | `firestore`)
 - `PUBLISH_DAILY_WRITE_BUDGET`
