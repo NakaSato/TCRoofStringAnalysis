@@ -27,6 +27,7 @@ from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
 from app.services import fleet_settings
 from app.services import growatt_alarms
+from app.services import growatt_sensors
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
 from app.services import google_weather as gw
@@ -134,6 +135,15 @@ def live_plant_alarms(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
+@router.get("/sensors")
+def fleet_sensors(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Every weather sensor of the plants the user may see, from the registry and stored history
+    (DB only, never calls Growatt): newest stored reading, probes reporting in the last 7 days and
+    today's daylight coverage. `status` is `not_synced` (nothing stored) or `unknown`: online state
+    is realtime and comes from the live sweep, never from SQL."""
+    return growatt_sensors.list_sensors(db, allowed_plant_ids(db, user))
 
 
 @router.get("/alarms")

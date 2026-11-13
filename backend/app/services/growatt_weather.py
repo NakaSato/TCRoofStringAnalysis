@@ -76,31 +76,36 @@ def plant_sensors(db: Session, plant_id: int) -> List[GrowattEnvSensor]:
     )
 
 
+def measured_by_sensor(
+    db: Session, since: datetime, plant_ids: Optional[Iterable[int]] = None
+) -> Dict[Tuple[str, int], List[str]]:
+    """Fields that read non-zero at least once since `since`, per sensor with stored readings
+    in that window (`plant_ids` None = every plant). Sensors without readings are absent."""
+    cols = [getattr(E, f) for f in FIELDS]
+    aggs = [a for c in cols for a in (func.min(c), func.max(c))]
+    q = (
+        select(E.datalogger_sn, E.address, *aggs)
+        .join(GrowattEnvSensor, (GrowattEnvSensor.datalogger_sn == E.datalogger_sn) & (GrowattEnvSensor.address == E.address))
+        .where(E.timestamp >= since)
+        .group_by(E.datalogger_sn, E.address)
+    )
+    if plant_ids is not None:
+        q = q.where(GrowattEnvSensor.plant_id.in_(list(plant_ids) or [-1]))
+    out: Dict[Tuple[str, int], List[str]] = {}
+    for row in db.execute(q).all():
+        r = tuple(row)
+        mm = r[2:]
+        out[(str(r[0]), int(r[1]))] = [f for i, f in enumerate(FIELDS) if (mm[2 * i] or 0) != 0 or (mm[2 * i + 1] or 0) != 0]
+    return out
+
+
 def measured_fields(db: Session, plant_id: int, since: datetime) -> Dict[Tuple[str, int], Optional[List[str]]]:
     """Per sensor of the plant, the fields that read non-zero at least once since `since`.
 
     None for a sensor with no stored readings in that window (unknown: keep every field).
     """
-    cols = [getattr(E, f) for f in FIELDS]
-    aggs = [a for c in cols for a in (func.min(c), func.max(c))]
-    rows: Dict[Tuple[str, int], Sequence[Any]] = {
-        (str(t[0]), int(t[1])): t[2:]
-        for t in (tuple(r) for r in db.execute(
-            select(E.datalogger_sn, E.address, *aggs)
-            .join(GrowattEnvSensor, (GrowattEnvSensor.datalogger_sn == E.datalogger_sn) & (GrowattEnvSensor.address == E.address))
-            .where(GrowattEnvSensor.plant_id == plant_id, E.timestamp >= since)
-            .group_by(E.datalogger_sn, E.address)
-        ).all())
-    }
-    out: Dict[Tuple[str, int], Optional[List[str]]] = {}
-    for s in plant_sensors(db, plant_id):
-        mm = rows.get((s.datalogger_sn, s.address))
-        out[(s.datalogger_sn, s.address)] = (
-            None
-            if mm is None
-            else [f for i, f in enumerate(FIELDS) if (mm[2 * i] or 0) != 0 or (mm[2 * i + 1] or 0) != 0]
-        )
-    return out
+    seen = measured_by_sensor(db, since, [plant_id])
+    return {(s.datalogger_sn, s.address): seen.get((s.datalogger_sn, s.address)) for s in plant_sensors(db, plant_id)}
 
 
 def latest_day(db: Session, plant_id: int) -> Optional[date]:

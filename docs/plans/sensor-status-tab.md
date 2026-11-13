@@ -168,14 +168,15 @@ Backend: `GET /growatt/sensors?day=` gains `coverage_pct` for a past `day` (DB o
 ## 8. Checklist
 
 ### Phase 1: DB list + Status tab
-- [ ] `services/growatt_sensors.py`: `list_sensors(db, allowed_plant_ids)` with last reading, coverage today, `measured` (one grouped query per table, SQLAlchemy only)
-- [ ] `GET /growatt/sensors` in `routes/growatt.py`, filtered by `allowed_plant_ids`
-- [ ] Types + `api.listSensors()` in `api/client.ts`
-- [ ] `pages/SensorsPage.tsx` with `Tabs` (`status`, `info`), tab in URL query
-- [ ] Route `sensors` in `App.tsx`; nav item "Weather Sensors" in Monitoring
-- [ ] Status table + KPI tiles from DB with "Last sync" labels; status `unknown` until Phase 2
-- [ ] Tests: engineer sees only assigned plants' sensors; `not_synced` sensor; coverage on mixed intervals; SQLite-safe
-- [ ] `uv run pytest -q`, `bun run lint`, `bun run build` pass
+_Done 2026-11-13. Deviations: `last_reading_at` is the sensor's `history_synced_until` (the sync sets it to the stored max) and the last reading is an exact key join, not a `MAX` group-by over 90 days. Coverage today counts slots 06:00 → start of the last finished `history`/`backfill` run (`meta.coverage_window`), so slots not fetched yet are not gaps. KPI tiles are Sensors / Stored today / Data gaps (< 80 %) / Not synced until Phase 2 can count online/late/offline (showing 0 online would be false). The Info tab shows the stored facts; Phase 3 adds live._
+- [x] `services/growatt_sensors.py`: `list_sensors(db, allowed_plant_ids)` with last reading, coverage today, `measured` (SQLAlchemy only; `growatt_weather.measured_by_sensor` shared with `measured_fields`)
+- [x] `GET /growatt/sensors` in `routes/growatt.py`, filtered by `allowed_plant_ids`
+- [x] Types + `api.listSensors()` in `api/client.ts`
+- [x] `pages/SensorsPage.tsx` with `Tabs` (`status`, `info`), tab in URL query
+- [x] Route `sensors` in `App.tsx`; nav item "Weather Sensors" in Monitoring
+- [x] Status table + KPI tiles from DB with "Last sync" labels; status `unknown` until Phase 2
+- [x] Tests: engineer sees only assigned plants' sensors; `not_synced` sensor; coverage on mixed intervals; SQLite-safe
+- [x] `uv run pytest -q`, `bun run lint`, `bun run build` pass
 
 ### Phase 2: live fleet status
 - [ ] `GrowattLiveService.sensor_status()` with per-datalogger cache, `SENSOR_SWEEP_PER_REQUEST`, TTL, cooldown, night TTL

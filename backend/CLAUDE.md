@@ -61,6 +61,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 | `/growatt/plants/{id}/weather` | `services/growatt_weather.py` | DB only. Weather-sensor day: 5-min series + insolation/peaks; several sensors are averaged per slot unless `?sensor=SN:ADDR` picks one (404 if not the plant's). |
 | `/growatt/plants/{id}/google-weather` · `/growatt/live/plants/{id}/google-weather` | `services/google_weather.py` | Google Maps Weather, **modelled** (see below). DB: stored hourly day + 09/12/17 rain slots + days since rain. Live: current conditions, memory only, 30 min per cell. |
 | SQL history | `services/growatt_sync.py` | Idempotent upserts. Started by the worker or the CLI. |
+| `/growatt/sensors` | `services/growatt_sensors.py` | DB only: every weather sensor the user may see, with the newest stored reading (`history_synced_until` = stored max), probes reporting in the last 7 days, and `coverage_today_pct` (distinct 5-min slots 06:00 → start of the last finished `history`/`backfill` run, so unfetched slots don't count as gaps). `status` is `not_synced` or `unknown`: online state is live only. |
 | `/growatt/alarms?day=` | `services/growatt_alarms.py` | DB only: stored alarm log of every plant the user may see (Active Alarm page), plus per-plant `inverters` / `synced_inverters` / `synced_at`. |
 | Firestore | `services/daily_summary.py` | Daily summaries and the static registry only, about 250 writes a day. |
 

@@ -25,6 +25,7 @@ const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
 const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
 const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAlarmPage");
+const SensorsPage = page(() => import("./pages/SensorsPage"), "SensorsPage");
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
 
 /** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
@@ -95,6 +96,7 @@ export const App: React.FC = () => {
             <Route index element={<FleetHomePage />} />
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
+            <Route path="sensors" element={<SensorsPage />} />
             <Route path="she" element={<AdminOnly><SheSafetyPage /></AdminOnly>} />
             <Route path="settings" element={<PlantSettingsPage />} />
             <Route path="users" element={<AdminOnly><UsersPage /></AdminOnly>} />
