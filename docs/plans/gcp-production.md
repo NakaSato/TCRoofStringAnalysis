@@ -1,11 +1,11 @@
-# Plan & Spec: GCP production sizing and the ฿3,013/month cost cap
+# Plan & Spec: GCP production sizing and the ฿3,000/month cost cap
 
 Status: **Test month from 2026-11-13** (scenario A: API always on, hard stop at 96 %) · Created 2026-11-13 · Owner: Chanthawat
 
 Settings: `deploy/gcp.config` (sourced by `deploy/gcp.sh`).
 
 Move production from the free-tier setup (< $10/month) to the sized setup in the cost table below.
-Total spend must stay **at or under ฿3,013/month** (≈ $88.63). The billing account bills in **THB**.
+Total spend must stay **under ฿3,000/month** (planned ≈ ฿2,566 ≈ $75.5). The billing account bills in **THB**.
 
 ---
 
@@ -17,13 +17,13 @@ Total spend must stay **at or under ฿3,013/month** (≈ $88.63). The billing a
 | 100 GB storage | 340 | 4,080 | fixed | boot disk **pd-balanced** 100 GB | 10.00 |
 | Backups | 104 | 1,244 | fixed | weekly disk snapshot, kept 4 weeks; no daily backup (§3.3) | 3.05 |
 | Server IP address | 124 | 1,489 | fixed | static external IPv4 on the VM | 3.65 |
-| Web and API | 507 | 6,079 | fixed + usage | Cloud Run `tcroof-api`, **min 1** / max 1 instance, 1 vCPU / 1 GiB; idle instance ฿447 + use by 10 people, 8 h/day, 22 days/month | 14.90 |
+| Web and API | 60 | 715 | usage | Cloud Run `tcroof-api`, **min 0** / max 1 instance, 1 vCPU / 1 GiB; use by 10 people, 8 h/day, 22 days/month (min 1 would add the idle instance, ฿447) | 1.76 |
 | Internet data transfer | 64 | 771 | usage | egress ≈ 12 GB/month (Firebase Hosting + Cloud Run) | 1.89 |
 | Monitoring and alerts | 170 | 2,040 | fixed (maximum) | Cloud Monitoring uptime checks, alert policies, Ops Agent | 5.00 |
 | Secrets and program images | 7 | 90 | fixed | Secret Manager + Artifact Registry | 0.22 |
 | Company domain | 34 | 408 | fixed | domain (≈ $12/year) on Firebase Hosting, free HTTPS | 1.00 |
 | Other free services | 0 | 0 | — | Firestore, Google Weather, Sheets, Cloud Build, Logging: inside free quotas, capped by the app | 0.00 |
-| **Total** | **3,013** | **36,161** | | | **88.63** |
+| **Total** | **2,566** | **30,797** | | | **75.49** |
 
 All prices are us-central1 list prices, converted at the rate the table uses (≈ 34 THB/USD).
 **E2 machines get no sustained-use discount**, so the VM is billed at the full on-demand price for every hour it runs.
@@ -37,10 +37,10 @@ All prices are us-central1 list prices, converted at the rate the table uses (�
 | External IP | ephemeral `35.225.232.58` (premium tier) | the same address promoted to static |
 | Snapshots | policy `tcroof-db-daily`, kept 7 days | weekly only, kept 4 weeks (§3.3) |
 | Postgres | tuned for 1 GB RAM (`shared_buffers=128MB`) | tuned for 8 GB (§3.2) |
-| Cloud Run | `--min-instances 0 --max-instances 1`, 1 vCPU / 1 GiB | `--min-instances 1`, otherwise the same |
+| Cloud Run | `--min-instances 0 --max-instances 1`, 1 vCPU / 1 GiB | unchanged (min 0 keeps the budget under ฿3,000) |
 | Monitoring | none (budget email only) | uptime, worker freshness, disk (§3.5) |
 | Domain | `tcroof-string-analysis.web.app` | company domain (to be chosen) |
-| Budget | ฿500, email only | ฿3,013 with an automatic cap (§4) |
+| Budget | ฿500, email only | ฿3,000 with an automatic cap at 96 % = ฿2,880 (§4) |
 
 ## 3. Spec per item
 
@@ -99,11 +99,11 @@ maintenance_work_mem=512MB  max_connections=60  random_page_cost=1.1
 | Budget | §4 | 50 / 90 / 100 % |
 
 - One email notification channel; recipients are listed in §6.
-- `min-instances 1` means uptime checks never hit a cold start.
+- With `min-instances 0` an uptime check can hit a cold start; the check timeout covers it.
 - Uptime checks are free (well under 1 M executions/month), and Ops Agent metrics for one VM fit the free ingestion allowance. The table's ฿170 is the upper bound for alerting.
 
 ### 3.6 Cloud Run
-- `--min-instances 1 --max-instances 1`, `--cpu 1 --memory 1Gi`, CPU allocated only during requests (the default). The idle instance is billed at the idle rate: 1 vCPU + 1 GiB ≈ $13.1 ≈ ฿447/month.
+- `--min-instances 0 --max-instances 1`, `--cpu 1 --memory 1Gi`, CPU allocated only during requests (the default). `API_MIN_INSTANCES=1` would keep one instance warm at the idle rate: 1 vCPU + 1 GiB ≈ $13.1 ≈ ฿447/month, which doesn't fit a ฿3,000 budget.
 - `--max-instances 1` is also a cost limit: Cloud Run compute can never exceed one instance.
 
 ### 3.7 Domain
@@ -129,24 +129,26 @@ A GCP budget **only sends alerts; it does not stop spending by itself**, and bil
   - Egress is gzipped (#10).
 
 ### 4.2 Layer 2: budget and alerts
-- Budget `tcroof-monthly` of **฿3,013** on project `tcroof-string-analysis`. It replaces the ฿500 budget.
+- Budget `tcroof-monthly` of **฿3,000** on project `tcroof-string-analysis` (2026-11-13; the guard trips at ฿2,880). It replaces the ฿500 budget.
 - Email at **50 %, 90 % and 100 %** of actual spend, and at **100 % of forecast spend**.
 - The budget also publishes to Pub/Sub topic `tcroof-budget`, which drives layer 3.
-- `deploy/gcp.sh` change: `BUDGET_AMOUNT` defaults to `3013THB` and `setup` updates the budget in place.
+- `deploy/gcp.sh` change: `BUDGET_AMOUNT` defaults to `3000THB` and `setup` updates the budget in place.
 
 ### 4.3 Layer 3: automatic stop (Cloud Run function `tcroof-cost-guard`)
 The function listens to `tcroof-budget` and acts on `costAmount` against the budget amount:
 
 | Spend | Action | Effect |
 |---|---|---|
-| ≥ 90 % (฿2,712) | Email only (layer 2). | none |
-| ≥ **96 % (฿2,892)** | **Disable billing on the project** (Cloud Billing API `updateBillingInfo` with an empty billing account). It triggers at 96 %, not 100 %, so the billing delay (≈ 1 day ≈ ฿100) can't push the month over ฿3,013. | Everything stops: VM, Cloud Run, Hosting. Disks and snapshots are kept. |
+| ≥ 90 % (฿2,700) | Email only (layer 2). | none |
+| ≥ **96 % (฿2,880)** | **Disable billing on the project** (Cloud Billing API `updateBillingInfo` with an empty billing account). It triggers at 96 %, not 100 %, so the billing delay (≈ 1 day ≈ ฿100) keeps the month under the ฿3,000 budget. | Everything stops: VM, Cloud Run, Hosting. Disks and snapshots are kept. |
 
 - The function's service account gets `roles/billing.projectManager` on the project, and nothing else.
 - To restore after a stop, an admin re-links the billing account (console or `gcloud billing projects link`) and starts the VM. Data is kept.
 - The function runs only when a budget message arrives (a few times a day), well inside the free tier.
 
-**Trade-off to accept:** the fixed items alone are ฿2,889, which is 96 % of the cap. With the table's own totals (฿3,013), spend reaches the ฿2,892 trigger around **day 29**, and the guard **turns the whole system off for the last 1–2 days of the month**. A hard cap at ฿3,013 therefore needs headroom of at least ฿150/month. Pick one or more:
+**Decision (2026-11-13): budget ฿3,000 and Cloud Run `min-instances 0`.** Scaling the API to zero saves the ฿447 idle instance, so planned spend is about ฿2,566 (+ requests while in use), with ≈ ฿310 of headroom under the ฿2,880 trigger. Cost: a cold start of a few seconds on the first request after an idle spell.
+
+**Trade-off (with `min-instances 1` and a ฿3,013 budget):** the fixed items alone are ฿2,889, which is 96 % of the cap. With the table's own totals (฿3,013), spend reaches the ฿2,892 trigger around **day 29**, and the guard **turns the whole system off for the last 1–2 days of the month**. A hard cap at ฿3,013 therefore needs headroom of at least ฿150/month. Pick one or more:
 1. Cloud Run `min-instances 1` only from 07:00 to 19:00 (Cloud Scheduler switches it); saves about ฿220/month, with a cold start for the first visit at night.
 2. A 1-year committed-use discount on the VM (about −37 %, ≈ −฿600/month). This is a commitment to pay for the year.
 3. Weekly-only backups and monitoring will likely cost less than their table maximums (฿104, ฿170), but don't count on it.
