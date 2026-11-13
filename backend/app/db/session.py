@@ -48,8 +48,14 @@ _ADDED_COLUMNS = [
 ]
 
 
+# Indexes added to tables that already existed (create_all only creates them with a new table).
+_ADDED_INDEXES = [
+    ("growatt_inverter_readings", "ix_growatt_inv_ts", "CREATE INDEX IF NOT EXISTS ix_growatt_inv_ts ON growatt_inverter_readings (timestamp)"),
+]
+
+
 def ensure_schema(bind) -> None:
-    """create_all + add columns introduced after the table first shipped."""
+    """create_all + add columns and indexes introduced after the table first shipped."""
     Base.metadata.create_all(bind=bind)
     insp = inspect(bind)
     for table, column, ddl, index in _ADDED_COLUMNS:
@@ -58,6 +64,11 @@ def ensure_schema(bind) -> None:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
                 if index:
                     conn.execute(text(index))
+    tables = set(insp.get_table_names())
+    for table, name, ddl in _ADDED_INDEXES:
+        if table in tables and name not in {i["name"] for i in insp.get_indexes(table)}:
+            with bind.begin() as conn:
+                conn.execute(text(ddl))
 
 
 engine = build_engine()
