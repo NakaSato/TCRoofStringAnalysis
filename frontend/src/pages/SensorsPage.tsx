@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
+  CircleCheck,
+  CircleHelp,
+  Clock,
   CloudOff,
   Database,
   Gauge,
@@ -11,11 +14,13 @@ import {
   RefreshCw,
   Search,
   TriangleAlert,
+  WifiOff,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api } from "../api/client";
-import type { GrowattWeatherField, SensorList, SensorRow, SensorStatus } from "../api/client";
+import type { GrowattLive, GrowattWeatherField, SensorList, SensorLiveRow, SensorLiveStatus, SensorRow, SensorStatus } from "../api/client";
+import { useLivePoll } from "../context/useLivePoll";
 import { plantPath } from "../context/routes";
 import { EmptyState, LoadingState, PageHeader, Panel, StatusBadge, fmt, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
@@ -35,7 +40,7 @@ const LOW_COVERAGE_PCT = 80;
 
 const TABS = ["status", "info"] as const;
 type Tab = (typeof TABS)[number];
-const FILTERS = ["all", "unknown", "not_synced", "low"] as const;
+const FILTERS = ["all", "online", "late", "offline", "unknown", "not_synced", "low"] as const;
 type Filter = (typeof FILTERS)[number];
 const SORTS = ["plant", "sensor", "last", "coverage", "irradiance"] as const;
 type SortKey = (typeof SORTS)[number];
@@ -65,6 +70,29 @@ const FIELD_UNIT: Record<GrowattWeatherField, string> = {
   wind_dir_deg: "°",
 };
 const FIELDS = Object.keys(FIELD_LABEL) as GrowattWeatherField[];
+
+/** A DB row with the live state laid over it. */
+type ViewRow = SensorRow & {
+  /** live status once its datalogger is checked, else the DB one (`unknown` / `not_synced`) */
+  st: SensorStatus;
+  /** last upload to Growatt when live is known ("Live"), else the newest stored reading ("Last sync") */
+  upload: string | null;
+  uploadLive: boolean;
+  live: SensorLiveRow | null;
+};
+
+const overlay = (s: SensorRow, l: SensorLiveRow | undefined): ViewRow => {
+  const known = l != null && l.status !== "unknown";
+  return {
+    ...s,
+    st: known ? l.status : s.status,
+    upload: l?.last_update_time ?? s.last_reading_at,
+    uploadLive: l?.last_update_time != null,
+    live: l ?? null,
+  };
+};
+
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 /** Plant-local now as "YYYY-MM-DD HH:MM:SS", the format of stored timestamps. */
 const plantNow = () => new Date().toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" });
@@ -125,9 +153,9 @@ const SortHead: React.FC<{
 
 /**
  * Every weather sensor the user can see (`/growatt/sensors`, DB only): newest stored reading,
- * probes that report, and today's stored coverage. Online / late / offline need Growatt's live
- * `env_list` and are not stored, so every synced sensor shows "Not checked" until the live
- * sweep exists. Nothing is written to browser storage.
+ * probes that report, and today's stored coverage, overlaid with the live online state
+ * (`/growatt/live/sensors/status`, polled on `refresh_in_s` while visible). A sensor whose
+ * datalogger the sweep has not reached yet stays "Not checked". Nothing is written to browser storage.
  */
 export const SensorsPage: React.FC = () => {
   const [data, setData] = useState<SensorList | null>(null);
@@ -144,6 +172,9 @@ export const SensorsPage: React.FC = () => {
   const query = url.get("q") ?? "";
   const phaseParam = url.get("phase") ?? "";
   const selectedKey = url.get("sensor") ?? "";
+
+  const [live, setLive] = useState<GrowattLive<SensorLiveStatus> | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -169,37 +200,57 @@ export const SensorsPage: React.FC = () => {
     };
   }, [load]);
 
-  const sensors = useMemo(() => data?.sensors ?? [], [data]);
+  // live online state: the backend sweeps a few dataloggers per request, so poll on refresh_in_s
+  // (15 s while the sweep is incomplete, then when the first entry expires)
+  useLivePoll(
+    Boolean(data?.sensors.length),
+    "sensors",
+    () => api.getLiveSensorStatus(),
+    (r) => {
+      setLive(r);
+      setLiveError(null);
+      setNow(plantNow());
+    },
+    (err) => setLiveError(err instanceof Error ? err.message : String(err))
+  );
+
+  const sensors = useMemo(() => {
+    const byKey = new Map((live?.data.sensors ?? []).map((l) => [l.key, l]));
+    return (data?.sensors ?? []).map((s) => overlay(s, byKey.get(s.key)));
+  }, [data, live]);
   const phases = useMemo(() => [...new Set(sensors.map((s) => s.phase).filter((p): p is number => p != null))].sort(), [sensors]);
   const phase = phases.map(String).includes(phaseParam) ? phaseParam : "";
 
-  const counts = useMemo(
-    () => ({
-      total: sensors.length,
-      stored: sensors.filter((s) => (s.coverage_today_pct ?? 0) > 0).length,
-      notSynced: sensors.filter((s) => s.status === "not_synced").length,
+  const counts = useMemo(() => {
+    const n = (st: SensorStatus) => sensors.filter((s) => s.st === st).length;
+    return {
+      online: n("online"),
+      late: n("late"),
+      offline: n("offline"),
+      unknown: n("unknown"),
+      notSynced: n("not_synced"),
+      checked: sensors.filter((s) => s.live?.checked_at != null).length,
       low: sensors.filter((s) => s.coverage_today_pct != null && s.coverage_today_pct < LOW_COVERAGE_PCT).length,
-    }),
-    [sensors]
-  );
+    };
+  }, [sensors]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const out = sensors.filter(
       (s) =>
         (filter === "all" ||
-          (filter === "low" ? s.coverage_today_pct != null && s.coverage_today_pct < LOW_COVERAGE_PCT : s.status === filter)) &&
+          (filter === "low" ? s.coverage_today_pct != null && s.coverage_today_pct < LOW_COVERAGE_PCT : s.st === filter)) &&
         (!phase || String(s.phase) === phase) &&
         (!q || `${s.plant_name} ${s.datalogger_sn}#${s.address} ${s.device_name ?? ""}`.toLowerCase().includes(q))
     );
     // nulls last in either direction
-    const val = (s: SensorRow): string | number | null =>
+    const val = (s: ViewRow): string | number | null =>
       sort === "plant"
         ? s.plant_name.toLowerCase()
         : sort === "sensor"
           ? s.key
           : sort === "last"
-            ? s.last_reading_at
+            ? s.upload
             : sort === "coverage"
               ? s.coverage_today_pct
               : s.last?.irradiance_wm2 ?? null;
@@ -217,7 +268,10 @@ export const SensorsPage: React.FC = () => {
   const openInfo = (key: string) => setUrl({ tab: "info", sensor: key });
   const selected = sensors.find((s) => s.key === selectedKey) ?? null;
   const until = data?.meta.coverage_window.until;
-  const syncedAt = data?.meta.synced_at ? new Date(data.meta.synced_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+  const syncedAt = data?.meta.synced_at ? hhmm(data.meta.synced_at) : null;
+  const sweep = live?.data.sweep;
+  const sweeping = !live || (sweep != null && sweep.fresh < sweep.total);
+  const liveErrors = live ? Object.keys(live.data.errors).length : 0;
 
   return (
     <div className="space-y-5">
@@ -225,9 +279,18 @@ export const SensorsPage: React.FC = () => {
         icon={Gauge}
         eyebrow="Monitoring"
         title="Weather Sensors"
-        description="Every Growatt weather sensor you can see, from stored history: newest reading, probes that report, and how much of today's daylight is stored. Online / offline status needs Growatt's live sensor list and is not checked yet."
+        description="Every Growatt weather sensor you can see: online state from Growatt's live sensor list (checked a few dataloggers at a time, never stored), plus the newest stored reading, probes that report, and how much of today's daylight is stored."
         actions={
           <>
+            {live && !sweeping && !live.stale ? (
+              <Badge variant="ok" className="px-2 py-0.5 text-[11px] font-semibold" title={`Oldest datalogger check ${live.fetched_at}`}>
+                Live · {hhmm(live.fetched_at)}
+              </Badge>
+            ) : (
+              <Badge variant="info" className="px-2 py-0.5 text-[11px] font-semibold" title="Growatt's sensor list is fetched a few dataloggers per request">
+                {liveError && !live ? "Live status unavailable" : `Status checked ${fmtInt(counts.checked)} / ${fmtInt(sensors.length)}`}
+              </Badge>
+            )}
             {syncedAt && (
               <Badge variant="neutral" className="px-2 py-0.5 text-[11px] font-semibold" title={`History stored up to the sync that started ${data?.meta.synced_at}`}>
                 Last sync {syncedAt}
@@ -266,9 +329,17 @@ export const SensorsPage: React.FC = () => {
         />
       ) : tab === "status" ? (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Tile label="Sensors" value={counts.total} hint="Registered on your plants" icon={Gauge} text="text-white" active={filter === "all"} onClick={() => setUrl({ status: null })} />
-            <Tile label="Stored today" value={counts.stored} hint="At least one reading stored today" icon={Database} text="text-emerald-300" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            {(
+              [
+                ["online", "Online", counts.online, `Upload ≤ ${live?.data.thresholds.late_min ?? 15} min ago`, CircleCheck, "text-emerald-300"],
+                ["late", "Late", counts.late, `${live?.data.thresholds.late_min ?? 15}–${live?.data.thresholds.offline_min ?? 60} min since upload`, Clock, "text-amber-300"],
+                ["offline", "Offline", counts.offline, "Lost, or silent > 1 h", WifiOff, "text-red-300"],
+                ["unknown", "Not checked", counts.unknown, sweeping ? "Live check in progress" : "No usable live answer", CircleHelp, "text-slate-300"],
+              ] as const
+            ).map(([f, label, value, hint, icon, text]) => (
+              <Tile key={f} label={label} value={value} hint={hint} icon={icon} text={text} active={filter === f} onClick={() => toggleFilter(f)} />
+            ))}
             <Tile
               label="Data gaps today"
               value={counts.low}
@@ -281,7 +352,7 @@ export const SensorsPage: React.FC = () => {
             <Tile
               label="Not synced"
               value={counts.notSynced}
-              hint="Registered, nothing stored yet"
+              hint="Live unknown, nothing stored"
               icon={CloudOff}
               text="text-amber-300"
               active={filter === "not_synced"}
@@ -292,7 +363,7 @@ export const SensorsPage: React.FC = () => {
           <Panel
             icon={ListChecks}
             title="Sensor status"
-            subtitle={`${rows.length} of ${sensors.length} sensors · coverage = stored 5-min slots, 06:00–${until ?? "—"} today${error ? ` · refresh failed: ${error}` : ""}`}
+            subtitle={`${rows.length} of ${sensors.length} sensors${filter !== "all" ? ` · filter: ${filter === "low" ? "data gaps" : STATUS_VIEW[filter].label}` : ""} · coverage = stored 5-min slots, 06:00–${until ?? "—"} today${error ? ` · refresh failed: ${error}` : ""}${liveError ? ` · live check failed: ${liveError}` : liveErrors ? ` · ${liveErrors} datalogger(s) not answering` : ""}`}
             bodyClassName="p-0"
             actions={
               <div className="flex flex-wrap items-center gap-2">
@@ -336,7 +407,7 @@ export const SensorsPage: React.FC = () => {
                     <TableHead>Status</TableHead>
                     <SortHead id="plant" sort={sort} desc={desc} onSort={onSort}>Plant</SortHead>
                     <SortHead id="sensor" sort={sort} desc={desc} onSort={onSort}>Sensor</SortHead>
-                    <SortHead id="last" sort={sort} desc={desc} onSort={onSort}>Last sync</SortHead>
+                    <SortHead id="last" sort={sort} desc={desc} onSort={onSort}>Last upload</SortHead>
                     <SortHead id="irradiance" sort={sort} desc={desc} onSort={onSort} className="text-right">W/m²</SortHead>
                     <TableHead className="text-right">Module °C</TableHead>
                     <TableHead className="text-right">Ambient °C</TableHead>
@@ -347,7 +418,7 @@ export const SensorsPage: React.FC = () => {
                 </TableHeader>
                 <TableBody>
                   {rows.map((s) => {
-                    const st = STATUS_VIEW[s.status];
+                    const st = STATUS_VIEW[s.st];
                     return (
                       <TableRow key={s.key} className="cursor-pointer" onClick={() => openInfo(s.key)}>
                         <TableCell>
@@ -370,11 +441,22 @@ export const SensorsPage: React.FC = () => {
                           </span>
                           {s.device_name && <div className="text-[11px] text-slate-500">{s.device_name}</div>}
                         </TableCell>
-                        <TableCell className="num whitespace-nowrap" title={s.last_reading_at ? `Newest stored reading ${s.last_reading_at}` : undefined}>
-                          {s.last_reading_at ? (
+                        <TableCell
+                          className="num whitespace-nowrap"
+                          title={
+                            s.uploadLive
+                              ? `Last upload to Growatt ${s.upload} · newest stored reading ${s.last_reading_at ?? "none"}`
+                              : s.upload
+                                ? `Newest stored reading ${s.upload}`
+                                : undefined
+                          }
+                        >
+                          {s.upload ? (
                             <>
-                              {s.last_reading_at.slice(0, 10) === now.slice(0, 10) ? s.last_reading_at.slice(11, 16) : s.last_reading_at.slice(0, 16)}
-                              <div className="text-[11px] text-slate-500">{fmtAge(minutesBetween(s.last_reading_at, now))}</div>
+                              {s.upload.slice(0, 10) === now.slice(0, 10) ? s.upload.slice(11, 16) : s.upload.slice(0, 16)}
+                              <div className="text-[11px] text-slate-500">
+                                {fmtAge(minutesBetween(s.upload, now))} · {s.uploadLive ? "Live" : "Last sync"}
+                              </div>
                             </>
                           ) : (
                             "—"
@@ -396,7 +478,8 @@ export const SensorsPage: React.FC = () => {
             )}
           </Panel>
           <p className="text-[11px] text-slate-500">
-            Readings are the newest stored record ("Last sync"), not live values. n/f = probe not fitted (read 0 all of the last 7 days).
+            Status: online = last upload ≤ {live?.data.thresholds.late_min ?? 15} min ago, late up to {live?.data.thresholds.offline_min ?? 60} min, offline after that or when Growatt reports the sensor lost.
+            Readings are the newest stored record, not live values. n/f = probe not fitted (read 0 all of the last 7 days).
             Coverage counts 5-min slots from 06:00 up to the last history sync{until ? ` (${until})` : ""}.
           </p>
         </>
@@ -414,10 +497,10 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
   </div>
 );
 
-/** One sensor from the stored data. The live state and newest live reading come with the live sweep. */
+/** One sensor: live state from the sweep, everything else from the stored data. */
 const SensorInfo: React.FC<{
-  sensor: SensorRow | null;
-  sensors: SensorRow[];
+  sensor: ViewRow | null;
+  sensors: ViewRow[];
   now: string;
   until: string | null;
   onPick: (key: string) => void;
@@ -442,7 +525,8 @@ const SensorInfo: React.FC<{
         <EmptyState icon={Gauge} title="No sensor selected" description="Pick one here, or click a row on the Status tab." />
       </Panel>
     );
-  const st = STATUS_VIEW[sensor.status];
+  const st = STATUS_VIEW[sensor.st];
+  const l = sensor.live;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Panel icon={Info} title={`${sensor.datalogger_sn}#${sensor.address}`} subtitle={sensor.device_name ?? undefined} actions={picker}>
@@ -457,6 +541,13 @@ const SensorInfo: React.FC<{
         <Row label="Phase (Growatt account)">{sensor.phase ?? "—"}</Row>
         <Row label="Datalogger SN">{sensor.datalogger_sn}</Row>
         <Row label="Bus address">{sensor.address}</Row>
+        <Row label="Last upload (Growatt)">
+          {l?.last_update_time ? `${l.last_update_time} · ${fmtAge(minutesBetween(l.last_update_time, now))}` : "—"}
+        </Row>
+        <Row label="Growatt says lost">{l?.lost == null ? "—" : l.lost ? "Yes" : "No"}</Row>
+        <Row label="Live check">
+          {l?.checked_at ? `${hhmm(l.checked_at)}${l.stale ? " · stale" : ""}${l.listed === false ? " · not in the datalogger's list" : ""}` : "Not checked yet"}
+        </Row>
         <Row label="Newest stored reading">
           {sensor.last_reading_at ? `${sensor.last_reading_at} · ${fmtAge(minutesBetween(sensor.last_reading_at, now))}` : "Nothing stored yet"}
         </Row>
@@ -465,7 +556,7 @@ const SensorInfo: React.FC<{
             {sensor.coverage_today_pct == null ? "—" : `${fmt(sensor.coverage_today_pct, 0)}%`}
           </span>
         </Row>
-        <p className="mt-3 text-[11px] text-slate-500">Online state and the newest live reading come from Growatt's live sensor list, not checked yet.</p>
+        <p className="mt-3 text-[11px] text-slate-500">Online state comes from Growatt's live sensor list (memory only, re-checked about every 5 min while this page is open).</p>
       </Panel>
       <Panel icon={Database} title="Newest stored reading" subtitle={sensor.last_reading_at ?? "Nothing stored yet"}>
         {FIELDS.map((f) => {

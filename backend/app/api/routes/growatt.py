@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
+from app.config import settings
 from app.db.models import SyncRun, User
 from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
@@ -135,6 +136,33 @@ def live_plant_alarms(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
+@router.get("/live/sensors/status")
+def live_sensor_status(
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Live online state of every weather sensor the user may see (`env_list`, memory only).
+
+    Swept incrementally: each request refreshes at most `SENSOR_SWEEP_PER_REQUEST` dataloggers
+    (oldest first) and serves the rest from the shared memory cache; `data.sweep` says how many
+    are fresh, and `refresh_in_s` is short until the sweep is complete. An engineer's request
+    sweeps only their plants' dataloggers. Never written to SQL."""
+    sensors = growatt_sensors.visible_sensors(db, allowed_plant_ids(db, user))
+    dataloggers = sorted({(dl, ph) for dl, _addr, ph in sensors})
+    try:
+        env = live.sensor_status(dataloggers, coords=ov.plant_coords(db))
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    return growatt_sensors.overlay_live_status(
+        env,
+        sensors,
+        datetime.now(jobs.PLANT_TZ).replace(tzinfo=None),
+        settings.sensor_late_min,
+        settings.sensor_offline_min,
+    )
 
 
 @router.get("/sensors")

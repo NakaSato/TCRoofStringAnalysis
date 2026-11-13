@@ -179,12 +179,13 @@ _Done 2026-11-13. Deviations: `last_reading_at` is the sensor's `history_synced_
 - [x] `uv run pytest -q`, `bun run lint`, `bun run build` pass
 
 ### Phase 2: live fleet status
-- [ ] `GrowattLiveService.sensor_status()` with per-datalogger cache, `SENSOR_SWEEP_PER_REQUEST`, TTL, cooldown, night TTL
-- [ ] Derived `status` function shared by API responses (thresholds from settings)
-- [ ] `GET /growatt/live/sensors/status` with `sweep` and `refresh_in_s` (15 s while sweeping)
-- [ ] Config keys (§5.4) in `config.py` and `.env.example`
-- [ ] Frontend: `useLivePoll` overlay, sweep progress, Live / Last sync freshness
-- [ ] Tests (fake client, no network): sweep refreshes at most N per request, oldest first; 10012 → cooldown, others served; engineer sweep limited to own dataloggers; nothing written to SQL
+_Built 2026-11-13 (dev trial pending). Deviations: status is judged in `growatt_sensors.overlay_live_status` at request time (a cached entry still ages into late / offline); a sensor its datalogger's `env_list` no longer lists is `unknown` with `listed: false`. `sweep` also carries `checked` (dataloggers fetched at least once). Envelope `stale` only when an expired entry's refresh failed (cooldown), not while the sweep is in progress. `SENSOR_READING_ROWS` / `SENSOR_ALARM_COVERAGE_PCT` wait for the phases that use them. Checked against real Growatt: `lastUpdateTime` = "YYYY-MM-DD HH:MM:SS" plant-local, `lost` = "0"/"1"; 12 dataloggers per request in ≈ 2.3 s._
+- [x] `GrowattLiveService.sensor_status()` with per-datalogger cache, `SENSOR_SWEEP_PER_REQUEST`, TTL, cooldown, night TTL
+- [x] Derived `status` function shared by API responses (thresholds from settings)
+- [x] `GET /growatt/live/sensors/status` with `sweep` and `refresh_in_s` (15 s while sweeping)
+- [x] Config keys (§5.4) in `config.py` and `.env.example`
+- [x] Frontend: `useLivePoll` overlay, sweep progress, Live / Last sync freshness
+- [x] Tests (fake client, no network): sweep refreshes at most N per request, oldest first; 10012 → cooldown, others served; engineer sweep limited to own dataloggers; nothing written to SQL
 - [ ] One-day dev trial: 10012 counts on inverter `max_data` with the page open vs closed
 
 ### Phase 3: Info tab

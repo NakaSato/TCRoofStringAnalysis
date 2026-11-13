@@ -54,6 +54,7 @@ Rules for every layer:
 - `DATABASE_URL`
 - `GROWATT_TOKEN_PHASE1`..`4`: one Growatt account per project phase. The legacy `GROWATT_API_TOKEN` is used as phase 1 when `GROWATT_TOKEN_PHASE1` is empty.
 - `GROWATT_LIVE_TTL_S`
+- `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open)
 - `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_FILE`
 - `PUBLISH_SINK` (`json` | `firestore`)
 - `PUBLISH_DAILY_WRITE_BUDGET`

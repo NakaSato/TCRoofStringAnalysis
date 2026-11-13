@@ -557,6 +557,29 @@ export interface SensorList {
   sensors: SensorRow[];
 }
 
+/** One sensor's live online state (`/growatt/live/sensors/status`, memory only). */
+export interface SensorLiveRow {
+  key: string;
+  /** judged now from Growatt's `lost` + last upload; `unknown` until its datalogger is checked */
+  status: Exclude<SensorStatus, "not_synced">;
+  lost: boolean | null;
+  /** last upload to Growatt, plant-local "YYYY-MM-DD HH:MM:SS" */
+  last_update_time: string | null;
+  /** when its datalogger's sensor list was fetched (ISO, UTC); null = not checked yet */
+  checked_at: string | null;
+  stale: boolean | null;
+  /** false = the datalogger's sensor list no longer lists this sensor */
+  listed: boolean | null;
+}
+
+export interface SensorLiveStatus {
+  sensors: SensorLiveRow[];
+  errors: Record<string, string>;
+  /** dataloggers fresh / checked at all / visible; the sweep refreshes a few per request */
+  sweep: { fresh: number; checked: number; total: number; oldest_age_s: number };
+  thresholds: { late_min: number; offline_min: number };
+}
+
 /** /growatt/plants/{id}/inverters/{sn}/timeseries — one inverter's stored 5-minute day curve (DB only). */
 export interface GrowattInverterTimeseries {
   meta: GrowattDbMeta;
@@ -1070,6 +1093,7 @@ export const api = {
 
   getFleetAlarms: (day?: string) => apiFetch<FleetAlarmDay>(`/growatt/alarms${day ? `?day=${day}` : ""}`),
   listSensors: () => apiFetch<SensorList>("/growatt/sensors"),
+  getLiveSensorStatus: () => apiFetch<GrowattLive<SensorLiveStatus>>("/growatt/live/sensors/status"),
 
   // Growatt — realtime (backend memory only; poll, never stored)
   getGrowattLivePlants: () => apiFetch<GrowattLive<GrowattLivePlant[]>>("/growatt/live/plants"),

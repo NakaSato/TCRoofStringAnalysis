@@ -23,7 +23,7 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
   - Base URL is `VITE_API_BASE_URL` (default `/api`). The JWT is kept in localStorage.
   - New endpoints get a typed method here; don't call `fetch` from components.
 - **Routes** (`App.tsx`, all inside `components/Layout.tsx`). **The plant is in the URL**, never in hidden state:
-  - Fleet-wide: `/` (plant directory, `FleetHomePage`), `/growatt`, `/alarms`, `/sensors` (Weather Sensors: `?tab=status|info`, `sensor`, `status`, `phase`, `q`, `sort`, `desc`; page-local DB list re-read every 5 min, no context), `/she`, `/settings`, `/users`.
+  - Fleet-wide: `/` (plant directory, `FleetHomePage`), `/growatt`, `/alarms`, `/sensors` (Weather Sensors: `?tab=status|info`, `sensor`, `status`, `phase`, `q`, `sort`, `desc`; page-local DB list re-read every 5 min, overlaid by `key` with the live status from `useLivePoll(api.getLiveSensorStatus)`; header shows "Status checked N / M" until the backend sweep is complete, then "Live · hh:mm"; no context), `/she`, `/settings`, `/users`.
   - One plant: `/plant/:plantId` (overview), `/plant/:plantId/{generation,inverters,strings,string-layout,maintenance}`. `PlantRoute` shows "not found" when the backend answers 404 (unknown, or not assigned to an engineer).
   - Old URLs (`/inverters`, …) redirect to the same page of the last plant opened (`localStorage`, guarded), else `/`.
   - Build plant links with `plantPath(id, page)` (`context/routes.ts`) or `usePlantHref()`; switch plant with `selectGrowattPlant(id)`, which keeps the current page.

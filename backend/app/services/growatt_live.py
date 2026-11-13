@@ -47,6 +47,7 @@ PLANT_TZ = ZoneInfo("Asia/Bangkok")  # max_data `time` is naive plant-local
 PAST_DAY_ALARM_TTL_S = 6 * 3600.0  # a closed day's alarm log no longer changes
 ALARM_WORKERS = 8  # parallel alarm_data calls for one request (one call per inverter-day)
 LIVE_WORKERS = 8  # parallel max_data calls for one plant's latest records (one call per inverter)
+SWEEP_REFRESH_S = 15.0  # sensor sweep not complete yet: ask again this soon for the next batch
 
 # Per-inverter expiry follows the upload rhythm (see `_latest_ttl`).
 DEFAULT_INTERVAL_S = 300.0  # when the interval can't be measured (one record so far)
@@ -109,6 +110,8 @@ class GrowattLiveService:
         now_local: Callable[[], datetime] = lambda: datetime.now(PLANT_TZ).replace(tzinfo=None),
         night_ttl_s: float = 0.0,
         device_gap_s: float = 0.0,
+        sensor_ttl_s: float = 300.0,
+        sensor_sweep: int = 12,
     ):
         """`client_factory(phase)` builds the client for one account; `phases` lists the accounts."""
         self._client_factory = client_factory
@@ -125,6 +128,10 @@ class GrowattLiveService:
         self.night_ttl_s = night_ttl_s
         # Min seconds between successful max_data calls for one inverter (0 = off).
         self.device_gap_s = device_gap_s
+        # Weather-sensor online state: one `env_list` per datalogger, reused this long; at most
+        # `sensor_sweep` dataloggers are refreshed per `sensor_status` request.
+        self.sensor_ttl_s = sensor_ttl_s
+        self.sensor_sweep = max(1, sensor_sweep)
         # key -> (monotonic_ts, wall_ts, data, ttl_s)
         self._cache: Dict[Hashable, Tuple[float, datetime, Any, float]] = {}
         self._key_locks: Dict[Hashable, threading.Lock] = {}
@@ -433,6 +440,90 @@ class GrowattLiveService:
             )
         )
 
+    def sensor_status(
+        self, dataloggers: Sequence[Tuple[str, Optional[int]]], coords: Optional[Coords] = None
+    ) -> Dict[str, Any]:
+        """Online state (`lost`, `lastUpdateTime`) of the weather sensors on `dataloggers`
+        ((datalogger_sn, plant phase)), from `env_list`. Not persisted.
+
+        One call per datalogger, so the fleet (~231) is swept incrementally: each request refreshes
+        at most `sensor_sweep` dataloggers whose entry has expired, never fetched / oldest first,
+        and serves the rest from memory. While some are not fresh, `refresh_in_s` is
+        `SWEEP_REFRESH_S`, so a polling page converges on the whole fleet in a few minutes and
+        then refreshes each datalogger about every `sensor_ttl_s`. A datalogger never fetched is
+        absent from `data.dataloggers` (status unknown). The cache is shared by every user.
+        """
+        if not self.phases:
+            raise LiveUnavailable("no Growatt token configured")
+        ttl = lambda _rows: self._night(self.sensor_ttl_s, coords)
+        phase_of = dict(dataloggers)
+        key = lambda dl: ("envlist", dl)
+
+        def fresh(dl: str, now: float) -> bool:
+            hit = self._cache.get(key(dl))
+            return bool(hit) and now - hit[0] < hit[3]
+
+        def due(now: float) -> List[str]:
+            return [dl for dl in phase_of if not fresh(dl, now) and now >= self._cooldown_until.get(key(dl), 0.0)]
+
+        def age(dl: str, now: float) -> float:
+            hit = self._cache.get(key(dl))
+            return now - hit[0] if hit else float("inf")
+
+        now = self._clock()
+        batch = sorted(due(now), key=lambda dl: (-age(dl, now), dl))[: self.sensor_sweep]
+
+        def one(dl: str) -> _Result:
+            ph = self.resolve_phase(phase_of[dl])
+            return self._get(key(dl), lambda c: _env_status_rows(c, dl), ttl, ph)
+
+        errors: Dict[str, str] = {}
+        with ThreadPoolExecutor(max_workers=LIVE_WORKERS) as pool:
+            futures = [(dl, pool.submit(one, dl)) for dl in batch]
+        for dl, fut in futures:
+            try:
+                r = fut.result()
+            except LiveUnavailable as exc:
+                errors[dl] = str(exc)
+                continue
+            if r.error:
+                errors[dl] = r.error
+
+        now = self._clock()
+        out: Dict[str, Dict[str, Any]] = {}
+        walls: List[datetime] = []
+        n_fresh = 0
+        oldest = 0.0
+        stale = False
+        for dl in phase_of:
+            hit = self._cache.get(key(dl))
+            if hit is None:
+                continue
+            is_fresh = now - hit[0] < hit[3]
+            n_fresh += is_fresh
+            stale = stale or (not is_fresh and now < self._cooldown_until.get(key(dl), 0.0))  # refresh failed
+            oldest = max(oldest, now - hit[0])
+            walls.append(hit[1])
+            out[dl] = {"fetched_at": hit[1].isoformat(), "stale": not is_fresh, "sensors": hit[2]}
+
+        total = len(phase_of)
+        if due(now):
+            refresh = SWEEP_REFRESH_S
+        else:  # everything fresh or cooling down: next change is the first expiry / cooldown end
+            refresh = min((self._refresh_in(key(dl)) for dl in phase_of), default=self.sensor_ttl_s)
+        return self._envelope(
+            _Result(
+                min(walls) if walls else datetime.now(timezone.utc),
+                {
+                    "dataloggers": out,
+                    "errors": errors,
+                    "sweep": {"fresh": n_fresh, "checked": len(out), "total": total, "oldest_age_s": round(oldest)},
+                },
+                stale=stale,
+                error="; ".join(f"{k}: {e}" for k, e in errors.items()) or None,
+                refresh_in=refresh,
+            )
+        )
 
     def plant_alarms(
         self,
@@ -532,6 +623,31 @@ def _env_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optiona
     }
 
 
+def _env_status_rows(client: GrowattClient, datalogger_sn: str) -> List[Dict[str, Any]]:
+    """`env_list` → [{address, lost, last_update_time}]: realtime, never stored."""
+    rows: List[Dict[str, Any]] = []
+    for e in client.list_env_sensors(datalogger_sn, refresh=True):
+        try:
+            addr = int(str(e.get("address")))
+        except ValueError:
+            continue
+        rows.append({"address": addr, "lost": _flag(e.get("lost")), "last_update_time": _local_ts(e.get("lastUpdateTime"))})
+    return rows
+
+
+def _flag(v: Any) -> Optional[bool]:
+    t = str(v).strip().lower()
+    return True if t in ("1", "true") else False if t in ("0", "false") else None
+
+
+def _local_ts(v: Any) -> Optional[str]:
+    """Growatt's "YYYY-MM-DD HH:MM:SS" (plant-local, like `timeText`), normalised; else None."""
+    try:
+        return datetime.strptime(str(v)[:19], "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
 PREVIOUS_RECORDS = 5  # with the newest: 6 records ≈ 30 min a string fault must last
 
 
@@ -598,5 +714,7 @@ def get_live_service() -> GrowattLiveService:
         latest_ttl_s=settings.growatt_live_latest_ttl_s,
         night_ttl_s=settings.growatt_live_night_ttl_s,
         device_gap_s=settings.growatt_live_device_gap_s,
+        sensor_ttl_s=settings.sensor_status_ttl_s,
+        sensor_sweep=settings.sensor_sweep_per_request,
         phases=tuple(accounts),
     )

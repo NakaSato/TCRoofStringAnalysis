@@ -70,6 +70,74 @@ def sensor_status(last_reading_at: Optional[datetime]) -> str:
     return "not_synced" if last_reading_at is None else "unknown"
 
 
+def live_status(
+    lost: Optional[bool],
+    last_update: Optional[str],
+    now_local: datetime,
+    late_min: float,
+    offline_min: float,
+) -> str:
+    """Status from Growatt's live `env_list` entry: `offline` when Growatt says lost or the last
+    upload is older than `offline_min`, `late` past `late_min`, else `online`. No usable upload
+    time and not lost = `unknown` (never guessed)."""
+    if lost:
+        return "offline"
+    try:
+        at = datetime.strptime(last_update or "", "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return "unknown"
+    age_min = (now_local - at).total_seconds() / 60.0
+    return "online" if age_min <= late_min else "late" if age_min <= offline_min else "offline"
+
+
+def visible_sensors(db: Session, allowed: Optional[Set[int]]) -> List[Tuple[str, int, Optional[int]]]:
+    """(datalogger_sn, address, plant phase) of every registered sensor the user may see."""
+    q = select(S.datalogger_sn, S.address, GrowattPlant.phase).join(GrowattPlant, GrowattPlant.plant_id == S.plant_id)
+    if allowed is not None:
+        q = q.where(S.plant_id.in_(list(allowed) or [-1]))
+    return [(dl, addr, ph) for dl, addr, ph in db.execute(q.order_by(S.datalogger_sn, S.address))]
+
+
+def overlay_live_status(
+    env: Dict[str, Any],
+    sensors: List[Tuple[str, int, Optional[int]]],
+    now_local: datetime,
+    late_min: float,
+    offline_min: float,
+) -> Dict[str, Any]:
+    """Per-sensor live status from a `sensor_status` envelope. Status is judged now, so a
+    cached `env_list` entry still turns late / offline as its upload ages. A datalogger not
+    checked yet, or a sensor its `env_list` does not list, is `unknown`."""
+    dls = env["data"]["dataloggers"]
+    rows: List[Dict[str, Any]] = []
+    for dl, addr, _ph in sensors:
+        entry = dls.get(dl)
+        hit = next((e for e in entry["sensors"] if e["address"] == addr), None) if entry else None
+        rows.append(
+            {
+                "key": _key(dl, addr),
+                "status": live_status(hit["lost"], hit["last_update_time"], now_local, late_min, offline_min)
+                if hit
+                else "unknown",
+                "lost": hit["lost"] if hit else None,
+                "last_update_time": hit["last_update_time"] if hit else None,  # plant-local
+                "checked_at": entry["fetched_at"] if entry else None,
+                "stale": entry["stale"] if entry else None,
+                "listed": hit is not None if entry else None,  # False = env_list no longer lists it
+            }
+        )
+    data = env["data"]
+    return {
+        **env,
+        "data": {
+            "sensors": rows,
+            "errors": data["errors"],
+            "sweep": data["sweep"],
+            "thresholds": {"late_min": late_min, "offline_min": offline_min},
+        },
+    }
+
+
 def list_sensors(
     db: Session,
     allowed: Optional[Set[int]],
