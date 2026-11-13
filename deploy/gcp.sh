@@ -50,6 +50,7 @@ BUDGET_TOPIC="tcroof-budget"
 GUARD="tcroof-cost-guard"
 DISK_GB="${DISK_GB:-100}"              # must hold HISTORY_RETENTION_DAYS of readings
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
+ENV_INTERVAL_MIN="${ENV_INTERVAL_MIN:-0}"   # env_history interval on the worker; 0 = off
 SNAPSHOT_POLICY="tcroof-db-weekly"
 OLD_SNAPSHOT_POLICIES="tcroof-db-daily"        # detached from the disk when found
 SNAPSHOT_KEEP_DAYS="${SNAPSHOT_KEEP_DAYS:-28}" # weekly snapshots kept 4 weeks; no daily backup
@@ -418,6 +419,7 @@ FIREBASE_CREDENTIALS_FILE=secrets/firebase-service-account.json
 PUBLISH_SINK=firestore
 PUBLISH_DAILY_WRITE_BUDGET=15000
 WORKER_HISTORY_INTERVAL_MIN=30
+WORKER_ENV_INTERVAL_MIN=${ENV_INTERVAL_MIN}
 HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
 $(tr ' ' '\n' <<<"$pg")
 $([ -z "$(google_weather_secret)" ] || echo "GOOGLE_WEATHER_API_KEY=$(secret_get tcroof-google-weather-key)")

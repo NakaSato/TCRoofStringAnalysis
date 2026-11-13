@@ -130,8 +130,8 @@ _Code done 2026-11-13; trial and prod switch-on open. The worker runs jobs one a
 
 ### Phase 4: docs & deploy
 - [x] `backend/CLAUDE.md`: Worker table (`env_history`) (Weather sensors section: live `interval_s`, `stored_until` done in Phase 2)
-- [ ] `frontend/CLAUDE.md`: Weather Station live tail and Overview tile under "Growatt data in the UI"
-- [ ] `CLAUDE.md`: data-flow diagram (env history every 10 min, daytime) and Config keys
+- [x] `frontend/CLAUDE.md`: Weather Station live tail and Overview tile under "Growatt data in the UI"
+- [x] `CLAUDE.md`: data-flow diagram (env history every 10 min, daytime) and Config keys
 - [ ] Deploy backend + worker (VM) and frontend
 - [ ] Verify on prod: open a plant with a sensor at midday; a new point appears on the chart within 6 min; badge shows the sensor time; DB series catches up within 15 min
 
