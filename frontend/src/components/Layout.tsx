@@ -1,7 +1,6 @@
 import React, { Suspense, useState, useEffect, useMemo } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
-  Sun,
   TrendingUp,
   Activity,
   Wrench,
@@ -230,9 +229,7 @@ export const Layout: React.FC = () => {
     <aside className="flex h-full w-64 flex-col border-r border-white/[0.06] bg-ink-900/95 backdrop-blur-xl">
       {/* Brand */}
       <div className="flex items-center gap-3 px-5 pb-4 pt-5">
-        <div className="rounded-xl bg-solar-500 p-2 text-ink-950">
-          <Sun className="h-5 w-5" strokeWidth={2.5} />
-        </div>
+        <img src="/favicon.svg" alt="TC Renewable" className="h-9 w-9 shrink-0 rounded-xl ring-1 ring-white/10" />
         <div className="min-w-0">
           <div className="text-sm font-extrabold tracking-tight text-white">GenZ Monitoring</div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>

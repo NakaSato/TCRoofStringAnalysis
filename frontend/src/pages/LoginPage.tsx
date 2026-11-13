@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Eye, EyeOff, Loader2, LogIn, Sun } from "lucide-react";
+import { Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,9 +33,7 @@ export const LoginPage: React.FC = () => {
     <div className="flex min-h-screen items-center justify-center px-4 py-10 text-slate-200">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-3">
-          <div className="rounded-xl bg-solar-500 p-2.5 text-ink-950">
-            <Sun className="h-6 w-6" strokeWidth={2.5} />
-          </div>
+          <img src="/favicon.svg" alt="TC Renewable" className="h-12 w-12 shrink-0 rounded-xl ring-1 ring-white/10" />
           <div>
             <div className="text-lg font-extrabold tracking-tight text-white">GenZ Monitoring</div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
