@@ -10,8 +10,10 @@
 export const PLANT_PAGES = ["", "generation", "inverters", "strings", "string-layout", "maintenance"] as const;
 export type PlantPage = (typeof PLANT_PAGES)[number];
 
-/** Plant pages that show live values (power, MPPT, inverter status) and poll `/live/plants/{id}/latest`. */
-const LIVE_PLANT_PAGES: ReadonlySet<PlantPage> = new Set<PlantPage>(["", "inverters", "strings"]);
+/** Plant pages that poll `/live/plants/{id}/latest`: all of them, because the plant banner's string
+ * status is judged on the live record. The backend caches each inverter for >= 270 s, so a page
+ * switch adds no Growatt calls. */
+const LIVE_PLANT_PAGES: ReadonlySet<PlantPage> = new Set<PlantPage>(PLANT_PAGES);
 
 export const plantPath = (plantId: number, page: PlantPage = ""): string =>
   page ? `/plant/${plantId}/${page}` : `/plant/${plantId}`;

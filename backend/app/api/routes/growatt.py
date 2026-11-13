@@ -30,6 +30,7 @@ from app.services import growatt_alarms
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
 from app.services import google_weather as gw
+from app.services import live_string_check
 from app.services import jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
 
@@ -84,13 +85,15 @@ def live_plant_latest(
 ) -> Dict[str, Any]:
     """Newest record per inverter (power, MPPT, per-string V/I) for one plant. Not persisted.
 
-    The DB is read only for the plant's inverter list; nothing is written.
+    `data.string_check` = each string judged against its inverter's other strings in that same
+    record (`services/live_string_check.py`), realtime only. The DB is read only for the plant's
+    inverter list and String Layout module counts; nothing is written.
     """
     sns = [inv["device_sn"] for inv in ov.list_inverters(db, plant_id)]
     if not sns:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no inverters")
     try:
-        return live.plant_latest(
+        env = live.plant_latest(
             plant_id,
             sns,
             datetime.now(jobs.PLANT_TZ).date(),
@@ -99,6 +102,8 @@ def live_plant_latest(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    check = live_string_check.check_plant(env["data"]["inverters"], ov.load_layout(db, sns, fleet_wp=False), ov.wired_inputs(db, sns))
+    return {**env, "data": {**env["data"], "string_check": check}}
 
 
 @router.get("/live/plants/{plant_id}/alarms")

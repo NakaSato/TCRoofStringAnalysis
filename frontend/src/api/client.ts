@@ -335,11 +335,39 @@ export interface GrowattLiveInverterLatest {
   fetched_at?: string;
 }
 
+export type LiveStringStatus = "Healthy" | "Warning" | "Critical";
+
+/** One string judged against its inverter's other strings in the same live record. */
+export interface LiveStringVerdict {
+  /** null = no verdict (low light, too few strings, wiring unknown) */
+  status: LiveStringStatus | null;
+  current_dev_pct: number | null;
+  voltage_dev_pct: number | null;
+  reason: string;
+}
+
+/** `data.string_check` of /live/plants/{id}/latest: realtime only, never stored. */
+export interface LiveStringCheck {
+  inverters: Record<
+    string,
+    {
+      status: "ok" | "low_light" | "too_few_strings";
+      median_current_a: number | null;
+      voltage_basis: "per_module" | null;
+      timestamp: string | null;
+      stale: boolean;
+      strings: Record<string, LiveStringVerdict>;
+    }
+  >;
+  summary: { healthy: number; warning: number; critical: number; unknown: number; checked_inverters: number; at: string | null };
+}
+
 export interface GrowattLivePlantLatest {
   plant_id: number;
   day: string;
   inverters: GrowattLiveInverterLatest[];
   errors: Record<string, string>;
+  string_check?: LiveStringCheck;
 }
 
 export type GrowattWeatherField =
@@ -541,6 +569,8 @@ export interface GrowattPlantOverview {
     data_at?: string | null;
     /** sum of the inverters' live PV input power (ppv), kW; null when none reported it */
     dc_kw?: number | null;
+    /** string status judged on the live record (realtime); null when the backend sent none */
+    strings?: LiveStringCheck["summary"] | null;
   } | null;
   plant: GrowattPlant;
   kpis: {
@@ -672,6 +702,9 @@ export interface GrowattPlantOverview {
     live_current_a?: number | null;
     live_power_w?: number | null;
     live_at?: string | null;
+    /** live string check (same record as live_*); absent without live data */
+    live_status?: LiveStringStatus | null;
+    live_reason?: string | null;
   }>;
   /** String inputs with no current today, one per input slot (2 per MPPT). Not in `strings`. */
   inactive_strings?: Array<{

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import statistics
+import time as _time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -323,6 +324,35 @@ def load_layout(db: Session, sns: Sequence[str], fleet_wp: bool = True) -> Layou
         (r.device_sn, int(r.string_no)): (int(r.modules), r.module_wp if r.module_wp is not None else default_wp)
         for r in db.scalars(select(GrowattStringLayout).where(GrowattStringLayout.device_sn.in_(list(sns))))
     }
+
+
+WIRED_LOOKBACK = timedelta(days=30)
+WIRED_CACHE_S = 6 * 3600
+_wired_cache: Dict[Tuple[str, ...], Tuple[float, Dict[str, Set[int]]]] = {}
+
+
+def wired_inputs(db: Session, sns: Sequence[str]) -> Dict[str, Set[int]]:
+    """String inputs known to be connected, per inverter: String Layout rows plus inputs that
+    carried current in the last `WIRED_LOOKBACK`. Wiring changes rarely, so the answer is kept
+    in memory for `WIRED_CACHE_S` (the history scan is the expensive part). An inverter with
+    neither is absent (wiring unknown)."""
+    key = tuple(sorted(sns))
+    hit = _wired_cache.get(key)
+    if hit and _time.monotonic() - hit[0] < WIRED_CACHE_S:
+        return hit[1]
+    out: Dict[str, Set[int]] = {}
+    for sn, sno in load_layout(db, sns, fleet_wp=False):
+        out.setdefault(sn, set()).add(sno)
+    latest = db.scalar(select(func.max(S.timestamp)).where(S.device_sn.in_(list(sns)))) if sns else None
+    if latest is not None:
+        for sn, sno in db.execute(
+            select(S.device_sn, S.string_no)
+            .where(S.device_sn.in_(list(sns)), S.timestamp >= latest - WIRED_LOOKBACK, S.current_a > INACTIVE_MAX_A)
+            .group_by(S.device_sn, S.string_no)
+        ):
+            out.setdefault(sn, set()).add(int(sno))
+    _wired_cache[key] = (_time.monotonic(), out)
+    return out
 
 
 def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
