@@ -232,6 +232,25 @@ export interface GrowattLiveAlarms {
   errors: Record<string, string>;
 }
 
+/** One plant's alarm-log coverage for a day in /growatt/alarms. */
+export interface FleetAlarmPlant {
+  plant_id: number;
+  name: string;
+  inverters: number;
+  /** inverters whose log for the day the worker has read (0 = not synced yet, not "no alarms") */
+  synced_inverters: number;
+  /** oldest read among them (UTC ISO); null when none was read */
+  synced_at: string | null;
+}
+
+/** /growatt/alarms — stored alarm log of every visible plant for one plant-local day (DB only). */
+export interface FleetAlarmDay {
+  day: string;
+  alarms: Array<GrowattAlarm & { plant_id: number; plant_name: string }>;
+  plants: FleetAlarmPlant[];
+  meta: { source: "db"; synced_at: string | null };
+}
+
 export interface GrowattLivePlant {
   plant_id: number;
   phase: number;
@@ -952,6 +971,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(entries),
     }),
+
+  getFleetAlarms: (day?: string) => apiFetch<FleetAlarmDay>(`/growatt/alarms${day ? `?day=${day}` : ""}`),
 
   // Growatt — realtime (backend memory only; poll, never stored)
   getGrowattLivePlants: () => apiFetch<GrowattLive<GrowattLivePlant[]>>("/growatt/live/plants"),

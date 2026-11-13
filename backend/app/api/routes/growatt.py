@@ -26,6 +26,7 @@ from app.db.models import SyncRun, User
 from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
 from app.services import fleet_settings
+from app.services import growatt_alarms
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
 from app.services import google_weather as gw
@@ -125,6 +126,19 @@ def live_plant_alarms(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
+@router.get("/alarms")
+def fleet_alarms(
+    day: Optional[date] = Query(None, description="Plant-local day (YYYY-MM-DD); default = today"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Stored Growatt alarm log of every plant the user may see for one plant-local day (DB only;
+    the worker's `alarms` jobs fill it). `plants[]` tells, per plant, how many inverters have been
+    read for the day and when (`synced_at`, UTC, the oldest read): unread is not "no alarms"."""
+    d = day or datetime.now(jobs.PLANT_TZ).date()
+    return growatt_alarms.alarm_day(db, d, allowed_plant_ids(db, user))
 
 
 @router.get("/live/plants/{plant_id}/weather")

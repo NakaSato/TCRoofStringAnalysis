@@ -152,6 +152,28 @@ def job_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
     )
 
 
+def _alarms(db: Session, day: date) -> Tuple[str, Dict[str, Any]]:
+    from app.services.growatt_alarms import sync_alarms
+    from app.services.growatt_sync import _inverters_query
+
+    def one(db: Session, c: GrowattClient, phase: int, untagged: bool) -> Dict[str, Any]:
+        return sync_alarms(db, c, day, list(db.scalars(_inverters_query(phase, untagged))))
+
+    status, detail = _per_phase(db, one)
+    detail["day"] = day.isoformat()
+    return status, detail
+
+
+def job_alarms(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Today's Growatt alarm log of every inverter → SQL (replaces each inverter-day)."""
+    return _alarms(db, _today())
+
+
+def job_alarms_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Yesterday's alarm log once more after midnight: evening alarms and late closings."""
+    return _alarms(db, _today() - timedelta(days=1))
+
+
 def job_fleet(db: Session) -> Tuple[str, Dict[str, Any]]:
     from app.services.growatt_sync import sync_fleet
 
@@ -176,12 +198,14 @@ def job_publish_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
 
 
 def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
-    """Delete raw readings older than HISTORY_RETENTION_DAYS (daily summaries are kept)."""
+    """Delete raw readings and alarm logs older than HISTORY_RETENTION_DAYS (daily summaries are kept)."""
     from app.services import google_weather
+    from app.services.growatt_alarms import prune_alarms
     from app.services.growatt_sync import prune_history
 
     detail = prune_history(db, _today(), settings.history_retention_days)
     detail["google_weather_rows"] = google_weather.prune(db, _today(), settings.history_retention_days)
+    detail["alarm_rows"] = prune_alarms(db, _today(), settings.history_retention_days)
     return "ok", detail
 
 
@@ -208,6 +232,8 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "publish_yesterday": job_publish_yesterday,
     "retention": job_retention,
     "google_weather": job_google_weather,
+    "alarms": job_alarms,
+    "alarms_yesterday": job_alarms_yesterday,
 }
 
 
