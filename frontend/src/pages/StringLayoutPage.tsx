@@ -17,10 +17,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { pick, useUrlState } from "@/lib/useUrlState";
 
 /** `wp` blank = the fleet module's rating (global setting), so a fleet change applies everywhere. */
 type Draft = { modules: string; wp: string };
-type Filter = "all" | "incomplete" | "mismatch";
+const FILTERS = ["all", "incomplete", "mismatch"] as const;
+type Filter = (typeof FILTERS)[number];
 const keyOf = (sn: string, no: number) => `${sn}|${no}`;
 const toInt = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : null);
 const toNum = (v: string) => (v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
@@ -54,7 +56,10 @@ export const StringLayoutPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "crit"; text: string } | null>(null);
-  const [filter, setFilter] = useState<Filter>("all");
+  // filter in the URL (?filter=); switching plant drops it
+  const [url, setUrl] = useUrlState();
+  const filter = pick(url.get("filter"), FILTERS, "all");
+  const setFilter = (f: Filter) => setUrl({ filter: f === "all" ? null : f });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -64,7 +69,6 @@ export const StringLayoutPage: React.FC = () => {
   useEffect(() => {
     setMsg(null);
     setLayout(null);
-    setFilter("all");
     setCollapsed(new Set());
     if (selectedGrowattPlantId == null) return;
     setLoading(true);

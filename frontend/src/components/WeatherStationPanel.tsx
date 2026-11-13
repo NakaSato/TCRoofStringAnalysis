@@ -17,6 +17,7 @@ import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { pickDay, pickTime, useUrlState } from "@/lib/useUrlState";
 
 /** Plant-local (Bangkok) date, YYYY-MM-DD. */
 function plantToday(): string {
@@ -71,17 +72,17 @@ export const WeatherStationPanel: React.FC<{
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<GrowattLive<GrowattLiveWeather> | null>(null);
-  // Date / time filter. pickedDay null = follow the overview's day; times "" = open-ended.
-  const [pickedDay, setPickedDay] = useState<string | null>(null);
-  const [timeFrom, setTimeFrom] = useState("");
-  const [timeTo, setTimeTo] = useState("");
-  useEffect(() => {
-    setPickedDay(null);
-    setTimeFrom("");
-    setTimeTo("");
-  }, [plantId, day]);
-
+  // Date / time filter in the URL (?wxDay=&wxFrom=&wxTo=), so a reload or shared link keeps it;
+  // switching plant drops it. No wxDay = follow the overview's day; no time = open-ended.
   const today = plantToday();
+  const [url, setUrl] = useUrlState();
+  const urlDay = pickDay(url.get("wxDay"));
+  const pickedDay = urlDay && urlDay <= today ? urlDay : null;
+  const timeFrom = pickTime(url.get("wxFrom"));
+  const timeTo = pickTime(url.get("wxTo"));
+  const setTimeFrom = (t: string) => setUrl({ wxFrom: t });
+  const setTimeTo = (t: string) => setUrl({ wxTo: t });
+
   const shownDay = pickedDay ?? day ?? wx?.meta.day ?? null;
   const badWindow = Boolean(timeFrom && timeTo && timeFrom > timeTo);
   const windowed = Boolean(timeFrom || timeTo) && !badWindow;
@@ -126,14 +127,12 @@ export const WeatherStationPanel: React.FC<{
   const now = showLive ? live?.data.sensors[0] ?? null : null;
   const filtered = pickedDay != null || Boolean(timeFrom || timeTo);
   const clearFilter = () => {
-    setPickedDay(null);
-    setTimeFrom("");
-    setTimeTo("");
+    setUrl({ wxDay: null, wxFrom: null, wxTo: null });
   };
   // IEC PR comes from the plant overview: it is a whole-day figure for the overview's day only
   const prApplies = !windowed && (pickedDay == null || pickedDay === day);
   const pr = prApplies ? iecPr : null;
-  const setDayClamped = (d: string) => setPickedDay(d > today ? today : d);
+  const setDayClamped = (d: string) => setUrl({ wxDay: d > today ? today : d });
   const k = wx?.kpis;
 
   const spec = useMemo<PanelChartSpec | null>(() => {

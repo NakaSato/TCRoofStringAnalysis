@@ -20,6 +20,7 @@ import type { GrowattAlarm } from "../api/client";
 import { plantToday, useAlarmLog } from "../context/alarmLogStore";
 import type { AlarmRow } from "../context/alarmLogStore";
 import { Link } from "react-router-dom";
+import { pickDay, useUrlState } from "@/lib/useUrlState";
 import { plantPath } from "../context/routes";
 import { PageHeader, Panel, StatusBadge, Led, EmptyState, LoadingState, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
@@ -95,12 +96,24 @@ const hhmm = (iso: string | null) =>
  */
 export const ActiveAlarmPage: React.FC = () => {
   const today = plantToday();
-  const [day, setDay] = useState(today);
-  const [query, setQuery] = useState("");
-  const [levelFilter, setLevelFilter] = useState<Level | null>(null);
-  const [openOnly, setOpenOnly] = useState(false);
-  const [plantFilter, setPlantFilter] = useState<number | null>(null);
-  const [codeFilter, setCodeFilter] = useState<string | null>(null);
+  // day and filters live in the URL (?day=&q=&level=&open=1&plant=&code=); a missing or future
+  // day means today
+  const [url, setUrl] = useUrlState();
+  const urlDay = pickDay(url.get("day"));
+  const day = urlDay && urlDay < today ? urlDay : today;
+  const setDay = (d: string) => setUrl({ day: d >= today ? null : d });
+  const query = url.get("q") ?? "";
+  const setQuery = (q: string) => setUrl({ q });
+  const levelParam = url.get("level");
+  const levelFilter: Level | null = levelParam === "crit" || levelParam === "warn" || levelParam === "info" ? levelParam : null;
+  const setLevelFilter = (l: Level | null) => setUrl({ level: l });
+  const openOnly = url.get("open") === "1";
+  const setOpenOnly = (v: boolean) => setUrl({ open: v });
+  const plantParam = url.get("plant");
+  const plantFilter = plantParam && /^\d+$/.test(plantParam) ? Number(plantParam) : null;
+  const setPlantFilter = (id: number | null) => setUrl({ plant: id });
+  const codeFilter = url.get("code");
+  const setCodeFilter = (c: string | null) => setUrl({ code: c });
 
   const { view, refresh } = useAlarmLog(day);
   const result = view?.result ?? null;
@@ -214,13 +227,7 @@ export const ActiveAlarmPage: React.FC = () => {
   const nameOf = (id: number) => plants.find((p) => p.plant_id === id)?.name ?? `Plant ${id}`;
   const isToday = day === today;
   const anyFilter = levelFilter != null || openOnly || plantFilter != null || codeFilter != null || query.trim() !== "";
-  const clearFilters = () => {
-    setLevelFilter(null);
-    setOpenOnly(false);
-    setPlantFilter(null);
-    setCodeFilter(null);
-    setQuery("");
-  };
+  const clearFilters = () => setUrl({ level: null, open: null, plant: null, code: null, q: null });
 
   const exportCsv = () => {
     const head = ["plant_id", "plant", "device_sn", "start_time", "end_time", "state", "fault_type", "alarm_code", "alarm_message"];
@@ -326,7 +333,7 @@ export const ActiveAlarmPage: React.FC = () => {
           ring="ring-red-400/50"
           active={openOnly}
           hint={openOnly ? undefined : "No end time yet"}
-          onClick={() => setOpenOnly((v) => !v)}
+          onClick={() => setOpenOnly(!openOnly)}
         />
         {LEVELS.map((l) => (
           <FilterTile

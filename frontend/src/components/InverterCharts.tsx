@@ -4,6 +4,7 @@
  * - StringHeatmapPanel: string current × 5-minute slot for one inverter
  * - InverterTrendPanel: daily yield of one inverter vs the plant's average inverter, 7–90 days
  */
+import { useUrlState } from "@/lib/useUrlState";
 import React, { useEffect, useMemo, useState } from "react";
 import { BarChart3, Grid3x3, TrendingUp } from "lucide-react";
 import { api } from "../api/client";
@@ -100,7 +101,10 @@ export const InverterTrendPanel: React.FC<{
   day: string | null;
   className?: string;
 }> = ({ plantId, deviceSn, label, day, className = "" }) => {
-  const [days, setDays] = useState<(typeof RANGES)[number]>(30);
+  // history range in the URL (?days=), default 30
+  const [query, setQuery] = useUrlState();
+  const days = (RANGES.find((r) => String(r) === query.get("days")) ?? 30) as (typeof RANGES)[number];
+  const setDays = (d: (typeof RANGES)[number]) => setQuery({ days: d === 30 ? null : d });
   const [data, setData] = useState<GrowattInverterDaily | null>(null);
   const [loading, setLoading] = useState(false);
 

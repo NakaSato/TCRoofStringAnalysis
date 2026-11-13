@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
+import { pick, useUrlState } from "@/lib/useUrlState";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { InverterProfilePanel } from "../components/InverterProfilePanel";
 import { InverterComparisonPanel, InverterTrendPanel, StringHeatmapPanel } from "../components/InverterCharts";
@@ -117,6 +118,7 @@ const DETAIL_TABS: Array<{ id: DetailTab; label: string; icon: React.ComponentTy
   { id: "grid", label: "Grid & Faults", icon: PlugZap },
   { id: "history", label: "History", icon: History },
 ];
+const DETAIL_TAB_IDS = DETAIL_TABS.map((t) => t.id);
 
 /**
  * The selected plant's inverters as master / detail: a sticky inverter list on the right,
@@ -126,8 +128,12 @@ const DETAIL_TABS: Array<{ id: DetailTab; label: string; icon: React.ComponentTy
 export const InvertersPage: React.FC = () => {
   const { selectedGrowattPlantId, selectedPlantOverview, plantOverviewLoading } = useAppContext();
   const plantHref = usePlantHref();
-  const [selectedSn, setSelectedSn] = useState<string | null>(null);
-  const [tab, setTab] = useState<DetailTab>("performance");
+  // selected inverter and tab live in the URL (?sn=&tab=): reload / shared link keep them
+  const [query, setQuery] = useUrlState();
+  const selectedSn = query.get("sn");
+  const setSelectedSn = (sn: string) => setQuery({ sn });
+  const tab = pick(query.get("tab"), DETAIL_TAB_IDS, "performance");
+  const setTab = (t: DetailTab) => setQuery({ tab: t === "performance" ? null : t });
 
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
@@ -135,7 +141,6 @@ export const InvertersPage: React.FC = () => {
   const strings = selectedPlantOverview?.strings ?? [];
   const day = selectedPlantOverview?.meta.day ?? null;
 
-  useEffect(() => setSelectedSn(null), [selectedGrowattPlantId]);
   const inv = useMemo(
     () => inverters.find((i) => i.device_sn === selectedSn) ?? inverters[0] ?? null,
     [inverters, selectedSn]
