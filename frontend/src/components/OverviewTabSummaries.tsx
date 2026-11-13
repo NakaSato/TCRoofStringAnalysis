@@ -1,13 +1,14 @@
 /**
  * Plant Overview: one high-level card per detail tab (2 Performance Ratio, 3 Inverters,
- * 5 String Diagnostics), each linking to its tab. Everything comes from the plant overview
+ * 4 Sensors, 5 String Diagnostics), each linking to its tab. Everything comes from the plant overview
  * already loaded (stored history + the live overlay); a missing value shows as "—".
  */
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, ArrowRight, Cpu, TrendingUp } from "lucide-react";
+import { Activity, ArrowRight, Cpu, Gauge, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { GrowattPlantOverview } from "../api/client";
+import { api } from "../api/client";
+import type { GrowattPlantOverview, GrowattWeatherField, SensorRow } from "../api/client";
 import { Led, fmt } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Card as UiCard } from "@/components/ui/card";
@@ -69,6 +70,45 @@ const Line: React.FC<{ label: React.ReactNode; value: React.ReactNode }> = ({
     <span className="num shrink-0 font-semibold text-slate-100">{value}</span>
   </div>
 );
+
+const RECORD_FIELDS: Array<[GrowattWeatherField, string, string, number]> = [
+  ["irradiance_wm2", "Irradiance", "W/m²", 0],
+  ["module_temp_c", "Module", "°C", 1],
+  ["ambient_temp_c", "Ambient", "°C", 1],
+  ["humidity_pct", "Humidity", "%", 0],
+  ["wind_speed_ms", "Wind", "m/s", 1],
+  ["wind_dir_deg", "Wind dir", "°", 0],
+];
+
+/** One sensor's newest stored record as reported: nothing averaged, integrated or derived. */
+const SensorRecord: React.FC<{ sensor: SensorRow }> = ({ sensor }) => {
+  const fitted = (f: GrowattWeatherField) => !sensor.measured || sensor.measured.includes(f);
+  return (
+    <div className="space-y-2">
+      <Line
+        label={
+          <span className="num text-slate-300">
+            {sensor.datalogger_sn}#{sensor.address}
+          </span>
+        }
+        value={sensor.last_reading_at ? `Recorded ${sensor.last_reading_at}` : "Nothing stored yet"}
+      />
+      {sensor.last && (
+        <div className="grid grid-cols-3 gap-2">
+          {RECORD_FIELDS.map(([f, label, unit, digits]) => (
+            <Stat
+              key={f}
+              label={label}
+              value={fitted(f) ? fmt(sensor.last?.[f], digits) : "—"}
+              unit={unit}
+              note={fitted(f) ? undefined : "not fitted"}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const OverviewTabSummaries: React.FC<{
   overview: GrowattPlantOverview;
@@ -157,6 +197,27 @@ export const OverviewTabSummaries: React.FC<{
   const name = (i: { alias?: string | null; device_sn: string }) =>
     i.alias || i.device_sn;
 
+  /* ---- 4. Sensors: each sensor's newest stored record, values exactly as reported ---- */
+  const plantId = overview.plant.plant_id;
+  const wxUntil = overview.weather?.data_until ?? null;
+  const [sensorRows, setSensorRows] = useState<SensorRow[] | null>(null);
+  const [sensorError, setSensorError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listSensors(plantId)
+      .then((r) => {
+        if (cancelled) return;
+        setSensorRows(r.sensors);
+        setSensorError(null);
+      })
+      .catch((err) => !cancelled && setSensorError(err instanceof Error ? err.message : String(err)));
+    return () => {
+      cancelled = true;
+    };
+    // re-read when the overview brings newer stored weather
+  }, [plantId, wxUntil]);
+
   /* ---- 5. String Diagnostics ---- */
   const worst = useMemo(
     () =>
@@ -170,7 +231,7 @@ export const OverviewTabSummaries: React.FC<{
   const total = kpis.string_count || 0;
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-4">
       <Card
         to={plantHref("generation")}
         step={2}
@@ -270,6 +331,28 @@ export const OverviewTabSummaries: React.FC<{
             <Line label="Switched off in settings" value={inv.off} />
           )}
         </div>
+      </Card>
+
+      <Card to={plantHref("sensors")} step={4} icon={Gauge} title="Sensors">
+        {sensorRows == null ? (
+          <div className="text-xs text-slate-500">
+            {sensorError ? `Sensor data unavailable: ${sensorError}` : "Loading sensor data…"}
+          </div>
+        ) : !sensorRows.length ? (
+          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-white/[0.08] px-4 py-8 text-center text-xs text-slate-500">
+            No weather sensor at this plant, so irradiance and IEC PR are not measured here.
+          </div>
+        ) : (
+          <>
+            {sensorRows.map((s) => (
+              <SensorRecord key={s.key} sensor={s} />
+            ))}
+            <div className="text-[11px] text-slate-500">
+              Newest stored record, values exactly as the sensor reported
+              them. — = no value, not fitted = probe reads 0 all week.
+            </div>
+          </>
+        )}
       </Card>
 
       <Card to={plantHref("strings")} step={5} icon={Activity} title="String Diagnostics">
