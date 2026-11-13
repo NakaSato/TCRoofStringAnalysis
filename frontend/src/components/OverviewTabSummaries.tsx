@@ -391,13 +391,14 @@ export const OverviewTabSummaries: React.FC<{
                     (l) => l.datalogger_sn === s.datalogger_sn && l.address === s.address,
                   ) ?? null
                 }
-                envelopeStale={Boolean(liveWx?.stale)}
+                // a failed poll keeps the last answer on screen, but it is no longer live
+                envelopeStale={Boolean(liveWx?.stale) || liveWxError}
               />
             ))}
             <div className="text-[11px] text-slate-500">
               Values exactly as the sensor reported them: live from Growatt
               (refreshes when a new record is due, never stored), else the
-              newest stored record.{liveWxError && !liveWx ? " Live unavailable right now." : ""} — = no
+              newest stored record.{liveWxError ? (liveWx ? " Live refresh failing: showing the last reading as stale." : " Live unavailable right now.") : ""} — = no
               value, not fitted = probe reads 0 all week.
             </div>
           </>
