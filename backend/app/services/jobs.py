@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple, overload
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
@@ -277,10 +277,11 @@ def _check_free(db: Session, job: str, now: datetime, ignore_id: Optional[int] =
         _fail_stale(run, now)
 
 
+ABANDONED = "abandoned (worker stopped mid-run)"
+
+
 def _fail_stale(run: SyncRun, now: datetime) -> None:
-    run.error = (
-        "abandoned (worker stopped mid-run)" if run.status == "running" else "never picked up (is the worker running?)"
-    )
+    run.error = ABANDONED if run.status == "running" else "never picked up (is the worker running?)"
     run.status, run.finished_at = "failed", now
 
 
@@ -380,7 +381,15 @@ def last_run(db: Session, job: str) -> Optional[SyncRun]:
 
 
 def last_started(db: Session, job: str) -> Optional[datetime]:
-    run = last_run(db, job)
+    """When the job last started, for the schedule. A run cut off by a worker restart (a deploy)
+    doesn't count: its slot is still owed, so a daily job is retried within its grace window
+    instead of skipping the day (e.g. `google_weather` stopped at 19:31 lost the day's hours)."""
+    run = db.scalars(
+        select(SyncRun)
+        .where(SyncRun.job == job, or_(SyncRun.error.is_(None), SyncRun.error != ABANDONED))
+        .order_by(SyncRun.started_at.desc())
+        .limit(1)
+    ).first()
     return _aware(run.started_at) if run else None
 
 
