@@ -161,7 +161,7 @@ def live_sensor_status(
     are fresh, and `refresh_in_s` is short until the sweep is complete. An engineer's request
     sweeps only their plants' dataloggers; with `plant_id`, only that plant's. Never written to SQL."""
     sensors = growatt_sensors.visible_sensors(db, _sensor_scope(db, user, plant_id))
-    dataloggers = sorted({(dl, ph) for dl, _addr, ph in sensors})
+    dataloggers = sorted({(dl, ph) for dl, _addr, ph, _su in sensors})
     try:
         env = live.sensor_status(dataloggers, coords=ov.plant_coords(db, plant_id))
     except LiveUnavailable as exc:
@@ -204,7 +204,13 @@ def live_sensor(
         **env,
         "data": {
             "status": growatt_sensors.live_row(
-                datalogger_sn, address, d["datalogger"], now_local, settings.sensor_late_min, settings.sensor_offline_min
+                datalogger_sn,
+                address,
+                d["datalogger"],
+                now_local,
+                settings.sensor_late_min,
+                settings.sensor_offline_min,
+                sensor.history_synced_until,
             ),
             "measured": measured,
             "reading": d["reading"],

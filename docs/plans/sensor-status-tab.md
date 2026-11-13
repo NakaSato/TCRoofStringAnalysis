@@ -196,9 +196,10 @@ _Done 2026-11-13. Deviations: a Status row opens the Info tab (no side sheet: th
 - [x] Tests: 404 for invisible / unregistered sensor (no Growatt call); engineer gets `raw: null`; unmeasured → null; reading failure still serves status; `lastUpdateTime` China-time conversion
 
 ### Phase 4: health flags
-- [ ] `probe_missing`, `irradiance_zero_daylight`, `stale_history` in `growatt_sensors.py`, each with reason text
-- [ ] Flag chips + "flags only" filter
-- [ ] Tests for each flag, including no flag when data is missing
+_Done 2026-11-13. Deviations: `probe_missing` checks irradiance, module/ambient temperature and humidity only. Wind is left out because a calm day reads 0 m/s (and direction 0 = north). It also needs readings in ≥ 24 slots (2 h) between 09:00 and 15:00, otherwise there is no judgement, and an all-day-zero irradiance gives `probe_missing` only, not `irradiance_zero_daylight` too. `irradiance_zero_daylight` counts 5-min slots in total (≥ 12, not necessarily in a row) in which irradiance read 0 and a stored inverter reading of the plant had `pac_w > 0`; inverter readings are read only for plants with a candidate sensor. `stale_history` is computed in the live overlay (`live_row`, also on the Info endpoint) as last upload − `history_synced_until` > 2 h while `online`; nothing stored = no flag (status `not_synced` says it). The DB list's daylight query now serves both coverage and the flags (one query; 0.30 s for 234 sensors on the dev DB). The frontend merges DB and live flags. First real hit on the dev DB: DYDDG1X04V#4 ambient + humidity read 0 all of 2026-11-12 after 30.6 °C / 93 % the day before._
+- [x] `probe_missing`, `irradiance_zero_daylight`, `stale_history` in `growatt_sensors.py`, each with reason text
+- [x] Flag chips + "flags only" filter (Flags column, "Health flags" tile, `?status=flags`; flag list with reasons on Info and the plant Sensors tab)
+- [x] Tests for each flag, including no flag when data is missing
 
 ### Phase 5: Active Alarm
 - [ ] `GET /growatt/sensors?day=` returns `coverage_pct` for that day (DB only); `SENSOR_ALARM_COVERAGE_PCT` in config + `.env.example`

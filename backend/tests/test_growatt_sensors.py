@@ -9,7 +9,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import GrowattEnvReading, GrowattEnvSensor, GrowattPlant, SyncRun, User, UserPlantAssignment
+from app.db.models import (
+    GrowattEnvReading,
+    GrowattEnvSensor,
+    GrowattInverter,
+    GrowattInverterReading,
+    GrowattPlant,
+    SyncRun,
+    User,
+    UserPlantAssignment,
+)
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
@@ -304,6 +313,9 @@ def test_status_route_engineer_sweeps_own_dataloggers_and_writes_nothing(factory
     by = {s["key"]: s for s in body["data"]["sensors"]}
     assert by["DL1:1"]["status"] == "online" and by["DL1:1"]["last_update_time"] == "2026-11-13 11:58:00"
     assert by["DL1:2"]["status"] == "offline" and by["DL1:2"]["lost"] is True
+    # DL1#1 uploaded 11:58 but history is stored only to 09:55 (2 h 03 min): sync problem
+    assert [f["code"] for f in by["DL1:1"]["flags"]] == ["stale_history"]
+    assert by["DL1:2"]["flags"] == []  # offline: stale history says nothing
     assert body["source"] == "live" and body["data"]["sweep"]["fresh"] == 2
     assert counts() == before  # nothing stored
 
@@ -410,3 +422,102 @@ def test_live_sensor_reading_fails_but_status_still_served(factory, monkeypatch)
     d = r.json()["data"]
     assert d["reading"] is None and "reading" in d["errors"] and d["status"]["status"] == "unknown"  # DL1 lists only #1 in the fake
     assert d["status"]["listed"] is False
+
+
+# --- health flags -------------------------------------------------------------------------
+
+
+def _add_sensor(db, dl, slots, plant_id=2, last_week=None, **vals):
+    """Sensor `dl`#1 on `plant_id` with readings at `slots` (fields from `vals`, default normal
+    values) and optionally one reading 3 days ago with `last_week` values (probes measured)."""
+    db.add(GrowattEnvSensor(datalogger_sn=dl, address=1, plant_id=plant_id, history_synced_until=max(slots)))
+    db.flush()
+    base = {"irradiance_wm2": 500.0, "ambient_temp_c": 31.0, "module_temp_c": 45.0, "humidity_pct": 60.0, "wind_speed_ms": 2.0, "wind_dir_deg": 90.0}
+    if last_week is not None:
+        db.add(GrowattEnvReading(datalogger_sn=dl, address=1, timestamp=TODAY.replace(hour=12) - timedelta(days=3), **{**base, **last_week}))
+    for t in slots:
+        row = {f: (v(t) if callable(v) else v) for f, v in {**base, **vals}.items()}
+        db.add(GrowattEnvReading(datalogger_sn=dl, address=1, timestamp=t, **row))
+    db.commit()
+
+
+def _slots(h0, h1, step=5):
+    return [TODAY.replace(hour=h0) + timedelta(minutes=m) for m in range(0, (h1 - h0) * 60, step)]
+
+
+def _flags(db, dl):
+    body = gs.list_sensors(db, None, now_local=lambda: TODAY.replace(hour=15))
+    return next(s["flags"] for s in body["sensors"] if s["key"] == f"{dl}:1")
+
+
+def test_probe_missing_flags_a_measured_probe_reading_zero_all_day(factory):
+    with factory() as db:
+        # module temp worked 3 days ago, reads 0 all of today 06:00–14:00; humidity never fitted
+        _add_sensor(db, "DL3", _slots(6, 14), last_week={"module_temp_c": 40.0, "humidity_pct": 0.0}, module_temp_c=0.0, humidity_pct=0.0)
+        flags = _flags(db, "DL3")
+    assert [(f["code"], f["field"]) for f in flags] == [("probe_missing", "module_temp_c")]
+    assert "Module temperature read 0 in all 96 stored slots today (06:00–14:00)" in flags[0]["reason"]
+
+
+def test_probe_missing_needs_two_hours_of_midday_readings_and_ignores_wind(factory):
+    with factory() as db:
+        # only 06:00–10:00 stored (1 h inside 09–15): too little to call the probe dead
+        _add_sensor(db, "DL3", _slots(6, 10), last_week={}, module_temp_c=0.0)
+        # calm all day: wind 0 is not a fault
+        _add_sensor(db, "DL4", _slots(6, 14), last_week={}, wind_speed_ms=0.0, wind_dir_deg=0.0)
+        # one non-zero reading clears it
+        _add_sensor(db, "DL5", _slots(6, 14), last_week={}, ambient_temp_c=lambda t: 30.0 if t.hour == 13 else 0.0)
+        assert _flags(db, "DL3") == [] and _flags(db, "DL4") == [] and _flags(db, "DL5") == []
+
+
+def _inverter(db, plant_id, slots, pac=3000.0):
+    db.add(GrowattInverter(device_sn=f"INV{plant_id}", plant_id=plant_id))
+    db.flush()
+    db.add_all([GrowattInverterReading(device_sn=f"INV{plant_id}", timestamp=t, pac_w=pac) for t in slots])
+    db.commit()
+
+
+def test_irradiance_zero_while_inverters_produce(factory):
+    with factory() as db:
+        # irradiance 0 from 10:00 to 11:30 (18 slots); inverters produced 10:00–11:00 only (12 slots)
+        zero = lambda t: 0.0 if TODAY.replace(hour=10) <= t < TODAY.replace(hour=11, minute=30) else 600.0
+        _add_sensor(db, "DL3", _slots(6, 15), irradiance_wm2=zero)
+        _inverter(db, 2, _slots(10, 11, step=5))
+        flags = _flags(db, "DL3")
+    assert [f["code"] for f in flags] == ["irradiance_zero_daylight"]
+    assert "for 1 h 00 min between 10:00 and 15:00 (10:00–11:00)" in flags[0]["reason"]
+
+
+def test_irradiance_zero_needs_stored_production(factory):
+    zero = lambda t: 0.0 if 10 <= t.hour < 12 else 600.0
+    with factory() as db:
+        _add_sensor(db, "DL3", _slots(6, 15), irradiance_wm2=zero)
+        assert _flags(db, "DL3") == []  # no inverter readings: no evidence the sun was out
+        _inverter(db, 2, _slots(10, 12), pac=0.0)
+        assert _flags(db, "DL3") == []  # inverters stored but produced nothing
+        # production in only 11 of the zero slots (55 min): under 1 h
+        for r in db.scalars(select(GrowattInverterReading).order_by(GrowattInverterReading.timestamp).limit(11)):
+            r.pac_w = 2500.0
+        db.commit()
+        assert _flags(db, "DL3") == []
+        db.scalars(select(GrowattInverterReading).order_by(GrowattInverterReading.timestamp).offset(11).limit(1)).one().pac_w = 2500.0
+        db.commit()
+        assert [f["code"] for f in _flags(db, "DL3")] == ["irradiance_zero_daylight"]  # 12 slots = 1 h
+
+
+def test_irradiance_all_day_zero_is_one_probe_flag_not_two(factory):
+    with factory() as db:
+        _add_sensor(db, "DL3", _slots(6, 15), last_week={}, irradiance_wm2=0.0)
+        _inverter(db, 2, _slots(10, 15))
+        flags = _flags(db, "DL3")
+    assert [(f["code"], f["field"]) for f in flags] == [("probe_missing", "irradiance_wm2")]
+
+
+def test_stale_history_flag_rules():
+    synced = TODAY.replace(hour=9, minute=55)
+    flag = gs.stale_history_flag("online", "2026-11-13 11:58:00", synced)
+    assert flag and flag["code"] == "stale_history" and "2 h 03 min behind" in flag["reason"]
+    assert gs.stale_history_flag("online", "2026-11-13 11:55:00", synced) is None  # exactly 2 h
+    assert gs.stale_history_flag("late", "2026-11-13 11:58:00", synced) is None
+    assert gs.stale_history_flag("online", "2026-11-13 11:58:00", None) is None  # not synced: status says it
+    assert gs.stale_history_flag("online", None, synced) is None

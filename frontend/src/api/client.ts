@@ -523,6 +523,15 @@ export interface GrowattLiveWeather {
  * is realtime and comes from the live sweep). */
 export type SensorStatus = "online" | "late" | "offline" | "unknown" | "not_synced";
 
+/** A health check on a weather sensor (not a measurement), always with the reason it fired.
+ * `probe_missing` / `irradiance_zero_daylight` come from stored data (`/growatt/sensors`);
+ * `stale_history` needs the live state (`/growatt/live/sensors/*`). */
+export interface SensorFlag {
+  code: "probe_missing" | "irradiance_zero_daylight" | "stale_history";
+  field?: GrowattWeatherField;
+  reason: string;
+}
+
 /** /growatt/sensors — one weather sensor from the registry and stored history (DB only). */
 export interface SensorRow {
   /** "DATALOGGER_SN:ADDRESS" */
@@ -542,7 +551,8 @@ export interface SensorRow {
   last: Record<GrowattWeatherField, number | null> | null;
   /** share of today's daylight 5-min slots (06:00 → `meta.coverage_window.until`) with a stored reading */
   coverage_today_pct: number | null;
-  flags: Array<{ code: string; field?: string; reason: string }>;
+  /** checks on stored data; empty = nothing found (or not enough data to judge) */
+  flags: SensorFlag[];
 }
 
 export interface SensorList {
@@ -570,6 +580,8 @@ export interface SensorLiveRow {
   stale: boolean | null;
   /** false = the datalogger's sensor list no longer lists this sensor */
   listed: boolean | null;
+  /** checks that need the live state (`stale_history`) */
+  flags: SensorFlag[];
 }
 
 export interface SensorLiveStatus {

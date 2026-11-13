@@ -33,6 +33,7 @@ import type {
   SensorLive,
   SensorLiveRow,
   SensorLiveStatus,
+  SensorFlag,
   SensorRow,
   SensorStatus,
 } from "../api/client";
@@ -62,7 +63,7 @@ const LOW_COVERAGE_PCT = 80;
 
 const TABS = ["status", "info"] as const;
 type Tab = (typeof TABS)[number];
-const FILTERS = ["all", "online", "late", "offline", "unknown", "not_synced", "low"] as const;
+const FILTERS = ["all", "online", "late", "offline", "unknown", "not_synced", "low", "flags"] as const;
 type Filter = (typeof FILTERS)[number];
 const SORTS = ["plant", "sensor", "last", "coverage", "irradiance"] as const;
 type SortKey = (typeof SORTS)[number];
@@ -93,6 +94,41 @@ const FIELD_UNIT: Record<GrowattWeatherField, string> = {
 };
 const FIELDS = Object.keys(FIELD_LABEL) as GrowattWeatherField[];
 
+const flagLabel = (f: SensorFlag) =>
+  f.code === "probe_missing"
+    ? `${f.field ? FIELD_LABEL[f.field] : "Probe"}: reads 0`
+    : f.code === "irradiance_zero_daylight"
+      ? "Irradiance 0 by day"
+      : "History behind";
+
+/** Health-check chips; the reason is the tooltip. */
+const FlagChips: React.FC<{ flags: SensorFlag[] }> = ({ flags }) =>
+  flags.length ? (
+    <div className="flex flex-wrap gap-1">
+      {flags.map((f) => (
+        <Badge key={`${f.code}:${f.field ?? ""}`} variant="warn" className="px-1.5 py-0 text-[10px] font-semibold" title={f.reason}>
+          {flagLabel(f)}
+        </Badge>
+      ))}
+    </div>
+  ) : (
+    <span className="text-slate-600">—</span>
+  );
+
+/** Each flag with its reason written out (Info views). */
+const FlagList: React.FC<{ flags: SensorFlag[] }> = ({ flags }) => (
+  <ul className="space-y-1.5">
+    {flags.map((f) => (
+      <li key={`${f.code}:${f.field ?? ""}`} className="flex items-start gap-2 text-[12px] text-slate-300">
+        <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
+        <span>
+          <span className="font-semibold text-amber-200">{flagLabel(f)}</span> · {f.reason}
+        </span>
+      </li>
+    ))}
+  </ul>
+);
+
 /** A DB row with the live state laid over it. */
 type ViewRow = SensorRow & {
   /** live status once its datalogger is checked, else the DB one (`unknown` / `not_synced`) */
@@ -101,6 +137,8 @@ type ViewRow = SensorRow & {
   upload: string | null;
   uploadLive: boolean;
   live: SensorLiveRow | null;
+  /** stored-data checks plus the live ones (`stale_history`) */
+  allFlags: SensorFlag[];
 };
 
 const overlay = (s: SensorRow, l: SensorLiveRow | undefined): ViewRow => {
@@ -111,6 +149,7 @@ const overlay = (s: SensorRow, l: SensorLiveRow | undefined): ViewRow => {
     upload: l?.last_update_time ?? s.last_reading_at,
     uploadLive: l?.last_update_time != null,
     live: l ?? null,
+    allFlags: [...s.flags, ...(l?.flags ?? [])],
   };
 };
 
@@ -291,6 +330,7 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       notSynced: n("not_synced"),
       checked: sensors.filter((s) => s.live?.checked_at != null).length,
       low: sensors.filter((s) => s.coverage_today_pct != null && s.coverage_today_pct < LOW_COVERAGE_PCT).length,
+      flags: sensors.filter((s) => s.allFlags.length > 0).length,
     };
   }, [sensors]);
 
@@ -299,7 +339,11 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
     const out = sensors.filter(
       (s) =>
         (filter === "all" ||
-          (filter === "low" ? s.coverage_today_pct != null && s.coverage_today_pct < LOW_COVERAGE_PCT : s.st === filter)) &&
+          (filter === "low"
+            ? s.coverage_today_pct != null && s.coverage_today_pct < LOW_COVERAGE_PCT
+            : filter === "flags"
+              ? s.allFlags.length > 0
+              : s.st === filter)) &&
         (!phase || String(s.phase) === phase) &&
         (!q || `${s.plant_name} ${s.datalogger_sn}#${s.address} ${s.device_name ?? ""}`.toLowerCase().includes(q))
     );
@@ -405,7 +449,7 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
         />
       ) : tab === "status" ? (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
             {(
               [
                 ["online", "Online", counts.online, `Upload ≤ ${live?.data.thresholds.late_min ?? 15} min ago`, CircleCheck, "text-emerald-300"],
@@ -434,12 +478,21 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
               active={filter === "not_synced"}
               onClick={() => toggleFilter("not_synced")}
             />
+            <Tile
+              label="Health flags"
+              value={counts.flags}
+              hint="Checks on stored data · click to filter"
+              icon={TriangleAlert}
+              text="text-amber-300"
+              active={filter === "flags"}
+              onClick={() => toggleFilter("flags")}
+            />
           </div>
 
           <Panel
             icon={ListChecks}
             title="Sensor status"
-            subtitle={`${rows.length} of ${sensors.length} sensors${filter !== "all" ? ` · filter: ${filter === "low" ? "data gaps" : STATUS_VIEW[filter].label}` : ""} · coverage = stored 5-min slots, 06:00–${until ?? "—"} today${error ? ` · refresh failed: ${error}` : ""}${liveError ? ` · live check failed: ${liveError}` : liveErrors ? ` · ${liveErrors} datalogger(s) not answering` : ""}`}
+            subtitle={`${rows.length} of ${sensors.length} sensors${filter !== "all" ? ` · filter: ${filter === "low" ? "data gaps" : filter === "flags" ? "health flags" : STATUS_VIEW[filter].label}` : ""} · coverage = stored 5-min slots, 06:00–${until ?? "—"} today${error ? ` · refresh failed: ${error}` : ""}${liveError ? ` · live check failed: ${liveError}` : liveErrors ? ` · ${liveErrors} datalogger(s) not answering` : ""}`}
             bodyClassName="p-0"
             actions={
               <div className="flex flex-wrap items-center gap-2">
@@ -490,6 +543,7 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                     <TableHead className="text-right">RH %</TableHead>
                     <TableHead className="text-right">Wind m/s</TableHead>
                     <SortHead id="coverage" sort={sort} desc={desc} onSort={onSort} className="text-right">Coverage</SortHead>
+                    <TableHead>Flags</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -546,6 +600,9 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                         <TableCell className={cn("num text-right font-semibold", coverageTone(s.coverage_today_pct))}>
                           {s.coverage_today_pct == null ? "—" : `${fmt(s.coverage_today_pct, 0)}%`}
                         </TableCell>
+                        <TableCell className="max-w-[240px]">
+                          <FlagChips flags={s.allFlags} />
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -557,6 +614,9 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
             Status: online = last upload ≤ {live?.data.thresholds.late_min ?? 15} min ago, late up to {live?.data.thresholds.offline_min ?? 60} min, offline after that or when Growatt reports the sensor lost.
             Readings are the newest stored record, not live values. n/f = probe not fitted (read 0 all of the last 7 days).
             Coverage counts 5-min slots from 06:00 up to the last history sync{until ? ` (${until})` : ""}.
+            Flags are checks, not measurements (hover for the reason): a probe that reported this week reads 0 all of today (wind not checked: calm days read 0),
+            irradiance 0 for ≥ 1 h between 10:00 and 15:00 while the plant's inverters produced, or stored history over 2 h behind an online sensor.
+            No flag is raised without stored data to support it.
           </p>
         </>
       ) : (
@@ -715,6 +775,7 @@ const SensorInfo: React.FC<{
   const fitted = (f: GrowattWeatherField) => !measured || measured.includes(f);
   const raw = detail?.data.raw ?? null;
   const readingError = detail?.data.errors.reading;
+  const infoFlags = [...sensor.flags, ...(l?.flags ?? [])];
 
   return (
     <div className="space-y-4">
@@ -740,6 +801,12 @@ const SensorInfo: React.FC<{
             {l?.checked_at ? `${hhmm(l.checked_at)}${l.stale ? " · stale" : ""}${l.listed === false ? " · not in the datalogger's list" : ""}` : "Not checked yet"}
           </Row>
           <Row label="Next refresh">{countdown == null ? (detailError ? "—" : "…") : countdown ? `in ${countdown} s` : "now"}</Row>
+          <Row label="Health flags">{infoFlags.length ? `${infoFlags.length}` : "None"}</Row>
+          {infoFlags.length > 0 && (
+            <div className="mt-2">
+              <FlagList flags={infoFlags} />
+            </div>
+          )}
           <p className="mt-3 text-[11px] text-slate-500">
             Online state comes from Growatt's live sensor list (memory only). Online = upload ≤ {detail?.data.thresholds.late_min ?? 15} min ago, late up to{" "}
             {detail?.data.thresholds.offline_min ?? 60} min.
@@ -986,6 +1053,7 @@ const PlantSensorView: React.FC<{
   const st: SensorStatus = l && l.status !== "unknown" ? l.status : sensor.status;
   const view = STATUS_VIEW[st];
   const tone = HERO_TONE[view.level];
+  const plantFlags = [...sensor.flags, ...(l?.flags ?? [])];
   const th = detail?.data.thresholds ?? thresholds;
   const rd = detail?.data.reading ?? null;
   const measured = detail?.data.measured !== undefined ? detail.data.measured : sensor.measured;
@@ -1057,6 +1125,11 @@ const PlantSensorView: React.FC<{
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-300">{statusWhy(st, l, now, th)}</p>
+              {plantFlags.length > 0 && (
+                <div className="mt-2">
+                  <FlagList flags={plantFlags} />
+                </div>
+              )}
               {(detailError || readingError) && <p className="mt-1 text-[11px] text-amber-300">Live request failed: {detailError ?? readingError}</p>}
             </div>
           </div>
