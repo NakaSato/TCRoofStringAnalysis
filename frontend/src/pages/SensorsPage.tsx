@@ -26,6 +26,7 @@ import type { LucideIcon } from "lucide-react";
 import { api } from "../api/client";
 import type {
   GrowattLive,
+  GrowattWeatherPoint,
   GrowattWeatherDay,
   GrowattWeatherField,
   SensorList,
@@ -111,6 +112,15 @@ const overlay = (s: SensorRow, l: SensorLiveRow | undefined): ViewRow => {
     uploadLive: l?.last_update_time != null,
     live: l ?? null,
   };
+};
+
+/** Live readings kept for the chart's tail (tab memory only): 24 × 5 min = 2 h. */
+const TAIL_MAX = 24;
+
+/** Start of the 5-minute slot, like the stored series ("YYYY-MM-DD HH:MM:SS"). */
+const slotOf = (ts: string) => {
+  const m = Number(ts.slice(14, 16));
+  return `${ts.slice(0, 14)}${String(m - (m % 5)).padStart(2, "0")}:00`;
 };
 
 const shiftDay = (day: string, n: number) => {
@@ -894,15 +904,40 @@ const PlantSensorView: React.FC<{
   const dayStored =
     stored && stored.meta.day === day && stored.meta.sensor?.datalogger_sn === sensor?.datalogger_sn && stored.meta.sensor?.address === sensor?.address ? stored : null;
   const pts = dayStored?.series ?? [];
+
+  // Live tail: each newest reading the live poll brings (today only) is kept as a point until the
+  // worker has stored that slot (the DB wins), so today's chart moves without waiting for a sync.
+  const liveRd = detail?.data.reading ?? null;
+  const [tail, setTail] = useState<GrowattWeatherPoint[]>([]);
+  useEffect(() => setTail([]), [sensor?.key]);
+  useEffect(() => {
+    if (!liveRd || liveRd.timestamp.slice(0, 10) !== today) return;
+    const ts = slotOf(liveRd.timestamp);
+    setTail((prev) => {
+      if (prev.some((p) => p.timestamp === ts)) return prev;
+      const pt = { timestamp: ts } as GrowattWeatherPoint;
+      FIELDS.forEach((f) => (pt[f] = liveRd[f] ?? null));
+      return [...prev, pt].sort((a, b) => a.timestamp.localeCompare(b.timestamp)).slice(-TAIL_MAX);
+    });
+  }, [liveRd, today]);
+  const lastStoredTs = pts.length ? pts[pts.length - 1].timestamp : "";
+  const tailPts = useMemo(
+    () => (day === today && dayStored ? tail.filter((p) => p.timestamp > lastStoredTs && p.timestamp.slice(0, 10) === day) : []),
+    [day, today, dayStored, tail, lastStoredTs]
+  );
+  const chartPts = useMemo(() => (tailPts.length ? [...pts, ...tailPts] : pts), [pts, tailPts]);
   const dayMeasured = useMemo(
     () => new Set<GrowattWeatherField>(dayStored?.sensors.find((x) => x.datalogger_sn === sensor?.datalogger_sn && x.address === sensor?.address)?.measured ?? []),
     [dayStored, sensor?.datalogger_sn, sensor?.address]
   );
   const daySpec = useMemo<PanelChartSpec | null>(() => {
-    if (!pts.length) return null;
-    const y = (f: GrowattWeatherField) => pts.map((p) => p[f]);
+    // a lone live point draws nothing: wait for a second one (or for stored data)
+    if (!chartPts.length || (!pts.length && chartPts.length < 2)) return null;
+    // with nothing stored yet today, the live points alone decide which probes to draw
+    const has = (f: GrowattWeatherField) => (dayMeasured.size ? dayMeasured.has(f) : chartPts.some((p) => p[f] != null));
+    const y = (f: GrowattWeatherField) => chartPts.map((p) => p[f]);
     const panels: PanelChartSpec["panels"] = [];
-    if (dayMeasured.has("irradiance_wm2"))
+    if (has("irradiance_wm2"))
       panels.push({
         key: "g",
         title: "POA irradiance (W/m²)",
@@ -910,22 +945,22 @@ const PlantSensorView: React.FC<{
         series: [{ key: "g", name: "POA irradiance", type: "line", area: true, color: SERIES.irradiance, y: y("irradiance_wm2"), format: (v) => `${fmt(v, 0)} W/m²` }],
       });
     const temps: ChartSeries[] = [];
-    if (dayMeasured.has("module_temp_c")) temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: y("module_temp_c"), unit: "°C" });
-    if (dayMeasured.has("ambient_temp_c")) temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: y("ambient_temp_c"), unit: "°C" });
+    if (has("module_temp_c")) temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: y("module_temp_c"), unit: "°C" });
+    if (has("ambient_temp_c")) temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: y("ambient_temp_c"), unit: "°C" });
     if (temps.length) panels.push({ key: "t", title: "Temperature (°C)", zero: false, series: temps });
-    if (dayMeasured.has("humidity_pct"))
+    if (has("humidity_pct"))
       panels.push({ key: "h", title: "Humidity (%)", series: [{ key: "h", name: "Humidity", type: "line", color: SERIES.secondary, y: y("humidity_pct"), format: (v) => `${fmt(v, 0)} %` }] });
-    if (dayMeasured.has("wind_speed_ms"))
+    if (has("wind_speed_ms"))
       panels.push({ key: "w", title: "Wind speed (m/s)", series: [{ key: "w", name: "Wind speed", type: "line", color: SERIES.ac, y: y("wind_speed_ms"), unit: "m/s" }] });
-    if (dayMeasured.has("wind_dir_deg"))
+    if (has("wind_dir_deg"))
       panels.push({
         key: "d",
         title: "Wind direction (°)",
         weight: 0.7,
         series: [{ key: "d", name: "Wind direction", type: "points", color: SERIES.ac, y: y("wind_dir_deg"), format: (v) => `${fmt(v, 0)}° ${compass(v)}` }],
       });
-    return panels.length ? { xKind: "time", x: pts.map((p) => p.timestamp), panels } : null;
-  }, [pts, dayMeasured]);
+    return panels.length ? { xKind: "time", x: chartPts.map((p) => p.timestamp), panels } : null;
+  }, [chartPts, dayMeasured]);
 
   const exportCsv = () => {
     if (!sensor || !pts.length) return;
@@ -1093,7 +1128,9 @@ const PlantSensorView: React.FC<{
       <Panel
         icon={Database}
         title={day === today ? "Today" : "Day history"}
-        subtitle={`${day} · stored 5-min records${pts.length ? ` · ${fmtInt(pts.length)} records, ${pts[0].timestamp.slice(11, 16)}–${pts[pts.length - 1].timestamp.slice(11, 16)}` : ""}`}
+        subtitle={`${day} · stored 5-min records${pts.length ? ` · ${fmtInt(pts.length)} records, ${pts[0].timestamp.slice(11, 16)}–${pts[pts.length - 1].timestamp.slice(11, 16)}` : ""}${
+          tailPts.length ? ` · + ${tailPts.length} live to ${tailPts[tailPts.length - 1].timestamp.slice(11, 16)} (not stored yet)` : ""
+        }`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-ink-900/80 p-1">

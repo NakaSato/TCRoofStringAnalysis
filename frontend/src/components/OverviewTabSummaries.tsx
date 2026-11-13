@@ -8,7 +8,8 @@ import { Link } from "react-router-dom";
 import { Activity, ArrowRight, Cpu, Gauge, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api } from "../api/client";
-import type { GrowattPlantOverview, GrowattWeatherField, SensorRow } from "../api/client";
+import type { GrowattLive, GrowattLiveWeather, GrowattPlantOverview, GrowattWeatherField, SensorRow } from "../api/client";
+import { useLivePoll } from "../context/useLivePoll";
 import { Led, fmt } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Card as UiCard } from "@/components/ui/card";
@@ -80,9 +81,20 @@ const RECORD_FIELDS: Array<[GrowattWeatherField, string, string, number]> = [
   ["wind_dir_deg", "Wind dir", "°", 0],
 ];
 
-/** One sensor's newest stored record as reported: nothing averaged, integrated or derived. */
-const SensorRecord: React.FC<{ sensor: SensorRow }> = ({ sensor }) => {
+type LiveSensorReading = GrowattLiveWeather["sensors"][number];
+
+/** One sensor's newest reading as reported (nothing averaged, integrated or derived): the live
+ * record when it is at least as new as the stored one, else the newest stored record. */
+const SensorRecord: React.FC<{ sensor: SensorRow; live: LiveSensorReading | null; envelopeStale: boolean }> = ({
+  sensor,
+  live,
+  envelopeStale,
+}) => {
   const fitted = (f: GrowattWeatherField) => !sensor.measured || sensor.measured.includes(f);
+  const useLive = live != null && (!sensor.last_reading_at || live.timestamp >= sensor.last_reading_at);
+  const at = useLive ? live.timestamp : sensor.last_reading_at;
+  const values: Partial<Record<GrowattWeatherField, number | null>> | null = useLive ? live : sensor.last;
+  const stale = useLive && (envelopeStale || Boolean(live.stale));
   return (
     <div className="space-y-2">
       <Line
@@ -91,15 +103,24 @@ const SensorRecord: React.FC<{ sensor: SensorRow }> = ({ sensor }) => {
             {sensor.datalogger_sn}#{sensor.address}
           </span>
         }
-        value={sensor.last_reading_at ? `Recorded ${sensor.last_reading_at}` : "Nothing stored yet"}
+        value={
+          at ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Led level={useLive ? (stale ? "warn" : "ok") : "off"} pulse={useLive && !stale} />
+              {useLive ? (stale ? "Stale" : "Live") : "Last sync"} · {at.slice(0, 10) === new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" }) ? at.slice(11, 16) : at.slice(0, 16)}
+            </span>
+          ) : (
+            "No reading yet"
+          )
+        }
       />
-      {sensor.last && (
+      {values && (
         <div className="grid grid-cols-3 gap-2">
           {RECORD_FIELDS.map(([f, label, unit, digits]) => (
             <Stat
               key={f}
               label={label}
-              value={fitted(f) ? fmt(sensor.last?.[f], digits) : "—"}
+              value={fitted(f) ? fmt(values[f], digits) : "—"}
               unit={unit}
               note={fitted(f) ? undefined : "not fitted"}
             />
@@ -197,7 +218,8 @@ export const OverviewTabSummaries: React.FC<{
   const name = (i: { alias?: string | null; device_sn: string }) =>
     i.alias || i.device_sn;
 
-  /* ---- 4. Sensors: each sensor's newest stored record, values exactly as reported ---- */
+  /* ---- 4. Sensors: each sensor's newest reading as reported — live from Growatt (polled on
+   * refresh_in_s, memory only), else the newest stored record ---- */
   const plantId = overview.plant.plant_id;
   const wxUntil = overview.weather?.data_until ?? null;
   const [sensorRows, setSensorRows] = useState<SensorRow[] | null>(null);
@@ -217,6 +239,22 @@ export const OverviewTabSummaries: React.FC<{
     };
     // re-read when the overview brings newer stored weather
   }, [plantId, wxUntil]);
+  const [liveWx, setLiveWx] = useState<GrowattLive<GrowattLiveWeather> | null>(null);
+  const [liveWxError, setLiveWxError] = useState(false);
+  useEffect(() => {
+    setLiveWx(null);
+    setLiveWxError(false);
+  }, [plantId]);
+  useLivePoll(
+    Boolean(sensorRows?.length),
+    plantId,
+    () => api.getGrowattLiveWeather(plantId),
+    (r) => {
+      setLiveWx(r);
+      setLiveWxError(false);
+    },
+    () => setLiveWxError(true),
+  );
 
   /* ---- 5. String Diagnostics ---- */
   const worst = useMemo(
@@ -345,11 +383,23 @@ export const OverviewTabSummaries: React.FC<{
         ) : (
           <>
             {sensorRows.map((s) => (
-              <SensorRecord key={s.key} sensor={s} />
+              <SensorRecord
+                key={s.key}
+                sensor={s}
+                live={
+                  liveWx?.data.sensors.find(
+                    (l) => l.datalogger_sn === s.datalogger_sn && l.address === s.address,
+                  ) ?? null
+                }
+                // a failed poll keeps the last answer on screen, but it is no longer live
+                envelopeStale={Boolean(liveWx?.stale) || liveWxError}
+              />
             ))}
             <div className="text-[11px] text-slate-500">
-              Newest stored record, values exactly as the sensor reported
-              them. — = no value, not fitted = probe reads 0 all week.
+              Values exactly as the sensor reported them: live from Growatt
+              (refreshes when a new record is due, never stored), else the
+              newest stored record.{liveWxError ? (liveWx ? " Live refresh failing: showing the last reading as stale." : " Live unavailable right now.") : ""} — = no
+              value, not fitted = probe reads 0 all week.
             </div>
           </>
         )}
