@@ -215,7 +215,7 @@ _Done 2026-11-13. Deviations: `?day=` also judges the stored-data flags on that 
 - [x] `backend/CLAUDE.md`: Growatt data rules table rows for the 3 endpoints; weather-sensor section (live sweep, status rules)
 - [x] `frontend/CLAUDE.md`: route list + Sensors page notes; Active Alarm sensors panel (live today, stored gaps for past days)
 - [x] `CLAUDE.md`: data-flow diagram line for sensor status (live, memory only); Config keys
-- [ ] Deploy backend, frontend; verify sweep completes in ≈ 5 min on prod and counts match Growatt's portal for a sample of plants
+- [x] Deploy backend, frontend (2026-11-13: API revision tcroof-api-00018-x7g, Hosting); [ ] verify sweep completes in ≈ 5 min on prod and counts match Growatt's portal for a sample of plants
 
 ## 9. Acceptance criteria
 

@@ -1,6 +1,6 @@
 # Plan & Spec: System → Logs page
 
-Status: **Draft** · Created 2026-11-13 · Owner: Chanthawat
+Status: **Built 2026-11-13** (deploy pending) · Created 2026-11-13 · Owner: Chanthawat
 
 Collect the backend's log records (API and `growatt-worker`) in one place and show them to admins on a new **Logs** page in the sidebar's **System** group.
 
@@ -167,47 +167,48 @@ Engineers get **403** (same as other admin-only routes).
 ## 6. Checklist
 
 ### Phase 1: capture
-- [ ] `AppLog` model in `db/models.py` with the indexes in §4.1
-- [ ] Alembic migration under `backend/alembic/versions/` chained on the current head
-- [ ] `app/logging_db.py`: `DbLogHandler`, buffer, own-connection bulk insert, no recursion
-- [ ] `redact()` with settings values + patterns (§4.4)
-- [ ] `setup_logging(source)` replaces the 3 `basicConfig` calls; called from `main.py`, `worker.py`, CLIs
-- [ ] Flush: worker thread every 5 s + on ERROR + `atexit`; API middleware per request + lifespan shutdown
-- [ ] `urllib3` / `httpx` / `httpcore` / `sqlalchemy` filtered as in §4.2
-- [ ] Context vars `run_id` / `job` set in `jobs.execute()`; copied into `_per_phase` threads
-- [ ] `growatt_sync.py:448` per-inverter success line → `DEBUG`
-- [ ] Settings keys from §4.8 added to `config.py`
+_Built 2026-11-13, phases 1–3 together. Decisions on §8: admins only, 14 days, no sidebar badge (header tiles only). Deviations: `jobs.execute` also logs "job X started (run N, trigger)" / "job X finished: status" so every run has at least two records; audit lines use logger `app.audit` (user changes record field names only, never values); `requests` is quieted below WARNING too; secrets shorter than 6 chars are not matched by value (they would mask ordinary words; the patterns still apply). The page has 1 h / 24 h / 7 d / 14 d instead of a custom range; "Load older" pauses polling until Refresh. Checked on dev: a failed login lands in `app_logs` with its request id, engineer → 403 through the proxy. pyright: no errors in new or changed files (28 remain elsewhere, 39 before)._
+- [x] `AppLog` model in `db/models.py` with the indexes in §4.1
+- [x] Alembic migration under `backend/alembic/versions/` chained on the current head
+- [x] `app/logging_db.py`: `DbLogHandler`, buffer, own-connection bulk insert, no recursion
+- [x] `redact()` with settings values + patterns (§4.4)
+- [x] `setup_logging(source)` replaces the 3 `basicConfig` calls; called from `main.py`, `worker.py`, CLIs
+- [x] Flush: worker thread every 5 s + on ERROR + `atexit`; API middleware per request + lifespan shutdown
+- [x] `urllib3` / `httpx` / `httpcore` / `sqlalchemy` filtered as in §4.2
+- [x] Context vars `run_id` / `job` set in `jobs.execute()`; copied into `_per_phase` threads
+- [x] `growatt_sync.py:448` per-inverter success line → `DEBUG`
+- [x] Settings keys from §4.8 added to `config.py`
 
 ### Phase 2: API
-- [ ] `app/api/routes/system.py`: `GET /system/logs`, `GET /system/logs/summary`, `require_admin`
-- [ ] Router included in `main.py` (mounted at `/api` and `/`)
-- [ ] Filters, `before_id` / `after_id` paging, `limit` bounds, naive time = Bangkok
-- [ ] Request-log middleware: 5xx, slow requests, failed logins, admin actions; `X-Request-ID` header
-- [ ] `job_retention` prunes `app_logs` by age and by `LOG_MAX_ROWS`; `detail.log_rows`
-- [ ] Tests (`backend/tests/test_system_logs.py`):
-  - [ ] handler stores records with source, level, logger, run_id
-  - [ ] redaction: `?key=` URL in a `requests` error, Bearer header, Postgres URL, raw token value
-  - [ ] no recursion when the insert fails
-  - [ ] engineer → 403, admin → 200
-  - [ ] filters (level, source, q, run_id, time) and paging
-  - [ ] retention by days and by row cap
-  - [ ] runs on SQLite (tests) with no raw `strftime`
-- [ ] `uv run pytest -q` and `pyright` pass
+- [x] `app/api/routes/system.py`: `GET /system/logs`, `GET /system/logs/summary`, `require_admin`
+- [x] Router included in `main.py` (mounted at `/api` and `/`)
+- [x] Filters, `before_id` / `after_id` paging, `limit` bounds, naive time = Bangkok
+- [x] Request-log middleware: 5xx, slow requests, failed logins, admin actions; `X-Request-ID` header
+- [x] `job_retention` prunes `app_logs` by age and by `LOG_MAX_ROWS`; `detail.log_rows`
+- [x] Tests (`backend/tests/test_system_logs.py`):
+  - [x] handler stores records with source, level, logger, run_id
+  - [x] redaction: `?key=` URL in a `requests` error, Bearer header, Postgres URL, raw token value
+  - [x] no recursion when the insert fails
+  - [x] engineer → 403, admin → 200
+  - [x] filters (level, source, q, run_id, time) and paging
+  - [x] retention by days and by row cap
+  - [x] runs on SQLite (tests) with no raw `strftime`
+- [x] `uv run pytest -q` and `pyright` pass
 
 ### Phase 3: frontend
-- [ ] Types + `api.listSystemLogs` / `api.getSystemLogSummary` in `src/api/client.ts`
-- [ ] `pages/SystemLogsPage.tsx` per §4.7 (KPI tiles, filters in URL, table, expand, load older, auto-refresh)
-- [ ] Route `logs` in `App.tsx` inside `<AdminOnly>`
-- [ ] `"/logs"` in `ADMIN_ONLY_PATHS`
-- [ ] Nav item "Logs" in the **System** group (`ScrollText` icon); hidden for engineers
-- [ ] Polling stops while `document.hidden`; cleared on logout
-- [ ] `bun run lint` and `bun run build` pass
+- [x] Types + `api.listSystemLogs` / `api.getSystemLogSummary` in `src/api/client.ts`
+- [x] `pages/SystemLogsPage.tsx` per §4.7 (KPI tiles, filters in URL, table, expand, load older, auto-refresh)
+- [x] Route `logs` in `App.tsx` inside `<AdminOnly>`
+- [x] `"/logs"` in `ADMIN_ONLY_PATHS`
+- [x] Nav item "Logs" in the **System** group (`ScrollText` icon); hidden for engineers
+- [x] Polling stops while `document.hidden`; cleared on logout
+- [x] `bun run lint` and `bun run build` pass
 
 ### Phase 4: docs & deploy
-- [ ] `CLAUDE.md`: data-flow note (logs → SQL), Config keys
-- [ ] `backend/CLAUDE.md`: logging section (handler, redaction, context, retention), `/system/logs` row, `retention` job text
-- [ ] `frontend/CLAUDE.md`: routes list and Logs page notes
-- [ ] `.env.example`: new keys
+- [x] `CLAUDE.md`: data-flow note (logs → SQL), Config keys
+- [x] `backend/CLAUDE.md`: logging section (handler, redaction, context, retention), `/system/logs` row, `retention` job text
+- [x] `frontend/CLAUDE.md`: routes list and Logs page notes
+- [x] `.env.example`: new keys
 - [ ] Deploy backend (`deploy/gcp.sh backend`) and worker on the VM; frontend (`deploy/gcp.sh frontend`)
 - [ ] Verify on prod: worker run appears with its `run_id`; a forced 5xx shows with traceback; search for any token/key fragment in `app_logs` returns nothing
 - [ ] After 1 week: check `app_logs` rows/day and table size against §4.5

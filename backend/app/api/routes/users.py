@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,6 +15,7 @@ from app.schemas.api_schemas import PlantAssignment, UserCreate, UserOut, UserUp
 from app.services import users as svc
 
 router = APIRouter(prefix="/users", tags=["Users & Access"], dependencies=[Depends(require_admin)])
+audit = logging.getLogger("app.audit")
 
 
 def _by(user: User) -> str:
@@ -28,7 +30,9 @@ def list_users(db: Session = Depends(get_db)) -> List[dict]:
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)) -> dict:
     try:
-        return svc.create_user(db, payload.model_dump(), _by(admin))
+        out = svc.create_user(db, payload.model_dump(), _by(admin))
+        audit.info("%s created user %s (%s)", _by(admin), out.get("username") or out.get("email"), out.get("role"))
+        return out
     except svc.UserError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -39,7 +43,11 @@ def update_user(
 ) -> dict:
     """Change role, name, email, password or active flag. Accounts are disabled, never deleted."""
     try:
-        return svc.update_user(db, user_id, payload.model_dump(exclude_unset=True), admin)
+        changes = payload.model_dump(exclude_unset=True)
+        out = svc.update_user(db, user_id, changes, admin)
+        # field names only: a new password never goes into the log
+        audit.info("%s changed user %s: %s", _by(admin), user_id, ", ".join(sorted(changes)) or "nothing")
+        return out
     except svc.UserNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except svc.UserError as exc:
@@ -52,7 +60,9 @@ def set_user_plants(
 ) -> dict:
     """Replace the engineer's assigned Growatt plants (an empty list removes them all)."""
     try:
-        return svc.set_user_plants(db, user_id, payload.plant_ids, _by(admin))
+        out = svc.set_user_plants(db, user_id, payload.plant_ids, _by(admin))
+        audit.info("%s set user %s's plants: %d assigned", _by(admin), user_id, len(payload.plant_ids))
+        return out
     except svc.UserNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except svc.UserError as exc:

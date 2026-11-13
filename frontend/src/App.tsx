@@ -28,6 +28,7 @@ const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAla
 const SensorsPage = page(() => import("./pages/SensorsPage"), "SensorsPage");
 const PlantSensorsPage = page(() => import("./pages/SensorsPage"), "PlantSensorsPage");
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
+const SystemLogsPage = page(() => import("./pages/SystemLogsPage"), "SystemLogsPage");
 
 /** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
 const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -101,6 +102,7 @@ export const App: React.FC = () => {
             <Route path="she" element={<AdminOnly><SheSafetyPage /></AdminOnly>} />
             <Route path="settings" element={<PlantSettingsPage />} />
             <Route path="users" element={<AdminOnly><UsersPage /></AdminOnly>} />
+            <Route path="logs" element={<AdminOnly><SystemLogsPage /></AdminOnly>} />
             {/* one plant: the plant id is in the URL */}
             <Route path="plant/:plantId" element={<PlantRoute />}>
               <Route index element={<OverviewPage />} />

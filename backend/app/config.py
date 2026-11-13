@@ -48,7 +48,15 @@ class Settings(BaseSettings):
     sensor_sweep_per_request: int = 12  # max dataloggers refreshed per status request
     sensor_late_min: int = 15  # last upload older than this = late
     sensor_offline_min: int = 60  # older than this (or Growatt says lost) = offline
-    sensor_alarm_coverage_pct: float = 80.0  # Active Alarm, past day: stored daylight coverage below this = data gap
+    sensor_alarm_coverage_pct: float = 80.0
+    # System → Logs: Python log records of the API and worker in SQL `app_logs` (redacted)
+    log_db_enabled: bool = True
+    log_db_level: str = "INFO"
+    log_retention_days: int = 14
+    log_max_rows: int = 500_000
+    log_flush_interval_s: float = 5.0
+    log_buffer_max: int = 5000
+    log_slow_request_ms: int = 5000  # Active Alarm, past day: stored daylight coverage below this = data gap
     # Firestore (daily summaries + registry only; realtime data is never written)
     firebase_credentials_file: str = ""  # service-account JSON path, backend only
     firebase_project_id: str = ""

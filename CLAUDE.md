@@ -30,6 +30,7 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                  ├─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
                  │                                                       └─► daily summaries ─► Firestore
                  └─ alarm_data log ─► growatt-worker (every 30 min, 05–21; yesterday at 00:30) ─► SQL ─► /growatt/alarms (Active Alarm)
+API + worker logging ─► app_logs (SQL, redacted, 14 days) ─► /system/logs (admin: System → Logs)
 Google Maps Weather ─┬─ current ─► backend memory cache (30 min per cell) ─► /growatt/live/plants/{id}/google-weather
   (modelled)         └─ history/hours ─► growatt-worker (18:15 daily) ─► SQL ─► daily summaries (rain at 09/12/17) ─► Firestore
 ```
@@ -60,6 +61,7 @@ Rules for every layer:
 - `GROWATT_TOKEN_PHASE1`..`4`: one Growatt account per project phase. The legacy `GROWATT_API_TOKEN` is used as phase 1 when `GROWATT_TOKEN_PHASE1` is empty.
 - `GROWATT_LIVE_TTL_S`
 - `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open); `SENSOR_ALARM_COVERAGE_PCT` (80): Active Alarm, past day: stored daylight coverage below this = data gap
+- `LOG_DB_ENABLED` (true), `LOG_DB_LEVEL` (INFO), `LOG_RETENTION_DAYS` (14), `LOG_MAX_ROWS` (500000), `LOG_FLUSH_INTERVAL_S` (5), `LOG_BUFFER_MAX` (5000), `LOG_SLOW_REQUEST_MS` (5000): System → Logs (`app_logs`)
 - `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_FILE`
 - `PUBLISH_SINK` (`json` | `firestore`)
 - `PUBLISH_DAILY_WRITE_BUDGET`

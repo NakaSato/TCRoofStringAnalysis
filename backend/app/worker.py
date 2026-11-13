@@ -44,6 +44,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy import select
 
 from app.config import settings
+from app.logging_db import setup_logging
 from app.db.models import GrowattInverter, GrowattPlant
 from app.db.session import SessionLocal, ensure_schema
 from app.services import jobs
@@ -166,10 +167,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--once", choices=sorted(jobs.JOBS), help="Run one job now and exit")
     ap.add_argument("--list", action="store_true", help="Show schedule and last runs")
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-
     with SessionLocal() as db:
-        ensure_schema(db.get_bind())
+        ensure_schema(db.get_bind())  # before the DB log handler: app_logs must exist
+    setup_logging("worker")
 
     schedule = default_schedule()
     if args.list:

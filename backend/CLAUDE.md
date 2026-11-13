@@ -36,7 +36,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - Every router is mounted twice, at `/api` and at `/`.
   - Auth is JWT (`app/auth.py`) with two roles. **admin**: everything. **engineer**: only the Growatt plants in `user_plant_assignments` (set by an admin via `/users/{id}/plants`).
     - Every `/growatt/…/plants/{plant_id}/…` route depends on `require_plant_read` / `require_plant_write`; an unassigned plant answers **404** (ids are not revealed). Lists (`/growatt/plants`, `/growatt/live/plants`) are filtered with `allowed_plant_ids` (None = admin = all); the live cache stays fleet-wide.
-    - Admin only (`require_admin`): `/users`, fleet module PUT, `/growatt/sync/*`, and the legacy routers (`plants`, `datasets`, `analysis`, `maintenance`, `rca`, `she`), which use the local `plants` table with no link to Growatt plants.
+    - Admin only (`require_admin`): `/users`, `/system/logs*`, fleet module PUT, `/growatt/sync/*`, and the legacy routers (`plants`, `datasets`, `analysis`, `maintenance`, `rca`, `she`), which use the local `plants` table with no link to Growatt plants.
     - Assignments are read from the DB per request, so changes apply without a new login. Any other stored role (the former `viewer`) becomes `engineer` at startup.
 
 **Analysis pipeline** (`services/solar_service.py`):
@@ -113,6 +113,15 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - App bookkeeping columns (`sync_runs`, `published_docs`, `synced_at`) are UTC. SQLite drops tzinfo, so store UTC and read naive values back as UTC (`jobs._aware`).
 - **SQL must run on SQLite and Postgres.** Use SQLAlchemy expressions; no `strftime` / `date()` in raw `text()`. Time bucketing happens in Python.
 
+## Logging (System → Logs)
+
+- **Use `logging.getLogger(__name__)`; never `basicConfig`.** `app/logging_db.setup_logging(source)` sets up the console and `DbLogHandler` (`source` = `api` from `main.py`'s lifespan, `worker` from `worker.py`, `cli` from the CLI entry points). Records at `LOG_DB_LEVEL` and above go to SQL `app_logs`; `sqlalchemy.*`, and `urllib3` / `httpx` / `httpcore` / `requests` below WARNING, are never stored (their lines carry full URLs).
+- **Everything stored is redacted** (`redact()`): the exact token / key / secret / DB-password values from settings, plus `?key=` / `token=` / Bearer / Postgres-URL patterns. Still, never log a secret or a live measurement on purpose: logs are bookkeeping, not data.
+- **Flushing:** the worker and CLIs flush from a daemon thread every `LOG_FLUSH_INTERVAL_S`, at once after an ERROR, and at exit. The API has no thread (Cloud Run cuts the CPU after the response): `app/api/request_log.py` flushes before each response returns. A failed insert is printed to stderr and dropped, never re-logged.
+- **Context:** `jobs.execute` sets `run_id` / `job` (context vars) for the run, and logs "job X started / finished"; `_per_phase` threads copy the context. The request middleware sets `request_id` (also the `X-Request-ID` header) and logs only 5xx / unhandled exceptions (with traceback) and requests slower than `LOG_SLOW_REQUEST_MS`. `app.audit` logs failed logins (name only) and admin actions (job queued, user created/changed (field names only)/plants set, fleet module saved).
+- **Volume:** the per-inverter line in `sync_history` is DEBUG; keep per-item lines at DEBUG and summaries at INFO.
+- `/system/logs` (`?level=&source=&job=&run_id=&q=&since=&until=&before_id=&after_id=&limit=`, newest first; naive times = Bangkok; default window 24 h, a `run_id` alone = the whole run) and `/system/logs/summary` are in `services/system_logs.py`.
+
 ## Worker and jobs
 
 `app/worker.py` runs as one process (docker service `growatt-worker`); never start it inside uvicorn.
@@ -124,7 +133,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 | `fleet` | 05:30 |
 | `publish_yesterday` | 06:00 |
 | `publish_today` | 19:30 |
-| `retention` | 03:00: deletes raw inverter, string and weather readings (Growatt and Google) older than `HISTORY_RETENTION_DAYS` (90) |
+| `retention` | 03:00: deletes raw inverter, string and weather readings (Growatt and Google) older than `HISTORY_RETENTION_DAYS` (90), and `app_logs` older than `LOG_RETENTION_DAYS` (14) or beyond `LOG_MAX_ROWS` (`detail.log_rows`) |
 | `google_weather` | 18:15: Google Maps Weather, today's daytime hours (13 h) per plant cell, then re-publishes yesterday |
 | `alarms` | every `WORKER_ALARMS_INTERVAL_MIN` (30) min, 05:00–21:00 (`WORKER_ALARMS_START_H`/`_END_H`): today's `alarm_data` per inverter → SQL |
 | `alarms_yesterday` | 00:30: yesterday's alarm log once more (evening alarms, late closings) |

@@ -42,6 +42,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import DATA_DIR, settings
+from app.logging_db import setup_logging
 from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PublishedDoc, PublishWriteCount
 from app.services import google_weather
 from app.services.daily_checks import build_checks
@@ -447,7 +448,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--no-registry", action="store_true", help="Skip plants/, inverters/ and config/ registry docs")
     ap.add_argument("--dry-run", action="store_true", help="Build and size documents, write nothing")
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    setup_logging("cli")
 
     days = args.day or [today - timedelta(days=1)]
     sink = make_sink(args.sink, args.out)

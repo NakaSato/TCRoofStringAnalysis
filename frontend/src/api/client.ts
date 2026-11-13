@@ -614,6 +614,55 @@ export interface SensorLive {
   thresholds: { late_min: number; offline_min: number };
 }
 
+/** /system/logs — one stored log record of the API or worker (admin only, already redacted). */
+export type SystemLogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+export type SystemLogSource = "api" | "worker" | "cli";
+export interface SystemLogEntry {
+  id: number;
+  /** UTC ISO ("…Z") */
+  ts: string;
+  level: SystemLogLevel;
+  source: SystemLogSource;
+  host: string | null;
+  logger: string;
+  message: string;
+  exc_text: string | null;
+  /** `sync_runs.id` of the job run that logged it */
+  run_id: number | null;
+  job: string | null;
+  request_id: string | null;
+  extra: Record<string, unknown> | null;
+}
+
+export interface SystemLogPage {
+  items: SystemLogEntry[];
+  /** pass as `before_id` for older rows; null = no more in the window */
+  next_before_id: number | null;
+  meta: { source: "db"; since: string | null; retention_days: number; enabled: boolean; level: SystemLogLevel };
+}
+
+export interface SystemLogQuery {
+  level?: SystemLogLevel;
+  source?: SystemLogSource[];
+  job?: string;
+  run_id?: number;
+  q?: string;
+  since?: string;
+  before_id?: number;
+  after_id?: number;
+  limit?: number;
+}
+
+export interface SystemLogSummary {
+  since: string;
+  total: number;
+  by_level: Record<SystemLogLevel, number>;
+  by_source: Record<SystemLogSource, number>;
+  last_error: SystemLogEntry | null;
+  newest_id: number | null;
+  enabled: boolean;
+}
+
 /** /growatt/plants/{id}/inverters/{sn}/timeseries — one inverter's stored 5-minute day curve (DB only). */
 export interface GrowattInverterTimeseries {
   meta: GrowattDbMeta;
@@ -1257,6 +1306,20 @@ export const api = {
   updatePtwPermit: (id: number, payload: Partial<PTWPermit>) =>
     apiFetch<PTWPermit>(`/ptw/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePtwPermit: (id: number) => apiFetch<void>(`/ptw/${id}`, { method: "DELETE" }),
+
+  // System → Logs (admin only)
+  listSystemLogs: (params: SystemLogQuery = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v == null || v === "") continue;
+      if (Array.isArray(v)) v.forEach((x) => q.append(k, String(x)));
+      else q.set(k, String(v));
+    }
+    const qs = q.toString();
+    return apiFetch<SystemLogPage>(`/system/logs${qs ? `?${qs}` : ""}`);
+  },
+  getSystemLogSummary: (since?: string) =>
+    apiFetch<SystemLogSummary>(`/system/logs/summary${since ? `?since=${encodeURIComponent(since)}` : ""}`),
 
   // File URLs (need the session token: download with downloadApiFile)
   sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,

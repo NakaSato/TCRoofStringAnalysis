@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -13,6 +15,7 @@ from app.schemas.api_schemas import LoginRequest, TokenResponse, UserOut
 from app.services.users import user_out
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+audit = logging.getLogger("app.audit")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -24,6 +27,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
     user = db.scalar(select(User).where(or_(User.username == ident, User.email == ident)))
     # Same message for unknown user, wrong password and disabled account: don't reveal which.
     if user is None or not user.is_active or not verify_password(payload.password, user.hashed_password):
+        # the name tried, never the password
+        audit.info("failed login for %r", ident[:64])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",

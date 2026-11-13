@@ -29,6 +29,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.logging_db import setup_logging
 from app.db.models import (
     GrowattEnvReading,
     GrowattEnvSensor,
@@ -449,7 +450,8 @@ def sync_all_history(
             n_inv, n_str = sync_inverter_history(db, client, inv, start, end)
             totals["inverter_rows"] += n_inv
             totals["string_rows"] += n_str
-            log.info("[%d/%d] %s (plant %s): %d records, %d string rows", idx, len(inverters), inv.device_sn, inv.plant_id, n_inv, n_str)
+            # DEBUG: 629 lines per run would be ~30 k rows/day in app_logs; the phase summary stays INFO
+            log.debug("[%d/%d] %s (plant %s): %d records, %d string rows", idx, len(inverters), inv.device_sn, inv.plant_id, n_inv, n_str)
         except Exception as exc:  # keep going; report at the end
             db.rollback()
             totals["failed"].append((inv.device_sn, str(exc)))
@@ -548,7 +550,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ap.add_argument("--skip-fleet", action="store_true", help="Use inverters already in the DB")
     ap.add_argument("--phase", type=int, action="append", help="Only these project phases / accounts (repeatable)")
     args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    setup_logging("cli")
 
     accounts = settings.growatt_accounts()
     if not accounts:

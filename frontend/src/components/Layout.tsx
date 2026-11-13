@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Search,
   Users,
+  ScrollText,
   BellRing,
   Building2,
   Rows3,
@@ -77,6 +78,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { to: "/settings", label: "Global Settings", icon: Settings, description: "Fleet-wide module & settings for every plant" },
       { to: "/users", label: "Users & Access", icon: Users, description: "Accounts, roles & plant assignments" },
+      { to: "/logs", label: "Logs", icon: ScrollText, description: "Backend and worker logs, errors & job runs" },
     ],
   },
 ];

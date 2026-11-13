@@ -14,6 +14,7 @@ from sqlalchemy import (
     Index,
     Integer,
     JSON,
+    SmallInteger,
     String,
     Text,
 )
@@ -603,3 +604,33 @@ class SyncRun(Base):
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     detail_json: Mapped[Optional[Any]] = mapped_column(JSON)
     error: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class AppLog(Base):
+    """One Python log record of the API or the worker (System → Logs), redacted before insert.
+
+    Bookkeeping, not measurements: no live values go in messages. `ts` is UTC. `run_id` links a
+    job run (`sync_runs.id`) without a foreign key, because runs and logs are pruned separately.
+    """
+
+    __tablename__ = "app_logs"
+    __table_args__ = (
+        Index("ix_app_logs_ts", "ts"),
+        Index("ix_app_logs_level_ts", "level_no", "ts"),
+        Index("ix_app_logs_run_id", "run_id"),
+        Index("ix_app_logs_source_ts", "source", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    level: Mapped[str] = mapped_column(String(8), nullable=False)
+    level_no: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)  # api | worker | cli
+    host: Mapped[Optional[str]] = mapped_column(String(64))
+    logger: Mapped[str] = mapped_column(String(128), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    exc_text: Mapped[Optional[str]] = mapped_column(Text)
+    run_id: Mapped[Optional[int]] = mapped_column(Integer)
+    job: Mapped[Optional[str]] = mapped_column(String(32))
+    request_id: Mapped[Optional[str]] = mapped_column(String(32))
+    extra_json: Mapped[Optional[Any]] = mapped_column(JSON)

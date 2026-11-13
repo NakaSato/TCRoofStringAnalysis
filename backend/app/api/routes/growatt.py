@@ -14,6 +14,8 @@ Timestamps in the reading tables are plant-local (Thai) time. DB responses carry
 
 from __future__ import annotations
 
+import logging
+
 from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -37,6 +39,7 @@ from app.services import jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
 
 router = APIRouter(prefix="/growatt", tags=["Growatt OpenAPI & Plant Telemetry"])
+audit = logging.getLogger("app.audit")
 
 DAY_QUERY = Query(None, description="Plant-local date (YYYY-MM-DD); default = latest day with data")
 
@@ -455,6 +458,7 @@ def put_fleet_module(
     from app.services import daily_summary  # firebase_admin is imported lazily by the sink
 
     saved = fleet_settings.put_fleet_module(db, payload.model_dump(), user.username or user.email)
+    audit.info("%s saved the fleet module", user.username or user.email)
     return {**saved, "published": _publish_safely(db, lambda: daily_summary.publish_config(db))}
 
 
@@ -523,7 +527,7 @@ def sync_status(
 def trigger_sync(
     job: str,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_admin),
+    user: User = Depends(require_admin),
 ) -> Dict[str, Any]:
     """Queue a job for the worker (history | backfill | fleet | publish_today | publish_yesterday | retention).
 
@@ -536,4 +540,5 @@ def trigger_sync(
         run_id = jobs.enqueue(db, job, "api")
     except jobs.JobBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    audit.info("%s queued job %s (run %s)", user.username or user.email, job, run_id)
     return {"run_id": run_id, "job": job, "status": "queued"}

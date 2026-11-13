@@ -10,6 +10,7 @@ its CPU after the response and the instance can scale to zero mid-job.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app import logging_db
 from app.config import settings
 from app.db.models import SyncRun
 from solar_core.growatt import GrowattClient
@@ -90,7 +92,10 @@ def _per_phase(
 
     if settings.worker_parallel_accounts and len(clients) > 1:
         with ThreadPoolExecutor(max_workers=len(clients), thread_name_prefix="growatt") as pool:
-            futures = {phase: pool.submit(run, phase, client) for phase, client in clients.items()}
+            # each thread gets a copy of the context, so phase logs keep the job's run id
+            futures = {
+                phase: pool.submit(contextvars.copy_context().run, run, phase, client) for phase, client in clients.items()
+            }
             results = {phase: f.result() for phase, f in futures.items()}
     else:
         results = {phase: run(phase, client) for phase, client in clients.items()}
@@ -224,7 +229,9 @@ def job_publish_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
 
 
 def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
-    """Delete raw readings and alarm logs older than HISTORY_RETENTION_DAYS (daily summaries are kept)."""
+    """Delete raw readings and alarm logs older than HISTORY_RETENTION_DAYS (daily summaries are
+    kept), and app logs older than LOG_RETENTION_DAYS or beyond LOG_MAX_ROWS."""
+    from app.services.system_logs import prune_logs
     from app.services import google_weather
     from app.services.growatt_alarms import prune_alarms
     from app.services.growatt_sync import prune_history
@@ -232,6 +239,7 @@ def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     detail = prune_history(db, _today(), settings.history_retention_days)
     detail["google_weather_rows"] = google_weather.prune(db, _today(), settings.history_retention_days)
     detail["alarm_rows"] = prune_alarms(db, _today(), settings.history_retention_days)
+    detail["log_rows"] = prune_logs(db, datetime.now(timezone.utc), settings.log_retention_days, settings.log_max_rows)
     return "ok", detail
 
 
@@ -355,18 +363,28 @@ def execute(session_factory: sessionmaker, run_id: int) -> SyncRun:
         # from finishing CREATE INDEX CONCURRENTLY and VACUUM (seen in prod: 68 min "idle in
         # transaction" during a history run)
         db.commit()
+        # every record logged during the run carries its id and job (System → Logs)
+        tokens = (logging_db.run_id_var.set(run_id), logging_db.job_var.set(run.job))
         try:
-            status, detail = JOBS[run.job](db)
-            run.status, run.detail_json = status, _jsonable(detail)
-        except Exception as exc:  # recorded, never raised into the worker loop
-            db.rollback()
-            run = db.get(SyncRun, run_id)
-            run.status, run.error = "failed", f"{type(exc).__name__}: {exc}"
-            log.exception("job %s failed", run.job)
-        run.finished_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(run)
-        return run
+            log.info("job %s started (run %s, %s)", run.job, run_id, run.trigger)
+            try:
+                status, detail = JOBS[run.job](db)
+                run.status, run.detail_json = status, _jsonable(detail)
+            except Exception as exc:  # recorded, never raised into the worker loop
+                db.rollback()
+                run = db.get(SyncRun, run_id)
+                assert run is not None
+                run.status, run.error = "failed", f"{type(exc).__name__}: {exc}"
+                log.exception("job %s failed", run.job)
+            run.finished_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(run)
+            lvl = logging.INFO if run.status == "ok" else logging.WARNING
+            log.log(lvl, "job %s finished: %s%s", run.job, run.status, f" ({run.error})" if run.error else "")
+            return run
+        finally:
+            logging_db.run_id_var.reset(tokens[0])
+            logging_db.job_var.reset(tokens[1])
 
 
 def run_job(session_factory: sessionmaker, job: str, trigger: str = "cli") -> SyncRun:

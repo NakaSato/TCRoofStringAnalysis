@@ -19,12 +19,15 @@ from app.api.routes import (
     rca,
     report,
     she,
+    system,
     users,
 )
+from app.api import request_log
 from app.auth import get_current_user, require_admin
 from app.config import settings
 from app.db.seed import ensure_seeded
 from app.db.session import SessionLocal, get_db
+from app.logging_db import setup_logging, teardown_logging
 from app.services import jobs
 
 
@@ -32,7 +35,10 @@ from app.services import jobs
 async def lifespan(_app: FastAPI):
     with SessionLocal() as db:
         ensure_seeded(db)
+    # after the schema exists: records go to app_logs, flushed per request (no thread on Cloud Run)
+    setup_logging("api")
     yield
+    teardown_logging()
 
 
 def create_app() -> FastAPI:
@@ -56,6 +62,7 @@ def create_app() -> FastAPI:
     )
     # JSON (fleet lists, the PWA report) shrinks ~5-10x; clients that don't ask get it plain.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+    request_log.install(app)
 
     api_router = APIRouter()
     api_router.include_router(auth.router)  # /auth/login is the only route open without a token
@@ -66,7 +73,7 @@ def create_app() -> FastAPI:
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
     # Growatt plants an engineer is assigned, so they are admin only.
     admin_only = [Depends(require_admin)]
-    for module in (plants, datasets, analysis, maintenance, rca, she, users):
+    for module in (plants, datasets, analysis, maintenance, rca, she, users, system):
         api_router.include_router(module.router, dependencies=admin_only)
 
     # Mount at both `/api` and `/` for compatibility
