@@ -14,7 +14,7 @@ Timestamps in the reading tables are plant-local (Thai) time. DB responses carry
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -265,17 +265,22 @@ def get_growatt_inverter_daily(
 def get_growatt_plant_weather(
     plant_id: int,
     day: Optional[date] = Query(None, description="Plant-local date (YYYY-MM-DD); default = latest day with weather data"),
+    start: Optional[time] = Query(None, description="Plant-local start time (HH:MM, inclusive); default = start of day"),
+    end: Optional[time] = Query(None, description="Plant-local end time (HH:MM, inclusive); default = end of day"),
     db: Session = Depends(get_db),
     _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
     """Stored weather-sensor data for one day: 5-minute irradiance, module/ambient temperature,
-    humidity and wind, plus daily insolation and peaks. Probes that read only 0 all day are null.
+    humidity and wind, plus insolation and peaks. Probes that read only 0 all day are null.
+    `start` / `end` narrow the series and KPIs to a time-of-day window (`meta.window`).
     `has_sensor = false` when the plant has no weather sensor."""
+    if start is not None and end is not None and start > end:
+        raise HTTPException(status_code=422, detail="start must not be after end")
     try:
         ov._get_plant(db, plant_id)
     except ov.GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return wx.build_weather_day(db, plant_id, day)
+    return wx.build_weather_day(db, plant_id, day, start_time=start, end_time=end)
 
 
 @router.get("/plants/{plant_id}/google-weather")

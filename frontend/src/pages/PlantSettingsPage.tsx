@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Save, Sliders, Cpu, CheckCircle2, Globe2, Layers } from "lucide-react";
-import { useAppContext } from "../context/AppContext";
+import { useAppContext, usePlantHref } from "../context/AppContext";
 import { api, FleetModuleOut, StringSpec } from "../api/client";
 import { PageHeader, Panel } from "../components/ui";
 import { FleetModulePanel } from "../components/FleetModulePanel";
@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export const PlantSettingsPage: React.FC = () => {
   const { activePlant, refreshAll, user } = useAppContext();
+  const plantHref = usePlantHref();
   const admin = isAdmin(user); // the legacy plant / string-spec form is admin only
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
@@ -82,7 +83,7 @@ export const PlantSettingsPage: React.FC = () => {
       <Panel icon={Layers} title="Per-plant settings" subtitle="Not global: set these on the selected plant">
         <ul className="space-y-2 text-xs text-slate-300">
           <li>
-            <Link to="/string-layout" className="font-semibold text-sky-300 underline">
+            <Link to={plantHref("string-layout")} className="font-semibold text-sky-300 underline">
               String Layout
             </Link>{" "}
             — modules per string and module Wp for one plant (blank Wp uses the fleet module above).

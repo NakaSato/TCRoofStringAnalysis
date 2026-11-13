@@ -23,10 +23,14 @@ import {
   Search,
   Users,
   BellRing,
+  Building2,
+  Rows3,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { canAccessPath, isAdmin } from "../auth/access";
+import { canAccessPath, canAccessPlantPage, isAdmin } from "../auth/access";
+import { getLastPlantId, parsePlantPath, plantPath } from "../context/routes";
+import type { PlantPage } from "../context/routes";
 import { api } from "../api/client";
 import { Led, LoadingState, fmt } from "./ui";
 import { Button } from "@/components/ui/button";
@@ -37,7 +41,9 @@ import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
 
 interface NavItem {
-  to: string;
+  /** fleet-wide page; plant pages use `page` instead (their URL carries the plant id) */
+  to?: string;
+  page?: PlantPage;
   label: string;
   icon: LucideIcon;
   description?: string;
@@ -47,10 +53,12 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Monitoring",
     items: [
-      { to: "/", label: "Plant Overview", icon: LayoutDashboard },
-      { to: "/generation", label: "Generation & PR", icon: TrendingUp, description: "Daily / monthly yield, PR & loss waterfall" },
-      { to: "/inverters", label: "Inverters", icon: Cpu, description: "Inverter status, MPPT, 5-minute profile & fault log" },
-      { to: "/strings", label: "String Diagnostics", icon: Activity, description: "String performance, heatmap & I-V / P-V curves" },
+      { to: "/", label: "All Plants", icon: Building2, description: "Every plant you can see, with live status" },
+      { page: "", label: "Plant Overview", icon: LayoutDashboard },
+      { page: "generation", label: "Generation & PR", icon: TrendingUp, description: "Daily / monthly yield, PR & loss waterfall" },
+      { page: "inverters", label: "Inverters", icon: Cpu, description: "Inverter status, MPPT, 5-minute profile & fault log" },
+      { page: "strings", label: "String Diagnostics", icon: Activity, description: "String performance, heatmap & I-V / P-V curves" },
+      { page: "string-layout", label: "String Layout", icon: Rows3, description: "Modules per string for each inverter" },
       { to: "/growatt", label: "Growatt Fleet", icon: Radio, description: "Live Growatt OpenAPI plants & inverter status" },
     ],
   },
@@ -58,7 +66,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: "Operations",
     items: [
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
-      { to: "/maintenance", label: "Maintenance & RCA", icon: Wrench, description: "PM schedule, CM work orders & root cause analysis" },
+      { page: "maintenance", label: "Maintenance & RCA", icon: Wrench, description: "PM schedule, CM work orders & root cause analysis" },
       { to: "/she", label: "Safety (SH&E)", icon: ShieldAlert, description: "Permit-to-work, LOTO & ISO 45001 compliance" },
     ],
   },
@@ -83,8 +91,19 @@ const useClock = () => {
 };
 
 export const Layout: React.FC = () => {
-  const { user, logout, activePlant, activeDataset, refreshAll, analysisRun, loading, error } =
-    useAppContext();
+  const {
+    user,
+    logout,
+    activePlant,
+    activeDataset,
+    refreshAll,
+    analysisRun,
+    loading,
+    error,
+    selectedGrowattPlantId,
+    selectedPlantOverview,
+    ensureLegacy,
+  } = useAppContext();
   const location = useLocation();
   const now = useClock();
 
@@ -125,7 +144,22 @@ export const Layout: React.FC = () => {
     setMobileNavOpen(false);
   }, [location.pathname]);
 
-  const current = ALL_NAV.find((n) => (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)));
+  // Plant pages link to the plant in the URL, else to the last plant opened (none: disabled).
+  const navPlantId = selectedGrowattPlantId ?? getLastPlantId();
+  const hrefOf = (n: NavItem): string | null =>
+    n.page != null ? (navPlantId != null ? plantPath(navPlantId, n.page) : null) : n.to ?? null;
+  const canSee = (n: NavItem) => (n.page != null ? canAccessPlantPage(user, n.page) : canAccessPath(user, n.to ?? "/"));
+  const plantRoute = parsePlantPath(location.pathname);
+  const current = plantRoute
+    ? ALL_NAV.find((n) => n.page != null && n.page === plantRoute.page)
+    : ALL_NAV.find((n) => n.to != null && (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)));
+  // Name / place of the plant in the URL; on fleet pages the legacy analysis plant, if loaded.
+  const shownPlantName =
+    selectedPlantOverview?.plant.name ??
+    (activePlant && activePlant.name !== "TC Roof Solar PV Plant" ? activePlant.name : null);
+  const shownPlantPlace = selectedPlantOverview
+    ? [selectedPlantOverview.plant.city, selectedPlantOverview.plant.country].filter(Boolean).join(", ") || null
+    : activePlant?.location ?? null;
 
   const kpis = analysisRun?.plant_kpis_json || {};
   const criticalStrings = Number(kpis.critical_strings || 0);
@@ -212,11 +246,11 @@ export const Layout: React.FC = () => {
           </span>
         </div>
         <div className="mt-1.5 truncate text-[13px] font-semibold text-slate-100">
-          {activePlant && activePlant.name !== "TC Roof Solar PV Plant" ? activePlant.name : "Solar Fleet Monitoring"}
+          {shownPlantName ?? "Solar Fleet Monitoring"}
         </div>
         <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
           <MapPin className="h-3 w-3" />
-          <span className="truncate">{activePlant?.location || "Bangkok, Thailand"}</span>
+          <span className="truncate">{shownPlantPlace ?? "—"}</span>
         </div>
         <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-2.5 text-[11px]">
           <div>
@@ -232,7 +266,7 @@ export const Layout: React.FC = () => {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-4">
-        {NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter((i) => canAccessPath(user, i.to)) }))
+        {NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter(canSee) }))
           .filter((group) => group.items.length > 0)
           .map((group) => (
           <div key={group.title}>
@@ -240,17 +274,31 @@ export const Layout: React.FC = () => {
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon;
+                // badges describe the open plant only
                 const badge =
-                  item.to === "/" && alarmCount > 0
+                  plantRoute && item.page === "" && alarmCount > 0
                     ? { n: alarmCount, cls: "bg-red-500/15 text-red-300 border-red-400/30" }
-                    : item.to === "/strings" && criticalStrings + warningStrings > 0
+                    : plantRoute && item.page === "strings" && criticalStrings + warningStrings > 0
                     ? { n: criticalStrings + warningStrings, cls: "bg-amber-500/15 text-amber-300 border-amber-400/30" }
                     : null;
+                const href = hrefOf(item);
+                if (href == null) {
+                  return (
+                    <div
+                      key={item.label}
+                      title="Open a plant from All Plants first"
+                      className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-slate-600"
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      <span className="flex-1 truncate">{item.label}</span>
+                    </div>
+                  );
+                }
                 return (
                   <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === "/"}
+                    key={item.label}
+                    to={href}
+                    end={item.to === "/" || item.page === ""}
                     className={({ isActive }) =>
                       `group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition ${
                         isActive
@@ -325,7 +373,7 @@ export const Layout: React.FC = () => {
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] text-slate-500">
                 <span className="hidden min-w-0 truncate sm:inline">
-                  {activePlant && activePlant.name !== "TC Roof Solar PV Plant" ? activePlant.name : "Solar Fleet"}
+                  {shownPlantName ?? "Solar Fleet"}
                 </span>
                 <span className="hidden sm:inline text-slate-700">/</span>
                 <span className="shrink-0 font-semibold text-slate-200">{current?.label || "Monitoring"}</span>
@@ -376,7 +424,15 @@ export const Layout: React.FC = () => {
             {isAdmin(user) && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setSpecsOpen(true)} aria-label="Quick plant parameters">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      ensureLegacy(); // the drawer edits the legacy analysis plant: load it now
+                      setSpecsOpen(true);
+                    }}
+                    aria-label="Quick plant parameters"
+                  >
                     <SlidersHorizontal className="size-4" />
                   </Button>
                 </TooltipTrigger>
@@ -521,7 +577,10 @@ export const Layout: React.FC = () => {
       <CommandPaletteModal
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
-        onOpenSpecs={() => setSpecsOpen(true)}
+        onOpenSpecs={() => {
+          ensureLegacy();
+          setSpecsOpen(true);
+        }}
         onOpenAlarms={() => setAlarmsOpen(true)}
         onSignOut={logout}
       />

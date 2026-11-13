@@ -23,7 +23,6 @@ import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
 import type { GoogleWeatherDay } from "../api/client";
 import { Panel, KpiTile, Led, EmptyState, LoadingState, fmt } from "../components/ui";
-import { FleetPlantDirectoryPanel } from "../components/FleetPlantDirectoryPanel";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { GrowattAlarmLogPanel } from "../components/GrowattAlarmLogPanel";
 import { OverviewTabSummaries } from "../components/OverviewTabSummaries";
@@ -205,13 +204,7 @@ const WeatherSlotsTile: React.FC<{ plantId: number; day: string | null }> = ({ p
 /* Overview page                                                              */
 /* -------------------------------------------------------------------------- */
 export const OverviewPage: React.FC = () => {
-  const {
-    selectedPlantOverview,
-    plantOverviewLoading,
-    dashboardMode,
-    setDashboardMode,
-    growattPlants,
-  } = useAppContext();
+  const { selectedPlantOverview, plantOverviewLoading, plantError } = useAppContext();
 
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
@@ -251,22 +244,8 @@ export const OverviewPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* ==================================================================== */}
-      {/* MODE A: FLEET PLANT DIRECTORY (Default; clicking any plant switches) */}
-      {/* ==================================================================== */}
-      {dashboardMode === "directory" && (
-        <FleetPlantDirectoryPanel
-          onSwitchViewMode={(m) => {
-            if (m === "overview") setDashboardMode("plant");
-            else setDashboardMode("directory");
-          }}
-        />
-      )}
-
-      {/* ==================================================================== */}
-      {/* MODE B: 1. SELECTED PLANT OVERVIEW (Only the selected plant)         */}
-      {/* ==================================================================== */}
-      {dashboardMode === "plant" && (
+      {/* 1. Plant overview of the plant in the URL (the directory is FleetHomePage at "/") */}
+      {(
         <div className="space-y-6">
           <SelectedPlantBanner />
 
@@ -275,8 +254,8 @@ export const OverviewPage: React.FC = () => {
           ) : !selectedPlantOverview ? (
             <EmptyState
               icon={Building2}
-              title="Select a plant from the directory"
-              description="Click any plant in the Plant Directory to load its real-time overview."
+              title="Plant overview unavailable"
+              description={plantError?.message ?? "The plant's stored history could not be loaded."}
             />
           ) : (
             <>

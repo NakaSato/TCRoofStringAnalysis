@@ -14,6 +14,8 @@ import { Card as UiCard } from "@/components/ui/card";
 import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
+import { plantPath } from "../context/routes";
+import type { PlantPage } from "../context/routes";
 
 const Card: React.FC<{
   to: string;
@@ -72,6 +74,7 @@ export const OverviewTabSummaries: React.FC<{
   overview: GrowattPlantOverview;
 }> = ({ overview }) => {
   const { kpis, inverters, strings, timeseries, loss_waterfall } = overview;
+  const plantHref = (page: PlantPage) => plantPath(overview.plant.plant_id, page);
 
   /* ---- 2. Generation & PR ---- */
   const powerSpec = useMemo<PanelChartSpec | null>(
@@ -169,7 +172,7 @@ export const OverviewTabSummaries: React.FC<{
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
       <Card
-        to="/generation"
+        to={plantHref("generation")}
         step={2}
         icon={TrendingUp}
         title="Performance Ratio"
@@ -203,7 +206,7 @@ export const OverviewTabSummaries: React.FC<{
         />
       </Card>
 
-      <Card to="/inverters" step={3} icon={Cpu} title="Inverters">
+      <Card to={plantHref("inverters")} step={3} icon={Cpu} title="Inverters">
         <div className="grid grid-cols-3 gap-2">
           <Stat
             label="Online"
@@ -269,7 +272,7 @@ export const OverviewTabSummaries: React.FC<{
         </div>
       </Card>
 
-      <Card to="/strings" step={4} icon={Activity} title="String Diagnostics">
+      <Card to={plantHref("strings")} step={4} icon={Activity} title="String Diagnostics">
         <div className="grid grid-cols-3 gap-2">
           <Stat
             label="Health"

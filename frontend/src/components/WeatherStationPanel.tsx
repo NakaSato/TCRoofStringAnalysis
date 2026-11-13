@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CloudSun, Droplets, Gauge, Sun, Thermometer, Wind } from "lucide-react";
+import { ChevronLeft, ChevronRight, CloudSun, Droplets, Gauge, Sun, Thermometer, Wind, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   api,
@@ -15,11 +15,20 @@ import type { ChartSeries, PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
 import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { pickDay, pickTime, useUrlState } from "@/lib/useUrlState";
 
 /** Plant-local (Bangkok) date, YYYY-MM-DD. */
 function plantToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
 }
+
+const shiftDay = (day: string, n: number) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 const compass = (deg: number | null | undefined) => (deg == null ? "" : COMPASS[Math.round(deg / 45) % 8]);
@@ -63,12 +72,29 @@ export const WeatherStationPanel: React.FC<{
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<GrowattLive<GrowattLiveWeather> | null>(null);
+  // Date / time filter in the URL (?wxDay=&wxFrom=&wxTo=), so a reload or shared link keeps it;
+  // switching plant drops it. No wxDay = follow the overview's day; no time = open-ended.
+  const today = plantToday();
+  const [url, setUrl] = useUrlState();
+  const urlDay = pickDay(url.get("wxDay"));
+  const pickedDay = urlDay && urlDay <= today ? urlDay : null;
+  const timeFrom = pickTime(url.get("wxFrom"));
+  const timeTo = pickTime(url.get("wxTo"));
+  const setTimeFrom = (t: string) => setUrl({ wxFrom: t });
+  const setTimeTo = (t: string) => setUrl({ wxTo: t });
+
+  const shownDay = pickedDay ?? day ?? wx?.meta.day ?? null;
+  const badWindow = Boolean(timeFrom && timeTo && timeFrom > timeTo);
+  const windowed = Boolean(timeFrom || timeTo) && !badWindow;
+  const reqDay = pickedDay ?? day ?? undefined;
+  const reqFrom = badWindow ? "" : timeFrom;
+  const reqTo = badWindow ? "" : timeTo;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
-      .getGrowattPlantWeather(plantId, day ?? undefined)
+      .getGrowattPlantWeather(plantId, reqDay, { start: reqFrom || undefined, end: reqTo || undefined })
       .then((r) => {
         if (cancelled) return;
         setWx(r);
@@ -79,12 +105,13 @@ export const WeatherStationPanel: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [plantId, day, dataUntil]);
+  }, [plantId, reqDay, reqFrom, reqTo, dataUntil]);
 
   useEffect(() => setLive(null), [plantId]);
-  const viewingToday = (day ?? wx?.meta.day) === plantToday();
+  const viewingToday = shownDay === today;
+  const showLive = viewingToday && !windowed;
   useLivePoll(
-    Boolean(wx?.has_sensor) && viewingToday,
+    Boolean(wx?.has_sensor) && showLive,
     plantId,
     () => api.getGrowattLiveWeather(plantId),
     (r) => setLive(r),
@@ -97,7 +124,15 @@ export const WeatherStationPanel: React.FC<{
     return set;
   }, [wx]);
 
-  const now = live?.data.sensors[0] ?? null;
+  const now = showLive ? live?.data.sensors[0] ?? null : null;
+  const filtered = pickedDay != null || Boolean(timeFrom || timeTo);
+  const clearFilter = () => {
+    setUrl({ wxDay: null, wxFrom: null, wxTo: null });
+  };
+  // IEC PR comes from the plant overview: it is a whole-day figure for the overview's day only
+  const prApplies = !windowed && (pickedDay == null || pickedDay === day);
+  const pr = prApplies ? iecPr : null;
+  const setDayClamped = (d: string) => setUrl({ wxDay: d > today ? today : d });
   const k = wx?.kpis;
 
   const spec = useMemo<PanelChartSpec | null>(() => {
@@ -128,7 +163,9 @@ export const WeatherStationPanel: React.FC<{
   const subtitle = wx?.sensors.length
     ? `${wx.sensors.length > 1 ? `${wx.sensors.length} sensors` : "Sensor"} ${wx.sensors
         .map((s) => `${s.datalogger_sn}#${s.address}`)
-        .join(", ")} · measured, 5-min · ${wx.meta.day ?? "no data"}`
+        .join(", ")} · measured, 5-min · ${wx.meta.day ?? "no data"}${
+        wx.meta.window ? ` ${wx.meta.window.start ?? "00:00"}–${wx.meta.window.end ?? "24:00"}` : ""
+      }`
     : "Plane-of-array irradiance, module & ambient temperature";
 
   return (
@@ -137,7 +174,7 @@ export const WeatherStationPanel: React.FC<{
       title="Weather Station"
       subtitle={subtitle}
       actions={
-        live ? (
+        live && showLive ? (
           <Badge
             variant={live.stale ? "warn" : "ok"}
             className="px-2 py-0.5 text-[11px] font-semibold"
@@ -160,6 +197,65 @@ export const WeatherStationPanel: React.FC<{
         />
       ) : (
         <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-ink-900/80 p-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => shownDay && setDayClamped(shiftDay(shownDay, -1))}
+                disabled={!shownDay}
+                aria-label="Previous day"
+              >
+                <ChevronLeft />
+              </Button>
+              <Input
+                type="date"
+                className="h-7 w-auto border-0 bg-transparent"
+                value={shownDay ?? ""}
+                max={today}
+                onChange={(e) => e.target.value && setDayClamped(e.target.value)}
+                aria-label="Weather day"
+              />
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => shownDay && setDayClamped(shiftDay(shownDay, 1))}
+                disabled={!shownDay || shownDay >= today}
+                aria-label="Next day"
+              >
+                <ChevronRight />
+              </Button>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-ink-900/80 p-1">
+              <Input
+                type="time"
+                step={300}
+                className="h-7 w-auto border-0 bg-transparent"
+                value={timeFrom}
+                onChange={(e) => setTimeFrom(e.target.value)}
+                aria-label="From time"
+              />
+              <span className="text-xs text-slate-500">–</span>
+              <Input
+                type="time"
+                step={300}
+                className="h-7 w-auto border-0 bg-transparent"
+                value={timeTo}
+                onChange={(e) => setTimeTo(e.target.value)}
+                aria-label="To time"
+              />
+            </div>
+            {filtered && (
+              <Button variant="ghost" size="sm" onClick={clearFilter}>
+                <X /> Reset
+              </Button>
+            )}
+            {badWindow ? (
+              <span className="text-xs text-amber-300">“From” is after “To”: showing the whole day</span>
+            ) : windowed ? (
+              <span className="text-xs text-slate-400">Cards and chart cover {timeFrom || "00:00"}–{timeTo || "24:00"} only</span>
+            ) : null}
+          </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <Card
               label={now ? "Irradiance now" : "Peak irradiance"}
@@ -167,7 +263,7 @@ export const WeatherStationPanel: React.FC<{
               tone="text-solar-400"
               value={fmt(now ? now.irradiance_wm2 : k?.peak_irradiance_wm2, 0)}
               unit="W/m²"
-              hint={now ? `Peak today ${fmt(k?.peak_irradiance_wm2, 0)} W/m²` : "Plane of array"}
+              hint={now ? `Peak today ${fmt(k?.peak_irradiance_wm2, 0)} W/m²` : windowed ? "Plane of array · in window" : "Plane of array"}
               meter={{ value: now ? now.irradiance_wm2 : k?.peak_irradiance_wm2, max: 1100, tone: "solar" }}
             />
             <Card
@@ -195,13 +291,13 @@ export const WeatherStationPanel: React.FC<{
             <Card
               label="IEC 61724 PR"
               icon={Gauge}
-              tone={iecPr?.pr_pct == null ? "text-slate-400" : iecPr.pr_pct >= 80 ? "text-emerald-300" : "text-amber-300"}
-              value={fmt(iecPr?.pr_pct, 1)}
-              unit={iecPr?.pr_pct == null ? undefined : "%"}
+              tone={pr?.pr_pct == null ? "text-slate-400" : pr.pr_pct >= 80 ? "text-emerald-300" : "text-amber-300"}
+              value={fmt(pr?.pr_pct, 1)}
+              unit={pr?.pr_pct == null ? undefined : "%"}
               hint={
-                iecPr?.pr_pct == null
-                  ? iecPr?.reason ?? "needs the plant overview"
-                  : `Yf ${fmt(iecPr.final_yield_h, 2)} h ÷ Yr ${fmt(iecPr.reference_yield_h, 2)} h · ${fmt(iecPr.coverage_pct, 0)}% coverage`
+                pr?.pr_pct == null
+                  ? prApplies ? pr?.reason ?? "needs the plant overview" : "Whole-day figure for the overview day only"
+                  : `Yf ${fmt(pr.final_yield_h, 2)} h ÷ Yr ${fmt(pr.reference_yield_h, 2)} h · ${fmt(pr.coverage_pct, 0)}% coverage`
               }
             />
             <Card
@@ -219,7 +315,13 @@ export const WeatherStationPanel: React.FC<{
           {spec ? (
             <PanelChart spec={spec} height={300} />
           ) : (
-            <EmptyState icon={Sun} title="No readings stored for this day" description="The weather sensor uploaded nothing for the selected day." />
+            <EmptyState
+              icon={Sun}
+              title={windowed ? "No readings in this time window" : "No readings stored for this day"}
+              description={
+                windowed ? "The weather sensor uploaded nothing between the selected times." : "The weather sensor uploaded nothing for the selected day."
+              }
+            />
           )}
         </div>
       )}

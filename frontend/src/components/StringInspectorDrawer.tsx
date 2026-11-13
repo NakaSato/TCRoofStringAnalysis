@@ -12,7 +12,7 @@ import {
   Sliders,
   Gauge,
 } from "lucide-react";
-import { useAppContext } from "../context/AppContext";
+import { useAppContext, usePlantHref } from "../context/AppContext";
 import { api } from "../api/client";
 import type { GrowattStringDetail } from "../api/client";
 import { PanelChart } from "./PanelChart";
@@ -30,6 +30,7 @@ export const StringInspectorDrawer: React.FC = () => {
     selectedGrowattPlantId,
   } = useAppContext();
   const navigate = useNavigate();
+  const plantHref = usePlantHref();
   const [dispatching, setDispatching] = useState(false);
   const [dispatchedMsg, setDispatchedMsg] = useState<string | null>(null);
   const [stringDetail, setStringDetail] = useState<GrowattStringDetail | null>(null);
@@ -73,13 +74,23 @@ export const StringInspectorDrawer: React.FC = () => {
   const tariff = activePlant?.tariff_thb_per_kwh ?? analysisRun.tariff_thb_per_kwh ?? 4.2;
 
   const lvl = statusLevel(row.status);
-  const peerGap = Number(row.current_mismatch_pct ?? row.peer_gap_pct ?? 0);
-  const lossKwh = Number(row.energy_loss_kwh ?? row.estimated_loss_kwh ?? 0);
-  const lossThb = lossKwh * tariff;
-  const vAvg = Number(row.v_avg ?? row.avg_vmp_v ?? 620);
-  const vMax = Number(row.v_max ?? vAvg * 1.15);
-  const iAvg = Number(row.i_avg ?? row.avg_imp_a ?? 8.5);
-  const iMax = Number(row.i_max ?? iAvg * 1.15);
+  // measured values only: a missing one stays null and shows "—" (no typical-looking stand-ins)
+  const num = (...vals: unknown[]): number | null => {
+    for (const v of vals) {
+      if (v == null || v === "") continue;
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
+  const peerGap = num(row.current_mismatch_pct, row.peer_gap_pct);
+  const lossKwh = num(row.energy_loss_kwh, row.estimated_loss_kwh);
+  const lossThb = lossKwh == null ? null : lossKwh * tariff;
+  const vAvg = num(row.v_avg, row.avg_vmp_v);
+  const vMax = num(row.v_max);
+  const iAvg = num(row.i_avg, row.avg_imp_a);
+  const iMax = num(row.i_max);
+  const pMaxKw = num(row.p_max_w);
 
   const handleDispatchCm = async () => {
     setDispatching(true);
@@ -219,14 +230,14 @@ export const StringInspectorDrawer: React.FC = () => {
               <div className="eyebrow">Peer Deviation</div>
               <div
                 className={`num mt-1 text-xl font-bold ${
-                  peerGap < -10 ? "text-red-400" : peerGap < -4 ? "text-amber-400" : "text-emerald-400"
+                  peerGap == null ? "text-slate-400" : peerGap < -10 ? "text-red-400" : peerGap < -4 ? "text-amber-400" : "text-emerald-400"
                 }`}
               >
-                {peerGap >= 0 ? "+" : ""}
+                {peerGap != null && peerGap >= 0 ? "+" : ""}
                 {fmt(peerGap, 1)}%
               </div>
               <div className="num mt-1 text-[11px] text-slate-400">
-                Peak: {fmt(Number(row.p_max_w || 0) / 1000, 2)} kW
+                Peak: {fmt(pMaxKw == null ? null : pMaxKw / 1000, 2)} kW
               </div>
             </div>
 
@@ -236,7 +247,7 @@ export const StringInspectorDrawer: React.FC = () => {
                 {fmt(lossKwh, 1)} <span className="text-xs text-slate-500">kWh</span>
               </div>
               <div className="num mt-1 text-[11px] text-amber-300">
-                ≈ ฿{Math.round(lossThb).toLocaleString()}
+                {lossThb == null ? "—" : `≈ ฿${Math.round(lossThb).toLocaleString()}`}
               </div>
             </div>
           </div>
@@ -282,7 +293,7 @@ export const StringInspectorDrawer: React.FC = () => {
                     <strong>{fmt(vAvg, 1)} V</strong> / {fmt(vMax, 1)} V Peak
                   </span>
                 </div>
-                <Meter value={vAvg} max={Math.max(800, vMax * 1.1)} tone="solar" />
+                {vAvg != null && <Meter value={vAvg} max={Math.max(800, (vMax ?? vAvg) * 1.1)} tone="solar" />}
               </div>
 
               <div>
@@ -292,7 +303,7 @@ export const StringInspectorDrawer: React.FC = () => {
                     <strong>{fmt(iAvg, 2)} A</strong> / {fmt(iMax, 2)} A Peak
                   </span>
                 </div>
-                <Meter value={iAvg} max={Math.max(15, iMax * 1.15)} tone="energy" />
+                {iAvg != null && <Meter value={iAvg} max={Math.max(15, (iMax ?? iAvg) * 1.15)} tone="energy" />}
               </div>
 
               <div>
@@ -323,7 +334,7 @@ export const StringInspectorDrawer: React.FC = () => {
               <Button
                 onClick={() => {
                   setInspectedStringId(null);
-                  navigate("/maintenance");
+                  navigate(plantHref("maintenance"));
                 }}
                 size="sm"
               >
@@ -338,13 +349,18 @@ export const StringInspectorDrawer: React.FC = () => {
           <Button
             onClick={() => {
               setInspectedStringId(null);
-              navigate("/strings");
+              navigate(plantHref("strings"));
             }}
           >
             <Activity className="h-3.5 w-3.5 text-energy-400" />
             Full String I-V Page
           </Button>
-          <Button onClick={handleDispatchCm} disabled={dispatching} variant="default">
+          <Button
+            onClick={handleDispatchCm}
+            disabled={dispatching || !analysisRun.id}
+            title={analysisRun.id ? undefined : "CM work orders come from the legacy analysis run (admin)"}
+            variant="default"
+          >
             <Wrench className="h-3.5 w-3.5" />
             {dispatching ? "Syncing CM Queue…" : "Dispatch CM Work Order"}
           </Button>

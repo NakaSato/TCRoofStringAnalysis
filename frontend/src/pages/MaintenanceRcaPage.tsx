@@ -112,7 +112,10 @@ export const MaintenanceRcaPage: React.FC = () => {
   };
 
   const handleRegenerateCm = async () => {
-    if (!analysisRun) return;
+    if (!analysisRun?.id) {
+      alert("No legacy analysis run to build CM work orders from.");
+      return;
+    }
     try {
       const orders = await api.regenerateCmWorkOrders(analysisRun.id);
       setCmOrders(orders);

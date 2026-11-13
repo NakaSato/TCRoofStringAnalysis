@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { api, PTWPermit } from "../api/client";
-import { PageHeader, Panel, KpiTile, StatusBadge } from "../components/ui";
+import { PageHeader, Panel, KpiTile, StatusBadge, fmt, fmtInt } from "../components/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export const SheSafetyPage: React.FC = () => {
   const { activePlant } = useAppContext();
-  const [kpis, setKpis] = useState<Record<string, number>>({});
+  const [kpis, setKpis] = useState<Record<string, number | null | undefined>>({});
   const [permits, setPermits] = useState<PTWPermit[]>([]);
   const [checklist, setChecklist] = useState<Record<string, any>[]>([]);
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
@@ -86,6 +86,12 @@ export const SheSafetyPage: React.FC = () => {
     }
   };
 
+  const nearMissOpen =
+    kpis.near_miss_reported != null && kpis.near_miss_closed != null
+      ? kpis.near_miss_reported - kpis.near_miss_closed
+      : null;
+  const nearMissHint = nearMissOpen == null ? undefined : nearMissOpen === 0 ? "All resolved" : `${nearMissOpen} still open`;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -95,13 +101,13 @@ export const SheSafetyPage: React.FC = () => {
         description="ISO 45001, ISO 14001, and NFPA 70E Electrical LOTO / Rooftop Work-at-Height Safety Governance."
       />
 
-      {/* 6 SH&E KPI Cards */}
+      {/* 6 SH&E KPI Cards: values as reported, "—" when missing; hints describe, never claim */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <KpiTile
           label="Safe Man-Hours"
           icon={Clock}
           tone="solar"
-          value={(kpis.safe_man_hours || 0).toLocaleString()}
+          value={fmtInt(kpis.safe_man_hours)}
           unit="hrs"
           hint="Cumulative Site Total"
           hintTone="ok"
@@ -110,44 +116,41 @@ export const SheSafetyPage: React.FC = () => {
           label="Zero-LTI Streak"
           icon={Award}
           tone="ok"
-          value={kpis.days_without_lti || 0}
+          value={fmtInt(kpis.days_without_lti)}
           unit="Days"
-          hint="0 Lost Time Injuries"
-          hintTone="ok"
+          hint="Since the last lost-time injury"
         />
         <KpiTile
           label="Permit-to-Work"
           icon={FileCheck}
           tone="energy"
-          value={(kpis.ptw_audit_compliance_pct || 100).toFixed(0)}
+          value={fmt(kpis.ptw_audit_compliance_pct, 0)}
           unit="%"
-          hint="100% Audited"
-          hintTone="info"
+          hint="Permits passing audit"
         />
         <KpiTile
           label="LOTO Isolation"
           icon={Lock}
           tone="ok"
-          value={(kpis.loto_compliance_pct || 100).toFixed(0)}
+          value={fmt(kpis.loto_compliance_pct, 0)}
           unit="%"
-          hint="Zero Violations"
-          hintTone="ok"
+          hint="Isolations to procedure"
         />
         <KpiTile
           label="Toolbox Talks"
           icon={Users}
           tone="neutral"
-          value={kpis.toolbox_talks_completed || 0}
+          value={fmtInt(kpis.toolbox_talks_completed)}
           unit="Sessions"
-          hint="100% Attendance"
+          hint="Completed"
         />
         <KpiTile
           label="Near-Miss Closure"
           icon={CheckCircle2}
           tone="ok"
-          value={`${kpis.near_miss_closed || 0} / ${kpis.near_miss_reported || 0}`}
-          hint="All Resolved"
-          hintTone="ok"
+          value={`${fmtInt(kpis.near_miss_closed)} / ${fmtInt(kpis.near_miss_reported)}`}
+          hint={nearMissHint}
+          hintTone={nearMissOpen === 0 ? "ok" : nearMissOpen != null ? "warn" : undefined}
         />
       </div>
 

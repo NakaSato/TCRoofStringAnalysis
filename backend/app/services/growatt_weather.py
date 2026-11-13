@@ -17,7 +17,7 @@ when the sensor covered most of the plant's producing time; otherwise it is null
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, cast
 
 from sqlalchemy import func, select
@@ -114,9 +114,17 @@ def latest_day(db: Session, plant_id: int) -> Optional[date]:
 
 
 def build_weather_day(
-    db: Session, plant_id: int, day: Optional[date] = None, latest_if_none: bool = True
+    db: Session,
+    plant_id: int,
+    day: Optional[date] = None,
+    latest_if_none: bool = True,
+    start_time: Optional[time] = None,
+    end_time: Optional[time] = None,
 ) -> Dict[str, Any]:
     """5-minute weather series and daily KPIs for one plant-local day.
+
+    `start_time` / `end_time` (plant-local, both inclusive) narrow the series and the KPIs to
+    that time-of-day window; which probes count as measured is still judged on the whole day.
 
     `day=None` means the latest day with weather data (or no day at all when `latest_if_none`
     is false). Several sensors on one plant are averaged per 5-minute slot (wind direction as
@@ -181,7 +189,11 @@ def build_weather_day(
                 "wind_dir_deg": _round(_circular_mean_deg(b["wind_dir_deg"]), 0),
             }
         )
-    return _result(day, sensors, out_sensors, series, _kpis(series))
+    if start_time is not None or end_time is not None:
+        lo = start_time or time.min
+        hi = end_time or time.max
+        series = [p for p in series if lo <= datetime.strptime(p["timestamp"], "%Y-%m-%d %H:%M:%S").time() <= hi]
+    return _result(day, sensors, out_sensors, series, _kpis(series), start_time, end_time)
 
 
 def _kpis(series: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -210,6 +222,8 @@ def _result(
     out_sensors: List[Dict[str, Any]],
     series: List[Dict[str, Any]],
     kpis: Dict[str, Any],
+    start_time: Optional[time] = None,
+    end_time: Optional[time] = None,
 ) -> Dict[str, Any]:
     empty = {
         "insolation_kwh_m2": None,
@@ -224,7 +238,14 @@ def _result(
     }
     data_until = max((s["last_reading"] for s in out_sensors if s["last_reading"]), default=None)
     return {
-        "meta": {"source": "db", "day": day.isoformat() if day else None, "data_until": data_until},
+        "meta": {"source": "db", "day": day.isoformat() if day else None, "data_until": data_until,
+            "window": None
+            if start_time is None and end_time is None
+            else {
+                "start": start_time.strftime("%H:%M") if start_time else None,
+                "end": end_time.strftime("%H:%M") if end_time else None,
+            },
+        },
         "has_sensor": bool(sensors),
         # without a day the sensors are still listed, with no readings
         "sensors": out_sensors

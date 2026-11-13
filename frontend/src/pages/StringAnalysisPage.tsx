@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   ArrowUpRight,
 } from "lucide-react";
+import { pick, useUrlState } from "@/lib/useUrlState";
 import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
 import type { GrowattStringDetail } from "../api/client";
@@ -36,6 +37,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+const STATUS_FILTERS = ["ALL", "Healthy", "Warning", "Critical"] as const;
+
 export const StringAnalysisPage: React.FC = () => {
   const {
     selectedGrowattPlantId,
@@ -44,10 +47,16 @@ export const StringAnalysisPage: React.FC = () => {
     setInspectedStringId,
   } = useAppContext();
 
-  const [selectedInverterSn, setSelectedInverterSn] = useState<string>("ALL");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "Healthy" | "Warning" | "Critical">("ALL");
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [activeStringKey, setActiveStringKey] = useState<string | null>(null);
+  // filters and the analysed string live in the URL (?inv=&status=&q=&string=)
+  const [query, setQuery] = useUrlState();
+  const selectedInverterSn = query.get("inv") ?? "ALL";
+  const setSelectedInverterSn = (sn: string) => setQuery({ inv: sn === "ALL" ? null : sn });
+  const statusFilter = pick(query.get("status"), STATUS_FILTERS, "ALL");
+  const setStatusFilter = (st: (typeof STATUS_FILTERS)[number]) => setQuery({ status: st === "ALL" ? null : st });
+  const searchQuery = query.get("q") ?? "";
+  const setSearchQuery = (q: string) => setQuery({ q });
+  const activeStringKey = query.get("string");
+  const setActiveStringKey = (id: string | null) => setQuery({ string: id });
   const [stringDetail, setStringDetail] = useState<GrowattStringDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
 
@@ -57,11 +66,7 @@ export const StringAnalysisPage: React.FC = () => {
   const strings = selectedPlantOverview?.strings || [];
   const anomalies = selectedPlantOverview?.anomalies || [];
 
-  // Reset inverter filter when switching plant
-  useEffect(() => {
-    setSelectedInverterSn("ALL");
-    setActiveStringKey(null);
-  }, [selectedGrowattPlantId]);
+  // (switching plant drops the query, so the filters start over by themselves)
 
   const filteredStrings = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

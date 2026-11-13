@@ -28,13 +28,14 @@ import {
   AlertCircle,
   Bell,
   ArrowUpDown,
-  Table as TableIcon,
   LayoutGrid,
   Eye,
 } from "lucide-react";
 import { api } from "../api/client";
 import type { GrowattPlant } from "../api/client";
 import { useAppContext } from "../context/AppContext";
+import { getLastPlantId, plantPath } from "../context/routes";
+import { plantToday, useAlarmLog } from "../context/alarmLogStore";
 import { StatusBadge, Led, fmt, fmtInt, LOADING_STATUS } from "./ui";
 import type { StatusLevel } from "./ui";
 import { Button } from "@/components/ui/button";
@@ -53,7 +54,8 @@ export interface UnifiedPlantItem {
   /** null when Growatt has no plausible capacity for the plant */
   capacityKwp: number | null;
   currentPowerKw: number | null; // realtime (live overlay); null when live is unavailable
-  yieldTodayKwh: number;
+  /** measured energy of the latest synced day; null when the plant has no data for it */
+  yieldTodayKwh: number | null;
   totalEnergyKwh: number | null;
   specificEnergyKwhPerKwp: number | null;
   prPct: number | null;
@@ -79,7 +81,7 @@ interface DonutSegment {
 
 const MultiSegmentDonut: React.FC<{
   segments: DonutSegment[];
-  totalValue: number;
+  totalValue: number | string;
   centerLabel: string;
   size?: number;
   strokeWidth?: number;
@@ -129,41 +131,7 @@ const MultiSegmentDonut: React.FC<{
                 />
               );
             })
-        ) : (
-          /* Decorative multi-color ring when 0 items (mirrors FusionSolar empty ring aesthetic) */
-          <>
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke="#10b981"
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${circumference * 0.33 - 3} ${circumference}`}
-              strokeDashoffset={0}
-            />
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke="#ef4444"
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${circumference * 0.33 - 3} ${circumference}`}
-              strokeDashoffset={-circumference * 0.33}
-            />
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke="#64748b"
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${circumference * 0.34 - 3} ${circumference}`}
-              strokeDashoffset={-circumference * 0.66}
-            />
-          </>
-        )}
+        ) : null /* nothing (or no data): only the grey track, never a decorative ring */}
       </svg>
       <div className="
         pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center
@@ -229,9 +197,7 @@ const PlantThumbnail: React.FC<{ statusLevel: StatusLevel; source: "local" | "gr
 /* -------------------------------------------------------------------------- */
 /* Main Component: FusionSolar-style Fleet KPI Banner + Plant Directory Table */
 /* -------------------------------------------------------------------------- */
-export const FleetPlantDirectoryPanel: React.FC<{
-  onSwitchViewMode?: (mode: "all" | "plants" | "overview") => void;
-}> = ({ onSwitchViewMode }) => {
+export const FleetPlantDirectoryPanel: React.FC = () => {
   const {
     activePlant,
     activeDataset,
@@ -243,6 +209,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
     refreshGrowattPlants,
     growattLiveStatus,
   } = useAppContext();
+  const alarmLog = useAlarmLog(plantToday()).view?.result ?? null;
   const [loadingCloud, setLoadingCloud] = useState(false);
   const [cloudNotice, setCloudNotice] = useState<string | null>(null);
 
@@ -289,9 +256,9 @@ export const FleetPlantDirectoryPanel: React.FC<{
       const capKwp = gp.peak_power_kwp ?? null;
       const totalKwh = gp.total_energy_kwh ?? null;
       const curKw = gp.current_power_w == null ? null : gp.current_power_w / 1000;
-      // Measured energy of the latest synced day only — no estimate when it is missing.
-      const estTodayKwh = Number(gp.today_energy_kwh ?? 0);
-      const invCnt = gp.inverter_count ?? 1;
+      // Measured energy of the latest synced day only — null (shown "—") when it is missing.
+      const dayKwh = gp.today_energy_kwh ?? null;
+      const invCnt = gp.inverter_count ?? null;
 
       items.push({
         uid: `growatt-${gp.plant_id}`,
@@ -302,16 +269,17 @@ export const FleetPlantDirectoryPanel: React.FC<{
         location: [gp.city, gp.country].filter(Boolean).join(", ") || "Thailand",
         capacityKwp: capKwp,
         currentPowerKw: curKw,
-        yieldTodayKwh: estTodayKwh,
+        yieldTodayKwh: dayKwh,
         totalEnergyKwh: totalKwh,
-        specificEnergyKwhPerKwp: capKwp ? estTodayKwh / capKwp : null,
+        specificEnergyKwhPerKwp: capKwp && dayKwh != null ? dayKwh / capKwp : null,
         prPct: null,
         statusLabel: isUnknown ? LOADING_STATUS : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
         statusLevel: isUnknown ? "neutral" : isNormal ? "ok" : isDisconnected ? "info" : "crit",
         stringsCount: invCnt,
         modulesCount: null,
         invertersCount: invCnt,
-        deviceSnList: [`GW-${gp.plant_id}`],
+        // the plant list carries no inverter serials: the ID filter matches the Growatt plant id
+        deviceSnList: [String(gp.plant_id)],
         deviceType: "Growatt MAX Inverter",
         batteryStatus: "--",
         createdDate: gp.create_date || null,
@@ -329,24 +297,26 @@ export const FleetPlantDirectoryPanel: React.FC<{
       return known.length ? known.reduce((a, v) => a + v, 0) : null;
     };
     const currentPowerKw = sumKnown(unifiedPlants.map((p) => p.currentPowerKw));
-    const yieldTodayKwh = unifiedPlants.reduce((a, p) => a + p.yieldTodayKwh, 0);
+    const yieldTodayKwh = sumKnown(unifiedPlants.map((p) => p.yieldTodayKwh));
     const totalYieldKwh = sumKnown(unifiedPlants.map((p) => p.totalEnergyKwh));
     const ratedPowerKwp = unifiedPlants.reduce((a, p) => a + (p.capacityKwp ?? 0), 0);
     const tariff = activePlant?.tariff_thb_per_kwh ?? analysisRun?.tariff_thb_per_kwh ?? 4.2;
-    const revenueTodayThb = yieldTodayKwh * tariff;
+    const revenueTodayThb = yieldTodayKwh == null ? null : yieldTodayKwh * tariff;
 
     const normalPlants = unifiedPlants.filter((p) => p.statusLabel === "Normal").length;
     const faultyPlants = unifiedPlants.filter((p) => p.statusLabel === "Faulty").length;
     const disconnectedPlants = unifiedPlants.filter((p) => p.statusLabel === "Disconnected").length;
 
-    // Alarm breakdown derived from active plant strings & anomalies
-    const strings = analysisRun?.string_summary_json || [];
-    const anomalies = analysisRun?.anomalies_json || [];
-    const criticalCount = strings.filter((s: Record<string, any>) => s.status === "Critical").length;
-    const majorCount = strings.filter((s: Record<string, any>) => s.status === "Warning").length;
-    const minorCount = Math.min(4, Math.floor(anomalies.length / 2));
-    const warningCount = Math.max(0, anomalies.length > 0 ? 1 : 0);
-    const totalAlarms = criticalCount + majorCount + minorCount + warningCount;
+    // Today's Growatt alarm log of every visible plant (the Active Alarm page's data, DB only).
+    // Null until it has answered, or when the worker has not read any plant's log today:
+    // shown as "—", never as zero alarms.
+    const rows = alarmLog && alarmLog.syncedAt != null ? alarmLog.rows : null;
+    const countLevel = (lvl: StatusLevel) => (rows ? rows.filter((r) => r.level === lvl).length : null);
+    const faultCount = countLevel("crit");
+    const warningCount = countLevel("warn");
+    const otherCount = rows ? rows.length - (faultCount ?? 0) - (warningCount ?? 0) : null;
+    const openCount = rows ? rows.filter((r) => r.open).length : null;
+    const totalAlarms = rows ? rows.length : null;
 
     return {
       currentPowerKw,
@@ -358,13 +328,13 @@ export const FleetPlantDirectoryPanel: React.FC<{
       normalPlants,
       faultyPlants,
       disconnectedPlants,
-      criticalCount,
-      majorCount,
-      minorCount,
+      faultCount,
       warningCount,
+      otherCount,
+      openCount,
       totalAlarms,
     };
-  }, [unifiedPlants, activePlant, analysisRun]);
+  }, [unifiedPlants, activePlant, analysisRun, alarmLog]);
 
   // Filter & Sort plants for the table
   const filteredPlants = useMemo(() => {
@@ -713,8 +683,8 @@ export const FleetPlantDirectoryPanel: React.FC<{
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold tracking-tight text-white">Active Alarms</h3>
               <Link
-                to="/maintenance"
-                title="View Maintenance & RCA Alarms"
+                to="/alarms"
+                title="Open Active Alarm (whole fleet)"
                 className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -723,76 +693,39 @@ export const FleetPlantDirectoryPanel: React.FC<{
 
             <div className="flex items-center justify-center gap-8 pt-1">
               <MultiSegmentDonut
-                totalValue={heroMetrics.totalAlarms}
-                centerLabel="Total alarms"
+                totalValue={heroMetrics.totalAlarms == null ? "—" : heroMetrics.totalAlarms}
+                centerLabel="Alarms today"
                 segments={[
-                  { label: "Critical", value: heroMetrics.criticalCount, color: "#ef4444" },
-                  { label: "Major", value: heroMetrics.majorCount, color: "#f97316" },
-                  { label: "Minor", value: heroMetrics.minorCount, color: "#eab308" },
-                  { label: "Warning", value: heroMetrics.warningCount, color: "#3b82f6" },
+                  { label: "Faults", value: heroMetrics.faultCount ?? 0, color: "#ef4444" },
+                  { label: "Warnings", value: heroMetrics.warningCount ?? 0, color: "#f59e0b" },
+                  { label: "Other", value: heroMetrics.otherCount ?? 0, color: "#64748b" },
                 ]}
               />
 
               <div className="grid grid-cols-1 gap-2">
-                <Link
-                  to="/maintenance"
-                  className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
-                >
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-red-400/40 bg-red-500/15 text-red-400">
-                    <Bell className="h-3 w-3" />
-                  </span>
-                  <div>
-                    <div className="num text-xs font-bold leading-tight text-white">
-                      {heroMetrics.criticalCount}
-                    </div>
-                    <div className="text-[11px] text-slate-400">Critical</div>
-                  </div>
-                </Link>
-
-                <Link
-                  to="/maintenance"
-                  className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
-                >
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-orange-400/40 bg-orange-500/15 text-orange-400">
-                    <Zap className="h-3 w-3" />
-                  </span>
-                  <div>
-                    <div className="num text-xs font-bold leading-tight text-white">
-                      {heroMetrics.majorCount}
-                    </div>
-                    <div className="text-[11px] text-slate-400">Major</div>
-                  </div>
-                </Link>
-
-                <Link
-                  to="/maintenance"
-                  className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
-                >
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/15 text-amber-300">
-                    <AlertCircle className="h-3 w-3" />
-                  </span>
-                  <div>
-                    <div className="num text-xs font-bold leading-tight text-white">
-                      {heroMetrics.minorCount}
-                    </div>
-                    <div className="text-[11px] text-slate-400">Minor</div>
-                  </div>
-                </Link>
-
-                <Link
-                  to="/maintenance"
-                  className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
-                >
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full border border-sky-400/40 bg-sky-500/15 text-sky-300">
-                    <Info className="h-3 w-3" />
-                  </span>
-                  <div>
-                    <div className="num text-xs font-bold leading-tight text-white">
-                      {heroMetrics.warningCount}
-                    </div>
-                    <div className="text-[11px] text-slate-400">Warning</div>
-                  </div>
-                </Link>
+                {[
+                  { label: "Faults", value: heroMetrics.faultCount, icon: Bell, cls: "border-red-400/40 bg-red-500/15 text-red-400" },
+                  { label: "Warnings", value: heroMetrics.warningCount, icon: AlertCircle, cls: "border-amber-400/40 bg-amber-500/15 text-amber-300" },
+                  { label: "Other", value: heroMetrics.otherCount, icon: Info, cls: "border-slate-400/40 bg-slate-500/15 text-slate-300" },
+                  { label: "Still open", value: heroMetrics.openCount, icon: Zap, cls: "border-sky-400/40 bg-sky-500/15 text-sky-300" },
+                ].map((row) => {
+                  const Icon = row.icon;
+                  return (
+                    <Link
+                      key={row.label}
+                      to="/alarms"
+                      className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
+                    >
+                      <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${row.cls}`}>
+                        <Icon className="h-3 w-3" />
+                      </span>
+                      <div>
+                        <div className="num text-xs font-bold leading-tight text-white">{fmtInt(row.value)}</div>
+                        <div className="text-[11px] text-slate-400">{row.label}</div>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -800,13 +733,6 @@ export const FleetPlantDirectoryPanel: React.FC<{
 
         {/* Floating Right-Edge Quick Mode Toolbar (matches FusionSolar right dock) */}
         <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 flex-col gap-1 rounded-lg border border-white/15 bg-ink-900/90 p-1 shadow-xl backdrop-blur md:flex">
-          <button
-            onClick={() => onSwitchViewMode?.("all")}
-            title="Show Plant Directory + Plant Overview"
-            className="rounded p-1.5 text-sky-300 transition hover:bg-white/10 hover:text-white"
-          >
-            <TableIcon className="h-3.5 w-3.5" />
-          </button>
           <button
             onClick={() => setShowInspectorDrawer((v) => !v)}
             title="Toggle Selected Plant String Inspector Strip"
@@ -817,9 +743,13 @@ export const FleetPlantDirectoryPanel: React.FC<{
             <LayoutGrid className="h-3.5 w-3.5" />
           </button>
           <button
-            onClick={() => onSwitchViewMode?.("overview")}
-            title="Focus Active Plant Overview"
-            className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+            onClick={() => {
+              const last = getLastPlantId();
+              if (last != null) selectGrowattPlant(last);
+            }}
+            disabled={getLastPlantId() == null}
+            title="Open the last plant you viewed"
+            className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
           >
             <Eye className="h-3.5 w-3.5" />
           </button>
@@ -930,7 +860,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
               {/* Device SN */}
               <div className="flex items-center gap-1.5">
                 <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-                  Device SN
+                  Plant ID
                 </label>
                 <Input
                   type="text"
@@ -939,7 +869,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     setDeviceSnFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  placeholder="Device SN"
+                  placeholder="Plant ID"
                   className="h-7 w-24 px-2 text-[11px]"
                 />
               </div>
@@ -1076,7 +1006,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     onClick={() => handleSort("stringsCount")}
                     className="inline-flex items-center justify-end gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
                   >
-                    Strings / Opt <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                    Inverters <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
                   </button>
                 </th>
                 <th className="whitespace-nowrap px-2 py-2.5 font-semibold">Battery</th>
@@ -1141,8 +1071,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                       key={p.uid}
                       onClick={() => {
                         setSelectedUid(p.uid);
-                        selectGrowattPlant(p.id, true);
-                        onSwitchViewMode?.("overview");
+                        selectGrowattPlant(p.id);
                       }}
                       className={`group cursor-pointer border-t border-white/[0.05] transition ${
                         isSelected ? "bg-sky-500/[0.09]" : "hover:bg-white/[0.04]"
@@ -1269,7 +1198,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </div>
               <div className="flex items-center gap-3">
                 <Link
-                  to="/strings"
+                  to={selectedPlant ? plantPath(selectedPlant.id, "strings") : "/strings"}
                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 hover:text-sky-300"
                 >
                   Full String Diagnostics <ArrowUpRight className="h-3 w-3" />

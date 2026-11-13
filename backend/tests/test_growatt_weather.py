@@ -243,7 +243,7 @@ def test_failed_sensor_is_reported_not_raised(tmp_path, monkeypatch):
 def test_weather_route_series_kpis_and_unmeasured_fields(env):
     c, _app, _S = env
     w = c.get(f"/api/growatt/plants/{PLANT}/weather", params={"day": "2026-11-11"}).json()
-    assert w["meta"] == {"source": "db", "day": "2026-11-11", "data_until": "2026-11-11 20:25:00"}
+    assert w["meta"] == {"source": "db", "day": "2026-11-11", "data_until": "2026-11-11 20:25:00", "window": None}
     assert w["has_sensor"] is True
     s = w["sensors"][0]
     assert s["datalogger_sn"] == DL and s["address"] == ADDR
@@ -262,6 +262,22 @@ def test_weather_route_series_kpis_and_unmeasured_fields(env):
     assert k["avg_humidity_pct"] is None
     # default day = latest day with weather data
     assert c.get(f"/api/growatt/plants/{PLANT}/weather").json()["meta"]["day"] == "2026-11-11"
+
+
+def test_weather_route_time_window_narrows_series_and_kpis(env):
+    c, _app, _S = env
+    url = f"/api/growatt/plants/{PLANT}/weather"
+    w = c.get(url, params={"day": "2026-11-11", "start": "10:00", "end": "12:00"}).json()
+    assert w["meta"]["window"] == {"start": "10:00", "end": "12:00"}
+    ts = [p["timestamp"] for p in w["series"]]
+    assert ts[0] == "2026-11-11 10:00:00" and ts[-1] == "2026-11-11 12:00:00" and len(ts) == 25  # both ends inclusive
+    assert w["kpis"]["insolation_kwh_m2"] == pytest.approx(25 * 5 / 60 * 0.6, abs=0.01)
+    assert w["sensors"][0]["samples"] > 25  # sensor info still describes the whole day
+    # open-ended window: evening only holds the night readings
+    night = c.get(url, params={"day": "2026-11-11", "start": "19:00"}).json()
+    assert night["meta"]["window"] == {"start": "19:00", "end": None}
+    assert night["kpis"]["insolation_kwh_m2"] == 0 and night["kpis"]["avg_module_temp_daylight_c"] is None
+    assert c.get(url, params={"day": "2026-11-11", "start": "12:00", "end": "10:00"}).status_code == 422
 
 
 def test_weather_route_without_sensor_and_unknown_plant(env):
