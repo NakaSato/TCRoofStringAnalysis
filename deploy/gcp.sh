@@ -40,9 +40,9 @@ EXT_IP_NAME="tcroof-db-ext"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"  # 2 vCPU / 8 GB (Postgres page cache for charts + history)
 DISK_TYPE="${DISK_TYPE:-pd-balanced}"
 API_MIN_INSTANCES="${API_MIN_INSTANCES:-1}"    # 1 = no cold start (idle instance ≈ ฿447/month)
-# Monthly budget in the billing account's currency (override with BUDGET_AMOUNT, e.g. 3013 or 3013THB).
+# Monthly budget in the billing account's currency (override with BUDGET_AMOUNT, e.g. 3000 or 3000THB).
 BUDGET_NAME="tcroof-monthly"
-budget_amount_for() { case "$1" in THB) echo 3013 ;; USD) echo 89 ;; *) echo "" ;; esac; }
+budget_amount_for() { case "$1" in THB) echo 3000 ;; USD) echo 88 ;; *) echo "" ;; esac; }
 COST_CAP_PCT="${COST_CAP_PCT:-96}"             # cost guard disables billing here (billing data lags ~1 day)
 COSTGUARD_DRY_RUN="${COSTGUARD_DRY_RUN:-false}"
 BUDGET_TOPIC="tcroof-budget"
@@ -278,7 +278,7 @@ cmd_costguard() {
   local ba cur amount sa topic id r
   ba="$(g billing projects describe "$PROJECT" --format='value(billingAccountName)' | sed 's#billingAccounts/##')"
   cur="$(gcloud billing accounts describe "$ba" --format='value(currencyCode)')"
-  amount="${BUDGET_AMOUNT:-$(budget_amount_for "$cur")}"; amount="${amount%"$cur"}"  # accept 3013 or 3013THB
+  amount="${BUDGET_AMOUNT:-$(budget_amount_for "$cur")}"; amount="${amount%"$cur"}"  # accept 3000 or 3000THB
   [ -n "$amount" ] || { echo "Billing account currency is $cur: set BUDGET_AMOUNT"; exit 1; }
   sa="${GUARD}@${PROJECT}.iam.gserviceaccount.com"; topic="projects/${PROJECT}/topics/${BUDGET_TOPIC}"
 
@@ -359,7 +359,7 @@ JSON
     g compute ssh "$VM" --zone "$ZONE" --command "systemctl is-active --quiet google-cloud-ops-agent || {
       curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh && sudo bash add-google-cloud-ops-agent-repo.sh --also-install; }"
     alert_policy "tcroof: Disk almost full" "$ch" '{"displayName":"VM disk used > 85 %","conditionThreshold":{
- "filter":"metric.type="agent.googleapis.com/disk/percent_used" AND resource.type="gce_instance" AND metric.label.state="used"",
+ "filter":"metric.type=\"agent.googleapis.com/disk/percent_used\" AND resource.type=\"gce_instance\" AND metric.label.state=\"used\"",
  "aggregations":[{"alignmentPeriod":"300s","perSeriesAligner":"ALIGN_MEAN"}],
  "comparison":"COMPARISON_GT","thresholdValue":85,"duration":"300s","trigger":{"count":1}}}'
   else
