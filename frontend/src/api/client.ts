@@ -392,6 +392,8 @@ export interface GrowattWeatherDay {
     data_until: string | null;
     /** plant-local time-of-day window (HH:MM, inclusive) the series and KPIs cover; null = whole day */
     window: { start: string | null; end: string | null } | null;
+    /** the one sensor the series and KPIs cover (`?sensor=`); null = average of all sensors */
+    sensor?: { datalogger_sn: string; address: number } | null;
   };
   has_sensor: boolean;
   sensors: GrowattWeatherSensor[];
@@ -1009,9 +1011,16 @@ export const api = {
     ),
   getGrowattLiveWeather: (plantId: number) =>
     apiFetch<GrowattLive<GrowattLiveWeather>>(`/growatt/live/plants/${plantId}/weather`),
-  getGrowattPlantWeather: (plantId: number, day?: string, window?: { start?: string; end?: string }) => {
+  getGrowattPlantWeather: (
+    plantId: number,
+    day?: string,
+    window?: { start?: string; end?: string },
+    /** one sensor, "DATALOGGER_SN:ADDRESS"; omitted = average of all sensors */
+    sensor?: string
+  ) => {
     const q = new URLSearchParams();
     if (day) q.set("day", day);
+    if (sensor) q.set("sensor", sensor);
     if (window?.start) q.set("start", window.start);
     if (window?.end) q.set("end", window.end);
     const qs = q.toString();

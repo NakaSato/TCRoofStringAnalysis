@@ -120,8 +120,12 @@ def build_weather_day(
     latest_if_none: bool = True,
     start_time: Optional[time] = None,
     end_time: Optional[time] = None,
+    sensor: Optional[Tuple[str, int]] = None,
 ) -> Dict[str, Any]:
     """5-minute weather series and daily KPIs for one plant-local day.
+
+    `sensor` = (datalogger SN, address) limits the series and KPIs to that one sensor; every
+    sensor is still listed in `sensors`. Raises `KeyError` when the plant has no such sensor.
 
     `start_time` / `end_time` (plant-local, both inclusive) narrow the series and the KPIs to
     that time-of-day window; which probes count as measured is still judged on the whole day.
@@ -131,12 +135,14 @@ def build_weather_day(
     a circular mean).
     """
     sensors = plant_sensors(db, plant_id)
+    if sensor is not None and all((s.datalogger_sn, s.address) != sensor for s in sensors):
+        raise KeyError(f"no weather sensor {sensor[0]}#{sensor[1]} at plant {plant_id}")
     if day is None and latest_if_none:
         day = latest_day(db, plant_id)
     out_sensors: List[Dict[str, Any]] = []
     series: List[Dict[str, Any]] = []
     if not sensors or day is None:
-        return _result(day, sensors, out_sensors, series, {})
+        return _result(day, sensors, out_sensors, series, {}, sensor=sensor)
 
     start = datetime.combine(day, datetime.min.time())
     end = start + timedelta(days=1)
@@ -160,6 +166,8 @@ def build_weather_day(
                 "measured": [f for f in FIELDS if measured[f]],
             }
         )
+        if sensor is not None and (s.datalogger_sn, s.address) != sensor:
+            continue  # listed above, but not part of the series
         per_sensor: Dict[datetime, Dict[str, List[float]]] = {}
         for r in rows:
             ts: datetime = r[0]
@@ -193,7 +201,7 @@ def build_weather_day(
         lo = start_time or time.min
         hi = end_time or time.max
         series = [p for p in series if lo <= datetime.strptime(p["timestamp"], "%Y-%m-%d %H:%M:%S").time() <= hi]
-    return _result(day, sensors, out_sensors, series, _kpis(series), start_time, end_time)
+    return _result(day, sensors, out_sensors, series, _kpis(series), start_time, end_time, sensor)
 
 
 def _kpis(series: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -224,6 +232,7 @@ def _result(
     kpis: Dict[str, Any],
     start_time: Optional[time] = None,
     end_time: Optional[time] = None,
+    sensor: Optional[Tuple[str, int]] = None,
 ) -> Dict[str, Any]:
     empty = {
         "insolation_kwh_m2": None,
@@ -239,6 +248,8 @@ def _result(
     data_until = max((s["last_reading"] for s in out_sensors if s["last_reading"]), default=None)
     return {
         "meta": {"source": "db", "day": day.isoformat() if day else None, "data_until": data_until,
+            # the one sensor the series covers (None = average of all sensors)
+            "sensor": {"datalogger_sn": sensor[0], "address": sensor[1]} if sensor else None,
             "window": None
             if start_time is None and end_time is None
             else {
