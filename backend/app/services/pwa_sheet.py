@@ -76,6 +76,8 @@ class Block:
     irr: int = 0
     wx: int = 0
     log: int = 0
+    kw: int = 0  # optional "kW" column: plant power at the check
+    inv: int = 0  # optional "INV online" column: "2/3"
 
 
 @dataclass
@@ -84,6 +86,7 @@ class Layout:
     blocks: List[Block]
     first: int
     last: int
+    yield_kwh: int = 0  # optional "Yield (kWh)" column in row 1: energy so far that day
 
 
 def _cell(rows: Sequence[Sequence[Any]], r: int, c: int) -> Any:
@@ -95,7 +98,10 @@ def _cell(rows: Sequence[Sequence[Any]], r: int, c: int) -> Any:
 
 
 def layout(rows: Sequence[Sequence[Any]], title: str = "") -> Layout:
-    """Column map from header rows 1–2. Each "Status" in row 2 after "weather Status" starts the next check block."""
+    """Column map from header rows 1–2. Each "Status" in row 2 after "weather Status" starts the next check block.
+
+    Optional columns, filled when the sheet has them: per check "kW" (or กำลังผลิต) and
+    "INV online"; per plant "Yield" (or พลังงาน) in row 1."""
     width = max((len(r) for r in rows[:2]), default=0)
     r1 = [str(_cell(rows, 0, k)) for k in range(width)]
     r2 = [str(_cell(rows, 1, k)).strip() for k in range(width)]
@@ -108,7 +114,7 @@ def layout(rows: Sequence[Sequence[Any]], title: str = "") -> Layout:
     blocks = []
     for k, hour in enumerate(CHECK_HOURS):
         frm = starts[k]
-        to = starts[k + 1] - 1 if k + 1 < len(starts) else min(width, frm + 3)
+        to = starts[k + 1] - 1 if k + 1 < len(starts) else min(width, frm + len(CELL_COLUMNS) - 1)
         b = Block(hour, frm)
         for col in range(frm + 1, to + 1):
             v = r2[col - 1]
@@ -120,9 +126,15 @@ def layout(rows: Sequence[Sequence[Any]], title: str = "") -> Layout:
                 b.wx = col
             elif re.search(r"data\s*log", v, re.I):
                 b.log = col
+            elif re.match(r"kw\b", v, re.I) or "กำลังผลิต" in v:
+                b.kw = col
+            elif re.search(r"inv\s*online", v, re.I):
+                b.inv = col
         blocks.append(b)
-    cols = [weather] + [c for b in blocks for c in (b.status, b.note, b.irr, b.wx, b.log) if c]
-    return Layout(weather, blocks, min(cols), max(cols))
+    yield_kwh = next((k + 1 for k, v in enumerate(r1) if re.search(r"yield", v, re.I) or "พลังงาน" in v), 0)
+    cols = [weather, yield_kwh] + [c for b in blocks for c in (b.status, b.note, b.irr, b.wx, b.log, b.kw, b.inv) if c]
+    cols = [c for c in cols if c]
+    return Layout(weather, blocks, min(cols), max(cols), yield_kwh)
 
 
 # --------------------------------------------------------------------------- cell values
@@ -196,6 +208,81 @@ def data_log(kw: Optional[float], c: Optional[Dict[str, Any]]) -> str:
     return ", ".join(faults) if faults else "online"
 
 
+# Order of each check's values in `plant_cells` (and in the API's /cells response)
+CELL_COLUMNS = ("status", "note", "irr", "wx", "log", "kw", "inv")
+
+
+def plant_cells(day: date, doc: Dict[str, Any], info: Dict[str, Any], hours: Sequence[int]) -> Dict[str, Any]:
+    """The sheet's values for one plant: `checks` {"09": [status, note, irr, wx, log, kw, inv]}
+    (CELL_COLUMNS), `weather_status` and `yield_kwh`. `doc` = the published daily doc ({} = not
+    published), `info` = registry {name, latitude, longitude}. `sources` says where each check's
+    sky class came from ("growatt" / "google" / None). Nothing is made up; no source = "—"."""
+    hourly = doc.get("hourly_kw") or []
+    weather = doc.get("weather") or {}
+    has_sensor = bool(weather.get("has_sensor"))
+    sensor_slots = weather.get("slots") or {}
+    google_slots = (doc.get("google_weather") or {}).get("slots") or {}
+    checks = doc.get("checks") or {}
+    out: Dict[str, Any] = {"checks": {}, "sources": {}}
+    sensor_hit: List[bool] = []
+    for hour in hours:
+        hh = f"{hour:02d}"
+        kw = hourly[hour] if hour < len(hourly) else None
+        c = _check(checks.get(hh))
+        s = sensor_slots.get(hh) or {}
+        irr = round(s["irradiance_wm2"]) if s.get("irradiance_wm2") is not None else None
+        sensor_hit.append(irr is not None)
+        g = google_slots.get(hh)
+        rain = bool(g and g.get("raining"))
+
+        ok = kw is not None and kw > 0 and not (c and (c["offline"] or c["fault"]))
+        status = DASH if kw is None and not c else "normal" if ok else "abnormal"
+
+        sky = None
+        if irr is not None and info.get("latitude") is not None and info.get("longitude") is not None:
+            sky = sky_th(irr, clear_sky(info["latitude"], info["longitude"], day, hour))
+        wx, src = DASH, None
+        if sky:
+            wx, src = sky + (" (ฝนตก)" if rain else ""), "growatt"
+        elif g:
+            cond = g.get("condition")
+            wx, src = (GOOGLE_TH.get(cond) or cond or DASH) + " (Google)", "google"
+
+        inv = f"{c['inverters'] - len(c['offline'])}/{c['inverters']}" if c and c["inverters"] else DASH
+        out["checks"][hh] = [
+            status,
+            note(kw, c, irr, has_sensor, rain),
+            DASH if irr is None else irr,
+            wx,
+            data_log(kw, c),
+            DASH if kw is None else round(kw, 1),
+            inv,
+        ]
+        out["sources"][hh] = src
+
+    if not doc:
+        out["weather_status"] = DASH
+    elif not has_sensor:
+        out["weather_status"] = "ไม่มีเซนเซอร์"
+    elif all(sensor_hit):
+        out["weather_status"] = "normal"
+    else:
+        out["weather_status"] = "loss (" + ", ".join(f"{h:02d}:00" for h, hit in zip(hours, sensor_hit) if not hit) + ")"
+    y = doc.get("yield_kwh")
+    out["yield_kwh"] = DASH if y is None else round(y, 1)
+    return out
+
+
+def match_plant(sn: str, name: str, loggers: Dict[str, str], names: Dict[str, str]) -> Optional[str]:
+    """Plant of a sheet row: datalogger SN first, then a unique plant-name match (the datalogger
+    was replaced since the sheet was made)."""
+    pid = loggers.get(sn)
+    if pid:
+        return pid
+    hits = [p for p, n in names.items() if name and name in str(n or "")] if name else []
+    return hits[0] if len(hits) == 1 else None
+
+
 @dataclass
 class FillStats:
     rows: int = 0
@@ -220,8 +307,8 @@ def fill_rows(
     blocks in `hours` (default all). Cells of other checks are left as they are."""
     blocks = [b for b in lay.blocks if hours is None or b.hour in hours]
     by_plant: Dict[str, Any] = data.get("days") or {}
-    by_logger: Dict[str, str] = data.get("loggers") or {}
     plant_info: Dict[str, Any] = data.get("plants") or {}
+    names = {p: d.get("name") for p, d in plant_info.items()}
     stats = FillStats(published_plants=len(by_plant), hours=[b.hour for b in blocks])
 
     for i in range(FIRST_ROW - 1, len(rows)):
@@ -237,71 +324,30 @@ def fill_rows(
         sn = str(_cell(rows, i, 2)).strip()
         if not sn:
             continue
-        pid = by_logger.get(sn)
-        if not pid:  # datalogger replaced since the sheet was made: unique plant-name match
-            nm = str(_cell(rows, i, 1)).strip()
-            hits = [p for p, d in plant_info.items() if nm and nm in str(d.get("name") or "")] if nm else []
-            pid = hits[0] if len(hits) == 1 else None
+        pid = match_plant(sn, str(_cell(rows, i, 1)).strip(), data.get("loggers") or {}, names)
         if not pid:
             stats.unmatched += 1
             put(lay.weather, "ไม่พบในระบบ")
             continue
         stats.rows += 1
-        doc = by_plant.get(pid) or {}
-        hourly = doc.get("hourly_kw") or []
-        weather = doc.get("weather") or {}
-        has_sensor = bool(weather.get("has_sensor"))
-        sensor_slots = weather.get("slots") or {}
-        google_slots = (doc.get("google_weather") or {}).get("slots") or {}
-        checks = doc.get("checks") or {}
-        info = plant_info.get(pid) or {}
-        sensor_hit: List[bool] = []
-
+        cells = plant_cells(day, by_plant.get(pid) or {}, plant_info.get(pid) or {}, [b.hour for b in blocks])
         for b in blocks:
             hh = f"{b.hour:02d}"
-            kw = hourly[b.hour] if b.hour < len(hourly) else None
-            c = _check(checks.get(hh))
-            s = sensor_slots.get(hh) or {}
-            irr = round(s["irradiance_wm2"]) if s.get("irradiance_wm2") is not None else None
-            sensor_hit.append(irr is not None)
-            g = google_slots.get(hh)
-            rain = bool(g and g.get("raining"))
-
-            inv_problem = bool(c and (c["offline"] or c["fault"]))
-            ok = kw is not None and kw > 0 and not inv_problem
-            if kw is None:
+            vals = dict(zip(CELL_COLUMNS, cells["checks"][hh]))
+            for col in CELL_COLUMNS:
+                put(getattr(b, col), vals[col])
+            if vals["kw"] == DASH:
                 stats.no_power += 1
-            elif ok:
+            elif vals["status"] == "normal":
                 stats.normal += 1
             else:
                 stats.abnormal += 1
-            put(b.status, DASH if kw is None and not c else "normal" if ok else "abnormal")
-            put(b.note, note(kw, c, irr, has_sensor, rain))
-            put(b.irr, DASH if irr is None else irr)
-            put(b.log, data_log(kw, c))
-
-            sky = None
-            if irr is not None and info.get("latitude") is not None and info.get("longitude") is not None:
-                sky = sky_th(irr, clear_sky(info["latitude"], info["longitude"], day, b.hour))
-            wx = DASH
-            if sky:
-                wx = sky + (" (ฝนตก)" if rain else "")
+            if cells["sources"][hh] == "growatt":
                 stats.wx_growatt += 1
-            elif g:
-                cond = g.get("condition")
-                wx = (GOOGLE_TH.get(cond) or cond or DASH) + " (Google)"
+            elif cells["sources"][hh] == "google":
                 stats.wx_google += 1
-            put(b.wx, wx)
-
-        if pid not in by_plant:
-            ws = DASH
-        elif not has_sensor:
-            ws = "ไม่มีเซนเซอร์"
-        elif all(sensor_hit):
-            ws = "normal"
-        else:
-            ws = "loss (" + ", ".join(f"{b.hour:02d}:00" for b, hit in zip(blocks, sensor_hit) if not hit) + ")"
-        put(lay.weather, ws)
+        put(lay.weather, cells["weather_status"])
+        put(lay.yield_kwh, cells["yield_kwh"])
     return stats
 
 
@@ -411,7 +457,8 @@ def fill_day(
     out: Dict[str, Any] = {"sheet": name, "created": created, "hours": list(hours) if hours is not None else list(CHECK_HOURS)}
     if hours is not None and not hours:
         return out
-    data = pwa_report.build(db, day, day_docs)
+    # straight from Firestore: the worker fills right after publishing, a cached copy could be older
+    data = pwa_report.build(db, day, day_docs or pwa_report.firestore_day_docs)
     if not data["days"]:
         out["skipped"] = f"no published data for {day.isoformat()}"
         return out

@@ -101,3 +101,40 @@ def test_fill_day_creates_tab_and_writes_block(monkeypatch):
 
 def test_col_letter():
     assert [ps.col_letter(n) for n in (1, 26, 27, 52)] == ["A", "Z", "AA", "AZ"]
+
+
+def test_optional_columns_kw_inv_yield():
+    hdr2 = ["", "", "", "", "", "", *(["Status", "ค่าแสง", "สภาพอากาศ", "DATA LOG", "kW", "INV online"] * 3), ""]
+    hdr1 = ["No", "Plant", "SN", "", "", "weather Status"] + [""] * 18 + ["Yield (kWh)"]
+    rows = [hdr1, hdr2, [1, "Plant A", "SN1"], [2, "Plant B", "SN2"]]
+    lay = ps.layout(rows)
+    assert [(b.kw, b.inv) for b in lay.blocks] == [(11, 12), (17, 18), (23, 24)]
+    assert lay.yield_kwh == 25 and lay.last == 25
+    data = {**DATA, "days": {"1": {**DATA["days"]["1"], "yield_kwh": 412.345}}}
+    ps.fill_rows(DAY, lay, rows, data)
+    a, b = rows[2], rows[3]
+    assert a[10:12] == [50.0, "2/2"]
+    assert a[16:18] == [80.0, "1/2"]
+    assert a[22:24] == [5.0, "—"]  # no check data at 17:00
+    assert a[24] == 412.3
+    assert b[10:12] == ["—", "—"] and b[24] == "—"  # not published: nothing invented
+
+
+def test_plant_cells_matches_fill_rows():
+    cells = ps.plant_cells(DAY, DATA["days"]["1"], DATA["plants"]["1"], [9, 13])
+    assert list(cells["checks"]) == ["09", "13"]
+    assert dict(zip(ps.CELL_COLUMNS, cells["checks"]["09"])) == {
+        "status": "normal", "note": "INV ทำงานปกติ ค่าแสง 600", "irr": 600, "wx": "แดดดี",
+        "log": "online", "kw": 50.0, "inv": "2/2",
+    }
+    assert cells["sources"] == {"09": "growatt", "13": "google"}
+    assert cells["weather_status"] == "loss (13:00)"
+    assert ps.plant_cells(DAY, {}, {}, [9])["weather_status"] == "—"
+
+
+def test_match_plant():
+    names = {"1": "TC Roof สาขา 1", "2": "TC Roof สาขา 12"}
+    assert ps.match_plant("SN1", "", {"SN1": "9"}, names) == "9"
+    assert ps.match_plant("NEW", "สาขา 12", {}, names) == "2"
+    assert ps.match_plant("NEW", "สาขา 1", {}, names) is None  # ambiguous: both names contain it
+    assert ps.match_plant("NEW", "", {}, names) is None

@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.routes import (
     analysis,
@@ -50,6 +51,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # JSON (fleet lists, the PWA report) shrinks ~5-10x; clients that don't ask get it plain.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     api_router = APIRouter()
     api_router.include_router(auth.router)  # /auth/login is the only route open without a token

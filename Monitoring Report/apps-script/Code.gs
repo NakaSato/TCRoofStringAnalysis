@@ -6,15 +6,13 @@
  * from the header rows, so both layouts work (see layout_):
  *   old: weather Status | per check: Status, Note
  *   new: weather Status | per check: Status, ค่าแสง, สภาพอากาศ, DATA LOG (Fault log)
+ *   optional, filled when present: per check "kW", "INV online"; per plant "Yield (kWh)" (row 1)
  *
- * Source: GET {REPORT_URL}/{day} = Firestore daily/{day}/plants/{id} + plant registry
- * (nothing is made up; no source = "—"):
- *   Status            hourly_kw[9|13|17] + checks.{hh}     real Growatt power; inverters offline/fault
- *   DATA LOG          checks.{hh}: "online", "offline", or the faults ("INV2 Offline, INV3 Fault, INV1 <alarm>")
- *   Note              "INV ทำงานปกติ ค่าแสง 584 (ฝนตก)" …   built from checks, irradiance, rain (note_)
- *   ค่าแสง             weather.slots.{09|13|17}.irradiance_wm2   Growatt weather sensor
- *   สภาพอากาศ          sky class from that irradiance vs clear-sky; no sensor reading ->
- *                     google_weather.slots.{hh}.condition  (Google Weather, modelled, "(Google)")
+ * Source: GET {REPORT_URL}/{day}/cells?hours=09,13 — the API builds every cell with the same rules
+ * as the worker (backend/app/services/pwa_sheet.py, plant_cells) from the published daily docs
+ * (Firestore daily/{day}/plants/{id}); this script only matches rows and writes. Nothing is made
+ * up: no source = "—". Values per check: Status, Note, ค่าแสง (sensor W/m²), สภาพอากาศ (sky class
+ * from the sensor vs clear-sky, else Google Weather "(Google)"), DATA LOG, kW, INV online.
  *
  * Setup (once):
  *   1. Extensions → Apps Script; paste Code.gs and appsscript.json (Project Settings → show manifest).
@@ -38,12 +36,6 @@ const FIRST_ROW = 3;
 const DASH = '—';
 const REPORT_URL = 'https://tcroof-string-analysis.web.app/api/report/pwa';
 
-const GOOGLE_TH = {
-  CLEAR: 'ท้องฟ้าแจ่มใส', MOSTLY_CLEAR: 'ท้องฟ้าโปร่ง', PARTLY_CLOUDY: 'มีเมฆบางส่วน',
-  MOSTLY_CLOUDY: 'เมฆมาก', CLOUDY: 'ฟ้าครึ้ม', CHANCE_OF_SHOWERS: 'อาจมีฝน',
-  LIGHT_RAIN: 'ฝนตกเล็กน้อย', RAIN: 'ฝนตก', RAIN_SHOWERS: 'ฝนตก',
-  SCATTERED_THUNDERSTORMS: 'ฝนฟ้าคะนอง', THUNDERSTORM: 'ฝนฟ้าคะนอง',
-};
 
 // ------------------------------------------------------------------ menu / triggers
 
@@ -121,14 +113,12 @@ function fillDay(day, hours) {
   const sh = ss.getSheetByName(name) || newDaySheet_(ss, name);
   const lay = layout_(sh);
   const blocks = hours ? lay.blocks.filter(b => hours.indexOf(b.hour) >= 0) : lay.blocks;
+  if (!blocks.length) return `${name}: no check to fill.`;
 
-  const data = reportDay_(day);
-  const byPlant = data.days || {};
-  const nDocs = Object.keys(byPlant).length;
-  if (!nDocs) return `No published data for ${day} yet.`;
-  const byLogger = data.loggers || {};
-  const plantInfo = data.plants || {};
-  const registry = Object.keys(plantInfo).map(id => ({ id, data: plantInfo[id] }));
+  const data = reportCells_(day, blocks.map(b => b.hour));
+  if (!data.published_plants) return `No published data for ${day} yet.`;
+  const cols = data.columns; // ["status", "note", "irr", "wx", "log", "kw", "inv"]
+  const names = data.names || {};
 
   const last = sh.getLastRow();
   if (last < FIRST_ROW) return `Sheet ${name} has no plant rows.`;
@@ -138,104 +128,41 @@ function fillDay(day, hours) {
   const values = block.getValues();
   const set = (row, col, v) => { if (col) values[row][col - lay.first] = v; };
 
-  const stats = { rows: 0, normal: 0, abnormal: 0, noPower: 0, wxGrowatt: 0, wxGoogle: 0, unmatched: 0 };
+  const stats = { rows: 0, normal: 0, abnormal: 0, noPower: 0, unmatched: 0 };
   keys.forEach(([nm, sn], i) => {
     sn = String(sn || '').trim();
     if (!sn) return;
-    // SN first, then a unique plant-name match (datalogger replaced since the sheet was made)
-    let pid = byLogger[sn];
-    if (!pid) {
-      nm = String(nm || '').trim();
-      const hits = nm ? registry.filter(d => String(d.data.name || '').indexOf(nm) >= 0) : [];
-      pid = hits.length === 1 ? hits[0].id : null;
-    }
+    const pid = matchPlant_(sn, String(nm || '').trim(), data.loggers || {}, names);
     if (!pid) { stats.unmatched++; set(i, lay.weather, 'ไม่พบในระบบ'); return; }
     stats.rows++;
-    const doc = byPlant[pid] || {};
-    const hourly = doc.hourly_kw || [];
-    const hasSensor = !!(doc.weather && doc.weather.has_sensor);
-    const sensorSlots = (doc.weather && doc.weather.slots) || {};
-    const googleSlots = (doc.google_weather && doc.google_weather.slots) || {};
-    const checks = doc.checks || {};
-    const info = plantInfo[pid] || {};
-    const sensorHit = [];
-
+    const p = data.plants[pid];
     blocks.forEach(b => {
-      const hh = pad_(b.hour);
-      const t = new Date(`${day}T${hh}:00:00+07:00`);
-      const kw = hourly[b.hour];
-      const c = checks[hh] || null;
-      const s = sensorSlots[hh];
-      const irr = s && s.irradiance_wm2 != null ? Math.round(s.irradiance_wm2) : null;
-      sensorHit.push(irr !== null);
-      const g = googleSlots[hh];
-      const rain = !!(g && g.raining);
-
-      const invProblem = !!(c && (c.offline.length || c.fault.length));
-      const ok = kw != null && kw > 0 && !invProblem;
-      if (kw == null) stats.noPower++; else if (ok) stats.normal++; else stats.abnormal++;
-      set(i, b.status, kw == null && !c ? DASH : ok ? 'normal' : 'abnormal');
-      set(i, b.note, note_(kw, c, irr, hasSensor, rain));
-      set(i, b.irr, irr === null ? DASH : irr);
-      set(i, b.log, dataLog_(kw, c));
-
-      const sky = irr !== null && info.latitude != null ? skyTh_(irr, clearSky_(info.latitude, info.longitude, t)) : null;
-      let wx = DASH;
-      if (sky) { wx = sky + (rain ? ' (ฝนตก)' : ''); stats.wxGrowatt++; }
-      else if (g) { wx = (GOOGLE_TH[g.condition] || g.condition || DASH) + ' (Google)'; stats.wxGoogle++; }
-      set(i, b.wx, wx);
+      const v = p.checks[pad_(b.hour)];
+      cols.forEach((c, k) => set(i, b[c], v[k]));
+      const kw = v[cols.indexOf('kw')], st = v[cols.indexOf('status')];
+      if (kw === DASH) stats.noPower++; else if (st === 'normal') stats.normal++; else stats.abnormal++;
     });
-
-    let ws;
-    if (!byPlant[pid]) ws = DASH;
-    else if (!hasSensor) ws = 'ไม่มีเซนเซอร์';
-    else if (sensorHit.every(Boolean)) ws = 'normal';
-    else ws = 'loss (' + blocks.filter((b, k) => !sensorHit[k]).map(b => pad_(b.hour) + ':00').join(', ') + ')';
-    set(i, lay.weather, ws);
+    set(i, lay.weather, p.weather_status);
+    set(i, lay.yieldKwh, p.yield_kwh);
   });
   block.setValues(values);
-  const msg = `${name} [${blocks.map(b => pad_(b.hour)).join(', ')}]: ${JSON.stringify(stats)} (published plants: ${nDocs})`;
+  const msg = `${name} [${blocks.map(b => pad_(b.hour)).join(', ')}]: ${JSON.stringify(stats)} (published plants: ${data.published_plants})`;
   console.log(msg);
   return msg;
 }
 
-/**
- * Note in the team's wording (old layout only), e.g.
- *   "INV ทำงานปกติ ค่าแสง 584"            "INV ทำงานปกติ Weather offline"
- *   "(INV2 Relay fault) INV ทำงานปกติ ค่าแสง 237 (ฝนตก)"
- *   "INV1 Offline INV3 Fault ค่าแสง 300"   "INV Offline (ฝนตก)"
- */
-function note_(kw, c, irr, hasSensor, rain) {
-  const parts = [];
-  if (c && c.alarms.length) parts.push('(' + c.alarms.join(', ') + ')');
-  const allOffline = c ? c.offline.length >= c.inverters : kw == null;
-  if (kw == null || allOffline) {
-    parts.push('INV Offline');
-  } else {
-    const bad = c ? c.offline.map(l => l + ' Offline').concat(c.fault.map(l => l + ' Fault')) : [];
-    parts.push(bad.length ? bad.join(' ') : kw > 0 ? 'INV ทำงานปกติ' : 'INV ไม่ผลิตไฟ');
-    if (irr !== null) parts.push('ค่าแสง ' + irr);
-    else if (hasSensor) parts.push('Weather offline');
-  }
-  if (rain) parts.push('(ฝนตก)');
-  return parts.join(' ');
-}
-
-/**
- * DATA LOG (Fault log): "offline" (no power data / every inverter silent), the faults, or "online".
- *   "online"   "offline"   "INV2 Offline, INV3 Fault, INV1 Relay fault"
- */
-function dataLog_(kw, c) {
-  if (kw == null || (c && c.offline.length >= c.inverters)) return 'offline';
-  if (!c) return 'online';
-  const faults = c.offline.map(l => l + ' Offline').concat(c.fault.map(l => l + ' Fault'), c.alarms);
-  return faults.length ? faults.join(', ') : 'online';
+/** Plant id of a sheet row: datalogger SN, else a unique plant-name match (datalogger replaced). */
+function matchPlant_(sn, nm, loggers, names) {
+  if (loggers[sn]) return loggers[sn];
+  const hits = nm ? Object.keys(names).filter(id => String(names[id] || '').indexOf(nm) >= 0) : [];
+  return hits.length === 1 ? hits[0] : null;
 }
 
 /**
  * Column map from header rows 1–2. Works for both layouts:
  *   old (≤ 30.10): weather Status | Status, Note  ×3
  *   new (12.11+):  weather Status | Status, ค่าแสง, สภาพอากาศ, DATA LOG  ×3
+ *   optional:      per check "kW" (or กำลังผลิต), "INV online"; row 1 "Yield (kWh)" (or พลังงาน)
  * Each "Status" in row 2 starts the next check block (09, 13, 17).
  */
 function layout_(sh) {
@@ -247,19 +174,22 @@ function layout_(sh) {
   r2.forEach((v, k) => { if (k + 1 > weather && /^status/i.test(String(v).trim())) starts.push(k + 1); });
   if (starts.length < CHECK_HOURS.length) throw new Error(`Sheet ${sh.getName()}: expected ${CHECK_HOURS.length} "Status" columns in row 2`);
   const blocks = CHECK_HOURS.map((hour, k) => {
-    const from = starts[k], to = k + 1 < starts.length ? starts[k + 1] - 1 : Math.min(width, from + 3);
-    const b = { hour, status: from, note: 0, irr: 0, wx: 0, log: 0 };
+    const from = starts[k], to = k + 1 < starts.length ? starts[k + 1] - 1 : Math.min(width, from + 6);
+    const b = { hour, status: from, note: 0, irr: 0, wx: 0, log: 0, kw: 0, inv: 0 };
     for (let col = from + 1; col <= to; col++) {
       const v = String(r2[col - 1]).trim();
       if (/^note/i.test(v)) b.note = col;
       else if (/ค่าแสง/.test(v)) b.irr = col;
       else if (/สภาพอากาศ/.test(v)) b.wx = col;
       else if (/data\s*log/i.test(v)) b.log = col;
+      else if (/^kw\b/i.test(v) || /กำลังผลิต/.test(v)) b.kw = col;
+      else if (/inv\s*online/i.test(v)) b.inv = col;
     }
     return b;
   });
-  const cols = [weather].concat(...blocks.map(b => [b.status, b.note, b.irr, b.wx, b.log])).filter(Boolean);
-  return { weather, blocks, first: Math.min(...cols), last: Math.max(...cols) };
+  const yieldKwh = r1.findIndex(v => /yield/i.test(v) || /พลังงาน/.test(v)) + 1;
+  const cols = [weather, yieldKwh].concat(...blocks.map(b => [b.status, b.note, b.irr, b.wx, b.log, b.kw, b.inv])).filter(Boolean);
+  return { weather, yieldKwh, blocks, first: Math.min(...cols), last: Math.max(...cols) };
 }
 
 /** New day sheet = copy of the newest DD.MM sheet with its check columns cleared. */
@@ -276,13 +206,22 @@ function newDaySheet_(ss, name) {
 
 // ------------------------------------------------------------------ data (TC Roof API, shared key)
 
-/** {day, plants: {id: {name, latitude, longitude}}, loggers: {datalogger_sn: id}, days: {id: daily doc}} */
-function reportDay_(day) {
+/**
+ * The sheet's values for `day`, checks `hours` only:
+ * {day, hours, columns, published_plants, loggers: {datalogger_sn: id}, names: {id: name},
+ *  plants: {id: {checks: {"09": [status, note, irr, wx, log, kw, inv]}, weather_status, yield_kwh}}}
+ */
+function reportCells_(day, hours) {
   const props = PropertiesService.getScriptProperties();
   const key = props.getProperty('REPORT_KEY');
   if (!key) throw new Error('No report key: menu PWA Report → Set report key…');
-  const url = (props.getProperty('REPORT_URL') || REPORT_URL) + '/' + day;
-  const res = UrlFetchApp.fetch(url, { headers: { 'X-Report-Key': key }, muteHttpExceptions: true });
+  const url = `${props.getProperty('REPORT_URL') || REPORT_URL}/${day}/cells?hours=${hours.join(',')}`;
+  let res;
+  for (let attempt = 1; ; attempt++) { // one retry: the API scales to zero and may be cold
+    res = UrlFetchApp.fetch(url, { headers: { 'X-Report-Key': key }, muteHttpExceptions: true });
+    if (res.getResponseCode() < 500 || attempt >= 2) break;
+    Utilities.sleep(5000);
+  }
   if (res.getResponseCode() !== 200) throw new Error(`Report API ${day}: ${res.getResponseCode()} ${res.getContentText().slice(0, 300)}`);
   return JSON.parse(res.getContentText());
 }
@@ -290,29 +229,3 @@ function reportDay_(day) {
 // ------------------------------------------------------------------ helpers
 
 function pad_(n) { return (n < 10 ? '0' : '') + n; }
-
-/** Haurwitz clear-sky GHI (W/m²) at instant t for a plant at lat/lon. */
-function clearSky_(lat, lon, t) {
-  const local = new Date(t.getTime() + 7 * 3600e3); // Bangkok wall clock in UTC fields
-  const start = Date.UTC(local.getUTCFullYear(), 0, 1);
-  const doy = Math.floor((local - start) / 864e5) + 1;
-  const hr = local.getUTCHours(), mi = local.getUTCMinutes();
-  const g = 2 * Math.PI / 365 * (doy - 1 + (hr - 12) / 24);
-  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g);
-  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
-  const solarMin = hr * 60 + mi + eqt + 4 * lon - 420;
-  const ha = (solarMin / 4 - 180) * Math.PI / 180;
-  const la = lat * Math.PI / 180;
-  const cosz = Math.sin(la) * Math.sin(decl) + Math.cos(la) * Math.cos(decl) * Math.cos(ha);
-  return cosz <= 0.01 ? 0 : 1098 * cosz * Math.exp(-0.057 / cosz);
-}
-
-/** Measured ÷ clear-sky → Thai sky class; null when the sun is too low to judge. */
-function skyTh_(irr, cs) {
-  if (cs < 80) return null;
-  const k = irr / cs;
-  if (k >= 0.75) return 'แดดดี';
-  if (k >= 0.45) return 'มีเมฆบางส่วน';
-  if (k >= 0.2) return 'เมฆมาก';
-  return 'ฟ้าครึ้ม/ฝน';
-}
