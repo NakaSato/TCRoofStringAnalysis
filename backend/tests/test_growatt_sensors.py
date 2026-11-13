@@ -130,6 +130,20 @@ def test_route_filters_engineer_to_assigned_plants(factory):
     assert [s["key"] for s in eng.get("/api/growatt/sensors").json()["sensors"]] == ["DL2:1"]
 
 
+def test_route_plant_filter_narrows_to_one_visible_plant(factory):
+    admin = _api(factory, "admin")
+    assert [s["key"] for s in admin.get("/api/growatt/sensors?plant_id=2").json()["sensors"]] == ["DL2:1"]
+    assert admin.get("/api/growatt/sensors?plant_id=999").json()["sensors"] == []
+
+    eng = _api(factory, "engineer")
+    with factory() as db:
+        uid = db.scalar(select(User.id).where(User.username == "engineer"))
+        db.add(UserPlantAssignment(user_id=uid, plant_id=2))
+        db.commit()
+    assert eng.get("/api/growatt/sensors?plant_id=1").json()["sensors"] == []  # not assigned: nothing revealed
+    assert [s["key"] for s in eng.get("/api/growatt/sensors?plant_id=2").json()["sensors"]] == ["DL2:1"]
+
+
 # --------------------------------------------------------------------------- live status (memory only)
 
 
@@ -276,6 +290,16 @@ def test_status_route_engineer_sweeps_own_dataloggers_and_writes_nothing(factory
     assert by["DL1:2"]["status"] == "offline" and by["DL1:2"]["lost"] is True
     assert body["source"] == "live" and body["data"]["sweep"]["fresh"] == 2
     assert counts() == before  # nothing stored
+
+
+def test_status_route_plant_filter_sweeps_only_that_plant(factory, monkeypatch):
+    fake = _EnvList()
+    admin = _api(factory, "admin")
+    admin.app_ref.dependency_overrides[get_live_service] = lambda: _svc(fake, _Clock())  # type: ignore[attr-defined]
+    body = admin.get("/api/growatt/live/sensors/status?plant_id=1").json()
+    assert fake.calls == ["DL1"]
+    assert sorted(s["key"] for s in body["data"]["sensors"]) == ["DL1:1", "DL1:2"]
+    assert body["data"]["sweep"]["total"] == 1
 
 
 # --------------------------------------------------------------------------- one sensor (Info view, memory only)

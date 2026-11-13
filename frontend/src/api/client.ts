@@ -1109,8 +1109,11 @@ export const api = {
     }),
 
   getFleetAlarms: (day?: string) => apiFetch<FleetAlarmDay>(`/growatt/alarms${day ? `?day=${day}` : ""}`),
-  listSensors: () => apiFetch<SensorList>("/growatt/sensors"),
-  getLiveSensorStatus: () => apiFetch<GrowattLive<SensorLiveStatus>>("/growatt/live/sensors/status"),
+  /** `plantId`: only that plant's sensors (the plant Sensors tab); omitted = every visible plant */
+  listSensors: (plantId?: number) =>
+    apiFetch<SensorList>(`/growatt/sensors${plantId != null ? `?plant_id=${plantId}` : ""}`),
+  getLiveSensorStatus: (plantId?: number) =>
+    apiFetch<GrowattLive<SensorLiveStatus>>(`/growatt/live/sensors/status${plantId != null ? `?plant_id=${plantId}` : ""}`),
   getLiveSensor: (dataloggerSn: string, address: number) =>
     apiFetch<GrowattLive<SensorLive>>(`/growatt/live/sensors/${encodeURIComponent(dataloggerSn)}/${address}`),
 
