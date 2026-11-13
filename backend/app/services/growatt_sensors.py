@@ -24,8 +24,9 @@ S = GrowattEnvSensor
 COVERAGE_START_H, COVERAGE_END_H = 6, 18
 SLOT_MIN = 5
 MEASURED_LOOKBACK = timedelta(days=7)
-# jobs whose finished runs mean "env history fetched up to the run's start"
-ENV_SYNC_JOBS = ("history", "backfill")
+# jobs whose finished runs mean "today's env history fetched up to the run's start"; `backfill`
+# re-reads only the two previous days, so it says nothing about today
+ENV_SYNC_JOBS = ("history",)
 
 
 def _key(dl: str, addr: int) -> str:
@@ -41,7 +42,7 @@ def _slot(ts: datetime) -> datetime:
 
 
 def last_env_sync(db: Session) -> Optional[datetime]:
-    """Start (UTC) of the newest finished `history` / `backfill` run: env history is in SQL up to then."""
+    """Start (UTC) of the newest finished `history` run: today's env history is in SQL up to then."""
     ts = db.scalar(
         select(SyncRun.started_at)
         .where(SyncRun.job.in_(ENV_SYNC_JOBS), SyncRun.status.in_(("ok", "partial")))

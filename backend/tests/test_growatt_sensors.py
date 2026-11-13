@@ -98,6 +98,22 @@ def test_coverage_is_null_without_a_sync_run_or_before_daylight(factory):
     assert all(s["coverage_today_pct"] is None for s in body["sensors"])
 
 
+def test_backfill_run_does_not_advance_todays_coverage(factory):
+    # backfill (re-reads the two previous days) at 12:00 after the 10:00 history sync
+    with factory() as db:
+        db.add(
+            SyncRun(
+                job="backfill", status="ok",
+                started_at=datetime(2026, 11, 13, 5, 0, tzinfo=timezone.utc),
+                finished_at=datetime(2026, 11, 13, 5, 1, tzinfo=timezone.utc),
+            )
+        )
+        db.commit()
+        body = gs.list_sensors(db, None, now_local=lambda: NOW)
+    assert body["meta"]["coverage_window"]["until"] == "10:00"
+    assert {s["key"]: s["coverage_today_pct"] for s in body["sensors"]}["DL1:1"] == 75.0
+
+
 def _api(factory, username):
     app = create_app()
 
