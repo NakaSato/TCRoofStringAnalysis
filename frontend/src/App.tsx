@@ -25,6 +25,8 @@ const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
 const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
 const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAlarmPage");
+const SensorsPage = page(() => import("./pages/SensorsPage"), "SensorsPage");
+const PlantSensorsPage = page(() => import("./pages/SensorsPage"), "PlantSensorsPage");
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
 
 /** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
@@ -95,6 +97,7 @@ export const App: React.FC = () => {
             <Route index element={<FleetHomePage />} />
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
+            <Route path="sensors" element={<SensorsPage />} />
             <Route path="she" element={<AdminOnly><SheSafetyPage /></AdminOnly>} />
             <Route path="settings" element={<PlantSettingsPage />} />
             <Route path="users" element={<AdminOnly><UsersPage /></AdminOnly>} />
@@ -102,6 +105,7 @@ export const App: React.FC = () => {
             <Route path="plant/:plantId" element={<PlantRoute />}>
               <Route index element={<OverviewPage />} />
               <Route path="generation" element={<GenerationPrPage />} />
+              <Route path="sensors" element={<PlantSensorsPage />} />
               <Route path="inverters" element={<InvertersPage />} />
               <Route path="strings" element={<StringAnalysisPage />} />
               <Route path="string-layout" element={<StringLayoutPage />} />

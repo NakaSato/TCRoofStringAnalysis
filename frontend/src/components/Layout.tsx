@@ -25,6 +25,7 @@ import {
   BellRing,
   Building2,
   Rows3,
+  Gauge,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
@@ -57,9 +58,11 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { page: "", label: "Plant Overview", icon: LayoutDashboard },
       { page: "generation", label: "Generation & PR", icon: TrendingUp, description: "Daily / monthly yield, PR & loss waterfall" },
       { page: "inverters", label: "Inverters", icon: Cpu, description: "Inverter status, MPPT, 5-minute profile & fault log" },
+      { page: "sensors", label: "Plant Sensors", icon: Gauge, description: "This plant's weather sensors: live status & newest reading" },
       { page: "strings", label: "String Diagnostics", icon: Activity, description: "String performance, heatmap & I-V / P-V curves" },
       { page: "string-layout", label: "String Layout", icon: Rows3, description: "Modules per string for each inverter" },
       { to: "/growatt", label: "Growatt Fleet", icon: Radio, description: "Live Growatt OpenAPI plants & inverter status" },
+      { to: "/sensors", label: "Weather Sensors", icon: Gauge, description: "Every weather sensor: status, last upload & newest reading" },
     ],
   },
   {

@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     growatt_live_night_ttl_s: int = 1800  # max live cache life outside daylight (0 = off); ends at dawn
     growatt_live_device_gap_s: int = 270  # min s between max_data calls per inverter (Growatt refuses sooner)
     growatt_live_latest_ttl_s: int = 300  # per-inverter cap when no upload rhythm applies (no record today / silent)
+    # Weather-sensor online state (`env_list`, one call per datalogger, memory only). The Sensors
+    # page sweeps the fleet a few dataloggers per request, so it costs calls only while open.
+    sensor_status_ttl_s: int = 300  # how long one datalogger's sensor list is reused
+    sensor_sweep_per_request: int = 12  # max dataloggers refreshed per status request
+    sensor_late_min: int = 15  # last upload older than this = late
+    sensor_offline_min: int = 60  # older than this (or Growatt says lost) = offline
     # Firestore (daily summaries + registry only; realtime data is never written)
     firebase_credentials_file: str = ""  # service-account JSON path, backend only
     firebase_project_id: str = ""

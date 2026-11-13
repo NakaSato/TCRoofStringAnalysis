@@ -168,29 +168,32 @@ Backend: `GET /growatt/sensors?day=` gains `coverage_pct` for a past `day` (DB o
 ## 8. Checklist
 
 ### Phase 1: DB list + Status tab
-- [ ] `services/growatt_sensors.py`: `list_sensors(db, allowed_plant_ids)` with last reading, coverage today, `measured` (one grouped query per table, SQLAlchemy only)
-- [ ] `GET /growatt/sensors` in `routes/growatt.py`, filtered by `allowed_plant_ids`
-- [ ] Types + `api.listSensors()` in `api/client.ts`
-- [ ] `pages/SensorsPage.tsx` with `Tabs` (`status`, `info`), tab in URL query
-- [ ] Route `sensors` in `App.tsx`; nav item "Weather Sensors" in Monitoring
-- [ ] Status table + KPI tiles from DB with "Last sync" labels; status `unknown` until Phase 2
-- [ ] Tests: engineer sees only assigned plants' sensors; `not_synced` sensor; coverage on mixed intervals; SQLite-safe
-- [ ] `uv run pytest -q`, `bun run lint`, `bun run build` pass
+_Done 2026-11-13. Deviations: `last_reading_at` is the sensor's `history_synced_until` (the sync sets it to the stored max) and the last reading is an exact key join, not a `MAX` group-by over 90 days. Coverage today counts slots 06:00 → start of the last finished `history`/`backfill` run (`meta.coverage_window`), so slots not fetched yet are not gaps. KPI tiles are Sensors / Stored today / Data gaps (< 80 %) / Not synced until Phase 2 can count online/late/offline (showing 0 online would be false). The Info tab shows the stored facts; Phase 3 adds live._
+- [x] `services/growatt_sensors.py`: `list_sensors(db, allowed_plant_ids)` with last reading, coverage today, `measured` (SQLAlchemy only; `growatt_weather.measured_by_sensor` shared with `measured_fields`)
+- [x] `GET /growatt/sensors` in `routes/growatt.py`, filtered by `allowed_plant_ids`
+- [x] Types + `api.listSensors()` in `api/client.ts`
+- [x] `pages/SensorsPage.tsx` with `Tabs` (`status`, `info`), tab in URL query
+- [x] Route `sensors` in `App.tsx`; nav item "Weather Sensors" in Monitoring
+- [x] Status table + KPI tiles from DB with "Last sync" labels; status `unknown` until Phase 2
+- [x] Tests: engineer sees only assigned plants' sensors; `not_synced` sensor; coverage on mixed intervals; SQLite-safe
+- [x] `uv run pytest -q`, `bun run lint`, `bun run build` pass
 
 ### Phase 2: live fleet status
-- [ ] `GrowattLiveService.sensor_status()` with per-datalogger cache, `SENSOR_SWEEP_PER_REQUEST`, TTL, cooldown, night TTL
-- [ ] Derived `status` function shared by API responses (thresholds from settings)
-- [ ] `GET /growatt/live/sensors/status` with `sweep` and `refresh_in_s` (15 s while sweeping)
-- [ ] Config keys (§5.4) in `config.py` and `.env.example`
-- [ ] Frontend: `useLivePoll` overlay, sweep progress, Live / Last sync freshness
-- [ ] Tests (fake client, no network): sweep refreshes at most N per request, oldest first; 10012 → cooldown, others served; engineer sweep limited to own dataloggers; nothing written to SQL
+_Built 2026-11-13 (dev trial pending). Deviations: status is judged in `growatt_sensors.overlay_live_status` at request time (a cached entry still ages into late / offline); a sensor its datalogger's `env_list` no longer lists is `unknown` with `listed: false`. `sweep` also carries `checked` (dataloggers fetched at least once). Envelope `stale` only when an expired entry's refresh failed (cooldown), not while the sweep is in progress. `SENSOR_READING_ROWS` / `SENSOR_ALARM_COVERAGE_PCT` wait for the phases that use them. Checked against real Growatt: `lastUpdateTime` = "YYYY-MM-DD HH:MM:SS" in **China time (UTC+8)**, one hour ahead of the same upload's `timeText` (found and fixed in Phase 3, 2026-11-13; it had made every upload look 60 min newer), `lost` = "0"/"1"; 12 dataloggers per request in ≈ 2.3 s._
+- [x] `GrowattLiveService.sensor_status()` with per-datalogger cache, `SENSOR_SWEEP_PER_REQUEST`, TTL, cooldown, night TTL
+- [x] Derived `status` function shared by API responses (thresholds from settings)
+- [x] `GET /growatt/live/sensors/status` with `sweep` and `refresh_in_s` (15 s while sweeping)
+- [x] Config keys (§5.4) in `config.py` and `.env.example`
+- [x] Frontend: `useLivePoll` overlay, sweep progress, Live / Last sync freshness
+- [x] Tests (fake client, no network): sweep refreshes at most N per request, oldest first; 10012 → cooldown, others served; engineer sweep limited to own dataloggers; nothing written to SQL
 - [ ] One-day dev trial: 10012 counts on inverter `max_data` with the page open vs closed
 
 ### Phase 3: Info tab
-- [ ] `GET /growatt/live/sensors/{dl}/{addr}` (newest reading, measured nulls, `raw` admin only)
-- [ ] Info view: identity, live state, newest reading, stored data + mini chart, raw record
-- [ ] Opened from Status row (sheet) and via `?tab=info&sensor=`; link from `WeatherStationPanel`
-- [ ] Tests: 404 for invisible plant; engineer gets `raw: null`; unmeasured → null
+_Done 2026-11-13. Deviations: a Status row opens the Info tab (no side sheet: the app has no sheet component and the tab keeps the URL shareable). The endpoint reuses both existing caches (`env_list` sweep entry, `env_last_data` per sensor), so opening Info while the plant's Weather Station is open costs no extra calls; a failed part is reported in `data.errors` and only both failing gives 503. `raw` keeps scalar fields only. Checked against real Growatt (admin 200 with raw, engineer 404 for an unassigned plant)._
+- [x] `GET /growatt/live/sensors/{dl}/{addr}` (newest reading, measured nulls, `raw` admin only)
+- [x] Info view: identity, live state + next-refresh countdown, newest reading (irradiance meter, wind compass), stored data + today's chart, raw record (collapsed)
+- [x] Opened from a Status row and via `?tab=info&sensor=`; "Sensor status" link from `WeatherStationPanel`
+- [x] Tests: 404 for invisible / unregistered sensor (no Growatt call); engineer gets `raw: null`; unmeasured → null; reading failure still serves status; `lastUpdateTime` China-time conversion
 
 ### Phase 4: health flags
 - [ ] `probe_missing`, `irradiance_zero_daylight`, `stale_history` in `growatt_sensors.py`, each with reason text

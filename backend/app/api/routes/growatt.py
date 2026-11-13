@@ -15,18 +15,20 @@ Timestamps in the reading tables are plant-local (Thai) time. DB responses carry
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
+from app.config import settings
 from app.db.models import SyncRun, User
 from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
 from app.services import fleet_settings
 from app.services import growatt_alarms
+from app.services import growatt_sensors
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
 from app.services import google_weather as gw
@@ -134,6 +136,96 @@ def live_plant_alarms(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
+def _sensor_scope(db: Session, user: User, plant_id: Optional[int]) -> Optional[Set[int]]:
+    """Plants whose sensors a request covers: the user's visible plants, narrowed to `plant_id`
+    when given (an invisible plant gives the empty set, so nothing is revealed)."""
+    allowed = allowed_plant_ids(db, user)
+    if plant_id is None:
+        return allowed
+    return {plant_id} if allowed is None or plant_id in allowed else set()
+
+
+@router.get("/live/sensors/status")
+def live_sensor_status(
+    plant_id: Optional[int] = Query(None, description="Only this plant's sensors (the plant Sensors tab)"),
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Live online state of every weather sensor the user may see (`env_list`, memory only).
+
+    Swept incrementally: each request refreshes at most `SENSOR_SWEEP_PER_REQUEST` dataloggers
+    (oldest first) and serves the rest from the shared memory cache; `data.sweep` says how many
+    are fresh, and `refresh_in_s` is short until the sweep is complete. An engineer's request
+    sweeps only their plants' dataloggers; with `plant_id`, only that plant's. Never written to SQL."""
+    sensors = growatt_sensors.visible_sensors(db, _sensor_scope(db, user, plant_id))
+    dataloggers = sorted({(dl, ph) for dl, _addr, ph in sensors})
+    try:
+        env = live.sensor_status(dataloggers, coords=ov.plant_coords(db, plant_id))
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    return growatt_sensors.overlay_live_status(
+        env,
+        sensors,
+        datetime.now(jobs.PLANT_TZ).replace(tzinfo=None),
+        settings.sensor_late_min,
+        settings.sensor_offline_min,
+    )
+
+
+@router.get("/live/sensors/{datalogger_sn}/{address}")
+def live_sensor(
+    datalogger_sn: str,
+    address: int,
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """One weather sensor for the Info view (memory only): live online state (its datalogger's
+    `env_list`, shared with the fleet sweep) and the newest `env_last_data` record. Probes not
+    measured in the last 7 days are null. `raw` = the record as Growatt reported it, admins only
+    (engineers get null). 404 when the sensor is not registered or its plant is not visible."""
+    found = growatt_sensors.find_sensor(db, datalogger_sn, address, allowed_plant_ids(db, user))
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"Weather sensor {datalogger_sn}#{address} not found")
+    sensor, phase = found
+    now_local = datetime.now(jobs.PLANT_TZ).replace(tzinfo=None)
+    measured = growatt_sensors.measured_for(db, sensor, now_local)
+    try:
+        env = live.sensor_live(
+            datalogger_sn, address, phase=phase, measured=measured, coords=ov.plant_coords(db, sensor.plant_id)
+        )
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    d = env["data"]
+    return {
+        **env,
+        "data": {
+            "status": growatt_sensors.live_row(
+                datalogger_sn, address, d["datalogger"], now_local, settings.sensor_late_min, settings.sensor_offline_min
+            ),
+            "measured": measured,
+            "reading": d["reading"],
+            "raw": d["raw"] if user.role == "admin" else None,
+            "errors": d["errors"],
+            "thresholds": {"late_min": settings.sensor_late_min, "offline_min": settings.sensor_offline_min},
+        },
+    }
+
+
+@router.get("/sensors")
+def fleet_sensors(
+    plant_id: Optional[int] = Query(None, description="Only this plant's sensors (the plant Sensors tab)"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Every weather sensor of the plants the user may see, from the registry and stored history
+    (DB only, never calls Growatt): newest stored reading, probes reporting in the last 7 days and
+    today's daylight coverage. `status` is `not_synced` (nothing stored) or `unknown`: online state
+    is realtime and comes from the live sweep, never from SQL. `plant_id` narrows it to one plant."""
+    return growatt_sensors.list_sensors(db, _sensor_scope(db, user, plant_id))
 
 
 @router.get("/alarms")

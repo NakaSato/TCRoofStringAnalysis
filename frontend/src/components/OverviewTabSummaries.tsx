@@ -1,6 +1,6 @@
 /**
  * Plant Overview: one high-level card per detail tab (2 Performance Ratio, 3 Inverters,
- * 4 String Diagnostics), each linking to its tab. Everything comes from the plant overview
+ * 5 String Diagnostics), each linking to its tab. Everything comes from the plant overview
  * already loaded (stored history + the live overlay); a missing value shows as "—".
  */
 import React, { useMemo } from "react";
@@ -157,7 +157,7 @@ export const OverviewTabSummaries: React.FC<{
   const name = (i: { alias?: string | null; device_sn: string }) =>
     i.alias || i.device_sn;
 
-  /* ---- 4. String Diagnostics ---- */
+  /* ---- 5. String Diagnostics ---- */
   const worst = useMemo(
     () =>
       strings
@@ -272,7 +272,7 @@ export const OverviewTabSummaries: React.FC<{
         </div>
       </Card>
 
-      <Card to={plantHref("strings")} step={4} icon={Activity} title="String Diagnostics">
+      <Card to={plantHref("strings")} step={5} icon={Activity} title="String Diagnostics">
         <div className="grid grid-cols-3 gap-2">
           <Stat
             label="Health"

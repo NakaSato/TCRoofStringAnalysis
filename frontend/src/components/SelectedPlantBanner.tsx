@@ -84,6 +84,7 @@ export const SelectedPlantBanner: React.FC = () => {
     { page: "", label: "Plant Overview", icon: LayoutDashboard },
     { page: "generation", label: "Performance Ratio", icon: TrendingUp },
     { page: "inverters", label: "Inverters", icon: Cpu },
+    { page: "sensors", label: "Sensors", icon: Gauge },
     { page: "strings", label: "String Diagnostics & I-V / P-V Curves", icon: Activity },
     { page: "string-layout", label: "String Layout", icon: Rows3 },
     { page: "maintenance", label: "Alarms & Maintenance", icon: Wrench },

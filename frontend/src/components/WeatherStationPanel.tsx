@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, CloudSun, Droplets, Gauge, Sun, Thermometer, Wind, X } from "lucide-react";
+import { Activity, ChevronLeft, ChevronRight, CloudSun, Droplets, Gauge, Sun, Thermometer, Wind, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   api,
   GrowattIecPr,
@@ -319,6 +320,13 @@ export const WeatherStationPanel: React.FC<{
                   ))}
                 </SelectContent>
               </Select>
+            )}
+            {selKey && (
+              <Button variant="ghost" size="sm" asChild>
+                <Link to={`/sensors?tab=info&sensor=${encodeURIComponent(selKey)}`} title="Online state, newest live reading and stored coverage of this sensor">
+                  <Activity /> Sensor status
+                </Link>
+              </Button>
             )}
             {filtered && (
               <Button variant="ghost" size="sm" onClick={clearFilter}>
