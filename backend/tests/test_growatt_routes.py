@@ -116,6 +116,9 @@ def test_overview_day_filter_energy_integration_and_nulls(client):
     # plant curve sums the per-inverter mean in each 5-minute slot: 6 kW + 4 kW
     peak = max(r["pac_kw"] for r in ov["timeseries"])
     assert peak == pytest.approx(10.0)
+    # each slot says how many inverters its sum covers (A and B at the peak; never more than reported)
+    assert next(r for r in ov["timeseries"] if r["pac_kw"] == peak)["inverters"] == 2
+    assert all(1 <= r["inverters"] <= 3 for r in ov["timeseries"])
     assert ov["kpis"]["yield_today_kwh"] == pytest.approx(9.9)
 
     strings = {s["string_no"]: s for s in ov["strings"]}

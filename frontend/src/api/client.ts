@@ -805,6 +805,8 @@ export interface GrowattPlantOverview {
     expected_kw: number | null;
     temp_c: number | null;
     freq_hz: number | null;
+    /** inverters with a record in this slot (pac_kw / ppv_kw sum only these) */
+    inverters?: number;
     /** measured by the weather sensor (null without one) */
     irradiance_wm2?: number | null;
     module_temp_c?: number | null;

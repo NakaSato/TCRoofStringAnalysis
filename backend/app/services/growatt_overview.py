@@ -835,6 +835,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
                     "expected_kw": expected_kw,
                     "temp_c": _round(_mean(b["temp"]), 1),
                     "freq_hz": _round(_mean(b["fac"]), 2),
+                    # inverters with a record in this slot: a sum over fewer than the plant has is low
+                    "inverters": len(b["pac"]),
                 }
             )
 
