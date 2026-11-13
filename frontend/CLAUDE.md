@@ -22,10 +22,20 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
   - It defines `apiFetch` and the `api.*` methods, with all response types next to them.
   - Base URL is `VITE_API_BASE_URL` (default `/api`). The JWT is kept in localStorage.
   - New endpoints get a typed method here; don't call `fetch` from components.
-- **`src/context/AppContext.tsx`**: shared state through `useAppContext()`.
-  - Holds the user/auth, the analysis plant and dataset, and the Growatt fleet list and selected plant.
+- **Routes** (`App.tsx`, all inside `components/Layout.tsx`). **The plant is in the URL**, never in hidden state:
+  - Fleet-wide: `/` (plant directory, `FleetHomePage`), `/growatt`, `/alarms`, `/she`, `/settings`, `/users`.
+  - One plant: `/plant/:plantId` (overview), `/plant/:plantId/{generation,inverters,strings,string-layout,maintenance}`. `PlantRoute` shows "not found" when the backend answers 404 (unknown, or not assigned to an engineer).
+  - Old URLs (`/inverters`, …) redirect to the same page of the last plant opened (`localStorage`, guarded), else `/`.
+  - Build plant links with `plantPath(id, page)` (`context/routes.ts`) or `usePlantHref()`; switch plant with `selectGrowattPlant(id)`, which keeps the current page.
+- **`src/context/`**: data is loaded **per route**. `routes.ts` → `routeData(pathname)` is the one place that decides what a route needs; `DataScope` (in `AppContext.tsx`) mounts every provider once and switches each on or off from the URL. A provider that is off fetches and polls nothing.
+  - `AuthContext`: user, login/logout. Loads no data.
+  - `FleetContext`: plant list (`/growatt/plants`, read once per session when first wanted: `/`, `/growatt`, `/users`, or the plant switcher opening) and the live fleet poll (`/`, `/growatt`, plant pages for the plant status).
+  - `PlantContext`: the URL plant's DB overview (memory cache per plant, so switching its tabs doesn't refetch; refreshed every 5 min) and `/live/plants/{id}/latest`, polled **only** on Overview, Inverters and Strings (Growatt rate-limits `max_data` per inverter).
+  - `LegacyContext`: old analysis tables (`/plants`, datasets, latest analysis), admin only, on `/she`, `/settings`, plant Maintenance, or when the quick-parameters drawer opens.
+  - `useAppContext()` merges them; values of a provider that is off are empty / null. Adding a page: add its route, then its needs in `routeData`.
   - Data loading uses `useEffect` and `setInterval`. `@tanstack/react-query` is installed but **not used**, so don't mix in a second fetching style without migrating the context.
-- **`src/pages/*`**: one page per route (`App.tsx`). The routes are `/`, `growatt`, `generation`, `strings`, `alarms`, `maintenance`, `she` and `settings`, all inside `components/Layout.tsx`.
+  - Dev only: `window.__apiLog` lists every API request with the route it was made on (check what a page loads).
+- **`src/pages/*`**: one page per route.
 - **`src/components/ui.tsx`**: shared app pieces, built on the shadcn primitives below.
   - Components: `PageHeader`, `Panel`, `KpiTile`, `StatusBadge`, `Led`, `Meter`, `EmptyState`, `LoadingState`.
   - Formatters `fmt` and `fmtInt` return `"—"` for null or non-finite values.
@@ -45,9 +55,9 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
 
 | Data | Source | Refresh |
 |---|---|---|
-| Fleet list | `api.listGrowattPlants()` (DB), overlaid with `api.getGrowattLivePlants()` | live every 60 s |
-| Selected plant overview | `api.getGrowattPlantOverview(id, day?)` (DB) | every 5 min |
-| Selected plant live values | `api.getGrowattLivePlantLatest(id)` | every 60 s |
+| Fleet list | `api.listGrowattPlants()` (DB), overlaid with `api.getGrowattLivePlants()` | list once per session; live when `refresh_in_s` says, on fleet routes and plant pages |
+| URL plant overview | `api.getGrowattPlantOverview(id, day?)` (DB) | every 5 min, cached per plant across its tabs |
+| URL plant live values | `api.getGrowattLivePlantLatest(id)` | when `refresh_in_s` says, on Overview / Inverters / Strings only |
 
 - **What the overlay changes.** `selectedPlantOverview` is the DB overview with the latest live record applied. Only "current" fields change: `kpis.current_power_kw`, `inverters[].current_ac_kw`, `mppt_latest`, `live_at`, and `strings[].live_voltage_v`/`live_current_a`/`live_power_w`. Daily aggregates always come from the DB.
 - **Polling** stops while `document.hidden`. Live values are never stored, in the browser or anywhere else.

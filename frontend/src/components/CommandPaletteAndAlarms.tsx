@@ -18,7 +18,7 @@ import {
   CornerDownLeft,
   CheckCheck,
 } from "lucide-react";
-import { useAppContext } from "../context/AppContext";
+import { useAppContext, usePlantHref } from "../context/AppContext";
 import { canAccessPath, isAdmin } from "../auth/access";
 import { StatusBadge, Led, statusLevel, fmt } from "./ui";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,7 @@ export const CommandPaletteModal: React.FC<{
 }> = ({ open, onClose, onOpenSpecs, onOpenAlarms, onSignOut }) => {
   const { analysisRun, setInspectedStringId, user } = useAppContext();
   const navigate = useNavigate();
+  const plantHref = usePlantHref();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -65,8 +66,8 @@ export const CommandPaletteModal: React.FC<{
         title: "Plant Overview",
         subtitle: "Live plant status, PR ring gauge, Digital Twin & string matrix",
         icon: LayoutDashboard,
-        onSelect: go("/"),
-        path: "/",
+        onSelect: go(plantHref("")),
+        path: plantHref(""),
       },
       {
         id: "nav-generation",
@@ -74,8 +75,8 @@ export const CommandPaletteModal: React.FC<{
         title: "Generation & PR",
         subtitle: "Daily/monthly yield, IEC 61724 PR & energy loss waterfall",
         icon: TrendingUp,
-        onSelect: go("/generation"),
-        path: "/generation",
+        onSelect: go(plantHref("generation")),
+        path: plantHref("generation"),
       },
       {
         id: "nav-strings",
@@ -83,8 +84,8 @@ export const CommandPaletteModal: React.FC<{
         title: "String Diagnostics & I-V Curves",
         subtitle: "Peer deviation heatmap, timeseries & single-diode I-V envelope",
         icon: Activity,
-        onSelect: go("/strings"),
-        path: "/strings",
+        onSelect: go(plantHref("strings")),
+        path: plantHref("strings"),
       },
       {
         id: "nav-maintenance",
@@ -92,8 +93,8 @@ export const CommandPaletteModal: React.FC<{
         title: "Maintenance & RCA",
         subtitle: "PM optimization schedule, CM work orders & 5-Why / Fishbone RCA",
         icon: Wrench,
-        onSelect: go("/maintenance"),
-        path: "/maintenance",
+        onSelect: go(plantHref("maintenance")),
+        path: plantHref("maintenance"),
       },
       {
         id: "nav-she",
@@ -179,7 +180,7 @@ export const CommandPaletteModal: React.FC<{
 
     const allowedNav = navItems.filter((n) => !n.path || canAccessPath(user, n.path));
     return [...stringItems, ...allowedNav, ...alarmItems, ...actionItems];
-  }, [analysisRun, navigate, onClose, onOpenAlarms, onOpenSpecs, onSignOut, setInspectedStringId, user]);
+  }, [analysisRun, navigate, onClose, onOpenAlarms, onOpenSpecs, onSignOut, setInspectedStringId, user, plantHref]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -313,6 +314,7 @@ export const AlarmCenterDrawer: React.FC<{
 }> = ({ open, onClose }) => {
   const { analysisRun, setInspectedStringId } = useAppContext();
   const navigate = useNavigate();
+  const plantHref = usePlantHref();
   const [filter, setFilter] = useState<"all" | "Critical" | "High" | "Medium">("all");
   const [ackedIds, setAckedIds] = useState<Record<number, boolean>>({});
 
@@ -456,7 +458,7 @@ export const AlarmCenterDrawer: React.FC<{
                         size="sm"
                         onClick={() => {
                           onClose();
-                          navigate("/maintenance");
+                          navigate(plantHref("maintenance"));
                         }}
                       >
                         CM / RCA <ArrowRight className="size-3" />

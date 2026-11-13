@@ -12,7 +12,7 @@ import {
   Sliders,
   Gauge,
 } from "lucide-react";
-import { useAppContext } from "../context/AppContext";
+import { useAppContext, usePlantHref } from "../context/AppContext";
 import { api } from "../api/client";
 import type { GrowattStringDetail } from "../api/client";
 import { PanelChart } from "./PanelChart";
@@ -30,6 +30,7 @@ export const StringInspectorDrawer: React.FC = () => {
     selectedGrowattPlantId,
   } = useAppContext();
   const navigate = useNavigate();
+  const plantHref = usePlantHref();
   const [dispatching, setDispatching] = useState(false);
   const [dispatchedMsg, setDispatchedMsg] = useState<string | null>(null);
   const [stringDetail, setStringDetail] = useState<GrowattStringDetail | null>(null);
@@ -323,7 +324,7 @@ export const StringInspectorDrawer: React.FC = () => {
               <Button
                 onClick={() => {
                   setInspectedStringId(null);
-                  navigate("/maintenance");
+                  navigate(plantHref("maintenance"));
                 }}
                 size="sm"
               >
@@ -338,13 +339,18 @@ export const StringInspectorDrawer: React.FC = () => {
           <Button
             onClick={() => {
               setInspectedStringId(null);
-              navigate("/strings");
+              navigate(plantHref("strings"));
             }}
           >
             <Activity className="h-3.5 w-3.5 text-energy-400" />
             Full String I-V Page
           </Button>
-          <Button onClick={handleDispatchCm} disabled={dispatching} variant="default">
+          <Button
+            onClick={handleDispatchCm}
+            disabled={dispatching || !analysisRun.id}
+            title={analysisRun.id ? undefined : "CM work orders come from the legacy analysis run (admin)"}
+            variant="default"
+          >
             <Wrench className="h-3.5 w-3.5" />
             {dispatching ? "Syncing CM Queue…" : "Dispatch CM Work Order"}
           </Button>

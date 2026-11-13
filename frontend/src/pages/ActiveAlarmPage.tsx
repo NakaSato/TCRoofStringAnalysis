@@ -19,7 +19,8 @@ import type { LucideIcon } from "lucide-react";
 import type { GrowattAlarm } from "../api/client";
 import { plantToday, useAlarmLog } from "../context/alarmLogStore";
 import type { AlarmRow } from "../context/alarmLogStore";
-import { useAppContext } from "../context/AppContext";
+import { Link } from "react-router-dom";
+import { plantPath } from "../context/routes";
 import { PageHeader, Panel, StatusBadge, Led, EmptyState, LoadingState, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
 import { PanelChart } from "../components/PanelChart";
@@ -93,7 +94,6 @@ const hhmm = (iso: string | null) =>
  * (`/growatt/alarms`): the worker syncs each inverter's log into SQL every 30 min in the daytime.
  */
 export const ActiveAlarmPage: React.FC = () => {
-  const { selectGrowattPlant } = useAppContext();
   const today = plantToday();
   const [day, setDay] = useState(today);
   const [query, setQuery] = useState("");
@@ -526,14 +526,13 @@ export const ActiveAlarmPage: React.FC = () => {
                     <TableCell className="num whitespace-nowrap">{a.open ? "—" : hms(a.end_time)}</TableCell>
                     <TableCell className="num whitespace-nowrap text-right">{fmtDuration(durationMin(a))}</TableCell>
                     <TableCell className="max-w-[220px]">
-                      <button
-                        type="button"
+                      <Link
+                        to={plantPath(a.plant_id)}
                         className="block max-w-full truncate text-left text-slate-200 hover:text-solar-400"
-                        title={`${a.plant_name} · make this the selected plant across the app`}
-                        onClick={() => selectGrowattPlant(a.plant_id, false)}
+                        title={`Open ${a.plant_name}`}
                       >
                         {a.plant_name}
-                      </button>
+                      </Link>
                     </TableCell>
                     <TableCell className="num whitespace-nowrap text-slate-400">{a.device_sn}</TableCell>
                     <TableCell>

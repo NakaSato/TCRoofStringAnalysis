@@ -15,7 +15,7 @@ import {
   Thermometer,
   Zap,
 } from "lucide-react";
-import { useAppContext } from "../context/AppContext";
+import { useAppContext, usePlantHref } from "../context/AppContext";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { InverterProfilePanel } from "../components/InverterProfilePanel";
 import { InverterComparisonPanel, InverterTrendPanel, StringHeatmapPanel } from "../components/InverterCharts";
@@ -125,6 +125,7 @@ const DETAIL_TABS: Array<{ id: DetailTab; label: string; icon: React.ComponentTy
  */
 export const InvertersPage: React.FC = () => {
   const { selectedGrowattPlantId, selectedPlantOverview, plantOverviewLoading } = useAppContext();
+  const plantHref = usePlantHref();
   const [selectedSn, setSelectedSn] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>("performance");
 
@@ -481,7 +482,7 @@ export const InvertersPage: React.FC = () => {
                     bodyClassName="p-0"
                     actions={
                       <Button asChild variant="ghost" size="sm">
-                        <Link to="/strings">
+                        <Link to={plantHref("strings")}>
                           String diagnostics <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                       </Button>

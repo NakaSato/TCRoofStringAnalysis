@@ -855,7 +855,24 @@ export function clearAuthSession(): void {
   localStorage.removeItem(USER_KEY);
 }
 
+/** A non-2xx API answer; `status` lets callers tell "not found / not assigned" (404) from outages. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Dev only: every request, so each route's data loading can be checked (`window.__apiLog`). */
+const logRequest = (method: string, path: string) => {
+  if (!import.meta.env.DEV) return;
+  const w = window as unknown as { __apiLog?: Array<{ at: string; route: string; method: string; path: string }> };
+  (w.__apiLog ??= []).push({ at: new Date().toISOString(), route: window.location.pathname, method, path });
+  console.debug(`[api] ${method} ${path}  (on ${window.location.pathname})`);
+};
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  logRequest(options.method ?? "GET", path);
   const token = getStoredToken();
   const headers = new Headers(options.headers || {});
   if (token) {
@@ -884,7 +901,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     } catch {
       // ignore
     }
-    throw new Error(errDetail);
+    throw new ApiError(errDetail, res.status);
   }
 
   if (res.status === 204) {

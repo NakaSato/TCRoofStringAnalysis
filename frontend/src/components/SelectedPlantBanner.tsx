@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
   Building2,
@@ -17,6 +17,9 @@ import {
   Rows3,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
+import { canAccessPlantPage } from "../auth/access";
+import { parsePlantPath, plantPath } from "../context/routes";
+import type { PlantPage } from "../context/routes";
 import { StatusBadge, fmt, LOADING_STATUS } from "./ui";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,9 +32,10 @@ export const SelectedPlantBanner: React.FC = () => {
     selectedPlantOverview,
     plantOverviewLoading,
     selectGrowattPlant,
-    setDashboardMode,
+    ensurePlantList,
+    plantListLoaded,
+    user,
   } = useAppContext();
-  const navigate = useNavigate();
   const location = useLocation();
 
   const plant = selectedPlantOverview?.plant;
@@ -70,80 +74,39 @@ export const SelectedPlantBanner: React.FC = () => {
         : "Normal"
       : "Disconnected";
 
-  const handleBackToDirectory = () => {
-    setDashboardMode("directory");
-    if (location.pathname !== "/") {
-      navigate("/");
-    }
-  };
-
-  const navItems = [
-    {
-      step: "1",
-      label: "Plant Overview",
-      to: "/",
-      icon: LayoutDashboard,
-      active: location.pathname === "/",
-      onClick: () => {
-        setDashboardMode("plant");
-        navigate("/");
-      },
-    },
-    {
-      step: "2",
-      label: "Performance Ratio",
-      to: "/generation",
-      icon: TrendingUp,
-      active: location.pathname === "/generation",
-      onClick: () => navigate("/generation"),
-    },
-    {
-      step: "3",
-      label: "Inverters",
-      to: "/inverters",
-      icon: Cpu,
-      active: location.pathname === "/inverters",
-      onClick: () => navigate("/inverters"),
-    },
-    {
-      step: "4",
-      label: "String Diagnostics & I-V / P-V Curves",
-      to: "/strings",
-      icon: Activity,
-      active: location.pathname === "/strings",
-      onClick: () => navigate("/strings"),
-    },
-    {
-      step: "5",
-      label: "String Layout",
-      to: "/string-layout",
-      icon: Rows3,
-      active: location.pathname === "/string-layout",
-      onClick: () => navigate("/string-layout"),
-    },
-    {
-      step: "6",
-      label: "Alarms & Maintenance",
-      to: "/maintenance",
-      icon: Wrench,
-      active: location.pathname === "/maintenance",
-      onClick: () => navigate("/maintenance"),
-    },
+  const currentPage = parsePlantPath(location.pathname)?.page ?? "";
+  const tabs: Array<{ page: PlantPage; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { page: "", label: "Plant Overview", icon: LayoutDashboard },
+    { page: "generation", label: "Performance Ratio", icon: TrendingUp },
+    { page: "inverters", label: "Inverters", icon: Cpu },
+    { page: "strings", label: "String Diagnostics & I-V / P-V Curves", icon: Activity },
+    { page: "string-layout", label: "String Layout", icon: Rows3 },
+    { page: "maintenance", label: "Alarms & Maintenance", icon: Wrench },
   ];
+  const navItems =
+    selectedGrowattPlantId == null
+      ? []
+      : tabs
+          .filter((t) => canAccessPlantPage(user, t.page))
+          .map((t, i) => ({
+            ...t,
+            step: String(i + 1),
+            to: plantPath(selectedGrowattPlantId, t.page),
+            active: currentPage === t.page,
+          }));
 
   return (
     <section className="overflow-hidden rounded-xl border border-white/[0.08] bg-ink-900">
       {/* Top Row: Back Button + Plant Title + Quick Plant Switcher + Key Specs */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] px-5 py-3.5">
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={handleBackToDirectory}
+          <Link
+            to="/"
             className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-200 transition hover:bg-sky-500/25 hover:text-white"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            All Plants ({growattPlants.length || 43})
-          </button>
+            All Plants{plantListLoaded ? ` (${growattPlants.length})` : ""}
+          </Link>
 
           <div className="h-5 w-px bg-white/10" />
 
@@ -188,9 +151,10 @@ export const SelectedPlantBanner: React.FC = () => {
               type="text"
               value={plantSearch}
               onChange={(e) => setPlantSearch(e.target.value)}
+              onFocus={ensurePlantList}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && filteredPlants.length > 0) {
-                  selectGrowattPlant(filteredPlants[0].plant_id, false);
+                  selectGrowattPlant(filteredPlants[0].plant_id);
                 }
               }}
               placeholder="Search plant…"
@@ -215,8 +179,9 @@ export const SelectedPlantBanner: React.FC = () => {
             }
             onValueChange={(v) => {
               const val = Number(v);
-              if (val) selectGrowattPlant(val, false);
+              if (val) selectGrowattPlant(val);
             }}
+            onOpenChange={(open) => open && ensurePlantList()}
           >
             <SelectTrigger
               size="sm"
@@ -225,7 +190,9 @@ export const SelectedPlantBanner: React.FC = () => {
             >
               <SelectValue
                 placeholder={
-                  plantSearch
+                  !plantListLoaded
+                    ? plant?.name ?? "Select plant"
+                    : plantSearch
                     ? filteredPlants.length > 0
                       ? `Select from ${filteredPlants.length} matching…`
                       : `No plants match "${plantSearch}"`
@@ -234,6 +201,9 @@ export const SelectedPlantBanner: React.FC = () => {
               />
             </SelectTrigger>
             <SelectContent>
+              {!plantListLoaded && (
+                <div className="px-2 py-1.5 text-xs text-slate-500">Loading plants…</div>
+              )}
               {filteredPlants.map((gp) => (
                 <SelectItem key={gp.plant_id} value={String(gp.plant_id)}>
                   {gp.name} ({fmt(gp.peak_power_kwp, 1)} kWp)
@@ -250,10 +220,10 @@ export const SelectedPlantBanner: React.FC = () => {
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button
+              <Link
                 key={item.step}
-                type="button"
-                onClick={item.onClick}
+                to={item.to}
+                aria-current={item.active ? "page" : undefined}
                 className={`inline-flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
                   item.active
                     ? "bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/40 shadow-[0_0_15px_-4px_rgba(56,189,248,0.5)]"
@@ -269,7 +239,7 @@ export const SelectedPlantBanner: React.FC = () => {
                 </span>
                 <Icon className="h-3.5 w-3.5" />
                 <span>{item.label}</span>
-              </button>
+              </Link>
             );
           })}
         </div>

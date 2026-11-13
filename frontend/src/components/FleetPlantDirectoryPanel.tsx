@@ -28,13 +28,13 @@ import {
   AlertCircle,
   Bell,
   ArrowUpDown,
-  Table as TableIcon,
   LayoutGrid,
   Eye,
 } from "lucide-react";
 import { api } from "../api/client";
 import type { GrowattPlant } from "../api/client";
 import { useAppContext } from "../context/AppContext";
+import { getLastPlantId, plantPath } from "../context/routes";
 import { StatusBadge, Led, fmt, fmtInt, LOADING_STATUS } from "./ui";
 import type { StatusLevel } from "./ui";
 import { Button } from "@/components/ui/button";
@@ -229,9 +229,7 @@ const PlantThumbnail: React.FC<{ statusLevel: StatusLevel; source: "local" | "gr
 /* -------------------------------------------------------------------------- */
 /* Main Component: FusionSolar-style Fleet KPI Banner + Plant Directory Table */
 /* -------------------------------------------------------------------------- */
-export const FleetPlantDirectoryPanel: React.FC<{
-  onSwitchViewMode?: (mode: "all" | "plants" | "overview") => void;
-}> = ({ onSwitchViewMode }) => {
+export const FleetPlantDirectoryPanel: React.FC = () => {
   const {
     activePlant,
     activeDataset,
@@ -713,8 +711,8 @@ export const FleetPlantDirectoryPanel: React.FC<{
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold tracking-tight text-white">Active Alarms</h3>
               <Link
-                to="/maintenance"
-                title="View Maintenance & RCA Alarms"
+                to="/alarms"
+                title="Open Active Alarm (whole fleet)"
                 className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -735,7 +733,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
 
               <div className="grid grid-cols-1 gap-2">
                 <Link
-                  to="/maintenance"
+                  to="/alarms"
                   className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
                 >
                   <span className="flex h-5 w-5 items-center justify-center rounded-full border border-red-400/40 bg-red-500/15 text-red-400">
@@ -750,7 +748,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 </Link>
 
                 <Link
-                  to="/maintenance"
+                  to="/alarms"
                   className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
                 >
                   <span className="flex h-5 w-5 items-center justify-center rounded-full border border-orange-400/40 bg-orange-500/15 text-orange-400">
@@ -765,7 +763,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 </Link>
 
                 <Link
-                  to="/maintenance"
+                  to="/alarms"
                   className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
                 >
                   <span className="flex h-5 w-5 items-center justify-center rounded-full border border-amber-400/40 bg-amber-500/15 text-amber-300">
@@ -780,7 +778,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 </Link>
 
                 <Link
-                  to="/maintenance"
+                  to="/alarms"
                   className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
                 >
                   <span className="flex h-5 w-5 items-center justify-center rounded-full border border-sky-400/40 bg-sky-500/15 text-sky-300">
@@ -801,13 +799,6 @@ export const FleetPlantDirectoryPanel: React.FC<{
         {/* Floating Right-Edge Quick Mode Toolbar (matches FusionSolar right dock) */}
         <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 flex-col gap-1 rounded-lg border border-white/15 bg-ink-900/90 p-1 shadow-xl backdrop-blur md:flex">
           <button
-            onClick={() => onSwitchViewMode?.("all")}
-            title="Show Plant Directory + Plant Overview"
-            className="rounded p-1.5 text-sky-300 transition hover:bg-white/10 hover:text-white"
-          >
-            <TableIcon className="h-3.5 w-3.5" />
-          </button>
-          <button
             onClick={() => setShowInspectorDrawer((v) => !v)}
             title="Toggle Selected Plant String Inspector Strip"
             className={`rounded p-1.5 transition ${
@@ -817,9 +808,13 @@ export const FleetPlantDirectoryPanel: React.FC<{
             <LayoutGrid className="h-3.5 w-3.5" />
           </button>
           <button
-            onClick={() => onSwitchViewMode?.("overview")}
-            title="Focus Active Plant Overview"
-            className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+            onClick={() => {
+              const last = getLastPlantId();
+              if (last != null) selectGrowattPlant(last);
+            }}
+            disabled={getLastPlantId() == null}
+            title="Open the last plant you viewed"
+            className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
           >
             <Eye className="h-3.5 w-3.5" />
           </button>
@@ -1141,8 +1136,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                       key={p.uid}
                       onClick={() => {
                         setSelectedUid(p.uid);
-                        selectGrowattPlant(p.id, true);
-                        onSwitchViewMode?.("overview");
+                        selectGrowattPlant(p.id);
                       }}
                       className={`group cursor-pointer border-t border-white/[0.05] transition ${
                         isSelected ? "bg-sky-500/[0.09]" : "hover:bg-white/[0.04]"
@@ -1269,7 +1263,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
               </div>
               <div className="flex items-center gap-3">
                 <Link
-                  to="/strings"
+                  to={selectedPlant ? plantPath(selectedPlant.id, "strings") : "/strings"}
                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 hover:text-sky-300"
                 >
                   Full String Diagnostics <ArrowUpRight className="h-3 w-3" />
