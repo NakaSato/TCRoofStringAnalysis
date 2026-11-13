@@ -46,6 +46,7 @@ MIN_REFRESH_S = 15  # floor for refresh_in_s, so an expired key never invites a 
 PLANT_TZ = ZoneInfo("Asia/Bangkok")  # max_data `time` is naive plant-local
 PAST_DAY_ALARM_TTL_S = 6 * 3600.0  # a closed day's alarm log no longer changes
 ALARM_WORKERS = 8  # parallel alarm_data calls for one request (one call per inverter-day)
+LIVE_WORKERS = 8  # parallel max_data calls for one plant's latest records (one call per inverter)
 
 # Per-inverter expiry follows the upload rhythm (see `_latest_ttl`).
 DEFAULT_INTERVAL_S = 300.0  # when the interval can't be measured (one record so far)
@@ -258,10 +259,16 @@ class GrowattLiveService:
         walls: List[datetime] = []
         refresh: List[float] = []
         stale = False
-        for phase in self.phases:
+        # one account per thread: a cold cache costs the slowest account, not their sum
+        with ThreadPoolExecutor(max_workers=len(self.phases)) as pool:
+            futures = [
+                (phase, pool.submit(self._get, ("plants", phase), lambda c, phase=phase: fn(c, phase), ttl, phase))
+                for phase in self.phases
+            ]
+        for phase, fut in futures:
             key = ("plants", phase)
             try:
-                r = self._get(key, lambda c, phase=phase: fn(c, phase), ttl, phase)
+                r = fut.result()
             except LiveUnavailable as exc:
                 errors[f"phase {phase}"] = str(exc)
                 stale = True
@@ -334,10 +341,18 @@ class GrowattLiveService:
         all_walls: List[datetime] = []
         refresh: List[float] = []
 
-        for sn in device_sns:
+        def one(sn: str) -> _Result:
+            return self._get(("latest", sn, day), lambda c: _latest_row(c, sn, day), ttl, ph, gap_s=self.device_gap_s)
+
+        # Cold cache = one max_data call per inverter: fetch them in parallel (a 17-inverter plant
+        # otherwise waits for 17 Growatt round trips in a row). Per-key locks keep it one call per key.
+        with ThreadPoolExecutor(max_workers=LIVE_WORKERS) as pool:
+            futures = [(sn, pool.submit(one, sn)) for sn in device_sns]
+
+        for sn, fut in futures:
             key = ("latest", sn, day)
             try:
-                r = self._get(key, lambda c, sn=sn: _latest_row(c, sn, day), ttl, ph, gap_s=self.device_gap_s)
+                r = fut.result()
             except LiveUnavailable as exc:
                 errors[sn] = str(exc)
                 refresh.append(self._refresh_in(key))
