@@ -13,6 +13,10 @@ import { api } from "../api/client";
 import type { FleetModuleOut, GrowattStringLayout, GrowattStringLayoutEntry } from "../api/client";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { EmptyState, LoadingState, fmt } from "../components/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 /** `wp` blank = the fleet module's rating (global setting), so a fleet change applies everywhere. */
 type Draft = { modules: string; wp: string };
@@ -250,23 +254,25 @@ export const StringLayoutPage: React.FC = () => {
               )}
               {canEdit ? (
                 <>
-                  <button
+                  <Button
                     type="button"
-                    className="btn-ghost btn-sm"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setDraft(baseline)}
                     disabled={!totals.dirty || saving}
                   >
                     <RotateCcw className="h-3.5 w-3.5" /> Discard
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="btn-primary btn-sm"
+                    variant="default"
+                    size="sm"
                     onClick={save}
                     disabled={!totals.dirty || saving || totals.invalid > 0}
                   >
                     <Save className="h-3.5 w-3.5" />
                     {saving ? "Saving…" : "Save layout"}
-                  </button>
+                  </Button>
                 </>
               ) : (
                 <span className="text-slate-500">Read only</span>
@@ -284,7 +290,7 @@ export const StringLayoutPage: React.FC = () => {
             {shown.map(({ inv, rows, mppts, mismatch, filled, complete, kwp, dirty }) => {
               const open = !collapsed.has(inv.device_sn);
               return (
-                <section key={inv.device_sn} className="panel overflow-hidden">
+                <Card key={inv.device_sn} className="gap-0 overflow-hidden py-0">
                   <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/[0.06] px-4 py-3 text-xs">
                     <button
                       type="button"
@@ -296,13 +302,13 @@ export const StringLayoutPage: React.FC = () => {
                       <span className="num text-sm font-bold text-white">{inv.device_sn}</span>
                       <span className="num text-slate-500">{inv.model}</span>
                     </button>
-                    <span className={complete ? "badge badge-ok" : "badge badge-warn"}>
+                    <Badge variant={complete ? "ok" : "warn"}>
                       {complete ? "Compared per module" : "Raw comparison"}
-                    </span>
+                    </Badge>
                     {mismatch.size > 0 && (
-                      <span className="badge badge-warn">
+                      <Badge variant="warn">
                         <AlertTriangle className="h-3 w-3" /> MPPT {[...mismatch].join(", ")} unequal
-                      </span>
+                      </Badge>
                     )}
                     {dirty > 0 && <span className="text-amber-300">{dirty} unsaved</span>}
                     <div className="ml-auto flex items-center gap-4">
@@ -358,8 +364,8 @@ export const StringLayoutPage: React.FC = () => {
                                     </div>
                                     <div className="flex items-center gap-2">
                                       <label className="flex flex-1 items-center gap-1.5">
-                                        <input
-                                          className="input input-sm num w-full min-w-0"
+                                        <Input
+                                          className="num h-7 w-full min-w-0 px-2 text-[11px]"
                                           inputMode="numeric"
                                           placeholder="—"
                                           aria-label={`${inv.device_sn} ${strLabel(s.string_no)} modules`}
@@ -371,8 +377,8 @@ export const StringLayoutPage: React.FC = () => {
                                       </label>
                                       <span className="text-slate-500">×</span>
                                       <label className="flex flex-1 items-center gap-1.5">
-                                        <input
-                                          className="input input-sm num w-full min-w-0"
+                                        <Input
+                                          className="num h-7 w-full min-w-0 px-2 text-[11px]"
                                           inputMode="decimal"
                                           aria-label={`${inv.device_sn} ${strLabel(s.string_no)} module Wp`}
                                           placeholder={fleetWp != null ? String(fleetWp) : "Wp"}
@@ -391,7 +397,7 @@ export const StringLayoutPage: React.FC = () => {
                         ))}
                       </div>
                     ))}
-                </section>
+                </Card>
               );
             })}
           </div>

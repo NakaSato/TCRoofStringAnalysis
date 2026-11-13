@@ -26,14 +26,18 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
   - Holds the user/auth, the analysis plant and dataset, and the Growatt fleet list and selected plant.
   - Data loading uses `useEffect` and `setInterval`. `@tanstack/react-query` is installed but **not used**, so don't mix in a second fetching style without migrating the context.
 - **`src/pages/*`**: one page per route (`App.tsx`). The routes are `/`, `growatt`, `generation`, `strings`, `alarms`, `maintenance`, `she` and `settings`, all inside `components/Layout.tsx`.
-- **`src/components/ui.tsx`**: shared UI pieces.
+- **`src/components/ui.tsx`**: shared app pieces, built on the shadcn primitives below.
   - Components: `PageHeader`, `Panel`, `KpiTile`, `StatusBadge`, `Led`, `Meter`, `EmptyState`, `LoadingState`.
   - Formatters `fmt` and `fmtInt` return `"—"` for null or non-finite values.
+- **`src/components/ui/*`**: shadcn/ui components (Radix, `components.json`, style `radix-nova`), owned source.
+  - Use them instead of raw elements: `Button` (variants `default` = solar CTA, `secondary` (default), `outline`, `accent`, `destructive`, `ghost`; sizes `sm`/`xs`/`icon-sm`…), `Input`, `Textarea`, `Label`, `Select`, `Tabs`, `Table` (`containerClassName="table-wrap"` for the scroll-shadow frame), `Badge` (variants `ok`/`warn`/`crit`/`info`/`neutral`), `Card`, `Dialog`, `Tooltip` (provider in `App.tsx`), `Command`.
+  - They are restyled to the control-room theme; keep that when adding more (`bunx --bun shadcn@latest add <name>`, then fix any `from "cn"` import to `@/lib/utils` and match the compact `text-xs` sizing).
+  - Import with the `@/` alias (`@/components/ui/button`); `cn()` is in `src/lib/utils.ts`.
 - **Charts:** D3 only (no Plotly). Every x/y chart is `components/PanelChart.tsx`: pass a `PanelChartSpec` built with `useMemo` (`xKind` time / linear / band, stacked `panels`, each with **one** y scale; never a second y axis, so two units = two panels). Nulls are gaps, never 0. Colours come from `components/chartTheme.ts` by role (`SERIES.ac`, `SERIES.dc`, …; `STATUS.*` only for state); modelled series are labelled "(modelled)" and drawn dashed/dotted in `SERIES.reference`. Special-purpose D3 charts (comparison bars, string heatmap) are in `D3Charts.tsx`; shared tooltip/sizing helpers in `chartKit.tsx`.
 - **Styling:**
-  - Tailwind v4 design tokens are in `src/index.css` under `@theme`: `ink-*` surfaces, `solar-*` and `energy-*` accents.
-  - Component classes live under `@layer components`: `panel`, `btn`/`btn-ghost`/`btn-sm`, `badge-*`, `led-*`, `data-table`, `num`, `input`/`input-sm`, `select`, `tabs`/`tab`, `callout-*`.
-  - Reuse these classes before adding new ones. The UI is a dark control-room theme.
+  - Tailwind v4 design tokens are in `src/index.css` under `@theme`: `ink-*` surfaces, `solar-*` and `energy-*` accents. shadcn's variables (`--background`, `--primary`, `--border`, …) are mapped onto them in `:root`; the app is dark only (`<html class="dark">`).
+  - Remaining component classes under `@layer components`: `panel-pad`/`panel-header`, `eyebrow`, `led-*`, `num`, `table-wrap`, `callout-*`. The old `btn`/`input`/`select`/`data-table`/`tabs`/`badge-*` classes were removed; use the shadcn components.
+  - The UI is a dark control-room theme.
 
 ## Growatt data in the UI
 

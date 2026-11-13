@@ -19,6 +19,7 @@ import { Panel, KpiTile, StatusBadge, LoadingState, fmt, fmtInt, LOADING_STATUS 
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { WeatherStationPanel } from "../components/WeatherStationPanel";
 import { GoogleWeatherPanel } from "../components/GoogleWeatherPanel";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const GenerationPrPage: React.FC = () => {
   const { selectedPlantOverview, plantOverviewLoading } = useAppContext();
@@ -341,29 +342,28 @@ export const GenerationPrPage: React.FC = () => {
         subtitle={`${inverters.length} Growatt MAX inverters monitored at this plant`}
         bodyClassName="p-0"
       >
-        <div className="scroll-x-hint overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>Inverter SN</th>
-                <th>Model</th>
-                <th>Datalogger</th>
-                <th className="text-right">Strings</th>
-                <th className="text-right">Rated Cap (kWp)</th>
-                <th className="text-right">Current AC (kW)</th>
-                <th className="text-right">Peak DC (kW)</th>
-                <th className="text-right">Peak AC (kW)</th>
-                <th className="text-right">Efficiency (%)</th>
-                <th className="text-right">Yield Today (kWh)</th>
-                <th className="text-right">Specific Yield (kWh/kWp)</th>
-                <th className="text-right">PR (%)</th>
-                <th className="text-right">Temp Avg / Max (°C)</th>
-                <th className="text-right">Grid Freq (Hz)</th>
-                <th className="text-right">Total Yield (MWh)</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Table containerClassName="scroll-x-hint overflow-x-auto">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Status</TableHead>
+                <TableHead>Inverter SN</TableHead>
+                <TableHead>Model</TableHead>
+                <TableHead>Datalogger</TableHead>
+                <TableHead className="text-right">Strings</TableHead>
+                <TableHead className="text-right">Rated Cap (kWp)</TableHead>
+                <TableHead className="text-right">Current AC (kW)</TableHead>
+                <TableHead className="text-right">Peak DC (kW)</TableHead>
+                <TableHead className="text-right">Peak AC (kW)</TableHead>
+                <TableHead className="text-right">Efficiency (%)</TableHead>
+                <TableHead className="text-right">Yield Today (kWh)</TableHead>
+                <TableHead className="text-right">Specific Yield (kWh/kWp)</TableHead>
+                <TableHead className="text-right">PR (%)</TableHead>
+                <TableHead className="text-right">Temp Avg / Max (°C)</TableHead>
+                <TableHead className="text-right">Grid Freq (Hz)</TableHead>
+                <TableHead className="text-right">Total Yield (MWh)</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {inverters.map((inv) => {
                 const lvl =
                   inv.lost || inv.status === 0
@@ -372,30 +372,30 @@ export const GenerationPrPage: React.FC = () => {
                     ? "ok"
                     : "warn";
                 return (
-                  <tr key={inv.device_sn}>
-                    <td>
+                  <TableRow key={inv.device_sn}>
+                    <TableCell>
                       <StatusBadge
                         status={inv.status_label ?? LOADING_STATUS}
                         level={lvl}
                         loading={inv.status_label == null}
                         dot
                       />
-                    </td>
-                    <td className="num font-bold text-white">{inv.device_sn}</td>
-                    <td className="num text-xs text-slate-400">{inv.model}</td>
-                    <td className="num text-xs text-slate-500">{inv.datalogger_sn}</td>
-                    <td className="num text-right text-sky-300">{inv.string_count}</td>
-                    <td className="num text-right text-slate-300">{fmt(inv.capacity_kwp, 2)}</td>
-                    <td className="num text-right font-semibold text-energy-300">{fmt(inv.current_ac_kw, 2)}</td>
-                    <td className="num text-right text-amber-300">{fmt(inv.peak_dc_kw, 2)}</td>
-                    <td className="num text-right text-energy-300">{fmt(inv.peak_ac_kw, 2)}</td>
-                    <td className="num text-right text-emerald-300">{fmt(inv.efficiency_pct, 2)}%</td>
-                    <td className="num text-right font-semibold text-solar-300">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap font-bold text-white">{inv.device_sn}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-xs text-slate-400">{inv.model}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-xs text-slate-500">{inv.datalogger_sn}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-sky-300">{inv.string_count}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-slate-300">{fmt(inv.capacity_kwp, 2)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right font-semibold text-energy-300">{fmt(inv.current_ac_kw, 2)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-amber-300">{fmt(inv.peak_dc_kw, 2)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-energy-300">{fmt(inv.peak_ac_kw, 2)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-emerald-300">{fmt(inv.efficiency_pct, 2)}%</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right font-semibold text-solar-300">
                       {fmt(inv.yield_today_kwh, 2)}
-                    </td>
-                    <td className="num text-right text-slate-200">{fmt(inv.specific_yield, 2)}</td>
-                    <td
-                      className={`num text-right font-bold ${
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-slate-200">{fmt(inv.specific_yield, 2)}</TableCell>
+                    <TableCell
+                      className={`num whitespace-nowrap text-right font-bold ${
                         inv.pr_pct == null
                           ? "text-slate-400"
                           : inv.pr_pct >= targetPr
@@ -406,20 +406,19 @@ export const GenerationPrPage: React.FC = () => {
                       }`}
                     >
                       {fmt(inv.pr_pct, 1)}%
-                    </td>
-                    <td className="num text-right text-slate-300">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-slate-300">
                       {fmt(inv.avg_temp_c, 1)} / {fmt(inv.max_temp_c, 1)}
-                    </td>
-                    <td className="num text-right text-slate-300">{fmt(inv.avg_freq_hz, 2)}</td>
-                    <td className="num text-right font-bold text-emerald-300">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-slate-300">{fmt(inv.avg_freq_hz, 2)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right font-bold text-emerald-300">
                       {fmt(inv.total_yield_kwh == null ? null : inv.total_yield_kwh / 1000, 2)}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+        </Table>
       </Panel>
     </div>
   );

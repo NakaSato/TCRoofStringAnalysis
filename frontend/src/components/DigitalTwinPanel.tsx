@@ -2,6 +2,8 @@ import React, { useMemo, useState } from "react";
 import { Layers, GitCommitHorizontal, Compass, Cpu, Zap, AlertTriangle } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { Panel, Led, statusLevel, fmt } from "./ui";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type TwinView = "roof" | "sld";
 type OverlayMode = "status" | "pr" | "peer";
@@ -92,43 +94,32 @@ export const DigitalTwinPanel: React.FC = () => {
       actions={
         <div className="flex flex-wrap items-center gap-2">
           {view === "roof" && (
-            <div className="tabs">
-              <button
-                onClick={() => setOverlay("status")}
-                className={`tab text-[11px] ${overlay === "status" ? "tab-active" : ""}`}
-              >
-                Diagnostic Status
-              </button>
-              <button
-                onClick={() => setOverlay("pr")}
-                className={`tab text-[11px] ${overlay === "pr" ? "tab-active" : ""}`}
-              >
-                PR % Thermal
-              </button>
-              <button
-                onClick={() => setOverlay("peer")}
-                className={`tab text-[11px] ${overlay === "peer" ? "tab-active" : ""}`}
-              >
-                Peer Gap
-              </button>
-            </div>
+            <Tabs value={overlay} onValueChange={(v) => setOverlay(v as OverlayMode)}>
+              <TabsList>
+                <TabsTrigger value="status" className="text-[11px]">
+                  Diagnostic Status
+                </TabsTrigger>
+                <TabsTrigger value="pr" className="text-[11px]">
+                  PR % Thermal
+                </TabsTrigger>
+                <TabsTrigger value="peer" className="text-[11px]">
+                  Peer Gap
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
           )}
-          <div className="tabs">
-            <button
-              onClick={() => setView("roof")}
-              className={`tab ${view === "roof" ? "tab-active" : ""}`}
-            >
-              <Layers className="h-3.5 w-3.5" />
-              2D Roof Array Map
-            </button>
-            <button
-              onClick={() => setView("sld")}
-              className={`tab ${view === "sld" ? "tab-active" : ""}`}
-            >
-              <GitCommitHorizontal className="h-3.5 w-3.5" />
-              Electrical SLD
-            </button>
-          </div>
+          <Tabs value={view} onValueChange={(v) => setView(v as TwinView)}>
+            <TabsList>
+              <TabsTrigger value="roof">
+                <Layers className="h-3.5 w-3.5" />
+                2D Roof Array Map
+              </TabsTrigger>
+              <TabsTrigger value="sld">
+                <GitCommitHorizontal className="h-3.5 w-3.5" />
+                Electrical SLD
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       }
     >
@@ -354,7 +345,7 @@ export const DigitalTwinPanel: React.FC = () => {
                 <div className="rounded-xl border border-white/10 bg-ink-900/90 p-3.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-100">LV Solar Main Switchboard (ACB-01)</span>
-                    <span className="badge badge-ok">CLOSED · 400V</span>
+                    <Badge variant="ok">CLOSED · 400V</Badge>
                   </div>
                   <div className="num mt-1.5 flex justify-between text-[11px] text-slate-400">
                     <span>3P4W · 50.02 Hz · PF 0.992</span>
@@ -365,7 +356,7 @@ export const DigitalTwinPanel: React.FC = () => {
                 <div className="rounded-xl border border-solar-400/30 bg-ink-900/90 p-3.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-100">MV Step-Up Transformer (TX-01)</span>
-                    <span className="badge badge-info">0.4 / 22 kV · Dyn11</span>
+                    <Badge variant="info">0.4 / 22 kV · Dyn11</Badge>
                   </div>
                   <div className="num mt-1.5 flex justify-between text-[11px] text-slate-400">
                     <span>Oil Temp: 54.2°C · Buchholz OK</span>

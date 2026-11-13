@@ -16,6 +16,11 @@ import type { GrowattAlarm, GrowattPlant } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { PageHeader, Panel, KpiTile, StatusBadge, Led, EmptyState, LoadingState, Meter, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 /** Plants read at once: each request fans out to one Growatt call per inverter on the backend. */
 const PLANT_CONCURRENCY = 3;
@@ -227,28 +232,28 @@ export const ActiveAlarmPage: React.FC = () => {
         }`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-ghost btn-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
-            <input
+            <Button variant="ghost" size="icon-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
+              <ChevronLeft />
+            </Button>
+            <Input
               type="date"
-              className="input-sm"
+              className="h-7 w-auto"
               value={day}
               max={today}
               onChange={(e) => e.target.value && setDay(e.target.value > today ? today : e.target.value)}
               aria-label="Alarm day"
             />
-            <button className="btn-ghost btn-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={isToday} aria-label="Next day">
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
+            <Button variant="ghost" size="icon-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={isToday} aria-label="Next day">
+              <ChevronRight />
+            </Button>
             {!isToday && (
-              <button className="btn-ghost btn-sm" onClick={() => setDay(today)}>
+              <Button variant="ghost" size="sm" onClick={() => setDay(today)}>
                 Today
-              </button>
+              </Button>
             )}
-            <button className="btn-ghost btn-sm" onClick={() => setReloadKey((k) => k + 1)} disabled={loading}>
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </button>
+            <Button variant="ghost" size="sm" onClick={() => setReloadKey((k) => k + 1)} disabled={loading}>
+              <RefreshCw className={loading ? "animate-spin" : undefined} /> Refresh
+            </Button>
           </div>
         }
       />
@@ -336,30 +341,41 @@ export const ActiveAlarmPage: React.FC = () => {
           subtitle={`${fmtInt(rows.length)} of ${fmtInt(stats.total)} alarms${plantFilter !== "all" ? ` · ${nameOf(plantFilter)}` : ""}`}
           bodyClassName="p-0"
           actions={
-            <button className="btn-ghost btn-sm" onClick={exportCsv} disabled={!rows.length} title="Download the filtered list as CSV">
-              <Download className="h-3.5 w-3.5" /> CSV
-            </button>
+            <Button variant="ghost" size="sm" onClick={exportCsv} disabled={!rows.length} title="Download the filtered list as CSV">
+              <Download /> CSV
+            </Button>
           }
         >
           <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-4 py-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-              <input className="input-sm pl-7" placeholder="Plant, SN, message, code" value={query} onChange={(e) => setQuery(e.target.value)} />
-            </div>
-            <div className="tabs">
-              {(["all", "crit", "warn", "info"] as LevelFilter[]).map((l) => (
-                <button key={l} className={`tab ${levelFilter === l ? "tab-active" : ""}`} onClick={() => setLevelFilter(l)}>
-                  {l === "all" ? "All types" : l === "crit" ? "Fault" : l === "warn" ? "Warning" : "Other"}
-                </button>
-              ))}
-            </div>
-            <div className="tabs">
-              {(["all", "open", "cleared"] as StateFilter[]).map((s) => (
-                <button key={s} className={`tab ${stateFilter === s ? "tab-active" : ""}`} onClick={() => setStateFilter(s)}>
-                  {s === "all" ? "All" : s === "open" ? "Open" : "Cleared"}
-                </button>
-              ))}
-            </div>
+            <InputGroup className="h-7 w-56 bg-ink-950/70">
+              <InputGroupAddon>
+                <Search className="size-3.5" />
+              </InputGroupAddon>
+              <InputGroupInput
+                placeholder="Plant, SN, message, code"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search alarms"
+              />
+            </InputGroup>
+            <Tabs value={levelFilter} onValueChange={(v) => setLevelFilter(v as LevelFilter)}>
+              <TabsList aria-label="Alarm type">
+                {(["all", "crit", "warn", "info"] as LevelFilter[]).map((l) => (
+                  <TabsTrigger key={l} value={l}>
+                    {l === "all" ? "All types" : l === "crit" ? "Fault" : l === "warn" ? "Warning" : "Other"}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+            <Tabs value={stateFilter} onValueChange={(v) => setStateFilter(v as StateFilter)}>
+              <TabsList aria-label="Alarm state">
+                {(["all", "open", "cleared"] as StateFilter[]).map((s) => (
+                  <TabsTrigger key={s} value={s}>
+                    {s === "all" ? "All" : s === "open" ? "Open" : "Cleared"}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
           </div>
 
           {rows.length === 0 ? (
@@ -373,31 +389,30 @@ export const ActiveAlarmPage: React.FC = () => {
               <EmptyState icon={CheckCircle2} title="No matching alarms" description={stats.total ? "Change the filters to see more." : `Growatt reported no alarms on ${day}.`} />
             )
           ) : (
-            <div className="max-h-[620px] overflow-auto">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>State</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th className="text-right">Min</th>
-                    <th>Plant</th>
-                    <th>Inverter</th>
-                    <th>Type</th>
-                    <th>Code</th>
-                    <th>Message</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <Table containerClassName="max-h-[620px] overflow-auto">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>State</TableHead>
+                    <TableHead>Start</TableHead>
+                    <TableHead>End</TableHead>
+                    <TableHead className="text-right">Min</TableHead>
+                    <TableHead>Plant</TableHead>
+                    <TableHead>Inverter</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Message</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {rows.map((a, i) => (
-                    <tr key={`${a.plant_id}-${a.device_sn}-${a.start_time}-${a.alarm_code}-${i}`} className={a.open ? "" : "opacity-70"}>
-                      <td>
+                    <TableRow key={`${a.plant_id}-${a.device_sn}-${a.start_time}-${a.alarm_code}-${i}`} className={a.open ? undefined : "opacity-70"}>
+                      <TableCell>
                         <StatusBadge status={a.open ? "Open" : "Cleared"} level={a.open ? a.level : "neutral"} />
-                      </td>
-                      <td className="num whitespace-nowrap">{hms(a.start_time)}</td>
-                      <td className="num whitespace-nowrap">{a.open ? "—" : hms(a.end_time)}</td>
-                      <td className="num text-right">{fmtInt(durationMin(a))}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell className="num whitespace-nowrap">{hms(a.start_time)}</TableCell>
+                      <TableCell className="num whitespace-nowrap">{a.open ? "—" : hms(a.end_time)}</TableCell>
+                      <TableCell className="num whitespace-nowrap text-right">{fmtInt(durationMin(a))}</TableCell>
+                      <TableCell>
                         <button
                           className="text-left text-slate-200 hover:text-solar-400"
                           title="Make this the selected plant across the app"
@@ -405,18 +420,17 @@ export const ActiveAlarmPage: React.FC = () => {
                         >
                           {a.plant_name}
                         </button>
-                      </td>
-                      <td className="num text-slate-400">{a.device_sn}</td>
-                      <td>
+                      </TableCell>
+                      <TableCell className="num whitespace-nowrap text-slate-400">{a.device_sn}</TableCell>
+                      <TableCell>
                         <StatusBadge status={a.fault_type ?? "—"} level={a.level} dot={false} />
-                      </td>
-                      <td className="num">{a.alarm_code ?? "—"}</td>
-                      <td className="text-slate-200">{a.alarm_message ?? "—"}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="num whitespace-nowrap">{a.alarm_code ?? "—"}</TableCell>
+                      <TableCell className="text-slate-200">{a.alarm_message ?? "—"}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
           )}
         </Panel>
       </div>

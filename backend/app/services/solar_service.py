@@ -292,96 +292,10 @@ def regenerate_cm_work_orders(
 def reconstruct_analysis_results(
     db: Session, run: AnalysisRun
 ) -> Tuple[AnalysisResults, PlantConfig]:
-    """Recompute enriched_df and AnalysisResults for a stored AnalysisRun (used for charts & exports)."""
+    """Recompute enriched_df and AnalysisResults for a stored AnalysisRun (used for charts)."""
     plant = db.get(Plant, run.plant_id)
     df = load_dataset_dataframe(db, run.dataset_id)
     config = build_plant_config(plant, df)
     results = run_pv_string_analysis(df, config)
     return results, config
 
-
-def get_om_dataframes_for_plant(
-    db: Session, plant_id: int
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Load PM, CM, RCA, Subcontractor, PQ, Commissioning, and PTW DataFrames with canonical column names for reporting."""
-    pm_rows = db.scalars(select(PMTask).where(PMTask.plant_id == plant_id).order_by(PMTask.id)).all()
-    pm_df = pd.DataFrame(
-        [
-            {
-                "PM_ID": r.pm_id,
-                "Asset_Category": r.asset_category,
-                "Task_Description": r.task_description,
-                "Frequency": r.frequency,
-                "Standard_Ref": r.standard_ref,
-                "Last_Completed": r.last_completed,
-                "Next_Due": r.next_due,
-                "Assigned_Subcontractor": r.assigned_subcontractor,
-                "Compliance_Status": r.compliance_status,
-                "Estimated_PR_Recovery_Pct": r.estimated_pr_recovery_pct,
-            }
-            for r in pm_rows
-        ]
-    )
-
-    cm_rows = db.scalars(select(CMWorkOrder).where(CMWorkOrder.plant_id == plant_id).order_by(CMWorkOrder.id)).all()
-    cm_df = pd.DataFrame(
-        [
-            {
-                "WO_Number": r.wo_number,
-                "Created_Date": r.created_date,
-                "Asset_ID": r.asset_id,
-                "Equipment_Type": r.equipment_type,
-                "Priority": r.priority,
-                "Fault_Symptom": r.fault_symptom,
-                "Troubleshooting_Checklist": r.troubleshooting_checklist,
-                "PTW_Required": r.ptw_required,
-                "Status": r.status,
-            }
-            for r in cm_rows
-        ]
-    )
-
-    rca_rows = db.scalars(select(RCARecord).where(RCARecord.plant_id == plant_id).order_by(RCARecord.id)).all()
-    rca_df = pd.DataFrame(
-        [
-            {
-                "RCA_ID": r.rca_id,
-                "Incident_Date": r.incident_date,
-                "Equipment_Category": r.equipment_category,
-                "Asset_ID": r.asset_id,
-                "Failure_Mode": r.failure_mode,
-                "Downtime_Hours": r.downtime_hours,
-                "Energy_Loss_kWh": r.energy_loss_kwh,
-                "Why_1": r.why_1,
-                "Why_2": r.why_2,
-                "Why_3": r.why_3,
-                "Why_4": r.why_4,
-                "Why_5_Root_Cause": r.why_5_root_cause,
-                "Fishbone_Category": r.fishbone_category,
-                "CAPA_Corrective_Action": r.capa_corrective_action,
-                "CAPA_Preventive_Action": r.capa_preventive_action,
-                "RCA_Status": r.rca_status,
-            }
-            for r in rca_rows
-        ]
-    )
-
-    ptw_rows = db.scalars(select(PTWPermit).where(PTWPermit.plant_id == plant_id).order_by(PTWPermit.id)).all()
-    ptw_df = pd.DataFrame(
-        [
-            {
-                "PTW_Number": r.ptw_number,
-                "Issue_Date": r.issue_date,
-                "Work_Activity": r.work_activity,
-                "High_Risk_Permits": r.high_risk_permits,
-                "LOTO_Padlock_ID": r.loto_padlock_id,
-                "Arc_Flash_PPE": r.arc_flash_ppe,
-                "Gas_Heat_Index_Check": r.gas_heat_index_check,
-                "Safety_Supervisor": r.safety_supervisor,
-                "Status": r.status,
-            }
-            for r in ptw_rows
-        ]
-    )
-
-    return pm_df, cm_df, rca_df, ptw_df

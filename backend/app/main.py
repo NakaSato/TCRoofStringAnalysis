@@ -14,7 +14,6 @@ from app.api.routes import (
     maintenance,
     plants,
     rca,
-    reports,
     she,
     users,
 )
@@ -59,7 +58,7 @@ def create_app() -> FastAPI:
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
     # Growatt plants an engineer is assigned, so they are admin only.
     admin_only = [Depends(require_admin)]
-    for module in (plants, datasets, analysis, maintenance, rca, she, reports, users):
+    for module in (plants, datasets, analysis, maintenance, rca, she, users):
         api_router.include_router(module.router, dependencies=admin_only)
 
     # Mount at both `/api` and `/` for compatibility

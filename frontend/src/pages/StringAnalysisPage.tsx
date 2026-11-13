@@ -30,6 +30,11 @@ import {
 } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { StringStatusMatrix } from "../components/StringStatusMatrix";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const StringAnalysisPage: React.FC = () => {
   const {
@@ -251,7 +256,7 @@ export const StringAnalysisPage: React.FC = () => {
       </div>
 
       {/* Inverter & Status Filter Bar */}
-      <section className="panel px-5 py-3.5">
+      <Card className="gap-0 px-5 py-3.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300">
@@ -299,17 +304,17 @@ export const StringAnalysisPage: React.FC = () => {
             ))}
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-              <input
+              <Input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search STR / MPPT…"
-                className="input input-sm w-40 pl-8"
+                className="h-7 w-40 px-2 pl-8 text-[11px]"
               />
             </div>
           </div>
         </div>
-      </section>
+      </Card>
 
       {/* ==================================================================== */}
       {/* INTERACTIVE I-V / P-V CURVE ANALYZER & 5-MINUTE TELEMETRY            */}
@@ -323,23 +328,26 @@ export const StringAnalysisPage: React.FC = () => {
             subtitle={`5-minute Growatt telemetry (${activeString.mppt_id} · ${activeString.status})`}
             actions={
               <div className="flex items-center gap-1.5">
-                <select
-                  value={activeString.string_id}
-                  onChange={(e) => setActiveStringKey(e.target.value)}
-                  className="select input-sm w-44"
-                >
-                  {filteredStrings.map((s) => (
-                    <option key={s.string_id} value={s.string_id}>
-                      {s.string_id} ({fmt(s.pr_pct, 1)}%)
-                    </option>
-                  ))}
-                </select>
-                <button
+                <Select value={activeString.string_id} onValueChange={(v) => setActiveStringKey(v)}>
+                  <SelectTrigger size="sm" className="w-44 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredStrings.map((s) => (
+                      <SelectItem key={s.string_id} value={s.string_id}>
+                        {s.string_id} ({fmt(s.pr_pct, 1)}%)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
                   onClick={() => setInspectedStringId(activeString.string_id)}
-                  className="btn-ghost btn-sm text-sky-400"
+                  variant="ghost"
+                  size="sm"
+                  className="text-sky-400"
                 >
                   Drawer <ArrowUpRight className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
             }
           >
@@ -422,65 +430,64 @@ export const StringAnalysisPage: React.FC = () => {
         subtitle="Click any string row to load its I-V / P-V curves in the analyzer above, or click 'Inspect Drawer' for slide-over details"
         bodyClassName="p-0"
       >
-        <div className="scroll-x-hint overflow-x-auto">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>String ID</th>
-                <th>Inverter SN</th>
-                <th>MPPT</th>
-                <th className="text-right" title="Newest Growatt record (live, not stored)">Now V / I</th>
-                <th className="text-right">Avg V (V)</th>
-                <th className="text-right">Max V (V)</th>
-                <th className="text-right">Avg I (A)</th>
-                <th className="text-right">Peak I (A)</th>
-                <th className="text-right">Peak P (kW)</th>
-                <th className="text-right">Energy (kWh)</th>
-                <th className="text-right">I Mismatch (%)</th>
-                <th className="text-right">PR (%)</th>
-                <th>Automated Diagnosis</th>
-                <th className="text-right">I-V Curve</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Table containerClassName="scroll-x-hint">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Status</TableHead>
+                <TableHead>String ID</TableHead>
+                <TableHead>Inverter SN</TableHead>
+                <TableHead>MPPT</TableHead>
+                <TableHead className="text-right" title="Newest Growatt record (live, not stored)">Now V / I</TableHead>
+                <TableHead className="text-right">Avg V (V)</TableHead>
+                <TableHead className="text-right">Max V (V)</TableHead>
+                <TableHead className="text-right">Avg I (A)</TableHead>
+                <TableHead className="text-right">Peak I (A)</TableHead>
+                <TableHead className="text-right">Peak P (kW)</TableHead>
+                <TableHead className="text-right">Energy (kWh)</TableHead>
+                <TableHead className="text-right">I Mismatch (%)</TableHead>
+                <TableHead className="text-right">PR (%)</TableHead>
+                <TableHead>Automated Diagnosis</TableHead>
+                <TableHead className="text-right">I-V Curve</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {filteredStrings.slice(0, 120).map((s) => {
                 const isSelected = activeString?.string_id === s.string_id;
                 const lvl = statusLevel(s.status);
                 return (
-                  <tr
+                  <TableRow
                     key={s.string_id}
                     onClick={() => setActiveStringKey(s.string_id)}
                     className={`cursor-pointer transition ${
                       isSelected ? "bg-sky-500/15" : "hover:bg-white/[0.03]"
                     }`}
                   >
-                    <td>
+                    <TableCell>
                       <StatusBadge status={s.status} level={lvl} dot />
-                    </td>
-                    <td className="num font-bold text-white hover:text-sky-300">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap font-bold text-white hover:text-sky-300">
                       {s.short_label}
-                    </td>
-                    <td className="num text-xs text-slate-300">{s.device_sn}</td>
-                    <td className="num text-xs text-slate-400">{s.mppt_id}</td>
-                    <td
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-xs text-slate-300">{s.device_sn}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-xs text-slate-400">{s.mppt_id}</TableCell>
+                    <TableCell
                       className="num whitespace-nowrap text-right text-sky-300"
                       title={s.live_at ? `Live record ${s.live_at}` : "No live value"}
                     >
                       {s.live_current_a == null ? "—" : `${fmt(s.live_voltage_v, 0)} / ${fmt(s.live_current_a, 2)}`}
-                    </td>
-                    <td className="num text-right text-amber-300">{fmt(s.v_avg, 1)}</td>
-                    <td className="num text-right text-slate-300">{fmt(s.v_max, 1)}</td>
-                    <td className="num text-right text-energy-300">{fmt(s.i_avg, 2)}</td>
-                    <td className="num text-right font-semibold text-energy-300">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-amber-300">{fmt(s.v_avg, 1)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-slate-300">{fmt(s.v_max, 1)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-energy-300">{fmt(s.i_avg, 2)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right font-semibold text-energy-300">
                       {fmt(s.i_max, 2)}
-                    </td>
-                    <td className="num text-right text-slate-200">{fmt(s.p_max_w / 1000, 2)}</td>
-                    <td className="num text-right font-semibold text-solar-300">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-slate-200">{fmt(s.p_max_w / 1000, 2)}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right font-semibold text-solar-300">
                       {fmt(s.actual_energy_kwh, 2)}
-                    </td>
-                    <td
-                      className={`num text-right font-semibold ${
+                    </TableCell>
+                    <TableCell
+                      className={`num whitespace-nowrap text-right font-semibold ${
                         s.current_mismatch_pct == null
                           ? "text-slate-400"
                           : s.current_mismatch_pct < -12
@@ -492,12 +499,12 @@ export const StringAnalysisPage: React.FC = () => {
                     >
                       {s.current_mismatch_pct != null && s.current_mismatch_pct >= 0 ? "+" : ""}
                       {fmt(s.current_mismatch_pct, 1)}%
-                    </td>
-                    <td className="num text-right font-bold text-white">{fmt(s.pr_pct, 1)}%</td>
-                    <td className="max-w-xs truncate text-xs text-slate-400" title={s.diagnosis}>
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right font-bold text-white">{fmt(s.pr_pct, 1)}%</TableCell>
+                    <TableCell className="max-w-xs truncate text-xs text-slate-400" title={s.diagnosis}>
                       {s.diagnosis}
-                    </td>
-                    <td className="text-right">
+                    </TableCell>
+                    <TableCell className="text-right">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -508,13 +515,12 @@ export const StringAnalysisPage: React.FC = () => {
                       >
                         Inspect Drawer
                       </button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+        </Table>
       </Panel>
     </div>
   );

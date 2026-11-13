@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 /* ==========================================================================
    GenZ Monitoring System — dark control-room design tokens
@@ -79,6 +83,7 @@
     font-family: var(--font-sans);
     background-color: var(--color-ink-950);
     color-scheme: dark;
+    @apply bg-background text-foreground;
   }
 
   ::selection {
@@ -90,6 +95,7 @@
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--color-ink-600) transparent;
+    @apply border-border outline-ring/50;
   }
   *::-webkit-scrollbar {
     width: 8px;
@@ -120,6 +126,9 @@
   input[type="checkbox"] {
     accent-color: var(--color-solar-500);
   }
+  html {
+    @apply font-sans;
+  }
 }
 
 /* ==========================================================================
@@ -148,39 +157,6 @@
     @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500;
   }
 
-  /* Form controls */
-  .label {
-    @apply mb-1 block text-[11px] font-medium text-slate-400;
-  }
-  .input,
-  .select,
-  .textarea {
-    @apply w-full rounded-lg border border-white/10 bg-ink-950/70 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-600 outline-none transition focus:border-solar-500/60 focus:ring-2 focus:ring-solar-500/20 disabled:opacity-50;
-  }
-  .input-sm {
-    @apply px-2 py-1 text-[11px];
-  }
-
-  /* Buttons */
-  .btn {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-ink-800 px-3.5 py-2 text-xs font-semibold text-slate-200 transition hover:border-white/20 hover:bg-ink-750 disabled:cursor-not-allowed disabled:opacity-50;
-  }
-  .btn-primary {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solar-400/40 bg-solar-500 px-3.5 py-2 text-xs font-bold text-ink-950 transition hover:bg-solar-400 disabled:cursor-not-allowed disabled:opacity-50;
-  }
-  .btn-accent {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-energy-400/40 bg-energy-500/15 px-3.5 py-2 text-xs font-semibold text-energy-300 transition hover:bg-energy-500/25 disabled:cursor-not-allowed disabled:opacity-50;
-  }
-  .btn-danger {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50;
-  }
-  .btn-ghost {
-    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-white/5 hover:text-slate-100 disabled:opacity-50;
-  }
-  .btn-sm {
-    @apply px-2.5 py-1 text-[11px];
-  }
-
   /* Data tables */
   .table-wrap {
     @apply overflow-x-auto rounded-lg border border-white/[0.06];
@@ -196,47 +172,8 @@
       radial-gradient(farthest-side at 0 50%, rgba(148, 163, 184, 0.28), transparent) left center / 14px 100% no-repeat scroll,
       radial-gradient(farthest-side at 100% 50%, rgba(148, 163, 184, 0.28), transparent) right center / 14px 100% no-repeat scroll;
   }
-  .data-table {
-    @apply w-full border-collapse text-left text-xs;
-  }
-  .data-table thead tr {
-    @apply bg-ink-850 text-[10px] uppercase tracking-wider text-slate-500;
-  }
-  .data-table th {
-    @apply whitespace-nowrap px-3 py-2.5 font-semibold;
-  }
-  .data-table td {
-    @apply px-3 py-2.5 text-slate-300;
-  }
-  /* IDs and numbers ("MPPT-1", "PM-PV-001", "140,220.00") never break mid-value */
-  .data-table td.num {
-    @apply whitespace-nowrap;
-  }
-  .data-table tbody tr {
-    @apply border-t border-white/[0.05] transition-colors hover:bg-white/[0.025];
-  }
   .num {
     @apply font-mono tabular-nums;
-  }
-
-  /* Status badges */
-  .badge {
-    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold;
-  }
-  .badge-ok {
-    @apply border-emerald-400/25 bg-emerald-400/10 text-emerald-300;
-  }
-  .badge-warn {
-    @apply border-amber-400/25 bg-amber-400/10 text-amber-300;
-  }
-  .badge-crit {
-    @apply border-red-400/30 bg-red-500/10 text-red-300;
-  }
-  .badge-info {
-    @apply border-sky-400/25 bg-sky-400/10 text-sky-300;
-  }
-  .badge-neutral {
-    @apply border-white/10 bg-white/5 text-slate-400;
   }
 
   /* Callout boxes */
@@ -251,17 +188,6 @@
   }
   .callout-crit {
     @apply rounded-lg border border-red-400/25 bg-red-500/[0.07] p-3 text-xs text-red-200/90;
-  }
-
-  /* Segmented tabs */
-  .tabs {
-    @apply inline-flex flex-wrap gap-1 rounded-lg border border-white/[0.07] bg-ink-900/80 p-1;
-  }
-  .tab {
-    @apply inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-slate-400 transition hover:text-slate-100;
-  }
-  .tab-active {
-    @apply bg-ink-700 text-white shadow-[0_0_0_1px_rgba(245,180,42,0.35)];
   }
 
   /* Status dot (pulsing LED) */
@@ -317,4 +243,82 @@
 .plant-map .leaflet-popup-content {
   font-size: 12px;
   margin: 8px 12px;
+}
+
+@theme inline {
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* shadcn/ui tokens, mapped onto the control-room palette above. The app is dark only
+   (<html class="dark">), so one set of values serves both :root and .dark. */
+:root {
+  --background: var(--color-ink-950);
+  --foreground: #e2e8f0;
+  --card: color-mix(in srgb, var(--color-ink-900) 80%, transparent);
+  --card-foreground: #f1f5f9;
+  --popover: var(--color-ink-850);
+  --popover-foreground: #e2e8f0;
+  --primary: var(--color-solar-500);
+  --primary-foreground: var(--color-ink-950);
+  --secondary: var(--color-ink-800);
+  --secondary-foreground: #e2e8f0;
+  --muted: var(--color-ink-800);
+  --muted-foreground: var(--color-slate-500);
+  --accent: var(--color-ink-750);
+  --accent-foreground: #ffffff;
+  --destructive: #f87171;
+  --border: rgb(255 255 255 / 0.07);
+  --input: rgb(255 255 255 / 0.1);
+  --ring: var(--color-solar-500);
+  --chart-1: var(--color-solar-400);
+  --chart-2: var(--color-energy-400);
+  --chart-3: #34d399;
+  --chart-4: #fbbf24;
+  --chart-5: #f87171;
+  --radius: 0.5rem;
+  --sidebar: var(--color-ink-900);
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-primary: var(--color-solar-500);
+  --sidebar-primary-foreground: var(--color-ink-950);
+  --sidebar-accent: var(--color-ink-750);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 0.07);
+  --sidebar-ring: var(--color-solar-500);
 }

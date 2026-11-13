@@ -1,18 +1,18 @@
 # ☀️ TC Roof Solar PV String Analysis & O&M Engineering Suite (Full-Stack)
 
-An end-to-end **Full-Stack Solar PV String Performance, Asset Management, Root Cause Analysis (RCA), Commissioning/Power Quality, and SH&E Engineering Platform** built with **FastAPI**, **SQLAlchemy + Alembic**, **React + Vite + TypeScript + Tailwind CSS**, **Plotly**, and **fpdf2** in compliance with **IEC 61724-1**, **IEC 62446-1**, **IEEE 519**, and **ISO 45001 / NFPA 70E**.
+An end-to-end **Full-Stack Solar PV String Performance, Asset Management, Root Cause Analysis (RCA), and SH&E Engineering Platform** built with **FastAPI**, **SQLAlchemy + Alembic**, **React + Vite + TypeScript + Tailwind CSS** and **Plotly** in compliance with **IEC 61724-1** and **ISO 45001 / NFPA 70E**.
 
 ---
 
 ## Architecture Overview
 
-- **Domain Engine (`backend/solar_core/`)**: Pure Python/Pandas engineering engine for SCADA/API ingestion, IEC 61724 PR & temperature-corrected yield diagnostics, single-diode I-V/P-V modeling, Plotly figure generation (`fig.to_json()`), and multi-format report compilation (PDF, 11-sheet Excel, HTML, CSV).
-- **REST API & Persistence (`backend/app/`)**: FastAPI backend with SQLAlchemy 2.0 ORM models, Alembic migrations, and JWT role-based access control (`admin`, `engineer`, `viewer`) across 12 relational tables (`users`, `plants`, `string_specs`, `datasets`, `telemetry`, `analysis_runs`, `pm_tasks`, `cm_work_orders`, `rca_records`, `subcontractor_audits`, `ptw_permits`, `pq_tests`).
-- **Frontend SPA (`frontend/`)**: React 19 + Vite + TypeScript + Tailwind CSS + `plotly.js-dist-min` rendering all 7 engineering & O&M modules plus Plant & String Specifications and JWT role switching.
+- **Domain Engine (`backend/solar_core/`)**: Pure Python/Pandas engineering engine for SCADA/API ingestion, IEC 61724 PR & temperature-corrected yield diagnostics, single-diode I-V/P-V modeling, Plotly figure generation (`fig.to_json()`).
+- **REST API & Persistence (`backend/app/`)**: FastAPI backend with SQLAlchemy 2.0 ORM models, Alembic migrations, and JWT role-based access control (`admin`, `engineer`, `viewer`) across 10 relational tables (`users`, `plants`, `string_specs`, `datasets`, `telemetry`, `analysis_runs`, `pm_tasks`, `cm_work_orders`, `rca_records`, `ptw_permits`).
+- **Frontend SPA (`frontend/`)**: React 19 + Vite + TypeScript + Tailwind CSS + `plotly.js-dist-min` rendering the engineering & O&M modules plus Plant & String Specifications and JWT role switching.
 
 ---
 
-## 7 Core Engineering & O&M Modules
+## Core Engineering & O&M Modules
 
 1. **Upload or Fetch String Telemetry from API (`/`)**
    - **Inverter Cloud / REST APIs**: Huawei FusionSolar (`getDevHistoryKpi`), Sungrow iSolarCloud (`getDevicePointMinuteDataList`), and Generic REST APIs with offline sandbox fallback.
@@ -32,15 +32,8 @@ An end-to-end **Full-Stack Solar PV String Performance, Asset Management, Root C
    - Auto-generated CM Work Orders & step-by-step field troubleshooting checklists.
    - Structured **5-Why & Fishbone (Ishikawa)** RCA register with **CAPA (Corrective & Preventive Actions)** covering **Inverters**, **Transformers**, **Switchgear**, and **PV Strings**.
 
-5. **Subcontractor Supervision, Commissioning & Power Quality Testing (`/quality`)**
-   - **Subcontractor QA/QC Scorecard**: Workmanship, IEC engineering standard compliance, torque-seal verification, and tool calibration tracking.
-   - **Commissioning (IEC 62446-1) & Power Quality Analyzer (IEEE 519 / PEA-MEA Grid Code)**: Real-time compliance evaluation for Voltage/Current THD ($\text{THD}_v$, $\text{THD}_i$), Power Factor ($\text{PF}$), Voltage Unbalance, Flicker ($P_{lt}$), DC Injection, Insulation Resistance ($R_{\text{iso}}$), and Anti-Islanding protection.
-
-6. **Safety, Health & Environment (SH&E) Standards (`/she`)**
+5. **Safety, Health & Environment (SH&E) Standards (`/she`)**
    - **SH&E Dashboard**: Safe Man-Hours, Zero-LTI streak, Permit-to-Work (PTW), Lock-Out Tag-Out (LOTO) register, Arc-Flash PPE, and ISO 45001 / ISO 14001 compliance checklist.
-
-7. **Management & Engineering Reporting (`/reports`)**
-   - **One-Click Management Exports**: Multi-page Landscape A4 **PDF Report**, **11-Sheet Excel Workbook (`.xlsx`)**, **Printable HTML Summary**, and **CSV**, plus live embedded report preview.
 
 ---
 

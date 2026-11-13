@@ -902,20 +902,6 @@ export async function downloadApiFile(path: string, fallbackName: string): Promi
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-/** Open an authenticated API file in a new tab. The tab is opened before the fetch so popup
- * blockers allow it (call from a click handler). */
-export async function openApiFileInTab(path: string): Promise<void> {
-  const tab = window.open("", "_blank");
-  try {
-    const { blob } = await fetchFileBlob(path);
-    const url = URL.createObjectURL(blob);
-    if (tab) tab.location.href = url;
-    else window.location.href = url;
-  } catch (err) {
-    tab?.close();
-    throw err;
-  }
-}
 
 export const api = {
   // Auth
@@ -1072,8 +1058,6 @@ export const api = {
     apiFetch<PTWPermit>(`/ptw/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePtwPermit: (id: number) => apiFetch<void>(`/ptw/${id}`, { method: "DELETE" }),
 
-  // Report URLs
-  // Files need the session token: use downloadApiFile / openApiFileInTab / fetchFileBlob with these paths.
-  reportPath: (runId: number, format: "pdf" | "xlsx" | "html" | "csv") => `/analysis/${runId}/reports/${format}`,
+  // File URLs (need the session token: download with downloadApiFile)
   sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,
 };

@@ -27,6 +27,9 @@ import { FleetPlantDirectoryPanel } from "../components/FleetPlantDirectoryPanel
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { GrowattAlarmLogPanel } from "../components/GrowattAlarmLogPanel";
 import { OverviewTabSummaries } from "../components/OverviewTabSummaries";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
@@ -166,7 +169,7 @@ const WeatherSlotsTile: React.FC<{ plantId: number; day: string | null }> = ({ p
     : "modelled";
 
   return (
-    <div className="panel overflow-hidden p-4" title="Google Weather (modelled) — daytime rain status at 09:00, 12:00 and 17:00">
+    <Card className="gap-0 overflow-hidden p-4" title="Google Weather (modelled) — daytime rain status at 09:00, 12:00 and 17:00">
       <div className={`absolute inset-x-0 top-0 h-px ${anyRain ? "bg-sky-400/60" : "bg-emerald-400/60"}`} />
       <div className="flex items-start justify-between gap-2">
         <div className="eyebrow">Weather 09·12·17</div>
@@ -194,7 +197,7 @@ const WeatherSlotsTile: React.FC<{ plantId: number; day: string | null }> = ({ p
         })}
       </div>
       <div className="mt-1.5 text-[11px] font-medium text-slate-500">{note}</div>
-    </div>
+    </Card>
   );
 };
 
@@ -342,7 +345,7 @@ export const OverviewPage: React.FC = () => {
 
               {/* Row 2: compact realtime generation (1/4) | site map (3/4 of the width, 56 % of the window height) */}
               <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-4">
-              <section className="panel flex flex-col overflow-hidden">
+              <Card className="gap-0 overflow-hidden py-0">
                   <header className="panel-header flex-wrap gap-2">
                     <div className="min-w-0">
                       <h2 className="panel-title">
@@ -351,10 +354,10 @@ export const OverviewPage: React.FC = () => {
                       </h2>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className={`badge ${plantLevel === "ok" ? "badge-ok" : "badge-warn"} px-2.5 py-1 text-[11px] font-semibold`}>
+                      <Badge variant={plantLevel === "ok" ? "ok" : "warn"} className="px-2.5 py-1 text-[11px] font-semibold">
                         <Led level={plantLevel} pulse />
                         {plantLevel === "ok" ? "ALL NORMAL" : `${critical} CRIT · ${warning} WARN`}
-                      </span>
+                      </Badge>
                       {live ? (
                         <span
                           className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold tracking-wider ${
@@ -428,7 +431,7 @@ export const OverviewPage: React.FC = () => {
                       <MiniStat icon={Coins} label="Revenue" value={kpis?.yield_today_kwh == null ? "—" : `฿${fmt(revenueToday, 0)}`} unit="today" />
                     </div>
                   </div>
-                </section>
+                </Card>
 
                 <Panel
                   className="xl:col-span-3"
@@ -437,15 +440,16 @@ export const OverviewPage: React.FC = () => {
                   bodyClassName=""
                   actions={
                     plant?.latitude != null && plant?.longitude != null ? (
-                      <a
-                        className="btn-ghost btn-sm"
-                        href={`https://www.google.com/maps?q=${plant.latitude},${plant.longitude}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Open in Google Maps"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" /> Maps
-                      </a>
+                      <Button asChild variant="ghost" size="sm">
+                        <a
+                          href={`https://www.google.com/maps?q=${plant.latitude},${plant.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open in Google Maps"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" /> Maps
+                        </a>
+                      </Button>
                     ) : undefined
                   }
                 >

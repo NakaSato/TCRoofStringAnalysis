@@ -3,6 +3,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { LocateFixed } from "lucide-react";
 import { fmt } from "./ui";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** Esri World Imagery: free satellite tiles, no key; attribution is required. */
 const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -62,14 +64,21 @@ const PlantSatelliteMap: React.FC<{
   return (
     <div className="relative">
       <div ref={el} className={`plant-map w-full ${heightClass}`} aria-label={`Satellite view of ${name}`} />
-      <button
-        type="button"
-        className="btn-ghost btn-sm absolute right-2 top-2 z-[400] bg-ink-950/80"
-        onClick={() => map.current?.setView([lat, lon], SITE_ZOOM)}
-        title="Recentre on the plant"
-      >
-        <LocateFixed className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="absolute right-2 top-2 z-[400] bg-ink-950/80"
+            onClick={() => map.current?.setView([lat, lon], SITE_ZOOM)}
+            aria-label="Recentre on the plant"
+          >
+            <LocateFixed className="h-3.5 w-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Recentre on the plant</TooltipContent>
+      </Tooltip>
     </div>
   );
 };

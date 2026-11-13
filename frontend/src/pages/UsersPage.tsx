@@ -3,6 +3,13 @@ import { Users, UserPlus, MapPin, Save, Search, KeyRound, CheckCircle2, AlertTri
 import { api, UserProfile, UserRole } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { PageHeader, Panel, EmptyState, LoadingState, fmt } from "../components/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
  * Admin only. Two roles:
@@ -86,70 +93,76 @@ export const UsersPage: React.FC = () => {
         {!users ? (
           <LoadingState label="Loading users…" />
         ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Plants</th>
-                  <th>Status</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table containerClassName="table-wrap">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Username</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Plants</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {users.map((u) => {
                   const self = u.id === me?.id;
                   return (
-                    <tr key={u.id} className={selectedId === u.id ? "bg-solar-500/10" : ""}>
-                      <td className="font-mono text-xs">{u.username ?? u.email}</td>
-                      <td>{u.full_name}</td>
-                      <td>
-                        <select
-                          value={u.role}
-                          disabled={self}
-                          onChange={(e) => changeRole(u, e.target.value as UserRole)}
-                          className="input input-sm w-28"
-                          title={self ? "You cannot change your own role" : undefined}
-                        >
-                          <option value="admin">admin</option>
-                          <option value="engineer">engineer</option>
-                        </select>
-                      </td>
-                      <td>
+                    <TableRow key={u.id} className={selectedId === u.id ? "bg-solar-500/10" : ""}>
+                      <TableCell className="font-mono text-xs">{u.username ?? u.email}</TableCell>
+                      <TableCell>{u.full_name}</TableCell>
+                      <TableCell>
+                        <Select value={u.role} disabled={self} onValueChange={(v) => changeRole(u, v as UserRole)}>
+                          <SelectTrigger
+                            size="sm"
+                            className="w-28 text-[11px]"
+                            title={self ? "You cannot change your own role" : undefined}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="admin">admin</SelectItem>
+                            <SelectItem value="engineer">engineer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
                         {u.role === "admin" ? (
-                          <span className="badge badge-info">All plants</span>
+                          <Badge variant="info">All plants</Badge>
                         ) : (
-                          <button className="btn btn-sm" onClick={() => setSelectedId(u.id)}>
-                            <MapPin className="h-3.5 w-3.5" />
+                          <Button size="sm" onClick={() => setSelectedId(u.id)}>
+                            <MapPin className="size-3.5" />
                             {u.plant_ids?.length ?? 0} assigned
-                          </button>
+                          </Button>
                         )}
-                      </td>
-                      <td>
-                        <span className={`badge ${u.is_active ? "badge-ok" : "badge-neutral"}`}>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={u.is_active ? "ok" : "neutral"}>
                           {u.is_active ? "Active" : "Disabled"}
-                        </span>
-                      </td>
-                      <td className="text-right">
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
                         <div className="inline-flex gap-1.5">
-                          <button className="btn btn-sm" onClick={() => resetPassword(u)} title="Reset password">
-                            <KeyRound className="h-3.5 w-3.5" />
-                          </button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button size="icon-sm" onClick={() => resetPassword(u)} aria-label="Reset password">
+                                <KeyRound className="size-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Reset password</TooltipContent>
+                          </Tooltip>
                           {!self && (
-                            <button className={`btn btn-sm ${u.is_active ? "btn-danger" : ""}`} onClick={() => toggleActive(u)}>
+                            <Button size="sm" variant={u.is_active ? "destructive" : "secondary"} onClick={() => toggleActive(u)}>
                               {u.is_active ? "Disable" : "Enable"}
-                            </button>
+                            </Button>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         )}
       </Panel>
 
@@ -196,34 +209,39 @@ const CreateUserPanel: React.FC<{ onCreated: (u: UserProfile) => void; onError: 
     <Panel icon={UserPlus} title="Add user" subtitle="New engineers start with no plants; assign them below">
       <form onSubmit={submit} className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-6">
         <div>
-          <label className="label" htmlFor="nu-username">Username</label>
-          <input id="nu-username" className="input" required minLength={2} pattern="[A-Za-z0-9._\-]+"
+          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-username">Username</Label>
+          <Input id="nu-username" required minLength={2} pattern="[A-Za-z0-9._\-]+"
             autoCapitalize="none" spellCheck={false} value={form.username} onChange={(e) => set("username", e.target.value)} />
         </div>
         <div className="lg:col-span-2">
-          <label className="label" htmlFor="nu-name">Full name</label>
-          <input id="nu-name" className="input" required value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
+          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-name">Full name</Label>
+          <Input id="nu-name" required value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor="nu-email">Email (optional)</label>
-          <input id="nu-email" type="email" className="input" value={form.email} onChange={(e) => set("email", e.target.value)} />
+          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-email">Email (optional)</Label>
+          <Input id="nu-email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor="nu-password">Password</label>
-          <input id="nu-password" type="password" autoComplete="new-password" className="input" required minLength={8}
+          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-password">Password</Label>
+          <Input id="nu-password" type="password" autoComplete="new-password" required minLength={8}
             value={form.password} onChange={(e) => set("password", e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor="nu-role">Role</label>
+          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-role">Role</Label>
           <div className="flex gap-2">
-            <select id="nu-role" className="input" value={form.role} onChange={(e) => set("role", e.target.value)}>
-              <option value="engineer">engineer</option>
-              <option value="admin">admin</option>
-            </select>
-            <button type="submit" className="btn-primary shrink-0" disabled={saving}>
-              <UserPlus className="h-4 w-4" />
+            <Select value={form.role} onValueChange={(v) => set("role", v)}>
+              <SelectTrigger id="nu-role" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="engineer">engineer</SelectItem>
+                <SelectItem value="admin">admin</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button type="submit" variant="default" className="shrink-0" disabled={saving}>
+              <UserPlus className="size-4" />
               {saving ? "Adding…" : "Add"}
-            </button>
+            </Button>
           </div>
         </div>
       </form>
@@ -288,27 +306,32 @@ const PlantAssignmentPanel: React.FC<{
       title={`Plants assigned to ${user.username ?? user.email}`}
       subtitle={`${chosen.size} of ${plants.length} plants selected`}
       actions={
-        <button className="btn-primary" onClick={save} disabled={!dirty || saving}>
-          <Save className="h-4 w-4" />
+        <Button variant="default" onClick={save} disabled={!dirty || saving}>
+          <Save className="size-4" />
           {saving ? "Saving…" : "Save assignments"}
-        </button>
+        </Button>
       }
     >
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
         <div className="relative min-w-[200px] flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-          <input className="input pl-8" placeholder="Search plant name, id or city" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <Input className="pl-8" placeholder="Search plant name, id or city" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <select className="input w-36" value={phase} onChange={(e) => setPhase(e.target.value)} aria-label="Phase">
-          <option value="all">All phases</option>
-          {phases.map((ph) => (
-            <option key={ph ?? "none"} value={ph == null ? "none" : String(ph)}>
-              {ph == null ? "Untagged" : `Phase ${ph}`}
-            </option>
-          ))}
-        </select>
-        <button className="btn btn-sm" onClick={() => setVisible(true)}>Select shown</button>
-        <button className="btn btn-sm" onClick={() => setVisible(false)}>Clear shown</button>
+        <Select value={phase} onValueChange={setPhase}>
+          <SelectTrigger className="w-36" aria-label="Phase">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All phases</SelectItem>
+            {phases.map((ph) => (
+              <SelectItem key={ph ?? "none"} value={ph == null ? "none" : String(ph)}>
+                {ph == null ? "Untagged" : `Phase ${ph}`}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button size="sm" onClick={() => setVisible(true)}>Select shown</Button>
+        <Button size="sm" onClick={() => setVisible(false)}>Clear shown</Button>
       </div>
       {plants.length === 0 ? (
         <EmptyState icon={MapPin} title="No Growatt plants in the registry yet" description="Run the fleet sync first." />

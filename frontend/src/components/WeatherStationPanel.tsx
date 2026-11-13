@@ -14,6 +14,7 @@ import { PanelChart } from "./PanelChart";
 import type { ChartSeries, PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
 import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
+import { Badge } from "@/components/ui/badge";
 
 /** Plant-local (Bangkok) date, YYYY-MM-DD. */
 function plantToday(): string {
@@ -137,12 +138,13 @@ export const WeatherStationPanel: React.FC<{
       subtitle={subtitle}
       actions={
         live ? (
-          <span
-            className={`badge ${live.stale ? "badge-warn" : "badge-ok"} px-2 py-0.5 text-[11px] font-semibold`}
+          <Badge
+            variant={live.stale ? "warn" : "ok"}
+            className="px-2 py-0.5 text-[11px] font-semibold"
             title={`Fetched ${new Date(live.fetched_at).toLocaleTimeString()}`}
           >
             {live.stale ? "LIVE (STALE)" : "LIVE"} {now?.timestamp?.slice(11, 16)}
-          </span>
+          </Badge>
         ) : null
       }
     >

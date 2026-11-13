@@ -6,6 +6,10 @@ import { api, FleetModuleOut, StringSpec } from "../api/client";
 import { PageHeader, Panel } from "../components/ui";
 import { FleetModulePanel } from "../components/FleetModulePanel";
 import { isAdmin } from "../auth/access";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const PlantSettingsPage: React.FC = () => {
   const { activePlant, refreshAll, user } = useAppContext();
@@ -103,40 +107,40 @@ export const PlantSettingsPage: React.FC = () => {
         <Panel icon={Sliders} title="General Plant Metadata" subtitle="Geolocation and baseline system loss parameters">
           <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-5">
             <div className="md:col-span-2">
-              <label className="label">Plant Name</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} className="input" />
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Plant Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div>
-              <label className="label">Location</label>
-              <input value={location} onChange={(e) => setLocation(e.target.value)} className="input" />
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Location</Label>
+              <Input value={location} onChange={(e) => setLocation(e.target.value)} />
             </div>
             <div>
-              <label className="label">Latitude / Longitude</label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Latitude / Longitude</Label>
               <div className="grid grid-cols-2 gap-2">
-                <input
+                <Input
                   type="number"
                   step="0.0001"
                   value={lat}
                   onChange={(e) => setLat(Number(e.target.value))}
-                  className="input num"
+                  className="num"
                 />
-                <input
+                <Input
                   type="number"
                   step="0.0001"
                   value={lon}
                   onChange={(e) => setLon(Number(e.target.value))}
-                  className="input num"
+                  className="num"
                 />
               </div>
             </div>
             <div>
-              <label className="label">System Loss Factor</label>
-              <input
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">System Loss Factor</Label>
+              <Input
                 type="number"
                 step="0.005"
                 value={lossFactor}
                 onChange={(e) => setLossFactor(Number(e.target.value))}
-                className="input num"
+                className="num"
               />
             </div>
           </div>
@@ -147,102 +151,100 @@ export const PlantSettingsPage: React.FC = () => {
           title="Per-String Electrical Specifications"
           subtitle="STC nameplate parameters for each PV string and MPPT channel"
         >
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>String ID</th>
-                  <th>Inverter</th>
-                  <th>MPPT</th>
-                  <th>Modules</th>
-                  <th>Module Wp</th>
-                  <th>Voc STC (V)</th>
-                  <th>Vmp STC (V)</th>
-                  <th>Isc STC (A)</th>
-                  <th>Imp STC (A)</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table containerClassName="table-wrap">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>String ID</TableHead>
+                  <TableHead>Inverter</TableHead>
+                  <TableHead>MPPT</TableHead>
+                  <TableHead>Modules</TableHead>
+                  <TableHead>Module Wp</TableHead>
+                  <TableHead>Voc STC (V)</TableHead>
+                  <TableHead>Vmp STC (V)</TableHead>
+                  <TableHead>Isc STC (A)</TableHead>
+                  <TableHead>Imp STC (A)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {specs.map((s, idx) => (
-                  <tr key={s.string_id}>
-                    <td className="num font-bold text-solar-400">{s.string_id}</td>
-                    <td>
-                      <input
+                  <TableRow key={s.string_id}>
+                    <TableCell className="num whitespace-nowrap font-bold text-solar-400">{s.string_id}</TableCell>
+                    <TableCell>
+                      <Input
                         value={s.inverter_id}
                         onChange={(e) => updateSpecField(idx, "inverter_id", e.target.value)}
-                        className="input input-sm num w-28"
+                        className="h-7 px-2 text-[11px] num w-28"
                       />
-                    </td>
-                    <td>
-                      <input
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         value={s.mppt_id}
                         onChange={(e) => updateSpecField(idx, "mppt_id", e.target.value)}
-                        className="input input-sm num w-24"
+                        className="h-7 px-2 text-[11px] num w-24"
                       />
-                    </td>
-                    <td>
-                      <input
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         type="number"
                         value={s.modules_per_string}
                         onChange={(e) => updateSpecField(idx, "modules_per_string", Number(e.target.value))}
-                        className="input input-sm num w-20"
+                        className="h-7 px-2 text-[11px] num w-20"
                       />
-                    </td>
-                    <td>
-                      <input
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         type="number"
                         value={s.module_wp}
                         onChange={(e) => updateSpecField(idx, "module_wp", Number(e.target.value))}
-                        className="input input-sm num w-24"
+                        className="h-7 px-2 text-[11px] num w-24"
                       />
-                    </td>
-                    <td>
-                      <input
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         type="number"
                         step="0.1"
                         value={s.voc_stc}
                         onChange={(e) => updateSpecField(idx, "voc_stc", Number(e.target.value))}
-                        className="input input-sm num w-24"
+                        className="h-7 px-2 text-[11px] num w-24"
                       />
-                    </td>
-                    <td>
-                      <input
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         type="number"
                         step="0.1"
                         value={s.vmp_stc}
                         onChange={(e) => updateSpecField(idx, "vmp_stc", Number(e.target.value))}
-                        className="input input-sm num w-24"
+                        className="h-7 px-2 text-[11px] num w-24"
                       />
-                    </td>
-                    <td>
-                      <input
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         type="number"
                         step="0.01"
                         value={s.isc_stc}
                         onChange={(e) => updateSpecField(idx, "isc_stc", Number(e.target.value))}
-                        className="input input-sm num w-24"
+                        className="h-7 px-2 text-[11px] num w-24"
                       />
-                    </td>
-                    <td>
-                      <input
+                    </TableCell>
+                    <TableCell>
+                      <Input
                         type="number"
                         step="0.01"
                         value={s.imp_stc}
                         onChange={(e) => updateSpecField(idx, "imp_stc", Number(e.target.value))}
-                        className="input input-sm num w-24"
+                        className="h-7 px-2 text-[11px] num w-24"
                       />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         </Panel>
 
-        <button type="submit" className="btn-primary">
-          <Save className="h-4 w-4" />
+        <Button type="submit" variant="default">
+          <Save className="size-4" />
           Save legacy plant & strings
-        </button>
+        </Button>
       </form>
       </details>
       )}

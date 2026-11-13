@@ -4,6 +4,13 @@ import { useAppContext } from "../context/AppContext";
 import { api, CMWorkOrder, PMTask, RCARecord } from "../api/client";
 import { PageHeader, Panel, StatusBadge, Led, fmt } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const MaintenanceRcaPage: React.FC = () => {
   const { activePlant, analysisRun, selectedPlantOverview, setInspectedStringId } = useAppContext();
@@ -164,49 +171,47 @@ export const MaintenanceRcaPage: React.FC = () => {
           subtitle={`Real-time string mismatch & underperformance alarms on ${selectedPlantOverview?.plant.name || ""}`}
           bodyClassName="p-0"
         >
-          <div className="scroll-x-hint max-h-72 overflow-auto">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Severity</th>
-                  <th>String ID</th>
-                  <th>Inverter SN</th>
-                  <th>Category</th>
-                  <th className="text-right">PR (%)</th>
-                  <th className="text-right">Est. Loss (kWh)</th>
-                  <th>Diagnosis & Recommended Action</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table containerClassName="scroll-x-hint max-h-72 overflow-auto">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Severity</TableHead>
+                  <TableHead>String ID</TableHead>
+                  <TableHead>Inverter SN</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">PR (%)</TableHead>
+                  <TableHead className="text-right">Est. Loss (kWh)</TableHead>
+                  <TableHead>Diagnosis & Recommended Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {plantAnomalies.slice(0, 20).map((a, idx) => (
-                  <tr
+                  <TableRow
                     key={idx}
                     onClick={() => setInspectedStringId(a.string_id)}
                     className="cursor-pointer hover:bg-white/[0.03]"
                   >
-                    <td>
+                    <TableCell>
                       <StatusBadge
                         status={a.severity}
                         level={a.severity === "Critical" ? "crit" : "warn"}
                         dot
                       />
-                    </td>
-                    <td className="num font-bold text-white hover:text-sky-300">{a.string_id}</td>
-                    <td className="num text-xs text-slate-300">{a.device_sn}</td>
-                    <td className="text-xs text-slate-300">{a.category}</td>
-                    <td className="num text-right font-semibold text-solar-300">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap font-bold text-white hover:text-sky-300">{a.string_id}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-xs text-slate-300">{a.device_sn}</TableCell>
+                    <TableCell className="text-xs text-slate-300">{a.category}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right font-semibold text-solar-300">
                       {fmt(a.pr_pct, 1)}%
-                    </td>
-                    <td className="num text-right text-red-300">{fmt(a.energy_loss_kwh, 2)}</td>
-                    <td className="text-xs text-slate-400">
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right text-red-300">{fmt(a.energy_loss_kwh, 2)}</TableCell>
+                    <TableCell className="text-xs text-slate-400">
                       <span className="text-slate-200">{a.description}</span> —{" "}
                       <span>{a.recommended_action}</span>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         </Panel>
       )}
 
@@ -218,113 +223,120 @@ export const MaintenanceRcaPage: React.FC = () => {
           title="Preventive Maintenance (PM) Optimization Schedule"
           subtitle="Across PV Modules, Combiners, Inverters, Transformers & Switchgear"
           actions={
-            <button onClick={() => setShowPmForm(!showPmForm)} className="btn-primary btn-sm">
+            <Button onClick={() => setShowPmForm(!showPmForm)} variant="default" size="sm">
               <Plus className="h-3.5 w-3.5" />
               Add PM Task
-            </button>
+            </Button>
           }
           bodyClassName="panel-pad space-y-3"
         >
           {showPmForm && (
             <form onSubmit={handleAddPmTask} className="callout space-y-3 text-xs">
               <div className="grid grid-cols-3 gap-2">
-                <input
+                <Input
                   value={newPmId}
                   onChange={(e) => setNewPmId(e.target.value)}
                   placeholder="PM ID"
-                  className="input input-sm"
+                  className="h-7 px-2 text-[11px]"
                   required
                 />
-                <input
+                <Input
                   value={newPmCat}
                   onChange={(e) => setNewPmCat(e.target.value)}
                   placeholder="Asset Category"
-                  className="input input-sm"
+                  className="h-7 px-2 text-[11px]"
                   required
                 />
-                <select
-                  value={newPmFreq}
-                  onChange={(e) => setNewPmFreq(e.target.value)}
-                  className="select input-sm"
-                >
-                  <option>Monthly</option>
-                  <option>Quarterly</option>
-                  <option>Semi-Annual</option>
-                  <option>Annual</option>
-                </select>
+                <Select value={newPmFreq} onValueChange={(v) => setNewPmFreq(v)}>
+                  <SelectTrigger size="sm" className="w-full text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Monthly">Monthly</SelectItem>
+                    <SelectItem value="Quarterly">Quarterly</SelectItem>
+                    <SelectItem value="Semi-Annual">Semi-Annual</SelectItem>
+                    <SelectItem value="Annual">Annual</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <input
+                <Input
                   value={newPmDesc}
                   onChange={(e) => setNewPmDesc(e.target.value)}
                   placeholder="Task Description"
-                  className="input input-sm"
+                  className="h-7 px-2 text-[11px]"
                   required
                 />
-                <input
+                <Input
                   value={newPmSub}
                   onChange={(e) => setNewPmSub(e.target.value)}
                   placeholder="Subcontractor"
-                  className="input input-sm"
+                  className="h-7 px-2 text-[11px]"
                   required
                 />
               </div>
-              <button type="submit" className="btn-primary btn-sm">
+              <Button type="submit" variant="default" size="sm">
                 Save PM Task
-              </button>
+              </Button>
             </form>
           )}
 
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>PM ID</th>
-                  <th>Asset & Task</th>
-                  <th>Freq</th>
-                  <th>Next Due</th>
-                  <th>Subcontractor</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
+          <Table containerClassName="table-wrap">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>PM ID</TableHead>
+                  <TableHead>Asset & Task</TableHead>
+                  <TableHead>Freq</TableHead>
+                  <TableHead>Next Due</TableHead>
+                  <TableHead>Subcontractor</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {pmTasks.map((t) => (
-                  <tr key={t.id}>
-                    <td className="num font-semibold text-solar-400">{t.pm_id}</td>
-                    <td>
+                  <TableRow key={t.id}>
+                    <TableCell className="num whitespace-nowrap font-semibold text-solar-400">{t.pm_id}</TableCell>
+                    <TableCell>
                       <div className="font-semibold text-slate-100">{t.asset_category}</div>
                       <div className="text-[11px] text-slate-500">{t.task_description}</div>
-                    </td>
-                    <td>{t.frequency}</td>
-                    <td className="num text-[11px]">{t.next_due}</td>
-                    <td className="text-[11px] text-slate-400">{t.assigned_subcontractor}</td>
-                    <td>
-                      <select
-                        value={t.compliance_status}
-                        onChange={(e) => handlePmStatusChange(t, e.target.value)}
-                        className="select input-sm w-32"
-                      >
-                        <option>Due Soon</option>
-                        <option>Scheduled</option>
-                        <option>Completed</option>
-                        <option>Overdue</option>
-                      </select>
-                    </td>
-                    <td className="text-right">
-                      <button
-                        onClick={() => handleDeletePm(t.id)}
-                        className="btn-ghost p-1 text-slate-500 hover:text-red-400"
-                        title="Delete PM Task"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>{t.frequency}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-[11px]">{t.next_due}</TableCell>
+                    <TableCell className="text-[11px] text-slate-400">{t.assigned_subcontractor}</TableCell>
+                    <TableCell>
+                      <Select value={t.compliance_status} onValueChange={(v) => handlePmStatusChange(t, v)}>
+                        <SelectTrigger size="sm" className="w-32 text-[11px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Due Soon">Due Soon</SelectItem>
+                          <SelectItem value="Scheduled">Scheduled</SelectItem>
+                          <SelectItem value="Completed">Completed</SelectItem>
+                          <SelectItem value="Overdue">Overdue</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => handleDeletePm(t.id)}
+                            className="text-slate-500 hover:text-red-400"
+                            aria-label="Delete PM Task"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete PM Task</TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         </Panel>
 
         {/* CM Work Orders */}
@@ -333,32 +345,31 @@ export const MaintenanceRcaPage: React.FC = () => {
           title="Corrective Maintenance (CM) & Troubleshooting Work Orders"
           subtitle="Auto-generated from string fault diagnostics + active Inverter / Switchgear alarms"
           actions={
-            <button onClick={handleRegenerateCm} className="btn btn-sm">
+            <Button onClick={handleRegenerateCm} size="sm">
               <RefreshCw className="h-3.5 w-3.5" />
               Sync from Analysis
-            </button>
+            </Button>
           }
         >
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>WO #</th>
-                  <th>Asset & Symptom</th>
-                  <th>Priority</th>
-                  <th>Troubleshooting Steps</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
+          <Table containerClassName="table-wrap">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>WO #</TableHead>
+                  <TableHead>Asset & Symptom</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Troubleshooting Steps</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {cmOrders.map((wo) => (
-                  <tr key={wo.id}>
-                    <td className="num font-semibold text-solar-400">{wo.wo_number}</td>
-                    <td>
+                  <TableRow key={wo.id}>
+                    <TableCell className="num whitespace-nowrap font-semibold text-solar-400">{wo.wo_number}</TableCell>
+                    <TableCell>
                       <div className="font-semibold text-slate-100">{wo.asset_id}</div>
                       <div className="text-[11px] text-red-300">{wo.fault_symptom}</div>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge
                         status={wo.priority}
                         level={
@@ -369,27 +380,27 @@ export const MaintenanceRcaPage: React.FC = () => {
                             : "info"
                         }
                       />
-                    </td>
-                    <td className="max-w-xs text-[11px] text-slate-400">
+                    </TableCell>
+                    <TableCell className="max-w-xs text-[11px] text-slate-400">
                       {wo.troubleshooting_checklist}
-                    </td>
-                    <td>
-                      <select
-                        value={wo.status}
-                        onChange={(e) => handleCmStatusChange(wo, e.target.value)}
-                        className="select input-sm w-40"
-                      >
-                        <option>Open - Dispatched</option>
-                        <option>In Progress</option>
-                        <option>Scheduled</option>
-                        <option>Closed - Verified</option>
-                      </select>
-                    </td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>
+                      <Select value={wo.status} onValueChange={(v) => handleCmStatusChange(wo, v)}>
+                        <SelectTrigger size="sm" className="w-40 text-[11px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Open - Dispatched">Open - Dispatched</SelectItem>
+                          <SelectItem value="In Progress">In Progress</SelectItem>
+                          <SelectItem value="Scheduled">Scheduled</SelectItem>
+                          <SelectItem value="Closed - Verified">Closed - Verified</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         </Panel>
       </div>
 
@@ -399,10 +410,10 @@ export const MaintenanceRcaPage: React.FC = () => {
         title="Root Cause Analysis (RCA) — Inverters, Transformers, Switchgear & PV Strings"
         subtitle="Structured 5-Why & Fishbone (Ishikawa) Root Cause Analysis with Corrective & Preventive Actions (CAPA)"
         actions={
-          <button onClick={() => setShowRcaForm(!showRcaForm)} className="btn-primary btn-sm">
+          <Button onClick={() => setShowRcaForm(!showRcaForm)} variant="default" size="sm">
             <Plus className="h-3.5 w-3.5" />
             {showRcaForm ? "Close RCA Form" : "Log New Equipment Failure RCA"}
-          </button>
+          </Button>
         }
         bodyClassName="panel-pad space-y-4"
       >
@@ -411,163 +422,170 @@ export const MaintenanceRcaPage: React.FC = () => {
             <h5 className="font-bold text-slate-100">Log New 5-Why & Fishbone RCA Record</h5>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <div>
-                <label className="label">Equipment Category</label>
-                <select value={eqCat} onChange={(e) => setEqCat(e.target.value)} className="select">
-                  <option>Inverter</option>
-                  <option>Transformer</option>
-                  <option>Switchgear</option>
-                  <option>PV String / DC Combiner</option>
-                </select>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Equipment Category</Label>
+                <Select value={eqCat} onValueChange={(v) => setEqCat(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Inverter">Inverter</SelectItem>
+                    <SelectItem value="Transformer">Transformer</SelectItem>
+                    <SelectItem value="Switchgear">Switchgear</SelectItem>
+                    <SelectItem value="PV String / DC Combiner">PV String / DC Combiner</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
-                <label className="label">Asset ID</label>
-                <input
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Asset ID</Label>
+                <Input
                   value={assetId}
                   onChange={(e) => setAssetId(e.target.value)}
-                  className="input"
                   required
                 />
               </div>
               <div>
-                <label className="label">Downtime (Hours)</label>
-                <input
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Downtime (Hours)</Label>
+                <Input
                   type="number"
                   step="0.5"
                   value={downtime}
                   onChange={(e) => setDowntime(Number(e.target.value))}
-                  className="input num"
+                  className="num"
                 />
               </div>
               <div>
-                <label className="label">Energy Loss (kWh)</label>
-                <input
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Energy Loss (kWh)</Label>
+                <Input
                   type="number"
                   step="10"
                   value={lossKwh}
                   onChange={(e) => setLossKwh(Number(e.target.value))}
-                  className="input num"
+                  className="num"
                 />
               </div>
             </div>
 
             <div>
-              <label className="label">Failure Mode / Alarm Description</label>
-              <input
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Failure Mode / Alarm Description</Label>
+              <Input
                 value={failureMode}
                 onChange={(e) => setFailureMode(e.target.value)}
-                className="input"
                 required
               />
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="label">Why 1 (Immediate Symptom)</label>
-                <input value={why1} onChange={(e) => setWhy1(e.target.value)} className="input" />
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 1 (Immediate Symptom)</Label>
+                <Input value={why1} onChange={(e) => setWhy1(e.target.value)} />
               </div>
               <div>
-                <label className="label">Why 2 (Direct Cause)</label>
-                <input value={why2} onChange={(e) => setWhy2(e.target.value)} className="input" />
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 2 (Direct Cause)</Label>
+                <Input value={why2} onChange={(e) => setWhy2(e.target.value)} />
               </div>
               <div>
-                <label className="label">Why 3 (Contributing Factor)</label>
-                <input value={why3} onChange={(e) => setWhy3(e.target.value)} className="input" />
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 3 (Contributing Factor)</Label>
+                <Input value={why3} onChange={(e) => setWhy3(e.target.value)} />
               </div>
               <div>
-                <label className="label">Why 4 (Process Gap)</label>
-                <input value={why4} onChange={(e) => setWhy4(e.target.value)} className="input" />
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 4 (Process Gap)</Label>
+                <Input value={why4} onChange={(e) => setWhy4(e.target.value)} />
               </div>
               <div>
-                <label className="label">Why 5 (Root Cause)</label>
-                <input value={why5} onChange={(e) => setWhy5(e.target.value)} className="input" />
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 5 (Root Cause)</Label>
+                <Input value={why5} onChange={(e) => setWhy5(e.target.value)} />
               </div>
               <div>
-                <label className="label">Fishbone Category</label>
-                <select value={fishbone} onChange={(e) => setFishbone(e.target.value)} className="select">
-                  <option>Machine / Maintenance PM</option>
-                  <option>Material / Workmanship</option>
-                  <option>Method / Subcontractor QA</option>
-                  <option>Engineering / Protection Coordination</option>
-                  <option>Environment</option>
-                </select>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Fishbone Category</Label>
+                <Select value={fishbone} onValueChange={(v) => setFishbone(v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Machine / Maintenance PM">Machine / Maintenance PM</SelectItem>
+                    <SelectItem value="Material / Workmanship">Material / Workmanship</SelectItem>
+                    <SelectItem value="Method / Subcontractor QA">Method / Subcontractor QA</SelectItem>
+                    <SelectItem value="Engineering / Protection Coordination">Engineering / Protection Coordination</SelectItem>
+                    <SelectItem value="Environment">Environment</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="label">Corrective Action (Immediate Fix)</label>
-                <input value={capaC} onChange={(e) => setCapaC(e.target.value)} className="input" />
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Corrective Action (Immediate Fix)</Label>
+                <Input value={capaC} onChange={(e) => setCapaC(e.target.value)} />
               </div>
               <div>
-                <label className="label">Preventive Action (Long-Term Recurrence Prevention)</label>
-                <input value={capaP} onChange={(e) => setCapaP(e.target.value)} className="input" />
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Preventive Action (Long-Term Recurrence Prevention)</Label>
+                <Input value={capaP} onChange={(e) => setCapaP(e.target.value)} />
               </div>
             </div>
 
-            <button type="submit" className="btn-primary">
+            <Button type="submit" variant="default">
               <CheckCircle2 className="h-3.5 w-3.5" />
               Save RCA Record to Register
-            </button>
+            </Button>
           </form>
         )}
 
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>RCA ID</th>
-                <th>Category & Asset</th>
-                <th>Failure Mode</th>
-                <th>Loss</th>
-                <th>Why 5 Root Cause & Fishbone</th>
-                <th>CAPA (Corrective & Preventive)</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Table containerClassName="table-wrap">
+            <TableHeader>
+              <TableRow>
+                <TableHead>RCA ID</TableHead>
+                <TableHead>Category & Asset</TableHead>
+                <TableHead>Failure Mode</TableHead>
+                <TableHead>Loss</TableHead>
+                <TableHead>Why 5 Root Cause & Fishbone</TableHead>
+                <TableHead>CAPA (Corrective & Preventive)</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rcaRecords.map((rec) => (
-                <tr key={rec.id}>
-                  <td className="num">
+                <TableRow key={rec.id}>
+                  <TableCell className="num whitespace-nowrap">
                     <div className="font-bold text-solar-400">{rec.rca_id}</div>
                     <div className="text-[11px] text-slate-500">{rec.incident_date}</div>
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <div className="font-semibold text-slate-100">{rec.equipment_category}</div>
                     <div className="num text-[11px] text-slate-500">{rec.asset_id}</div>
-                  </td>
-                  <td className="max-w-xs text-slate-200">{rec.failure_mode}</td>
-                  <td className="num text-[11px]">
+                  </TableCell>
+                  <TableCell className="max-w-xs text-slate-200">{rec.failure_mode}</TableCell>
+                  <TableCell className="num whitespace-nowrap text-[11px]">
                     <div className="text-slate-400">{rec.downtime_hours}h</div>
                     <div className="font-semibold text-red-400">{rec.energy_loss_kwh} kWh</div>
-                  </td>
-                  <td className="max-w-xs">
+                  </TableCell>
+                  <TableCell className="max-w-xs">
                     <div className="font-semibold text-slate-100">{rec.why_5_root_cause}</div>
-                    <span className="badge badge-info mt-1">{rec.fishbone_category}</span>
-                  </td>
-                  <td className="max-w-xs text-[11px]">
+                    <Badge variant="info" className="mt-1">{rec.fishbone_category}</Badge>
+                  </TableCell>
+                  <TableCell className="max-w-xs text-[11px]">
                     <div>
                       <strong className="text-solar-400">C:</strong> {rec.capa_corrective_action}
                     </div>
                     <div className="mt-0.5">
                       <strong className="text-energy-400">P:</strong> {rec.capa_preventive_action}
                     </div>
-                  </td>
-                  <td>
-                    <select
-                      value={rec.rca_status}
-                      onChange={(e) => handleRcaStatusChange(rec, e.target.value)}
-                      className="select input-sm w-44"
-                    >
-                      <option>Open - CAPA Assigned</option>
-                      <option>CAPA In Implementation</option>
-                      <option>Closed - Verified</option>
-                    </select>
-                  </td>
-                </tr>
+                  </TableCell>
+                  <TableCell>
+                    <Select value={rec.rca_status} onValueChange={(v) => handleRcaStatusChange(rec, v)}>
+                      <SelectTrigger size="sm" className="w-44 text-[11px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Open - CAPA Assigned">Open - CAPA Assigned</SelectItem>
+                        <SelectItem value="CAPA In Implementation">CAPA In Implementation</SelectItem>
+                        <SelectItem value="Closed - Verified">Closed - Verified</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+        </Table>
       </Panel>
     </div>
   );

@@ -5,6 +5,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { LoadingState } from "./components/ui";
 import { Layout } from "./components/Layout";
 import { isAdmin } from "./auth/access";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Each page is its own chunk, fetched on first visit (Layout shows a fallback meanwhile).
 const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
@@ -43,6 +44,7 @@ const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 export const App: React.FC = () => {
   return (
     <AppProvider>
+      <TooltipProvider delayDuration={200}>
       <AuthGate>
       <BrowserRouter>
         <Routes>
@@ -63,6 +65,7 @@ export const App: React.FC = () => {
         </Routes>
       </BrowserRouter>
       </AuthGate>
+      </TooltipProvider>
     </AppProvider>
   );
 };

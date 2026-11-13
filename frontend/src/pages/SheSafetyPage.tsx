@@ -14,6 +14,10 @@ import {
 import { useAppContext } from "../context/AppContext";
 import { api, PTWPermit } from "../api/client";
 import { PageHeader, Panel, KpiTile, StatusBadge } from "../components/ui";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const SheSafetyPage: React.FC = () => {
   const { activePlant } = useAppContext();
@@ -153,120 +157,116 @@ export const SheSafetyPage: React.FC = () => {
         title="Active Permit-to-Work (PTW), LOTO & High-Risk Activity Register"
         subtitle="Track electrical isolation padlocks, Arc-Flash PPE categories, and WBGT heat stress checks"
         actions={
-          <button onClick={() => setShowAddForm(!showAddForm)} className="btn-primary btn-sm">
+          <Button onClick={() => setShowAddForm(!showAddForm)} variant="default" size="sm">
             <Plus className="h-3.5 w-3.5" />
             Issue New PTW
-          </button>
+          </Button>
         }
         bodyClassName="panel-pad space-y-4"
       >
         {showAddForm && (
           <form onSubmit={handleCreatePtw} className="callout space-y-3 text-xs">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <input
+              <Input
                 value={ptwNum}
                 onChange={(e) => setPtwNum(e.target.value)}
                 placeholder="PTW Number"
-                className="input"
                 required
               />
-              <input
+              <Input
                 value={highRisk}
                 onChange={(e) => setHighRisk(e.target.value)}
                 placeholder="High Risk Permit Type"
-                className="input"
                 required
               />
-              <input
+              <Input
                 value={padlockId}
                 onChange={(e) => setPadlockId(e.target.value)}
                 placeholder="LOTO Padlock ID"
-                className="input"
                 required
               />
             </div>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <input
+              <Input
                 value={activity}
                 onChange={(e) => setActivity(e.target.value)}
                 placeholder="Work Activity"
-                className="input"
                 required
               />
-              <input
+              <Input
                 value={ppe}
                 onChange={(e) => setPpe(e.target.value)}
                 placeholder="Arc Flash / Fall Protection PPE"
-                className="input"
                 required
               />
-              <input
+              <Input
                 value={supervisor}
                 onChange={(e) => setSupervisor(e.target.value)}
                 placeholder="Safety Supervisor"
-                className="input"
                 required
               />
             </div>
-            <button type="submit" className="btn-primary btn-sm">
+            <Button type="submit" variant="default" size="sm">
               Approve & Register PTW
-            </button>
+            </Button>
           </form>
         )}
 
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>PTW #</th>
-                <th>Issue Date</th>
-                <th>Work Activity & High-Risk Permits</th>
-                <th>LOTO Padlock ID</th>
-                <th>Mandatory PPE & Heat Check</th>
-                <th>Supervisor</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {permits.map((p) => (
-                <tr key={p.id}>
-                  <td className="num font-bold text-solar-400">{p.ptw_number}</td>
-                  <td className="num text-[11px]">{p.issue_date}</td>
-                  <td>
-                    <div className="font-semibold text-slate-100">{p.work_activity}</div>
-                    <div className="text-[11px] font-medium text-amber-300">{p.high_risk_permits}</div>
-                  </td>
-                  <td className="num font-semibold text-energy-300">{p.loto_padlock_id}</td>
-                  <td className="max-w-xs text-[11px]">
-                    <div className="text-slate-200">{p.arc_flash_ppe}</div>
-                    <div className="text-slate-500">{p.gas_heat_index_check}</div>
-                  </td>
-                  <td>{p.safety_supervisor}</td>
-                  <td>
-                    <select
-                      value={p.status}
-                      onChange={(e) => handleStatusChange(p, e.target.value)}
-                      className="select input-sm w-48"
-                    >
-                      <option>Active - Approved</option>
-                      <option>Pending Night Outage Window</option>
-                      <option>Closed - Safe Completion</option>
-                    </select>
-                  </td>
-                  <td className="text-right">
-                    <button
-                      onClick={() => handleDeletePtw(p.id)}
-                      className="btn-ghost p-1 text-slate-500 hover:text-red-400"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table containerClassName="table-wrap">
+          <TableHeader>
+            <TableRow>
+              <TableHead>PTW #</TableHead>
+              <TableHead>Issue Date</TableHead>
+              <TableHead>Work Activity & High-Risk Permits</TableHead>
+              <TableHead>LOTO Padlock ID</TableHead>
+              <TableHead>Mandatory PPE & Heat Check</TableHead>
+              <TableHead>Supervisor</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {permits.map((p) => (
+              <TableRow key={p.id}>
+                <TableCell className="num whitespace-nowrap font-bold text-solar-400">{p.ptw_number}</TableCell>
+                <TableCell className="num whitespace-nowrap text-[11px]">{p.issue_date}</TableCell>
+                <TableCell>
+                  <div className="font-semibold text-slate-100">{p.work_activity}</div>
+                  <div className="text-[11px] font-medium text-amber-300">{p.high_risk_permits}</div>
+                </TableCell>
+                <TableCell className="num whitespace-nowrap font-semibold text-energy-300">{p.loto_padlock_id}</TableCell>
+                <TableCell className="max-w-xs text-[11px]">
+                  <div className="text-slate-200">{p.arc_flash_ppe}</div>
+                  <div className="text-slate-500">{p.gas_heat_index_check}</div>
+                </TableCell>
+                <TableCell>{p.safety_supervisor}</TableCell>
+                <TableCell>
+                  <Select value={p.status} onValueChange={(v) => handleStatusChange(p, v)}>
+                    <SelectTrigger size="sm" className="w-48 text-[11px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Active - Approved">Active - Approved</SelectItem>
+                      <SelectItem value="Pending Night Outage Window">Pending Night Outage Window</SelectItem>
+                      <SelectItem value="Closed - Safe Completion">Closed - Safe Completion</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => handleDeletePtw(p.id)}
+                    className="text-slate-500 hover:text-red-400"
+                    aria-label="Delete permit"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </Panel>
 
       {/* Site SH&E Mandatory Compliance Matrix */}
@@ -275,32 +275,30 @@ export const SheSafetyPage: React.FC = () => {
         title="Site SH&E Mandatory Compliance Matrix (ISO 45001 / ISO 14001 / NFPA 70E)"
         subtitle="Audit verification across electrical isolation, rooftop fall protection, and environmental controls"
       >
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Category</th>
-                <th>Mandatory Safety Requirement</th>
-                <th>Field Verification</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {checklist.map((c, idx) => (
-                <tr key={idx}>
-                  <td className="num font-bold text-solar-400">{c["SH&E_Code"]}</td>
-                  <td className="font-semibold text-slate-100">{c.Category}</td>
-                  <td className="text-slate-300">{c.Requirement}</td>
-                  <td className="text-slate-400">{c.Verification}</td>
-                  <td>
-                    <StatusBadge status={c.Status} level="ok" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table containerClassName="table-wrap">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Code</TableHead>
+              <TableHead>Category</TableHead>
+              <TableHead>Mandatory Safety Requirement</TableHead>
+              <TableHead>Field Verification</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {checklist.map((c, idx) => (
+              <TableRow key={idx}>
+                <TableCell className="num whitespace-nowrap font-bold text-solar-400">{c["SH&E_Code"]}</TableCell>
+                <TableCell className="font-semibold text-slate-100">{c.Category}</TableCell>
+                <TableCell className="text-slate-300">{c.Requirement}</TableCell>
+                <TableCell className="text-slate-400">{c.Verification}</TableCell>
+                <TableCell>
+                  <StatusBadge status={c.Status} level="ok" />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </Panel>
     </div>
   );

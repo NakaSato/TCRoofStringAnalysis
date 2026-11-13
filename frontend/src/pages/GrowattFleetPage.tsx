@@ -5,6 +5,9 @@ import type { GrowattInverter } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { PageHeader, Panel, KpiTile, StatusBadge, EmptyState, LoadingState, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
   1: { label: "Normal", level: "ok" },
@@ -118,9 +121,9 @@ export const GrowattFleetPage: React.FC = () => {
         title="Growatt Fleet"
         description={`Plant registry and history from the app database; power and status overlaid live from Growatt (memory cache, not stored). ${liveLabel(growattLiveStatus)}`}
         actions={
-          <button className="btn-ghost btn-sm" onClick={() => loadPlants()} disabled={loading}>
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => loadPlants()} disabled={loading}>
+            <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+          </Button>
         }
       />
 
@@ -152,46 +155,44 @@ export const GrowattFleetPage: React.FC = () => {
               actions={
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-                  <input className="input-sm pl-7" placeholder="Search name, city, ID" value={query} onChange={(e) => setQuery(e.target.value)} />
+                  <Input className="h-7 px-2 pl-7 text-[11px]" placeholder="Search name, city, ID" value={query} onChange={(e) => setQuery(e.target.value)} />
                 </div>
               }
             >
-              <div className="scroll-x-hint max-h-[640px] overflow-auto">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Plant</th>
-                      <th className="text-right">kWp</th>
-                      <th className="text-right">Power kW</th>
-                      <th className="text-right">Load %</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <Table containerClassName="scroll-x-hint max-h-[640px] overflow-auto">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Plant</TableHead>
+                      <TableHead className="text-right">kWp</TableHead>
+                      <TableHead className="text-right">Power kW</TableHead>
+                      <TableHead className="text-right">Load %</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {filtered.map((p) => {
                       const st = plantStatus(p.status);
                       const kw = p.current_power_w == null ? null : p.current_power_w / 1000;
                       const load = kw != null && p.peak_power_kwp ? (kw / p.peak_power_kwp) * 100 : null;
                       return (
-                        <tr
+                        <TableRow
                           key={p.plant_id}
                           onClick={() => setSelectedId(p.plant_id)}
                           className={`cursor-pointer ${p.plant_id === selectedId ? "bg-solar-500/10" : ""}`}
                         >
-                          <td>
+                          <TableCell>
                             <div className="font-medium text-slate-200">{p.name}</div>
                             <div className="text-[11px] text-slate-500">{p.plant_id} · {p.city || "—"}</div>
-                          </td>
-                          <td className="num text-right">{fmt(p.peak_power_kwp, 1)}</td>
-                          <td className="num text-right">{fmt(kw, 1)}</td>
-                          <td className="num text-right">{load == null ? "—" : fmt(load, 0)}</td>
-                          <td><StatusBadge status={st.label} level={st.level} loading={st.loading} /></td>
-                        </tr>
+                          </TableCell>
+                          <TableCell className="num whitespace-nowrap text-right">{fmt(p.peak_power_kwp, 1)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right">{fmt(kw, 1)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right">{load == null ? "—" : fmt(load, 0)}</TableCell>
+                          <TableCell><StatusBadge status={st.label} level={st.level} loading={st.loading} /></TableCell>
+                        </TableRow>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+              </Table>
             </Panel>
 
             <Panel
@@ -208,9 +209,9 @@ export const GrowattFleetPage: React.FC = () => {
               bodyClassName="p-0"
               actions={
                 selected && (
-                  <button className="btn-ghost btn-sm" onClick={() => loadInverters(selected.plant_id)} disabled={invLoading}>
-                    <RefreshCw className={`h-3.5 w-3.5 ${invLoading ? "animate-spin" : ""}`} />
-                  </button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => loadInverters(selected.plant_id)} disabled={invLoading} aria-label="Refresh inverters">
+                    <RefreshCw className={`size-3.5 ${invLoading ? "animate-spin" : ""}`} />
+                  </Button>
                 )
               }
             >
@@ -218,37 +219,35 @@ export const GrowattFleetPage: React.FC = () => {
               {selected && invLoading && !inverters && <div className="p-4"><LoadingState label="Fetching inverters…" /></div>}
               {selected && invError && <EmptyState icon={AlertTriangle} title="Could not load inverters" description={invError} />}
               {selected && inverters && (
-                <div className="scroll-x-hint max-h-[640px] overflow-auto">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Serial</th>
-                        <th>Status</th>
-                        <th>Last update</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                <Table containerClassName="scroll-x-hint max-h-[640px] overflow-auto">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Serial</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Last update</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {inverters.map((inv) => (
-                        <tr key={inv.device_sn}>
-                          <td>
+                        <TableRow key={inv.device_sn}>
+                          <TableCell>
                             <div className="num font-medium text-slate-200">{inv.device_sn}</div>
                             <div className="text-[11px] text-slate-500" title={inv.model}>
                               {inv.device_types.join("/").toUpperCase()} · logger {inv.datalogger_sn}
                             </div>
-                          </td>
-                          <td>
+                          </TableCell>
+                          <TableCell>
                             <StatusBadge
                               status={inv.lost ? "Lost" : inv.status_label ?? LOADING_STATUS}
                               level={inverterLevel(inv)}
                               loading={!inv.lost && inv.status_label == null}
                             />
-                          </td>
-                          <td className="num text-[11px] text-slate-400">{inv.last_update_time ?? "—"}</td>
-                        </tr>
+                          </TableCell>
+                          <TableCell className="num whitespace-nowrap text-[11px] text-slate-400">{inv.last_update_time ?? "—"}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                </Table>
               )}
             </Panel>
           </div>

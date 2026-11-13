@@ -9,6 +9,8 @@ import { Activity, ArrowRight, Cpu, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { GrowattPlantOverview } from "../api/client";
 import { Led, fmt } from "./ui";
+import { Button } from "@/components/ui/button";
+import { Card as UiCard } from "@/components/ui/card";
 import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
@@ -20,7 +22,7 @@ const Card: React.FC<{
   title: string;
   children: React.ReactNode;
 }> = ({ to, step, icon: Icon, title, children }) => (
-  <section className="panel flex flex-col">
+  <UiCard className="gap-0 py-0">
     <header className="panel-header">
       <h2 className="panel-title">
         <Icon className="h-4 w-4 text-solar-400" />
@@ -28,12 +30,14 @@ const Card: React.FC<{
           {step}. {title}
         </span>
       </h2>
-      <Link to={to} className="btn-ghost btn-sm">
-        Open <ArrowRight className="h-3.5 w-3.5" />
-      </Link>
+      <Button asChild variant="ghost" size="sm">
+        <Link to={to}>
+          Open <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </Button>
     </header>
     <div className="flex flex-1 flex-col gap-3 p-4">{children}</div>
-  </section>
+  </UiCard>
 );
 
 const Stat: React.FC<{

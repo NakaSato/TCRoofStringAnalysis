@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Grid3x3 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { Panel, Led, Meter, statusLevel, fmt } from "./ui";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 /**
  * Selected plant's string tiles, grouped by inverter and laid out by MPPT (string n sits on
@@ -162,18 +163,19 @@ export const StringStatusMatrix: React.FC = () => {
             />
             Group by inverter
           </label>
-          <select
-            value={selectedInverterSn}
-            onChange={(e) => setSelectedInverterSn(e.target.value)}
-            className="select input-sm w-44"
-          >
-            <option value="ALL">All Inverters ({strings.length} strings)</option>
-            {inverters.map((inv) => (
-              <option key={inv.device_sn} value={inv.device_sn}>
-                {inv.device_sn} ({inv.string_count} strings)
-              </option>
-            ))}
-          </select>
+          <Select value={selectedInverterSn} onValueChange={(v) => setSelectedInverterSn(v)}>
+            <SelectTrigger size="sm" className="w-44 text-[11px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Inverters ({strings.length} strings)</SelectItem>
+              {inverters.map((inv) => (
+                <SelectItem key={inv.device_sn} value={inv.device_sn}>
+                  {inv.device_sn} ({inv.string_count} strings)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       }
     >

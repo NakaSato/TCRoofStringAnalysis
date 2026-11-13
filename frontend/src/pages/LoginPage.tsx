@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { Eye, EyeOff, Loader2, LogIn, Sun } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /** Full-screen sign-in, shown whenever there is no valid session. Username + password only. */
 export const LoginPage: React.FC = () => {
@@ -46,10 +49,10 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div>
-            <label htmlFor="login-username" className="label">
+            <Label htmlFor="login-username" className="mb-1 block text-[11px] font-medium text-slate-400">
               Username
-            </label>
-            <input
+            </Label>
+            <Input
               id="login-username"
               name="username"
               type="text"
@@ -60,24 +63,23 @@ export const LoginPage: React.FC = () => {
               autoFocus
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="input"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="login-password" className="label">
+            <Label htmlFor="login-password" className="mb-1 block text-[11px] font-medium text-slate-400">
               Password
-            </label>
+            </Label>
             <div className="relative">
-              <input
+              <Input
                 id="login-password"
                 name="password"
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="input pr-9"
+                className="pr-9"
                 required
               />
               <button
@@ -97,14 +99,15 @@ export const LoginPage: React.FC = () => {
             </p>
           )}
 
-          <button
+          <Button
             type="submit"
-            className="btn-primary w-full justify-center"
+            variant="default"
+            className="w-full justify-center"
             disabled={submitting || !username.trim() || !password}
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
             {submitting ? "Signing in…" : "Sign in"}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

@@ -7,6 +7,7 @@ import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
 import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
+import { Badge } from "@/components/ui/badge";
 
 function plantToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
@@ -140,12 +141,13 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
       subtitle={subtitle}
       actions={
         live ? (
-          <span
-            className={`badge ${live.stale ? "badge-warn" : "badge-ok"} px-2 py-0.5 text-[10px] font-semibold`}
+          <Badge
+            variant={live.stale ? "warn" : "ok"}
+            className="px-2 py-0.5 text-[10px] font-semibold"
             title={`Fetched ${new Date(live.fetched_at).toLocaleTimeString()}${live.error ? ` · ${live.error}` : ""}`}
           >
             {live.stale ? "LIVE (STALE)" : "LIVE"} {new Date(live.fetched_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })}
-          </span>
+          </Badge>
         ) : null
       }
     >

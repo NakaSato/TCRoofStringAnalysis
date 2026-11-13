@@ -10,6 +10,7 @@ import { api } from "../api/client";
 import type { GrowattInverterDaily, GrowattInverterTimeseries, GrowattPlantOverview } from "../api/client";
 import { ComparisonBars, DailyTrendChart, StringHeatmap } from "./D3Charts";
 import { EmptyState, LoadingState, Panel, fmt } from "./ui";
+import { Button } from "@/components/ui/button";
 
 type OverviewInverter = GrowattPlantOverview["inverters"][number];
 
@@ -143,14 +144,15 @@ export const InverterTrendPanel: React.FC<{
       actions={
         <div className="flex gap-1">
           {RANGES.map((n) => (
-            <button
+            <Button
               key={n}
               type="button"
               onClick={() => setDays(n)}
-              className={`btn-sm ${n === days ? "btn-primary" : "btn-ghost"}`}
+              variant={n === days ? "default" : "ghost"}
+              size="sm"
             >
               {n}d
-            </button>
+            </Button>
           ))}
         </div>
       }

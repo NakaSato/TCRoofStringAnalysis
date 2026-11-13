@@ -37,6 +37,10 @@ import type { GrowattPlant } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { StatusBadge, Led, fmt, fmtInt, LOADING_STATUS } from "./ui";
 import type { StatusLevel } from "./ui";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export interface UnifiedPlantItem {
   uid: string;
@@ -832,7 +836,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
       {/* ==================================================================== */}
       {/* 2. FUSIONSOLAR-STYLE MULTI-FILTER BAR + FULL-WIDTH PLANT TABLE        */}
       {/* ==================================================================== */}
-      <section className="panel overflow-hidden">
+      <Card className="gap-0 overflow-hidden py-0">
         {/* Multi-Field Filter Toolbar */}
         <div className="border-b border-white/[0.07] bg-ink-900/70 px-4 py-3.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -842,7 +846,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
                   Plant name
                 </label>
-                <input
+                <Input
                   type="text"
                   value={plantNameFilter}
                   onChange={(e) => {
@@ -850,7 +854,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     setCurrentPage(1);
                   }}
                   placeholder="Plant name"
-                  className="input input-sm w-28"
+                  className="h-7 w-28 px-2 text-[11px]"
                 />
               </div>
 
@@ -859,7 +863,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
                   Country/Region
                 </label>
-                <input
+                <Input
                   type="text"
                   value={regionFilter}
                   onChange={(e) => {
@@ -867,7 +871,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     setCurrentPage(1);
                   }}
                   placeholder="Country/Region"
-                  className="input input-sm w-28"
+                  className="h-7 w-28 px-2 text-[11px]"
                 />
               </div>
 
@@ -876,18 +880,22 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
                   Device type
                 </label>
-                <select
+                <Select
                   value={deviceTypeFilter}
-                  onChange={(e) => {
-                    setDeviceTypeFilter(e.target.value);
+                  onValueChange={(v) => {
+                    setDeviceTypeFilter(v);
                     setCurrentPage(1);
                   }}
-                  className="select input-sm w-28"
                 >
-                  <option value="ALL">All</option>
-                  <option value="String Inverter (SCADA)">SCADA String</option>
-                  <option value="Growatt MAX Inverter">Growatt MAX</option>
-                </select>
+                  <SelectTrigger size="sm" className="w-28 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All</SelectItem>
+                    <SelectItem value="String Inverter (SCADA)">SCADA String</SelectItem>
+                    <SelectItem value="Growatt MAX Inverter">Growatt MAX</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Project phase (one Growatt account per phase) */}
@@ -895,25 +903,28 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
                   Phase
                 </label>
-                <select
+                <Select
                   value={String(phaseFilter)}
-                  onChange={(e) => {
-                    const v = e.target.value;
+                  onValueChange={(v) => {
                     setPhaseFilter(v === "ALL" || v === "NONE" ? v : Number(v));
                     setCurrentPage(1);
                   }}
-                  className="select input-sm w-28"
                 >
-                  <option value="ALL">All phases</option>
-                  {phaseOptions.phases.map(([ph, n]) => (
-                    <option key={ph} value={ph}>
-                      Phase {ph} ({n})
-                    </option>
-                  ))}
-                  {phaseOptions.untagged > 0 && (
-                    <option value="NONE">Untagged ({phaseOptions.untagged})</option>
-                  )}
-                </select>
+                  <SelectTrigger size="sm" className="w-28 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All phases</SelectItem>
+                    {phaseOptions.phases.map(([ph, n]) => (
+                      <SelectItem key={ph} value={String(ph)}>
+                        Phase {ph} ({n})
+                      </SelectItem>
+                    ))}
+                    {phaseOptions.untagged > 0 && (
+                      <SelectItem value="NONE">Untagged ({phaseOptions.untagged})</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Device SN */}
@@ -921,7 +932,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
                   Device SN
                 </label>
-                <input
+                <Input
                   type="text"
                   value={deviceSnFilter}
                   onChange={(e) => {
@@ -929,7 +940,7 @@ export const FleetPlantDirectoryPanel: React.FC<{
                     setCurrentPage(1);
                   }}
                   placeholder="Device SN"
-                  className="input input-sm w-24"
+                  className="h-7 w-24 px-2 text-[11px]"
                 />
               </div>
 
@@ -955,27 +966,28 @@ export const FleetPlantDirectoryPanel: React.FC<{
               >
                 Search
               </button>
-              <button
+              <Button
                 type="button"
                 onClick={handleResetFilters}
-                className="btn btn-sm"
+                size="sm"
               >
                 Reset
-              </button>
+              </Button>
             </div>
 
             {/* Right actions: Sync Cloud + Add Plant */}
             <div className="flex items-center gap-1.5">
-              <button
+              <Button
                 type="button"
                 onClick={() => fetchCloudPlants(true)}
                 disabled={loadingCloud}
-                className="btn-ghost btn-sm"
+                variant="ghost"
+                size="sm"
                 title="Refresh Growatt Cloud Plants"
               >
                 <RefreshCw className={`h-3 w-3 ${loadingCloud ? "animate-spin text-sky-400" : ""}`} />
                 Sync
-              </button>
+              </Button>
               <Link
                 to="/settings"
                 className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-sky-500"
@@ -1344,21 +1356,25 @@ export const FleetPlantDirectoryPanel: React.FC<{
                 ›
               </button>
             </div>
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
+            <Select
+              value={String(pageSize)}
+              onValueChange={(v) => {
+                setPageSize(Number(v));
                 setCurrentPage(1);
               }}
-              className="select input-sm w-24"
             >
-              <option value={10}>10 / page</option>
-              <option value={25}>25 / page</option>
-              <option value={50}>50 / page</option>
-            </select>
+              <SelectTrigger size="sm" className="w-24 text-[11px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10 / page</SelectItem>
+                <SelectItem value="25">25 / page</SelectItem>
+                <SelectItem value="50">50 / page</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
-      </section>
+      </Card>
     </div>
   );
 };

@@ -1,10 +1,13 @@
 /**
  * Shared UI kit for the GenZ Monitoring System (dark control-room theme).
- * Pair these components with the utility classes defined in `index.css`
- * (`.panel`, `.btn-*`, `.input`, `.data-table`, `.badge-*`, `.led-*`, ...).
+ * Built on the shadcn/ui primitives in `components/ui/*` (Card, Badge, Button, Input, Select,
+ * Tabs, Table, Dialog, Tooltip), themed to the control-room palette in `index.css`.
  */
 import React from "react";
 import type { LucideIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 type Tone = "solar" | "energy" | "ok" | "warn" | "crit" | "info" | "neutral";
 
@@ -77,23 +80,23 @@ export const Panel: React.FC<{
   bodyClassName?: string;
   children?: React.ReactNode;
 }> = ({ title, subtitle, icon: Icon, actions, className = "", bodyClassName = "panel-pad", children }) => (
-  <section className={`panel ${className}`}>
+  <Card className={cn("gap-0 py-0", className)}>
     {(title || actions) && (
-      <header className="panel-header">
+      <CardHeader className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3 sm:px-5">
         <div className="min-w-0">
           {title && (
-            <h2 className="panel-title">
+            <CardTitle>
               {Icon && <Icon className="h-4 w-4 text-solar-400" />}
               <span className="truncate">{title}</span>
-            </h2>
+            </CardTitle>
           )}
-          {subtitle && <p className="panel-subtitle mt-0.5">{subtitle}</p>}
+          {subtitle && <CardDescription className="mt-0.5">{subtitle}</CardDescription>}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-      </header>
+      </CardHeader>
     )}
     <div className={bodyClassName}>{children}</div>
-  </section>
+  </Card>
 );
 
 /* -------------------------------------------------------------------------- */
@@ -111,7 +114,7 @@ export const KpiTile: React.FC<{
   accentBar?: boolean;
   className?: string;
 }> = ({ label, value, unit, hint, hintTone = "neutral", icon: Icon, tone = "neutral", accentBar = true, className = "" }) => (
-  <div className={`panel overflow-hidden p-4 ${className}`}>
+  <Card className={cn("gap-0 overflow-hidden p-4", className)}>
     {accentBar && <div className={`absolute inset-x-0 top-0 h-px ${TONE_BAR[tone]}`} />}
     <div className="flex items-start justify-between gap-2">
       <div className="eyebrow">{label}</div>
@@ -128,7 +131,7 @@ export const KpiTile: React.FC<{
       {unit && <span className="text-xs font-medium text-slate-500">{unit}</span>}
     </div>
     {hint && <div className={`mt-1.5 text-[11px] font-medium ${hintTone === "neutral" ? "text-slate-500" : TONE_TEXT[hintTone]}`}>{hint}</div>}
-  </div>
+  </Card>
 );
 
 /* -------------------------------------------------------------------------- */
@@ -160,7 +163,7 @@ export const StatusBadge: React.FC<{
 }> = ({ status, level, className = "", dot = true, loading = false }) => {
   const lvl = loading ? "neutral" : level ?? statusLevel(status);
   return (
-    <span className={`badge badge-${lvl} ${className}`} aria-busy={loading || undefined}>
+    <Badge variant={lvl} className={className} aria-busy={loading || undefined}>
       {loading && (
         <span
           className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-slate-500 border-t-sky-300"
@@ -169,7 +172,7 @@ export const StatusBadge: React.FC<{
       )}
       {dot && !loading && <span className={`h-1.5 w-1.5 rounded-full ${lvl === "ok" ? "bg-emerald-400" : lvl === "warn" ? "bg-amber-400" : lvl === "crit" ? "bg-red-400" : lvl === "info" ? "bg-sky-400" : "bg-slate-500"}`} />}
       {String(status ?? "—")}
-    </span>
+    </Badge>
   );
 };
 
@@ -232,13 +235,13 @@ export const EmptyState: React.FC<{ icon?: LucideIcon; title: string; descriptio
 );
 
 export const LoadingState: React.FC<{ label?: string }> = ({ label = "Connecting to plant telemetry…" }) => (
-  <div className="panel flex items-center gap-3 p-6 text-sm text-slate-400">
+  <Card className="flex-row items-center gap-3 p-6 text-sm text-slate-400">
     <span className="relative flex h-2.5 w-2.5">
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-solar-400 opacity-60" />
       <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-solar-400" />
     </span>
     {label}
-  </div>
+  </Card>
 );
 
 /* -------------------------------------------------------------------------- */

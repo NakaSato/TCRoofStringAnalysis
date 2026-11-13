@@ -4,6 +4,9 @@ import { useAppContext } from "../context/AppContext";
 import { isAdmin } from "../auth/access";
 import { api, FleetModule, FleetModuleOut } from "../api/client";
 import { Panel, LoadingState } from "./ui";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type NumKey = Exclude<keyof FleetModule, "manufacturer" | "model" | "datasheet_url">;
 
@@ -111,36 +114,35 @@ export const FleetModulePanel: React.FC<{
           {msg && <div className={`callout-${msg.tone}`}>{msg.text}</div>}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div>
-              <label className="label">Manufacturer</label>
-              <input
-                className="input"
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Manufacturer</Label>
+              <Input
                 value={draft.manufacturer ?? ""}
                 disabled={!canEdit}
                 onChange={(e) => setDraft((d) => ({ ...d, manufacturer: e.target.value }))}
               />
             </div>
             <div>
-              <label className="label">Model</label>
-              <input
-                className="input"
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Model</Label>
+              <Input
                 value={draft.model ?? ""}
                 disabled={!canEdit}
                 onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
               />
             </div>
             <div className="col-span-2">
-              <label className="label">Datasheet URL</label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Datasheet URL</Label>
               <div className="flex gap-2">
-                <input
-                  className="input"
+                <Input
                   value={draft.datasheet_url ?? ""}
                   disabled={!canEdit}
                   onChange={(e) => setDraft((d) => ({ ...d, datasheet_url: e.target.value }))}
                 />
                 {module.datasheet_url && (
-                  <a className="btn btn-sm" href={module.datasheet_url} target="_blank" rel="noreferrer" aria-label="Open datasheet">
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
+                  <Button asChild size="sm">
+                    <a href={module.datasheet_url} target="_blank" rel="noreferrer" aria-label="Open datasheet">
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  </Button>
                 )}
               </div>
             </div>
@@ -148,11 +150,11 @@ export const FleetModulePanel: React.FC<{
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             {NUM_FIELDS.map((f) => (
               <div key={f.key}>
-                <label className="label">{f.label}</label>
-                <input
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{f.label}</Label>
+                <Input
                   type="number"
                   step={f.step}
-                  className="input num"
+                  className="num"
                   value={draft[f.key] ?? ""}
                   placeholder="—"
                   disabled={!canEdit}
@@ -162,10 +164,10 @@ export const FleetModulePanel: React.FC<{
             ))}
           </div>
           {canEdit && (
-            <button type="button" className="btn-primary" onClick={save} disabled={saving}>
-              <Save className="h-4 w-4" />
+            <Button type="button" variant="default" onClick={save} disabled={saving}>
+              <Save className="size-4" />
               {saving ? "Saving…" : "Save Fleet Module"}
-            </button>
+            </Button>
           )}
         </div>
       )}

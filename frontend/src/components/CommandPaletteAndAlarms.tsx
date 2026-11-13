@@ -8,8 +8,8 @@ import {
   Activity,
   Wrench,
   ShieldAlert,
-  FileSpreadsheet,
   Settings,
+  LogOut,
   Cpu,
   Bell,
   SlidersHorizontal,
@@ -20,8 +20,10 @@ import {
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { canAccessPath, isAdmin } from "../auth/access";
-import { api, downloadApiFile } from "../api/client";
 import { StatusBadge, Led, statusLevel, fmt } from "./ui";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /* -------------------------------------------------------------------------- */
 /* Command Palette Modal (⌘K / Ctrl+K)                                        */
@@ -43,8 +45,8 @@ export const CommandPaletteModal: React.FC<{
   onClose: () => void;
   onOpenSpecs: () => void;
   onOpenAlarms: () => void;
-  onOpenAuth: () => void;
-}> = ({ open, onClose, onOpenSpecs, onOpenAlarms, onOpenAuth }) => {
+  onSignOut: () => void;
+}> = ({ open, onClose, onOpenSpecs, onOpenAlarms, onSignOut }) => {
   const { analysisRun, setInspectedStringId, user } = useAppContext();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
@@ -117,7 +119,7 @@ export const CommandPaletteModal: React.FC<{
       id: `str-${s.string_id}`,
       category: "PV Strings" as const,
       title: `${s.string_id} · ${s.inverter_id} / ${s.mppt_id}`,
-      subtitle: `PR ${fmt(s.pr_pct, 1)}% · Peer ${Number(s.peer_gap_pct) >= 0 ? "+" : ""}${fmt(s.peer_gap_pct, 1)}% · ${s.primary_diagnosis}`,
+      subtitle: `PR ${fmt(s.pr_pct, 1)}% · Peer ${Number(s.peer_gap_pct) >= 0 ? "+" : ""}${fmt(s.peer_gap_pct, 1)}%${s.primary_diagnosis ? ` · ${s.primary_diagnosis}` : ""}`,
       badge: String(s.status),
       icon: Cpu,
       onSelect: () => {
@@ -163,37 +165,21 @@ export const CommandPaletteModal: React.FC<{
         },
       },
       {
-        id: "act-auth",
+        id: "act-signout",
         category: "Quick Actions",
-        title: "Switch User",
-        subtitle: "Sign in as another admin or engineer account",
-        icon: Settings,
+        title: "Sign Out",
+        subtitle: "End this session and return to the login page",
+        icon: LogOut,
         onSelect: () => {
           onClose();
-          onOpenAuth();
+          onSignOut();
         },
       },
     ];
 
-    if (analysisRun) {
-      actionItems.push({
-        id: "act-pdf",
-        category: "Quick Actions",
-        title: "Download Management PDF Report (.pdf)",
-        subtitle: `Analysis Run #${analysisRun.id} landscape executive report`,
-        icon: FileSpreadsheet,
-        onSelect: () => {
-          downloadApiFile(api.reportPath(analysisRun.id, "pdf"), `analysis_${analysisRun.id}_report.pdf`).catch((e) =>
-            alert(`Could not download the report: ${e instanceof Error ? e.message : e}`)
-          );
-          onClose();
-        },
-      });
-    }
-
     const allowedNav = navItems.filter((n) => !n.path || canAccessPath(user, n.path));
     return [...stringItems, ...allowedNav, ...alarmItems, ...actionItems];
-  }, [analysisRun, navigate, onClose, onOpenAlarms, onOpenAuth, onOpenSpecs, setInspectedStringId, user]);
+  }, [analysisRun, navigate, onClose, onOpenAlarms, onOpenSpecs, onSignOut, setInspectedStringId, user]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -214,10 +200,8 @@ export const CommandPaletteModal: React.FC<{
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "ArrowDown") {
+      // Escape and outside clicks are handled by the Dialog (onOpenChange → onClose).
+      if (e.key === "ArrowDown") {
         e.preventDefault();
         setActiveIndex((prev) => (filtered.length > 0 ? (prev + 1) % filtered.length : 0));
       } else if (e.key === "ArrowUp") {
@@ -234,12 +218,14 @@ export const CommandPaletteModal: React.FC<{
     return () => window.removeEventListener("keydown", onKey);
   }, [open, filtered, activeIndex, onClose]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 p-4 pt-20 backdrop-blur-sm">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="panel relative w-full max-w-2xl overflow-hidden border border-white/15 bg-ink-900 shadow-2xl">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className="top-20 max-w-2xl translate-y-0 gap-0 overflow-hidden border-white/15 bg-ink-900 p-0 shadow-2xl sm:max-w-2xl"
+      >
+        <DialogTitle className="sr-only">Command Palette</DialogTitle>
         {/* Search Bar */}
         <div className="flex items-center gap-3 border-b border-white/[0.08] px-4 py-3.5">
           <Search className="h-4 w-4 text-solar-400" />
@@ -313,8 +299,8 @@ export const CommandPaletteModal: React.FC<{
           <span>Use ↑↓ arrows to navigate, Enter to select</span>
           <span className="num">⌘K / Ctrl+K</span>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 
@@ -371,43 +357,25 @@ export const AlarmCenterDrawer: React.FC<{
                 </p>
               </div>
             </div>
-            <button onClick={onClose} className="btn-ghost" aria-label="Close alarm center">
-              <X className="h-4 w-4" />
-            </button>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close alarm center">
+              <X className="size-4" />
+            </Button>
           </div>
 
           {/* Severity filter tabs + Ack All */}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="tabs">
-              <button
-                onClick={() => setFilter("all")}
-                className={`tab ${filter === "all" ? "tab-active" : ""}`}
-              >
-                All ({anomalies.length})
-              </button>
-              <button
-                onClick={() => setFilter("Critical")}
-                className={`tab ${filter === "Critical" ? "tab-active" : ""}`}
-              >
-                Critical ({criticalCount})
-              </button>
-              <button
-                onClick={() => setFilter("High")}
-                className={`tab ${filter === "High" ? "tab-active" : ""}`}
-              >
-                High ({highCount})
-              </button>
-              <button
-                onClick={() => setFilter("Medium")}
-                className={`tab ${filter === "Medium" ? "tab-active" : ""}`}
-              >
-                Medium ({mediumCount})
-              </button>
-            </div>
-            <button onClick={ackAll} className="btn-ghost btn-sm text-[11px]">
-              <CheckCheck className="h-3.5 w-3.5 text-emerald-400" />
+            <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+              <TabsList>
+                <TabsTrigger value="all">All ({anomalies.length})</TabsTrigger>
+                <TabsTrigger value="Critical">Critical ({criticalCount})</TabsTrigger>
+                <TabsTrigger value="High">High ({highCount})</TabsTrigger>
+                <TabsTrigger value="Medium">Medium ({mediumCount})</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button variant="ghost" size="sm" onClick={ackAll}>
+              <CheckCheck className="size-3.5 text-emerald-400" />
               Ack All
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -474,24 +442,25 @@ export const AlarmCenterDrawer: React.FC<{
                       {acked ? "Unacknowledge" : "✓ Acknowledge"}
                     </button>
                     <div className="flex items-center gap-1.5">
-                      <button
+                      <Button
+                        size="sm"
                         onClick={() => {
                           onClose();
                           setInspectedStringId(String(a.string_id));
                         }}
-                        className="btn btn-sm"
                       >
                         Inspect {a.string_id}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="accent"
+                        size="sm"
                         onClick={() => {
                           onClose();
                           navigate("/maintenance");
                         }}
-                        className="btn-accent btn-sm"
                       >
-                        CM / RCA <ArrowRight className="h-3 w-3" />
-                      </button>
+                        CM / RCA <ArrowRight className="size-3" />
+                      </Button>
                     </div>
                   </div>
                 </div>

@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { StatusBadge, fmt, LOADING_STATUS } from "./ui";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { StatusLevel } from "./ui";
 
 export const SelectedPlantBanner: React.FC = () => {
@@ -182,7 +184,7 @@ export const SelectedPlantBanner: React.FC = () => {
           <label className="whitespace-nowrap text-[11px] font-medium text-slate-400">Switch Plant:</label>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-            <input
+            <Input
               type="text"
               value={plantSearch}
               onChange={(e) => setPlantSearch(e.target.value)}
@@ -192,7 +194,7 @@ export const SelectedPlantBanner: React.FC = () => {
                 }
               }}
               placeholder="Search plant…"
-              className="input input-sm w-36 pl-8 pr-7 text-xs border-white/10 bg-ink-950/90 placeholder:text-slate-500 focus:border-sky-400/40 focus:ring-1 focus:ring-sky-400/20 sm:w-44"
+              className="h-7 w-36 pl-8 pr-7 text-xs border-white/10 bg-ink-950/90 placeholder:text-slate-500 focus:border-sky-400/40 focus:ring-1 focus:ring-sky-400/20 sm:w-44"
             />
             {plantSearch && (
               <button
@@ -205,32 +207,40 @@ export const SelectedPlantBanner: React.FC = () => {
               </button>
             )}
           </div>
-          <select
+          <Select
             value={
               filteredPlants.some((gp) => gp.plant_id === selectedGrowattPlantId)
-                ? (selectedGrowattPlantId ?? "")
+                ? String(selectedGrowattPlantId ?? "")
                 : ""
             }
-            onChange={(e) => {
-              const val = Number(e.target.value);
+            onValueChange={(v) => {
+              const val = Number(v);
               if (val) selectGrowattPlant(val, false);
             }}
-            className="select input-sm w-56 border-sky-400/30 bg-ink-950/90 text-xs font-medium text-white"
-            title="Select plant"
           >
-            {plantSearch && !filteredPlants.some((gp) => gp.plant_id === selectedGrowattPlantId) && (
-              <option value="" disabled>
-                {filteredPlants.length > 0
-                  ? `Select from ${filteredPlants.length} matching…`
-                  : `No plants match "${plantSearch}"`}
-              </option>
-            )}
-            {filteredPlants.map((gp) => (
-              <option key={gp.plant_id} value={gp.plant_id}>
-                {gp.name} ({fmt(gp.peak_power_kwp, 1)} kWp)
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              size="sm"
+              className="w-56 border-sky-400/30 bg-ink-950/90 text-xs font-medium text-white"
+              title="Select plant"
+            >
+              <SelectValue
+                placeholder={
+                  plantSearch
+                    ? filteredPlants.length > 0
+                      ? `Select from ${filteredPlants.length} matching…`
+                      : `No plants match "${plantSearch}"`
+                    : undefined
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {filteredPlants.map((gp) => (
+                <SelectItem key={gp.plant_id} value={String(gp.plant_id)}>
+                  {gp.name} ({fmt(gp.peak_power_kwp, 1)} kWp)
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

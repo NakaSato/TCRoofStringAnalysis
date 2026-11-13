@@ -16,7 +16,6 @@ import {
   X,
   Radio,
   Clock,
-  LogIn,
   LogOut,
   MapPin,
   RefreshCw,
@@ -30,6 +29,10 @@ import { useAppContext } from "../context/AppContext";
 import { canAccessPath, isAdmin } from "../auth/access";
 import { api } from "../api/client";
 import { Led, LoadingState, fmt } from "./ui";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
 
@@ -80,7 +83,7 @@ const useClock = () => {
 };
 
 export const Layout: React.FC = () => {
-  const { user, loginAs, logout, activePlant, activeDataset, refreshAll, analysisRun, loading, error } =
+  const { user, logout, activePlant, activeDataset, refreshAll, analysisRun, loading, error } =
     useAppContext();
   const location = useLocation();
   const now = useClock();
@@ -94,12 +97,8 @@ export const Layout: React.FC = () => {
   const [savingConfig, setSavingConfig] = useState<boolean>(false);
   const [specsOpen, setSpecsOpen] = useState<boolean>(false);
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
-  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [cmdOpen, setCmdOpen] = useState<boolean>(false);
   const [alarmsOpen, setAlarmsOpen] = useState<boolean>(false);
-  const [loginUsername, setLoginUsername] = useState<string>("");
-  const [loginPassword, setLoginPassword] = useState<string>("");
-  const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -180,18 +179,6 @@ export const Layout: React.FC = () => {
       alert(`Failed to update plant parameters: ${err.message}`);
     } finally {
       setSavingConfig(false);
-    }
-  };
-
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    try {
-      await loginAs(loginUsername, loginPassword);
-      setAuthModalOpen(false);
-      setLoginPassword("");
-    } catch (err: any) {
-      setLoginError(err.message || "Login failed");
     }
   };
 
@@ -291,21 +278,25 @@ export const Layout: React.FC = () => {
       </nav>
 
       {/* User */}
-      <button
-        onClick={() => setAuthModalOpen(true)}
-        className="flex cursor-pointer items-center gap-3 border-t border-white/[0.06] px-4 py-3 text-left transition hover:bg-white/[0.03]"
-      >
+      <div className="flex items-center gap-3 border-t border-white/[0.06] px-4 py-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-energy-500/20 text-[11px] font-bold text-energy-300 ring-1 ring-energy-400/30">
           {initials}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-semibold text-slate-100">{user ? user.full_name : "Sign In"}</div>
+          <div className="truncate text-xs font-semibold text-slate-100">{user?.full_name}</div>
           <div className="truncate text-[11px] uppercase tracking-wider text-slate-500">
-            {user ? `${user.username ?? user.email} · ${user.role}` : "guest"}
+            {user ? `${user.username ?? user.email} · ${user.role}` : ""}
           </div>
         </div>
-        <LogIn className="h-3.5 w-3.5 text-slate-500" />
-      </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out">
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Sign out</TooltipContent>
+        </Tooltip>
+      </div>
     </aside>
   );
 
@@ -327,9 +318,9 @@ export const Layout: React.FC = () => {
         {/* Top bar */}
         <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-ink-950/80 backdrop-blur-xl">
           <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
-            <button className="btn-ghost lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
-              <Menu className="h-5 w-5" />
-            </button>
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
+              <Menu className="size-5" />
+            </Button>
 
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] text-slate-500">
@@ -373,29 +364,45 @@ export const Layout: React.FC = () => {
               </kbd>
             </button>
 
-            <button className="btn-ghost" onClick={() => refreshAll()} title="Refresh plant data" aria-label="Refresh">
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={() => refreshAll()} aria-label="Refresh plant data">
+                  <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh plant data</TooltipContent>
+            </Tooltip>
 
             {isAdmin(user) && (
-              <button className="btn-ghost" onClick={() => setSpecsOpen(true)} title="Quick plant parameters" aria-label="Quick plant parameters">
-                <SlidersHorizontal className="h-4 w-4" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={() => setSpecsOpen(true)} aria-label="Quick plant parameters">
+                    <SlidersHorizontal className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Quick plant parameters</TooltipContent>
+              </Tooltip>
             )}
 
-            <button
-              onClick={() => setAlarmsOpen(true)}
-              className="btn-ghost relative"
-              title="Open SCADA Alarm Center"
-              aria-label="Open SCADA Alarm Center"
-            >
-              <Bell className="h-4 w-4" />
-              {alarmCount > 0 && (
-                <span className="num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-[0_0_8px_rgba(239,68,68,0.8)]">
-                  {alarmCount}
-                </span>
-              )}
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setAlarmsOpen(true)}
+                  className="relative"
+                  aria-label="Open SCADA Alarm Center"
+                >
+                  <Bell className="size-4" />
+                  {alarmCount > 0 && (
+                    <span className="num absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-[0_0_8px_rgba(239,68,68,0.8)]">
+                      {alarmCount}
+                    </span>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open SCADA Alarm Center</TooltipContent>
+            </Tooltip>
           </div>
           {loading && (
             <div className="relative h-px overflow-hidden bg-transparent">
@@ -440,9 +447,9 @@ export const Layout: React.FC = () => {
                 </div>
                 <div className="mt-0.5 text-[11px] text-slate-500">Changes trigger a full PR & loss recalculation</div>
               </div>
-              <button className="btn-ghost" onClick={() => setSpecsOpen(false)} aria-label="Close">
-                <X className="h-4 w-4" />
-              </button>
+              <Button variant="ghost" size="icon" onClick={() => setSpecsOpen(false)} aria-label="Close">
+                <X className="size-4" />
+              </Button>
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto p-5">
               <div className="rounded-xl border border-solar-400/20 bg-solar-500/[0.06] p-4">
@@ -466,20 +473,20 @@ export const Layout: React.FC = () => {
               )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">{customStrings > 0 ? "Default Modules / String" : "Modules / String"}</label>
-                  <input type="number" value={modulesPerString} onChange={(e) => setModulesPerString(Number(e.target.value))} className="input" />
+                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">{customStrings > 0 ? "Default Modules / String" : "Modules / String"}</Label>
+                  <Input type="number" value={modulesPerString} onChange={(e) => setModulesPerString(Number(e.target.value))} />
                 </div>
                 <div>
-                  <label className="label">{customStrings > 0 ? "Default Module Wp" : "Module Rating (Wp)"}</label>
-                  <input type="number" value={moduleWp} onChange={(e) => setModuleWp(Number(e.target.value))} className="input" />
+                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">{customStrings > 0 ? "Default Module Wp" : "Module Rating (Wp)"}</Label>
+                  <Input type="number" value={moduleWp} onChange={(e) => setModuleWp(Number(e.target.value))} />
                 </div>
                 <div>
-                  <label className="label">Target PR (%)</label>
-                  <input type="number" step="0.5" value={targetPrPct} onChange={(e) => setTargetPrPct(Number(e.target.value))} className="input" />
+                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">Target PR (%)</Label>
+                  <Input type="number" step="0.5" value={targetPrPct} onChange={(e) => setTargetPrPct(Number(e.target.value))} />
                 </div>
                 <div>
-                  <label className="label">Tariff (THB/kWh)</label>
-                  <input type="number" step="0.1" value={tariffThb} onChange={(e) => setTariffThb(Number(e.target.value))} className="input" />
+                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">Tariff (THB/kWh)</Label>
+                  <Input type="number" step="0.1" value={tariffThb} onChange={(e) => setTariffThb(Number(e.target.value))} />
                 </div>
               </div>
               <div>
@@ -499,82 +506,11 @@ export const Layout: React.FC = () => {
               </div>
             </div>
             <div className="border-t border-white/[0.06] p-5">
-              <button onClick={handleApplySidebarSpecs} disabled={savingConfig} className="btn-primary w-full py-2.5">
-                <Save className="h-4 w-4" />
+              <Button variant="default" onClick={handleApplySidebarSpecs} disabled={savingConfig} className="h-auto w-full py-2.5">
+                <Save className="size-4" />
                 {savingConfig ? "Recalculating…" : "Apply & Recalculate"}
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Role / Account Switcher Modal */}
-      {authModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="panel w-full max-w-md space-y-5 bg-ink-900 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-white">Account</h3>
-                <p className="text-[11px] text-slate-500">
-                  {user ? `Signed in as ${user.username ?? user.email} (${user.role})` : "Not signed in"}
-                </p>
-              </div>
-              <button onClick={() => setAuthModalOpen(false)} className="btn-ghost" aria-label="Close">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleLoginSubmit} className="space-y-3">
-              <div className="eyebrow">Switch user</div>
-              <div>
-                <label htmlFor="switch-username" className="label">Username</label>
-                <input
-                  id="switch-username"
-                  type="text"
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  value={loginUsername}
-                  onChange={(e) => setLoginUsername(e.target.value)}
-                  className="input"
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="switch-password" className="label">Password</label>
-                <input
-                  id="switch-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  className="input"
-                  required
-                />
-              </div>
-              {loginError && <p className="text-xs text-red-400">{loginError}</p>}
-              <div className="flex items-center justify-between gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthModalOpen(false);
-                    logout();
-                  }}
-                  className="btn"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  Sign out
-                </button>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setAuthModalOpen(false)} className="btn">
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn-primary">
-                    Sign in
-                  </button>
-                </div>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -587,7 +523,7 @@ export const Layout: React.FC = () => {
         onClose={() => setCmdOpen(false)}
         onOpenSpecs={() => setSpecsOpen(true)}
         onOpenAlarms={() => setAlarmsOpen(true)}
-        onOpenAuth={() => setAuthModalOpen(true)}
+        onSignOut={logout}
       />
     </div>
   );

@@ -15,6 +15,14 @@ import {
 import { useAppContext } from "../context/AppContext";
 import { api, downloadApiFile } from "../api/client";
 import { PageHeader, Panel, StatusBadge, fmt } from "../components/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
 type IngestMode = "api" | "upload" | "simulate";
 
@@ -127,20 +135,22 @@ export const IngestionPage: React.FC = () => {
         title="Data Ingestion & Telemetry Simulator"
         description="Normalize both Long/Tidy and Wide SCADA formats (PV1_U, PV1_I ... PV24_U, PV24_I) into canonical IEC 61724 telemetry."
         actions={
-          <div className="tabs">
-            <button onClick={() => setMode("api")} className={`tab ${mode === "api" ? "tab-active" : ""}`}>
-              <Globe className="h-3.5 w-3.5" />
-              Inverter Cloud / REST API
-            </button>
-            <button onClick={() => setMode("upload")} className={`tab ${mode === "upload" ? "tab-active" : ""}`}>
-              <Upload className="h-3.5 w-3.5" />
-              Upload CSV / Excel
-            </button>
-            <button onClick={() => setMode("simulate")} className={`tab ${mode === "simulate" ? "tab-active" : ""}`}>
-              <FlaskConical className="h-3.5 w-3.5" />
-              PV String Simulator
-            </button>
-          </div>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as IngestMode)}>
+            <TabsList>
+              <TabsTrigger value="api">
+                <Globe className="h-3.5 w-3.5" />
+                Inverter Cloud / REST API
+              </TabsTrigger>
+              <TabsTrigger value="upload">
+                <Upload className="h-3.5 w-3.5" />
+                Upload CSV / Excel
+              </TabsTrigger>
+              <TabsTrigger value="simulate">
+                <FlaskConical className="h-3.5 w-3.5" />
+                PV String Simulator
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         }
       />
 
@@ -166,52 +176,56 @@ export const IngestionPage: React.FC = () => {
           >
             <form onSubmit={handleApiFetch} className="space-y-4">
               <div>
-                <label className="label">Select API Provider / Protocol</label>
-                <select
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Select API Provider / Protocol</Label>
+                <Select
                   value={provider}
-                  onChange={(e) => {
-                    const val = e.target.value as any;
+                  onValueChange={(v) => {
+                    const val = v as any;
                     setProvider(val);
                     if (val === "huawei") setBaseUrl("https://intl.fusionsolar.huawei.com");
                     if (val === "sungrow") setBaseUrl("https://gateway.isolarcloud.com.hk");
                     if (val === "generic_rest") setBaseUrl("https://api.example-solar.com/v1/strings/telemetry");
                   }}
-                  className="select"
                 >
-                  <option value="huawei">Huawei FusionSolar Northbound API (getDevHistoryKpi)</option>
-                  <option value="sungrow">Sungrow iSolarCloud OpenAPI (getDevicePointMinuteDataList)</option>
-                  <option value="generic_rest">Generic REST API (JSON Records / Custom Endpoint)</option>
-                </select>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="huawei">Huawei FusionSolar Northbound API (getDevHistoryKpi)</SelectItem>
+                    <SelectItem value="sungrow">Sungrow iSolarCloud OpenAPI (getDevicePointMinuteDataList)</SelectItem>
+                    <SelectItem value="generic_rest">Generic REST API (JSON Records / Custom Endpoint)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>
-                <label className="label">Endpoint / Gateway Base URL</label>
-                <input
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Endpoint / Gateway Base URL</Label>
+                <Input
                   type="text"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
-                  className="input font-mono"
+                  className="font-mono"
                 />
               </div>
 
               {provider === "huawei" && (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="label">XSRF-TOKEN Header</label>
-                    <input
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">XSRF-TOKEN Header</Label>
+                    <Input
                       type="password"
                       value={xsrfToken}
                       onChange={(e) => setXsrfToken(e.target.value)}
-                      className="input font-mono"
+                      className="font-mono"
                     />
                   </div>
                   <div>
-                    <label className="label">Inverter Device ID (devIds)</label>
-                    <input
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">Inverter Device ID (devIds)</Label>
+                    <Input
                       type="text"
                       value={devId}
                       onChange={(e) => setDevId(e.target.value)}
-                      className="input font-mono"
+                      className="font-mono"
                     />
                   </div>
                 </div>
@@ -220,30 +234,30 @@ export const IngestionPage: React.FC = () => {
               {provider === "sungrow" && (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
-                    <label className="label">AppKey</label>
-                    <input
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">AppKey</Label>
+                    <Input
                       type="text"
                       value={appKey}
                       onChange={(e) => setAppKey(e.target.value)}
-                      className="input font-mono"
+                      className="font-mono"
                     />
                   </div>
                   <div>
-                    <label className="label">Access Token</label>
-                    <input
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">Access Token</Label>
+                    <Input
                       type="password"
                       value={xsrfToken}
                       onChange={(e) => setXsrfToken(e.target.value)}
-                      className="input font-mono"
+                      className="font-mono"
                     />
                   </div>
                   <div>
-                    <label className="label">Device ps_key</label>
-                    <input
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">Device ps_key</Label>
+                    <Input
                       type="text"
                       value={psKey}
                       onChange={(e) => setPsKey(e.target.value)}
-                      className="input font-mono"
+                      className="font-mono"
                     />
                   </div>
                 </div>
@@ -253,33 +267,34 @@ export const IngestionPage: React.FC = () => {
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="label">HTTP Method</label>
-                      <select
-                        value={httpMethod}
-                        onChange={(e) => setHttpMethod(e.target.value)}
-                        className="select"
-                      >
-                        <option value="GET">GET</option>
-                        <option value="POST">POST</option>
-                      </select>
+                      <Label className="mb-1 block text-[11px] font-medium text-slate-400">HTTP Method</Label>
+                      <Select value={httpMethod} onValueChange={(v) => setHttpMethod(v)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="GET">GET</SelectItem>
+                          <SelectItem value="POST">POST</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
-                      <label className="label">JSON Array Key</label>
-                      <input
+                      <Label className="mb-1 block text-[11px] font-medium text-slate-400">JSON Array Key</Label>
+                      <Input
                         type="text"
                         value={recordsKey}
                         onChange={(e) => setRecordsKey(e.target.value)}
-                        className="input font-mono"
+                        className="font-mono"
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="label">Request Headers (JSON)</label>
-                    <textarea
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">Request Headers (JSON)</Label>
+                    <Textarea
                       rows={2}
                       value={headersJson}
                       onChange={(e) => setHeadersJson(e.target.value)}
-                      className="textarea font-mono"
+                      className="font-mono"
                     />
                   </div>
                 </div>
@@ -297,10 +312,10 @@ export const IngestionPage: React.FC = () => {
                 </label>
               )}
 
-              <button type="submit" disabled={busy} className="btn-primary">
+              <Button type="submit" disabled={busy} variant="default">
                 <Play className="h-3.5 w-3.5" />
                 {busy ? "Fetching String Telemetry…" : "Fetch String Telemetry from API"}
-              </button>
+              </Button>
             </form>
           </Panel>
 
@@ -379,18 +394,18 @@ export const IngestionPage: React.FC = () => {
                 <code className="text-solar-300">timestamp, irradiance_wm2, PV1_U, PV1_I, PV2_U, PV2_I, ...</code>).
               </p>
               {activeDataset && (
-                <button
+                <Button
                   type="button"
                   onClick={() =>
                     downloadApiFile(api.sampleCsvPath(activeDataset.id), `dataset_${activeDataset.id}_sample.csv`).catch((e) =>
                       alert(`Could not download the template: ${e instanceof Error ? e.message : e}`)
                     )
                   }
-                  className="btn-accent"
+                  variant="accent"
                 >
                   <Download className="h-4 w-4" />
                   Download Sample Template (.csv)
-                </button>
+                </Button>
               )}
             </div>
           </Panel>
@@ -412,9 +427,9 @@ export const IngestionPage: React.FC = () => {
             </div>
             <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-3">
               <div>
-                <label className="label">
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">
                   Simulation Duration: <strong className="num text-solar-400">{simDays} Days</strong>
-                </label>
+                </Label>
                 <input
                   type="range"
                   min={2}
@@ -425,9 +440,9 @@ export const IngestionPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="label">
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">
                   Number of PV Strings: <strong className="num text-energy-400">{simStrings} Strings</strong>
-                </label>
+                </Label>
                 <input
                   type="range"
                   min={4}
@@ -438,24 +453,25 @@ export const IngestionPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="label">Sampling Interval (Minutes)</label>
-                <select
-                  value={simInterval}
-                  onChange={(e) => setSimInterval(Number(e.target.value))}
-                  className="select"
-                >
-                  {[5, 10, 15, 30, 60].map((m) => (
-                    <option key={m} value={m}>
-                      {m} minutes
-                    </option>
-                  ))}
-                </select>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Sampling Interval (Minutes)</Label>
+                <Select value={String(simInterval)} onValueChange={(v) => setSimInterval(Number(v))}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[5, 10, 15, 30, 60].map((m) => (
+                      <SelectItem key={m} value={String(m)}>
+                        {m} minutes
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            <button onClick={handleSimulate} disabled={busy} className="btn-primary">
+            <Button onClick={handleSimulate} disabled={busy} variant="default">
               <FlaskConical className="h-3.5 w-3.5" />
               {busy ? "Generating Simulated Telemetry…" : "Generate Simulated Rooftop PV Dataset"}
-            </button>
+            </Button>
           </div>
         </Panel>
       )}
@@ -466,49 +482,47 @@ export const IngestionPage: React.FC = () => {
         title="Ingested Dataset History"
         subtitle="Switch active telemetry source to re-evaluate plant KPIs and string diagnostics"
       >
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Source Label</th>
-                <th>Type</th>
-                <th className="text-right">Strings</th>
-                <th className="text-right">Records</th>
-                <th>Time Range</th>
-                <th className="text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Table containerClassName="table-wrap">
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>Source Label</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead className="text-right">Strings</TableHead>
+                <TableHead className="text-right">Records</TableHead>
+                <TableHead>Time Range</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {datasets.map((d) => {
                 const isCurrent = d.id === activeDataset?.id;
                 return (
-                  <tr key={d.id} className={isCurrent ? "bg-solar-500/[0.06]" : ""}>
-                    <td className="num font-semibold text-solar-400">#{d.id}</td>
-                    <td className="font-medium text-slate-100">{d.name}</td>
-                    <td>
-                      <span className="badge badge-neutral uppercase">{d.source_type}</span>
-                    </td>
-                    <td className="num text-right">{d.string_count}</td>
-                    <td className="num text-right">{d.row_count.toLocaleString()}</td>
-                    <td className="num text-[11px] text-slate-400">
+                  <TableRow key={d.id} className={isCurrent ? "bg-solar-500/[0.06]" : ""}>
+                    <TableCell className="num whitespace-nowrap font-semibold text-solar-400">#{d.id}</TableCell>
+                    <TableCell className="font-medium text-slate-100">{d.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="neutral" className="uppercase">{d.source_type}</Badge>
+                    </TableCell>
+                    <TableCell className="num whitespace-nowrap text-right">{d.string_count}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-right">{d.row_count.toLocaleString()}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-[11px] text-slate-400">
                       {d.start_timestamp?.slice(0, 16)} → {d.end_timestamp?.slice(0, 16)}
-                    </td>
-                    <td className="text-right">
+                    </TableCell>
+                    <TableCell className="text-right">
                       {isCurrent ? (
                         <StatusBadge status="Active" level="ok" />
                       ) : (
-                        <button onClick={() => selectDataset(d.id)} className="btn btn-sm">
+                        <Button onClick={() => selectDataset(d.id)} size="sm">
                           Activate
-                        </button>
+                        </Button>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+        </Table>
       </Panel>
 
       {/* Preview Normalized String Telemetry */}
@@ -517,40 +531,38 @@ export const IngestionPage: React.FC = () => {
         title="Preview Normalized String Telemetry (First 100 Rows)"
         subtitle={activeDataset?.source_label}
       >
-        <div className="table-wrap max-h-80 overflow-y-auto">
-          <table className="data-table">
-            <thead className="sticky top-0 z-10">
-              <tr>
-                <th>Timestamp</th>
-                <th>Inverter</th>
-                <th>MPPT</th>
-                <th>String</th>
-                <th className="text-right">Voltage (V)</th>
-                <th className="text-right">Current (A)</th>
-                <th className="text-right">Power (W)</th>
-                <th className="text-right">Irradiance (W/m²)</th>
-                <th className="text-right">Mod Temp (°C)</th>
-                <th className="text-right">Amb Temp (°C)</th>
-              </tr>
-            </thead>
-            <tbody className="num text-[11px]">
+        <Table containerClassName="table-wrap max-h-80 overflow-y-auto">
+            <TableHeader className="sticky top-0 z-10">
+              <TableRow>
+                <TableHead>Timestamp</TableHead>
+                <TableHead>Inverter</TableHead>
+                <TableHead>MPPT</TableHead>
+                <TableHead>String</TableHead>
+                <TableHead className="text-right">Voltage (V)</TableHead>
+                <TableHead className="text-right">Current (A)</TableHead>
+                <TableHead className="text-right">Power (W)</TableHead>
+                <TableHead className="text-right">Irradiance (W/m²)</TableHead>
+                <TableHead className="text-right">Mod Temp (°C)</TableHead>
+                <TableHead className="text-right">Amb Temp (°C)</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="num text-[11px]">
               {previewRows.map((r, idx) => (
-                <tr key={idx}>
-                  <td className="text-slate-300">{r.timestamp}</td>
-                  <td>{r.inverter_id}</td>
-                  <td>{r.mppt_id}</td>
-                  <td className="font-semibold text-solar-400">{r.string_id}</td>
-                  <td className="text-right">{fmt(r.voltage_v, 1)}</td>
-                  <td className="text-right">{fmt(r.current_a, 2)}</td>
-                  <td className="text-right">{fmt(r.power_w, 1)}</td>
-                  <td className="text-right">{fmt(r.irradiance_wm2, 1)}</td>
-                  <td className="text-right">{fmt(r.module_temp_c, 1)}</td>
-                  <td className="text-right">{fmt(r.ambient_temp_c, 1)}</td>
-                </tr>
+                <TableRow key={idx}>
+                  <TableCell className="text-slate-300">{r.timestamp}</TableCell>
+                  <TableCell>{r.inverter_id}</TableCell>
+                  <TableCell>{r.mppt_id}</TableCell>
+                  <TableCell className="font-semibold text-solar-400">{r.string_id}</TableCell>
+                  <TableCell className="text-right">{fmt(r.voltage_v, 1)}</TableCell>
+                  <TableCell className="text-right">{fmt(r.current_a, 2)}</TableCell>
+                  <TableCell className="text-right">{fmt(r.power_w, 1)}</TableCell>
+                  <TableCell className="text-right">{fmt(r.irradiance_wm2, 1)}</TableCell>
+                  <TableCell className="text-right">{fmt(r.module_temp_c, 1)}</TableCell>
+                  <TableCell className="text-right">{fmt(r.ambient_temp_c, 1)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+        </Table>
       </Panel>
     </div>
   );

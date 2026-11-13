@@ -19,6 +19,7 @@ import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { ivPvSpecFrom } from "./ivPvSpec";
 import { StatusBadge, Led, Meter, LoadingState, statusLevel, fmt } from "./ui";
+import { Button } from "@/components/ui/button";
 
 export const StringInspectorDrawer: React.FC = () => {
   const {
@@ -121,16 +122,17 @@ export const StringInspectorDrawer: React.FC = () => {
                 <StatusBadge status={row.status} />
               </div>
             </div>
-            <button
+            <Button
               onClick={() => {
                 setDispatchedMsg(null);
                 setInspectedStringId(null);
               }}
-              className="btn-ghost"
+              variant="ghost"
+              size="icon"
               aria-label="Close string inspector"
             >
               <X className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           {/* Quick String Switcher Pills (Inverter Peers) */}
@@ -318,35 +320,34 @@ export const StringInspectorDrawer: React.FC = () => {
           {dispatchedMsg && (
             <div className="callout-ok flex items-center justify-between">
               <span>{dispatchedMsg}</span>
-              <button
+              <Button
                 onClick={() => {
                   setInspectedStringId(null);
                   navigate("/maintenance");
                 }}
-                className="btn btn-sm"
+                size="sm"
               >
                 View CM Queue <ArrowUpRight className="h-3 w-3" />
-              </button>
+              </Button>
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-ink-950/70 px-5 py-3.5">
-          <button
+          <Button
             onClick={() => {
               setInspectedStringId(null);
               navigate("/strings");
             }}
-            className="btn"
           >
             <Activity className="h-3.5 w-3.5 text-energy-400" />
             Full String I-V Page
-          </button>
-          <button onClick={handleDispatchCm} disabled={dispatching} className="btn-primary">
+          </Button>
+          <Button onClick={handleDispatchCm} disabled={dispatching} variant="default">
             <Wrench className="h-3.5 w-3.5" />
             {dispatching ? "Syncing CM Queue…" : "Dispatch CM Work Order"}
-          </button>
+          </Button>
         </div>
       </aside>
     </div>

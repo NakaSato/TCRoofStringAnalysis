@@ -26,11 +26,6 @@ from solar_core.om_management import (
     get_default_rca_records,
     get_she_dashboard_data,
 )
-from solar_core.reporting import (
-    generate_excel_report,
-    generate_html_report,
-    generate_pdf_report,
-)
 from solar_core.storage import OMDatabase
 
 
@@ -90,7 +85,7 @@ def test_huawei_api_mock_parser():
     assert (df["inverter_id"] == "INV-TEST-01").all()
 
 
-def test_om_engineering_pillars_and_reports():
+def test_om_engineering_pillars():
     df, config = generate_simulated_string_data(days=4, interval_minutes=30, num_strings=8)
     results = run_pv_string_analysis(df, config)
 
@@ -123,15 +118,6 @@ def test_om_engineering_pillars_and_reports():
     assert len(ptw_df) >= 3
     assert len(she_chk_df) == 4
 
-    # 7. Management Reports (PDF, Excel, HTML)
-    pdf_bytes = generate_pdf_report(results, config, pm_df, cm_df, rca_df)
-    assert pdf_bytes.startswith(b"%PDF")
-
-    excel_bytes = generate_excel_report(results, config, pm_df, cm_df, rca_df, ptw_df=ptw_df)
-    assert len(excel_bytes) > 2000
-
-    html_report = generate_html_report(results, config)
-    assert "Root Cause Analysis" in html_report and "Subcontractor Supervision" not in html_report
 
 
 def test_sqlite_om_database(tmp_path):

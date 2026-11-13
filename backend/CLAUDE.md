@@ -27,7 +27,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - `ingestion.py`: normalization and the inverter-cloud connectors.
   - `analysis.py`: IEC 61724 PR, string KPIs and faults, returning `AnalysisResults`.
   - `om_management.py`: CM work orders, PM schedule, RCA, PQ and SH&E.
-  - `charts.py` (Plotly) and `reporting.py` (PDF, Excel and HTML reports).
+  - `charts.py` (Plotly).
   - `growatt.py`: the Growatt OpenAPI client and `parse_max_records`.
   - `storage.py` is legacy and used only by `test_solar_core.py`.
 - **`app/`**: FastAPI.
@@ -36,14 +36,14 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - Every router is mounted twice, at `/api` and at `/`.
   - Auth is JWT (`app/auth.py`) with two roles. **admin**: everything. **engineer**: only the Growatt plants in `user_plant_assignments` (set by an admin via `/users/{id}/plants`).
     - Every `/growatt/…/plants/{plant_id}/…` route depends on `require_plant_read` / `require_plant_write`; an unassigned plant answers **404** (ids are not revealed). Lists (`/growatt/plants`, `/growatt/live/plants`) are filtered with `allowed_plant_ids` (None = admin = all); the live cache stays fleet-wide.
-    - Admin only (`require_admin`): `/users`, fleet module PUT, `/growatt/sync/*`, and the legacy routers (`plants`, `datasets`, `analysis`, `maintenance`, `rca`, `she`, `reports`), which use the local `plants` table with no link to Growatt plants.
+    - Admin only (`require_admin`): `/users`, fleet module PUT, `/growatt/sync/*`, and the legacy routers (`plants`, `datasets`, `analysis`, `maintenance`, `rca`, `she`), which use the local `plants` table with no link to Growatt plants.
     - Assignments are read from the DB per request, so changes apply without a new login. Any other stored role (the former `viewer`) becomes `engineer` at startup.
 
 **Analysis pipeline** (`services/solar_service.py`):
 1. ORM rows become a DataFrame, and `Plant` + `string_specs` become a `PlantConfig`.
 2. `run_pv_string_analysis` runs.
 3. Results are stored on `AnalysisRun` as JSON columns.
-4. `reconstruct_analysis_results` rebuilds them for charts and reports.
+4. `reconstruct_analysis_results` rebuilds them for charts.
 
 **Ingestion**:
 - Every source must end up as the long-format columns in `solar_core.models.CANONICAL_COLUMNS`. `normalize_dataframe()` also accepts wide SCADA input (`PV1_U` / `pv1_u` …).
@@ -126,7 +126,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 
 - Startup refuses to run without `ADMIN_PASSWORD` (≥ 12 chars) or with the default / short `JWT_SECRET_KEY`.
 - Only one admin is seeded, from `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Changing the secret resets that admin's password. Demo accounts still on their demo password are disabled, and no demo plant data is created (`SEED_DEMO_DATA` overrides).
-- Every data router requires a signed-in user (`main.py`); only `/auth/login` and `/health` are open. Files (reports, CSV templates) are downloaded by the UI with `fetch` + token, not plain links.
+- Every data router requires a signed-in user (`main.py`); only `/auth/login` and `/health` are open. Files (CSV templates) are downloaded by the UI with `fetch` + token, not plain links.
 
 ## DB and migrations
 

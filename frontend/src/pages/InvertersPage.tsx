@@ -24,6 +24,11 @@ import { api } from "../api/client";
 import type { GrowattInverterTimeseries } from "../api/client";
 import { EmptyState, KpiTile, Led, LoadingState, Meter, Panel, StatusBadge, LOADING_STATUS, fmt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type OverviewInverter = NonNullable<ReturnType<typeof useAppContext>["selectedPlantOverview"]>["inverters"][number];
 
@@ -263,11 +268,11 @@ export const InvertersPage: React.FC = () => {
                             {invName(i)}
                           </span>
                           {isSwitchedOff(i) ? (
-                            <span className="badge-crit shrink-0 text-[10px]">OFF</span>
+                            <Badge variant="crit" className="shrink-0 text-[10px]">OFF</Badge>
                           ) : limitPct(i) != null ? (
-                            <span className="badge-warn shrink-0 text-[10px]" title="Active power limit set on the inverter">
+                            <Badge variant="warn" className="shrink-0 text-[10px]" title="Active power limit set on the inverter">
                               LIMIT {fmt(limitPct(i), 0)}%
-                            </span>
+                            </Badge>
                           ) : null}
                           <span className="num ml-auto shrink-0 text-xs font-semibold text-energy-300">
                             {fmt(i.current_ac_kw, 1)} <span className="text-[11px] font-normal text-slate-500">kW</span>
@@ -301,7 +306,7 @@ export const InvertersPage: React.FC = () => {
           {inv && (
             <section className="min-w-0 space-y-4 xl:order-1 xl:col-span-9">
               {/* Header */}
-              <div className="panel p-4">
+              <Card className="gap-0 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="eyebrow">Inverter</div>
@@ -384,24 +389,19 @@ export const InvertersPage: React.FC = () => {
                     tone={inv.max_temp_c != null && inv.max_temp_c >= 70 ? "text-amber-300" : "text-rose-300"}
                   />
                 </div>
-              </div>
+              </Card>
 
               {/* Tabs */}
-              <div className="tabs" role="tablist">
-                {DETAIL_TABS.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === id}
-                    onClick={() => setTab(id)}
-                    className={`tab ${tab === id ? "tab-active" : ""}`}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Tabs value={tab} onValueChange={(v) => setTab(v as DetailTab)}>
+                <TabsList>
+                  {DETAIL_TABS.map(({ id, label, icon: Icon }) => (
+                    <TabsTrigger key={id} value={id}>
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
 
               {tab === "performance" && (
                 <div className="space-y-4">
@@ -420,20 +420,19 @@ export const InvertersPage: React.FC = () => {
                     {inv.mppt_latest.length === 0 ? (
                       <div className="p-4 text-xs text-slate-500">No MPPT record yet.</div>
                     ) : (
-                      <div className="scroll-x-hint overflow-x-auto">
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th>MPPT</th>
-                              <th className="text-right">V</th>
-                              <th className="text-right">A</th>
-                              <th className="text-right">kW</th>
-                              <th className="text-right">Today (kWh)</th>
-                              <th className="text-right">Lifetime (MWh)</th>
-                              <th className="w-1/4">Share of today's DC energy</th>
-                            </tr>
-                          </thead>
-                          <tbody>
+                      <Table containerClassName="scroll-x-hint">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>MPPT</TableHead>
+                              <TableHead className="text-right">V</TableHead>
+                              <TableHead className="text-right">A</TableHead>
+                              <TableHead className="text-right">kW</TableHead>
+                              <TableHead className="text-right">Today (kWh)</TableHead>
+                              <TableHead className="text-right">Lifetime (MWh)</TableHead>
+                              <TableHead className="w-1/4">Share of today's DC energy</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
                             {(() => {
                               const energy = new Map((inv.live_mppt_energy ?? []).map((e) => [e.mppt, e]));
                               const nos = [
@@ -445,29 +444,28 @@ export const InvertersPage: React.FC = () => {
                                 const m = power.get(n);
                                 const e = energy.get(n);
                                 return (
-                                  <tr key={n}>
-                                    <td className="num text-slate-300">MPPT-{n}</td>
-                                    <td className="num text-right text-sky-300">{fmt(m?.v, 1)}</td>
-                                    <td className="num text-right text-energy-300">{fmt(m?.i, 2)}</td>
-                                    <td className="num text-right text-solar-300">{fmt(m == null ? null : m.p / 1000, 2)}</td>
-                                    <td className="num text-right text-solar-300">{fmt(e?.today_kwh, 1)}</td>
-                                    <td className="num text-right text-slate-300">
+                                  <TableRow key={n}>
+                                    <TableCell className="num whitespace-nowrap text-slate-300">MPPT-{n}</TableCell>
+                                    <TableCell className="num whitespace-nowrap text-right text-sky-300">{fmt(m?.v, 1)}</TableCell>
+                                    <TableCell className="num whitespace-nowrap text-right text-energy-300">{fmt(m?.i, 2)}</TableCell>
+                                    <TableCell className="num whitespace-nowrap text-right text-solar-300">{fmt(m == null ? null : m.p / 1000, 2)}</TableCell>
+                                    <TableCell className="num whitespace-nowrap text-right text-solar-300">{fmt(e?.today_kwh, 1)}</TableCell>
+                                    <TableCell className="num whitespace-nowrap text-right text-slate-300">
                                       {fmt(e?.total_kwh == null ? null : e.total_kwh / 1000, 1)}
-                                    </td>
-                                    <td>
+                                    </TableCell>
+                                    <TableCell>
                                       {e?.today_kwh != null && totalToday > 0 ? (
                                         <Meter value={e.today_kwh} max={totalToday} tone="solar" />
                                       ) : (
                                         <span className="text-slate-500">—</span>
                                       )}
-                                    </td>
-                                  </tr>
+                                    </TableCell>
+                                  </TableRow>
                                 );
                               });
                             })()}
-                          </tbody>
-                        </table>
-                      </div>
+                          </TableBody>
+                        </Table>
                     )}
                   </Panel>
                 </div>
@@ -482,48 +480,48 @@ export const InvertersPage: React.FC = () => {
                     subtitle="Day totals from stored history; V / A now from live data where available"
                     bodyClassName="p-0"
                     actions={
-                      <Link to="/strings" className="btn-ghost btn-sm">
-                        String diagnostics <ArrowRight className="h-3.5 w-3.5" />
-                      </Link>
+                      <Button asChild variant="ghost" size="sm">
+                        <Link to="/strings">
+                          String diagnostics <ArrowRight className="h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
                     }
                   >
                     {invStrings.length === 0 ? (
                       <EmptyState icon={Activity} title="No producing strings" description="No string carried current on this day." />
                     ) : (
-                      <div className="scroll-x-hint overflow-x-auto">
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th>String</th>
-                              <th>MPPT</th>
-                              <th>Status</th>
-                              <th className="text-right">Modules</th>
-                              <th className="text-right">Energy (kWh)</th>
-                              <th className="text-right">V now</th>
-                              <th className="text-right">A now</th>
-                              <th className="text-right">I max (A)</th>
-                              <th className="text-right">Health</th>
-                            </tr>
-                          </thead>
-                          <tbody>
+                      <Table containerClassName="scroll-x-hint">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>String</TableHead>
+                              <TableHead>MPPT</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="text-right">Modules</TableHead>
+                              <TableHead className="text-right">Energy (kWh)</TableHead>
+                              <TableHead className="text-right">V now</TableHead>
+                              <TableHead className="text-right">A now</TableHead>
+                              <TableHead className="text-right">I max (A)</TableHead>
+                              <TableHead className="text-right">Health</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
                             {invStrings.map((s) => (
-                              <tr key={s.string_id}>
-                                <td className="num font-bold text-white">{s.short_label}</td>
-                                <td className="num text-slate-400">{s.mppt_id}</td>
-                                <td>
+                              <TableRow key={s.string_id}>
+                                <TableCell className="num whitespace-nowrap font-bold text-white">{s.short_label}</TableCell>
+                                <TableCell className="num whitespace-nowrap text-slate-400">{s.mppt_id}</TableCell>
+                                <TableCell>
                                   <StatusBadge status={s.status} dot />
-                                </td>
-                                <td className="num text-right text-slate-300">{s.modules ?? "—"}</td>
-                                <td className="num text-right text-solar-300">{fmt(s.actual_energy_kwh, 2)}</td>
-                                <td className="num text-right text-sky-300">{fmt(s.live_voltage_v, 1)}</td>
-                                <td className="num text-right text-energy-300">{fmt(s.live_current_a, 2)}</td>
-                                <td className="num text-right text-slate-300">{fmt(s.i_max, 2)}</td>
-                                <td className="num text-right text-slate-200">{fmt(s.health_score, 0)}</td>
-                              </tr>
+                                </TableCell>
+                                <TableCell className="num whitespace-nowrap text-right text-slate-300">{s.modules ?? "—"}</TableCell>
+                                <TableCell className="num whitespace-nowrap text-right text-solar-300">{fmt(s.actual_energy_kwh, 2)}</TableCell>
+                                <TableCell className="num whitespace-nowrap text-right text-sky-300">{fmt(s.live_voltage_v, 1)}</TableCell>
+                                <TableCell className="num whitespace-nowrap text-right text-energy-300">{fmt(s.live_current_a, 2)}</TableCell>
+                                <TableCell className="num whitespace-nowrap text-right text-slate-300">{fmt(s.i_max, 2)}</TableCell>
+                                <TableCell className="num whitespace-nowrap text-right text-slate-200">{fmt(s.health_score, 0)}</TableCell>
+                              </TableRow>
                             ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          </TableBody>
+                        </Table>
                     )}
                   </Panel>
                 </div>
@@ -537,16 +535,16 @@ export const InvertersPage: React.FC = () => {
                         <div className="text-xs text-slate-500">Waiting for a live record.</div>
                       ) : (
                         <>
-                          <table className="data-table">
-                            <thead>
-                              <tr>
-                                <th>Phase</th>
-                                <th className="text-right">V (L-N)</th>
-                                <th className="text-right">V (L-L)</th>
-                                <th className="text-right">A</th>
-                              </tr>
-                            </thead>
-                            <tbody>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Phase</TableHead>
+                                <TableHead className="text-right">V (L-N)</TableHead>
+                                <TableHead className="text-right">V (L-L)</TableHead>
+                                <TableHead className="text-right">A</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
                               {(
                                 [
                                   ["R", g.v_r, "R-S", g.v_rs, g.i_r],
@@ -554,17 +552,17 @@ export const InvertersPage: React.FC = () => {
                                   ["T", g.v_t, "T-R", g.v_tr, g.i_t],
                                 ] as const
                               ).map(([ph, vln, ll, vll, a]) => (
-                                <tr key={ph}>
-                                  <td className="num text-slate-300">{ph}</td>
-                                  <td className="num text-right text-sky-300">{fmt(vln, 1)}</td>
-                                  <td className="num text-right text-slate-300" title={ll}>
+                                <TableRow key={ph}>
+                                  <TableCell className="num whitespace-nowrap text-slate-300">{ph}</TableCell>
+                                  <TableCell className="num whitespace-nowrap text-right text-sky-300">{fmt(vln, 1)}</TableCell>
+                                  <TableCell className="num whitespace-nowrap text-right text-slate-300" title={ll}>
                                     {fmt(vll, 1)}
-                                  </td>
-                                  <td className="num text-right text-energy-300">{fmt(a, 2)}</td>
-                                </tr>
+                                  </TableCell>
+                                  <TableCell className="num whitespace-nowrap text-right text-energy-300">{fmt(a, 2)}</TableCell>
+                                </TableRow>
                               ))}
-                            </tbody>
-                          </table>
+                            </TableBody>
+                          </Table>
                           <div className="mt-3 grid grid-cols-3 gap-x-4">
                             <Field label="Power factor">{fmt(g.pf, 3)}</Field>
                             <Field label="Reactive">{fmt(g.reactive_var == null ? null : g.reactive_var / 1000, 2)} kvar</Field>
@@ -665,37 +663,36 @@ export const InvertersPage: React.FC = () => {
               subtitle={`Click a row to open it above · stored history for ${day ?? "—"}, status & power now from live data`}
               bodyClassName="p-0"
             >
-              <div className="scroll-x-hint overflow-x-auto">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Status</th>
-                      <th>Name</th>
-                      <th>Inverter SN</th>
-                      <th className="text-right">Rated (kW)</th>
-                      <th>Model</th>
-                      <th>Datalogger</th>
-                      <th className="text-right">Strings</th>
-                      <th className="text-right">kWp</th>
-                      <th className="text-right">AC Now (kW)</th>
-                      <th className="text-right">Peak DC (kW)</th>
-                      <th className="text-right">Peak AC (kW)</th>
-                      <th className="text-right">Yield (kWh)</th>
-                      <th className="text-right">kWh/kWp</th>
-                      <th className="text-right">Eff. (%)</th>
-                      <th className="text-right" title="Peer-relative index, not IEC 61724 PR">
+              <Table containerClassName="scroll-x-hint">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Inverter SN</TableHead>
+                      <TableHead className="text-right">Rated (kW)</TableHead>
+                      <TableHead>Model</TableHead>
+                      <TableHead>Datalogger</TableHead>
+                      <TableHead className="text-right">Strings</TableHead>
+                      <TableHead className="text-right">kWp</TableHead>
+                      <TableHead className="text-right">AC Now (kW)</TableHead>
+                      <TableHead className="text-right">Peak DC (kW)</TableHead>
+                      <TableHead className="text-right">Peak AC (kW)</TableHead>
+                      <TableHead className="text-right">Yield (kWh)</TableHead>
+                      <TableHead className="text-right">kWh/kWp</TableHead>
+                      <TableHead className="text-right">Eff. (%)</TableHead>
+                      <TableHead className="text-right" title="Peer-relative index, not IEC 61724 PR">
                         PR idx (%)
-                      </th>
-                      <th className="text-right">Avg / Max °C</th>
-                      <th className="text-right">Freq (Hz)</th>
-                      <th className="text-right">Lifetime (MWh)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                      </TableHead>
+                      <TableHead className="text-right">Avg / Max °C</TableHead>
+                      <TableHead className="text-right">Freq (Hz)</TableHead>
+                      <TableHead className="text-right">Lifetime (MWh)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {inverters.map((i) => {
                       const active = i.device_sn === inv?.device_sn;
                       return (
-                        <tr
+                        <TableRow
                           key={i.device_sn}
                           onClick={() => {
                             setSelectedSn(i.device_sn);
@@ -703,41 +700,40 @@ export const InvertersPage: React.FC = () => {
                           }}
                           className={`cursor-pointer ${active ? "bg-sky-500/10" : ""}`}
                         >
-                          <td>
+                          <TableCell>
                             <StatusBadge
                               status={i.status_label ?? LOADING_STATUS}
                               level={invLevel(i)}
                               loading={i.status_label == null}
                               dot
                             />
-                          </td>
-                          <td className={`font-bold ${active ? "text-sky-300" : "text-white"}`}>{i.alias || "—"}</td>
-                          <td className={`num ${active ? "text-sky-300" : "text-slate-300"}`}>{i.device_sn}</td>
-                          <td className="num text-right text-slate-300">{fmt(i.nominal_power_kw, 0)}</td>
-                          <td className="num text-xs text-slate-400">{i.model || "—"}</td>
-                          <td className="num text-xs text-slate-500">{i.datalogger_sn || "—"}</td>
-                          <td className="num text-right text-sky-300">{i.string_count}</td>
-                          <td className="num text-right text-slate-300">{fmt(i.capacity_kwp, 2)}</td>
-                          <td className="num text-right font-semibold text-energy-300">{fmt(i.current_ac_kw, 2)}</td>
-                          <td className="num text-right text-amber-300">{fmt(i.peak_dc_kw, 2)}</td>
-                          <td className="num text-right text-energy-300">{fmt(i.peak_ac_kw, 2)}</td>
-                          <td className="num text-right font-semibold text-solar-300">{fmt(i.yield_today_kwh, 2)}</td>
-                          <td className="num text-right text-slate-200">{fmt(i.specific_yield, 2)}</td>
-                          <td className="num text-right text-emerald-300">{fmt(i.efficiency_pct, 2)}</td>
-                          <td className="num text-right text-slate-300">{fmt(i.pr_pct, 1)}</td>
-                          <td className="num text-right text-rose-300">
+                          </TableCell>
+                          <TableCell className={`font-bold ${active ? "text-sky-300" : "text-white"}`}>{i.alias || "—"}</TableCell>
+                          <TableCell className={`num whitespace-nowrap ${active ? "text-sky-300" : "text-slate-300"}`}>{i.device_sn}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-slate-300">{fmt(i.nominal_power_kw, 0)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-xs text-slate-400">{i.model || "—"}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-xs text-slate-500">{i.datalogger_sn || "—"}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-sky-300">{i.string_count}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-slate-300">{fmt(i.capacity_kwp, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right font-semibold text-energy-300">{fmt(i.current_ac_kw, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-amber-300">{fmt(i.peak_dc_kw, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-energy-300">{fmt(i.peak_ac_kw, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right font-semibold text-solar-300">{fmt(i.yield_today_kwh, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-slate-200">{fmt(i.specific_yield, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-emerald-300">{fmt(i.efficiency_pct, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-slate-300">{fmt(i.pr_pct, 1)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-rose-300">
                             {fmt(i.avg_temp_c, 1)} / {fmt(i.max_temp_c, 1)}
-                          </td>
-                          <td className="num text-right text-slate-400">{fmt(i.avg_freq_hz, 2)}</td>
-                          <td className="num text-right text-slate-300">
+                          </TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-slate-400">{fmt(i.avg_freq_hz, 2)}</TableCell>
+                          <TableCell className="num whitespace-nowrap text-right text-slate-300">
                             {fmt(i.total_yield_kwh == null ? null : i.total_yield_kwh / 1000, 2)}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
             </Panel>
         </section>
       )}
