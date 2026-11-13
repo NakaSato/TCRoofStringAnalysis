@@ -275,7 +275,7 @@ cmd_upsize() {
 # kept. Restore: gcloud billing projects link $PROJECT --billing-account ACCOUNT, then start the VM.
 # COSTGUARD_DRY_RUN=true deploys it logging only.
 cmd_costguard() {
-  local ba cur amount sa topic id
+  local ba cur amount sa topic id r
   ba="$(g billing projects describe "$PROJECT" --format='value(billingAccountName)' | sed 's#billingAccounts/##')"
   cur="$(gcloud billing accounts describe "$ba" --format='value(currencyCode)')"
   amount="${BUDGET_AMOUNT:-$(budget_amount_for "$cur")}"; amount="${amount%"$cur"}"  # accept 3013 or 3013THB
@@ -288,7 +288,10 @@ cmd_costguard() {
   g pubsub topics describe "$BUDGET_TOPIC" >/dev/null 2>&1 || g pubsub topics create "$BUDGET_TOPIC"
   g iam service-accounts describe "$sa" >/dev/null 2>&1 || \
     g iam service-accounts create "$GUARD" --display-name "Cost guard: disables billing over the budget cap"
-  g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$sa" --role roles/billing.projectManager --condition=None >/dev/null
+  # projectManager: unlink billing; browser: resourcemanager.projects.get for getBillingInfo
+  for r in roles/billing.projectManager roles/browser; do
+    g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$sa" --role "$r" --condition=None >/dev/null
+  done
 
   log "Deploying function $GUARD (cap ${COST_CAP_PCT} %, dry run: $COSTGUARD_DRY_RUN)"
   g functions deploy "$GUARD" --gen2 --region "$REGION" --runtime python312 --source deploy/costguard \
