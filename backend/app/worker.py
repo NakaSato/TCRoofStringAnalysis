@@ -12,7 +12,8 @@ Schedule (plant-local time, Asia/Bangkok):
     backfill           02:00   re-read the previous two days (late uploads)
     fleet              05:30   plant / inverter registry
     publish_yesterday  06:00   finalize yesterday's daily summaries
-    publish_today      19:30   publish today after sunset
+    publish_today      09:45, 13:45, 17:45   today so far, after each O&M check (09 / 13 / 17:00), so the
+                               PWA report sheet can fill each check the same day; 19:30 the full day
     retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
     google_weather     18:15   Google Maps Weather: previous 24 h hourly (incl. 17:00), one call per
                                plant cell; then re-publishes yesterday's daily docs
@@ -50,6 +51,10 @@ GRACE = timedelta(hours=3)
 TICK_S = 60
 REGISTRY_RETRY = timedelta(minutes=15)
 UNTAGGED_RETRY = timedelta(hours=6)  # bounded: a plant no account lists stays untagged
+# after a `fleet` run that did not finish ok (an account failed, e.g. Growatt 10012, or the run was
+# abandoned): its plants keep a stale registry and no weather sensors until fleet succeeds
+FLEET_RETRY = timedelta(hours=6)
+PWA_CHECK_HOURS = (9, 13, 17)  # O&M check times; publish_today runs at hh:45 after each
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,8 @@ def default_schedule() -> List[Schedule]:
         Schedule("history", every=timedelta(minutes=settings.worker_history_interval_min)),
         Schedule("backfill", at=dtime(2, 0)),
         Schedule("publish_yesterday", at=dtime(6, 0)),
+        # one job, several slots: each slot runs once (last run < slot); docs are overwritten
+        *(Schedule("publish_today", at=dtime(h, 45)) for h in PWA_CHECK_HOURS),
         Schedule("publish_today", at=dtime(19, 30)),
         Schedule("retention", at=dtime(3, 0)),
         Schedule("google_weather", at=dtime(18, 15)),
@@ -103,15 +110,24 @@ def _has_untagged_plants(db) -> bool:
     return db.scalar(select(GrowattPlant.plant_id).where(GrowattPlant.phase.is_(None)).limit(1)) is not None
 
 
+def _last_fleet_incomplete(db) -> bool:
+    run = jobs.last_run(db, "fleet")
+    return run is not None and run.status in ("partial", "failed")
+
+
 def _bootstrap_due(job: str, db, now: datetime, last: Optional[datetime]) -> bool:
     """`fleet` also runs whenever the inverter registry is empty (fresh deploy), retrying every
-    REGISTRY_RETRY if Growatt fails, so `history` is not idle until the next 05:30 slot; and
-    every UNTAGGED_RETRY while some plants have no phase yet."""
+    REGISTRY_RETRY if Growatt fails, so `history` is not idle until the next 05:30 slot; every
+    UNTAGGED_RETRY while some plants have no phase yet; and every FLEET_RETRY while the last
+    fleet run was partial / failed (one account rate-limited, or the run abandoned), since the
+    05:30 slot alone can be missed while a long job holds the worker."""
     if job != "fleet":
         return False
     if _registry_empty(db):
         return last is None or now - last >= REGISTRY_RETRY
-    return (last is None or now - last >= UNTAGGED_RETRY) and _has_untagged_plants(db)
+    if (last is None or now - last >= UNTAGGED_RETRY) and _has_untagged_plants(db):
+        return True
+    return last is not None and now - last >= FLEET_RETRY and _last_fleet_incomplete(db)
 
 
 def tick(session_factory, schedule: List[Schedule], now: datetime) -> List[str]:

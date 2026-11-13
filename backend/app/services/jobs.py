@@ -343,8 +343,13 @@ def run_job(session_factory: sessionmaker, job: str, trigger: str = "cli") -> Sy
     return execute(session_factory, run_id)
 
 
+def last_run(db: Session, job: str) -> Optional[SyncRun]:
+    """The job's newest run (any status), or None."""
+    return db.scalars(select(SyncRun).where(SyncRun.job == job).order_by(SyncRun.started_at.desc()).limit(1)).first()
+
+
 def last_started(db: Session, job: str) -> Optional[datetime]:
-    run = db.scalars(select(SyncRun).where(SyncRun.job == job).order_by(SyncRun.started_at.desc()).limit(1)).first()
+    run = last_run(db, job)
     return _aware(run.started_at) if run else None
 
 
