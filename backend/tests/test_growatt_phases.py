@@ -14,7 +14,7 @@ from app.db.models import GrowattInverter, GrowattPlant
 from app.db.session import Base, build_engine, ensure_schema
 from app.services import growatt_sync, jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable
-from app.worker import UNTAGGED_RETRY, default_schedule, tick
+from app.worker import FLEET_RETRY, UNTAGGED_RETRY, default_schedule, tick
 from solar_core.growatt import GrowattAPIError
 
 BKK = jobs.PLANT_TZ
@@ -224,3 +224,37 @@ def test_worker_reruns_fleet_while_plants_are_untagged(factory, monkeypatch):
         db.get(GrowattPlant, 1).phase = 1
         db.commit()
     assert tick(factory, schedule, noon + 2 * UNTAGGED_RETRY) == []  # all tagged: daily slot only
+
+
+def test_worker_retries_fleet_after_a_partial_or_failed_run(factory, monkeypatch):
+    results = iter([("partial", {}), ("ok", {})])
+    calls: list = []
+
+    def fleet(db):
+        calls.append("fleet")
+        return next(results)
+
+    monkeypatch.setattr(jobs, "JOBS", {"fleet": fleet})
+    schedule = [s for s in default_schedule() if s.job == "fleet"]
+    with factory() as db:
+        db.add(GrowattPlant(plant_id=1, name="P", phase=1))
+        db.flush()
+        db.add(GrowattInverter(device_sn="I", plant_id=1))
+        db.commit()
+
+    noon = datetime(2026, 11, 12, 12, 0, tzinfo=BKK)
+    assert tick(factory, schedule, noon) == []  # registry tagged, no run yet: daily slot only
+    slot = datetime(2026, 11, 13, 5, 30, tzinfo=BKK)
+    assert tick(factory, schedule, slot) == ["fleet"]  # → partial (one account rate-limited)
+    assert tick(factory, schedule, slot + timedelta(hours=1)) == []
+    assert tick(factory, schedule, slot + FLEET_RETRY) == ["fleet"]  # retried → ok
+    assert tick(factory, schedule, slot + 2 * FLEET_RETRY) == []  # ok: back to the daily slot
+    assert calls == ["fleet", "fleet"]
+
+    # a run abandoned by a restart counts as failed and is retried too
+    with factory() as db:
+        run = jobs.last_run(db, "fleet")
+        run.status, run.error = "failed", "abandoned (worker stopped mid-run)"
+        db.commit()
+    monkeypatch.setattr(jobs, "JOBS", {"fleet": lambda db: ("ok", {})})
+    assert tick(factory, schedule, slot + 2 * FLEET_RETRY) == ["fleet"]
