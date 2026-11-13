@@ -44,6 +44,7 @@ from solar_core.sun import sun_times
 RATE_LIMIT_CODE = 10012
 MIN_REFRESH_S = 15  # floor for refresh_in_s, so an expired key never invites a tight loop
 PLANT_TZ = ZoneInfo("Asia/Bangkok")  # max_data `time` is naive plant-local
+GROWATT_SERVER_TZ = ZoneInfo("Asia/Shanghai")  # env_list `lastUpdateTime` is China time, not plant-local
 PAST_DAY_ALARM_TTL_S = 6 * 3600.0  # a closed day's alarm log no longer changes
 ALARM_WORKERS = 8  # parallel alarm_data calls for one request (one call per inverter-day)
 LIVE_WORKERS = 8  # parallel max_data calls for one plant's latest records (one call per inverter)
@@ -641,11 +642,16 @@ def _flag(v: Any) -> Optional[bool]:
 
 
 def _local_ts(v: Any) -> Optional[str]:
-    """Growatt's "YYYY-MM-DD HH:MM:SS" (plant-local, like `timeText`), normalised; else None."""
+    """`env_list`'s `lastUpdateTime` → plant-local "YYYY-MM-DD HH:MM:SS"; else None.
+
+    Unlike `timeText`, Growatt gives this one in China time (UTC+8, checked 2026-11-13: one hour
+    ahead of the same upload's `timeText` at every sensor sampled), so it is converted to Bangkok.
+    """
     try:
-        return datetime.strptime(str(v)[:19], "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+        at = datetime.strptime(str(v)[:19], "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
+    return at.replace(tzinfo=GROWATT_SERVER_TZ).astimezone(PLANT_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 PREVIOUS_RECORDS = 5  # with the newest: 6 records ≈ 30 min a string fault must last

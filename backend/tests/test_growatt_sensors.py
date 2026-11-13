@@ -134,7 +134,8 @@ def test_route_filters_engineer_to_assigned_plants(factory):
 
 
 class _EnvList:
-    """Fake `env_list`: per-datalogger answers, a call log, and dataloggers that fail."""
+    """Fake `env_list`: per-datalogger answers, a call log, and dataloggers that fail.
+    `lastUpdateTime` is China time (UTC+8) like Growatt's, one hour ahead of plant-local."""
 
     def __init__(self, answers=None):
         self.answers = answers or {}
@@ -145,7 +146,7 @@ class _EnvList:
         self.calls.append(datalogger_sn)
         if datalogger_sn in self.fail:
             raise self.fail[datalogger_sn]
-        return self.answers.get(datalogger_sn, [{"address": "1", "lost": "0", "lastUpdateTime": "2026-11-13 11:58:00"}])
+        return self.answers.get(datalogger_sn, [{"address": "1", "lost": "0", "lastUpdateTime": "2026-11-13 12:58:00"}])
 
 
 class _Clock:
@@ -205,6 +206,21 @@ def test_rate_limit_cools_one_datalogger_down_and_serves_the_others():
     assert fake.calls.count("B") == 2 and set(env["data"]["dataloggers"]) == {"A", "B"}
 
 
+def test_env_list_upload_time_is_converted_from_china_time():
+    from app.services.growatt_live import _env_status_rows
+
+    class _C:
+        def list_env_sensors(self, dl, refresh=False):
+            return [
+                {"address": "4", "lost": "0", "lastUpdateTime": "2026-11-13 11:57:52"},  # = timeText 10:57:52
+                {"address": "5", "lost": "0", "lastUpdateTime": "2026-11-14 00:30:00"},  # crosses midnight
+                {"address": "6", "lost": "0", "lastUpdateTime": ""},
+            ]
+
+    rows = _env_status_rows(_C(), "DL")  # type: ignore[arg-type]
+    assert [r["last_update_time"] for r in rows] == ["2026-11-13 10:57:52", "2026-11-13 23:30:00", None]
+
+
 def test_live_status_thresholds():
     now = datetime(2026, 11, 13, 12, 0)
     st = lambda lost, t: gs.live_status(lost, t, now, 15, 60)
@@ -228,10 +244,10 @@ def test_status_route_engineer_sweeps_own_dataloggers_and_writes_nothing(factory
     fake = _EnvList(
         {
             "DL1": [
-                {"address": "1", "lost": "0", "lastUpdateTime": "2026-11-13 11:58:00"},
-                {"address": "2", "lost": "1", "lastUpdateTime": "2026-11-13 11:59:00"},
+                {"address": "1", "lost": "0", "lastUpdateTime": "2026-11-13 12:58:00"},
+                {"address": "2", "lost": "1", "lastUpdateTime": "2026-11-13 12:59:00"},
             ],
-            "DL2": [{"address": "1", "lost": "0", "lastUpdateTime": "2026-11-13 11:30:00"}],
+            "DL2": [{"address": "1", "lost": "0", "lastUpdateTime": "2026-11-13 12:30:00"}],
         }
     )
     svc = _svc(fake, _Clock())
