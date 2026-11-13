@@ -155,6 +155,26 @@ def test_empty_registry_runs_fleet_outside_its_slot_and_retries(factory, monkeyp
 # --------------------------------------------------------------------------- lock
 
 
+def test_daily_run_abandoned_by_restart_is_retried_within_grace(factory, fake_jobs):
+    """A deploy that restarts the worker mid-run must not make the scheduler skip the day."""
+    schedule = [Schedule("publish_today", at=dtime(19, 30))]
+    slot = datetime(2026, 11, 13, 19, 30, tzinfo=BKK)
+    with factory() as db:
+        jobs.claim(db, "publish_today", "schedule", now=slot)
+        assert jobs.fail_abandoned(db, now=slot + timedelta(minutes=5))  # worker restarted
+    assert tick(factory, schedule, slot + timedelta(minutes=6)) == ["publish_today"]
+    assert tick(factory, schedule, slot + timedelta(minutes=7)) == []  # done: once per slot again
+
+    # a run that failed by itself is not retried until the next slot
+    fake_jobs.clear()
+    later = slot + timedelta(days=1)
+    with factory() as db:
+        run = db.get(SyncRun, jobs.claim(db, "publish_today", "schedule", now=later))
+        run.status, run.error = "failed", "RuntimeError: growatt down"
+        db.commit()
+    assert tick(factory, schedule, later + timedelta(minutes=1)) == []
+
+
 def test_claim_blocks_concurrent_runs_and_recovers_stale(factory, fake_jobs):
     now = datetime(2026, 11, 12, 3, 0, tzinfo=timezone.utc)
     with factory() as db:
