@@ -15,7 +15,7 @@ Timestamps in the reading tables are plant-local (Thai) time. DB responses carry
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -30,6 +30,7 @@ from app.services import growatt_alarms
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
 from app.services import google_weather as gw
+from app.services import live_string_check
 from app.services import jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
 
@@ -84,13 +85,16 @@ def live_plant_latest(
 ) -> Dict[str, Any]:
     """Newest record per inverter (power, MPPT, per-string V/I) for one plant. Not persisted.
 
-    The DB is read only for the plant's inverter list; nothing is written.
+    `data.string_check` = each string judged against its inverter's other strings in the same
+    record, flagged only when the 6 newest records agree (`services/live_string_check.py`),
+    realtime only. The DB is read only for the plant's inverter list, String Layout module counts
+    and which inputs are wired; nothing is written.
     """
     sns = [inv["device_sn"] for inv in ov.list_inverters(db, plant_id)]
     if not sns:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no inverters")
     try:
-        return live.plant_latest(
+        env = live.plant_latest(
             plant_id,
             sns,
             datetime.now(jobs.PLANT_TZ).date(),
@@ -99,6 +103,10 @@ def live_plant_latest(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    check = live_string_check.check_plant(env["data"]["inverters"], ov.load_layout(db, sns, fleet_wp=False), ov.wired_inputs(db, sns))
+    # the older records were only input to the check: don't send them to the browser
+    invs = [{k: v for k, v in inv.items() if k != "previous_strings"} for inv in env["data"]["inverters"]]
+    return {**env, "data": {**env["data"], "inverters": invs, "string_check": check}}
 
 
 @router.get("/live/plants/{plant_id}/alarms")
@@ -267,6 +275,9 @@ def get_growatt_plant_weather(
     day: Optional[date] = Query(None, description="Plant-local date (YYYY-MM-DD); default = latest day with weather data"),
     start: Optional[time] = Query(None, description="Plant-local start time (HH:MM, inclusive); default = start of day"),
     end: Optional[time] = Query(None, description="Plant-local end time (HH:MM, inclusive); default = end of day"),
+    sensor: Optional[str] = Query(
+        None, pattern=r"^[A-Za-z0-9_-]+:\d+$", description="One sensor, `DATALOGGER_SN:ADDRESS`; default = average of all sensors"
+    ),
     db: Session = Depends(get_db),
     _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
@@ -280,7 +291,14 @@ def get_growatt_plant_weather(
         ov._get_plant(db, plant_id)
     except ov.GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return wx.build_weather_day(db, plant_id, day, start_time=start, end_time=end)
+    one: Optional[Tuple[str, int]] = None
+    if sensor:
+        sn, addr = sensor.rsplit(":", 1)
+        one = (sn, int(addr))
+    try:
+        return wx.build_weather_day(db, plant_id, day, start_time=start, end_time=end, sensor=one)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no such weather sensor") from exc
 
 
 @router.get("/plants/{plant_id}/google-weather")

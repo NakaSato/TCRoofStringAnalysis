@@ -310,3 +310,35 @@ def test_live_not_called_outside_daytime():
     clock[0] = datetime(2026, 11, 11, 18, 30)  # after 18:00: last value, stale, back at 06:00
     env = live.current("k", 13.75, 100.5, lambda: True)
     assert env["stale"] and fake.current_calls == 1 and env["refresh_in_s"] == 11.5 * 3600
+
+
+def test_client_errors_never_contain_the_api_key():
+    """Errors reach logs, sync_runs.detail and the live API response, so the ?key= must never leak."""
+    import requests
+
+    from solar_core.google_weather import GoogleWeatherClient
+
+    key = "AIza-secret-key-123"
+
+    class Resp:
+        status_code = 400
+        reason = "Bad Request"
+
+        def json(self):
+            return {"error": {"message": f"API key not valid: https://weather.googleapis.com/v1/x?key={key}"}}
+
+    class Sess:
+        def __init__(self, mode):
+            self.mode = mode
+
+        def get(self, url, params=None, timeout=None):
+            if self.mode == "net":
+                raise requests.ConnectionError(f"Max retries exceeded with url: {url}?key={params['key']}")
+            return Resp()
+
+    for mode in ("net", "http"):
+        with pytest.raises(GoogleWeatherError) as ei:
+            GoogleWeatherClient(api_key=key, session=Sess(mode)).current(13.7, 100.5)
+        assert key not in str(ei.value)
+        assert ei.value.__cause__ is None
+        assert ei.value.__context__ is None or ei.value.__suppress_context__

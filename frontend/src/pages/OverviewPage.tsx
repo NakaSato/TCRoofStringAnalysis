@@ -17,12 +17,16 @@ import {
   Satellite,
   ExternalLink,
   CloudRain,
+  CloudSun,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
-import type { GoogleWeatherDay } from "../api/client";
-import { Panel, KpiTile, Led, EmptyState, LoadingState, fmt } from "../components/ui";
+import type { GoogleWeatherDay, GrowattLive, GrowattLiveWeather } from "../api/client";
+import { useLivePoll } from "../context/useLivePoll";
+import { plantPath } from "../context/routes";
+import { Panel, KpiTile, Led, EmptyState, LoadingState, Meter, fmt } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { GrowattAlarmLogPanel } from "../components/GrowattAlarmLogPanel";
 import { OverviewTabSummaries } from "../components/OverviewTabSummaries";
@@ -200,6 +204,65 @@ const WeatherSlotsTile: React.FC<{ plantId: number; day: string | null }> = ({ p
   );
 };
 
+/**
+ * Newest reading of the plant's Growatt weather sensor (live, memory only). Measured, unlike the
+ * Google tile. Links to the full Weather Station panel on Generation & PR.
+ */
+const WeatherNowTile: React.FC<{ plantId: number }> = ({ plantId }) => {
+  const [live, setLive] = useState<GrowattLive<GrowattLiveWeather> | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setLive(null);
+    setFailed(false);
+  }, [plantId]);
+  useLivePoll(
+    true,
+    plantId,
+    () => api.getGrowattLiveWeather(plantId),
+    (r) => {
+      setLive(r);
+      setFailed(false);
+    },
+    () => setFailed(true)
+  );
+
+  const sensors = live?.data.sensors ?? [];
+  const s = sensors[0] ?? null;
+  const stale = Boolean(live?.stale || s?.stale);
+  const note = s
+    ? `${stale ? "Stale" : "Live"} · ${s.timestamp.slice(11, 16)}${sensors.length > 1 ? ` · 1 of ${sensors.length} sensors` : ""}`
+    : failed
+    ? "unavailable"
+    : live
+    ? "no reading"
+    : "loading…";
+
+  return (
+    <Link
+      to={`${plantPath(plantId, "generation")}#weather-station`}
+      className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-solar-400/50"
+    >
+      <Card className="h-full gap-0 overflow-hidden p-4 transition-colors hover:border-solar-400/30" title="Measured by the plant's Growatt weather sensor">
+        <div className="absolute inset-x-0 top-0 h-px bg-solar-400/60" />
+        <div className="flex items-start justify-between gap-2">
+          <div className="eyebrow">Weather sensor</div>
+          <div className="rounded-lg bg-solar-500/10 p-1.5 text-solar-400 ring-1 ring-solar-400/20">
+            <CloudSun className="h-3.5 w-3.5" />
+          </div>
+        </div>
+        <div className="num mt-2 text-xl font-bold text-solar-400">
+          {fmt(s?.irradiance_wm2, 0)} <span className="text-xs text-slate-500">W/m²</span>
+        </div>
+        {s?.irradiance_wm2 != null && <Meter value={s.irradiance_wm2} max={1100} tone="solar" className="mt-1.5" />}
+        <div className="num mt-1.5 text-[11px] text-slate-400">
+          Module {fmt(s?.module_temp_c, 1)}° · Amb {fmt(s?.ambient_temp_c, 1)}°C
+        </div>
+        <div className={`mt-1 text-[11px] font-medium ${stale ? "text-amber-300" : "text-slate-500"}`}>{note}</div>
+      </Card>
+    </Link>
+  );
+};
+
 /* -------------------------------------------------------------------------- */
 /* Overview page                                                              */
 /* -------------------------------------------------------------------------- */
@@ -241,6 +304,7 @@ export const OverviewPage: React.FC = () => {
   const invCount = kpis?.inverter_count ?? null;
   const invTone: keyof typeof FLOW_TONE = onlineInv == null || invCount == null ? "muted" : onlineInv >= invCount ? "ok" : "warn";
   const producing = acNowKw != null && acNowKw > 0;
+  const hasSensor = Boolean(selectedPlantOverview?.weather?.has_sensor);
 
   return (
     <div className="space-y-6">
@@ -260,7 +324,7 @@ export const OverviewPage: React.FC = () => {
           ) : (
             <>
               {/* Row 1: KPI strip */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+              <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${hasSensor ? "xl:grid-cols-8" : "xl:grid-cols-7"}`}>
                 <KpiTile
                   label={iecPr != null ? "Plant PR (IEC)" : "PR Index (peer)"}
                   icon={Gauge}
@@ -319,6 +383,7 @@ export const OverviewPage: React.FC = () => {
                   hint={`${critical} critical · ${warning} warning`}
                   hintTone={critical > 0 ? "crit" : warning > 0 ? "warn" : "neutral"}
                 />
+                {plant && hasSensor && <WeatherNowTile plantId={plant.plant_id} />}
                 {plant && <WeatherSlotsTile plantId={plant.plant_id} day={selectedPlantOverview.meta.day ?? null} />}
               </div>
 

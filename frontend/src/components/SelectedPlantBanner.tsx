@@ -39,7 +39,6 @@ export const SelectedPlantBanner: React.FC = () => {
   const location = useLocation();
 
   const plant = selectedPlantOverview?.plant;
-  const kpis = selectedPlantOverview?.kpis;
 
   const [plantSearch, setPlantSearch] = useState("");
 
@@ -54,25 +53,31 @@ export const SelectedPlantBanner: React.FC = () => {
     );
   }, [growattPlants, plantSearch]);
 
-  // plant.status is realtime only: null until live data arrives, so show it as unknown.
+  // Realtime only: plant.status from the fleet poll, string verdicts from the newest live record
+  // (each string vs. its inverter's other strings at that moment). Stored-day analysis is not used.
   const statusUnknown = !!plant && plant.status == null;
-  const statusLevel: StatusLevel = statusUnknown
-    ? "neutral"
-    : !plant || plant.status === 1
-      ? kpis && kpis.critical_strings > 0
-        ? "warn"
-        : "ok"
-      : "crit";
+  const liveStrings = selectedPlantOverview?.live?.strings ?? null;
+  const online = !plant || plant.status === 1;
+  const stringFault = online && !!liveStrings && liveStrings.critical > 0;
+  const stringWarn = online && !!liveStrings && liveStrings.warning > 0;
+  const statusLevel: StatusLevel = statusUnknown ? "neutral" : !online ? "crit" : stringFault ? "crit" : stringWarn ? "warn" : "ok";
 
   // no live status yet (first poll running or live retrying): always "Loading…", never "unknown"
   const statusLoading = statusUnknown;
   const statusLabel = statusLoading
     ? LOADING_STATUS
-    : !plant || plant.status === 1
-      ? kpis && kpis.critical_strings > 0
-        ? "String Warning"
-        : "Normal"
-      : "Disconnected";
+    : !online
+      ? "Disconnected"
+      : stringFault
+        ? "String Fault"
+        : stringWarn
+          ? "String Warning"
+          : "Normal";
+  const statusTitle = !online
+    ? undefined
+    : liveStrings
+      ? `Live string check${liveStrings.at ? ` at ${liveStrings.at.slice(11, 16)}` : ""}: ${liveStrings.critical} critical · ${liveStrings.warning} warning · ${liveStrings.healthy} healthy${liveStrings.unknown ? ` · ${liveStrings.unknown} not judged (low light / wiring unknown)` : ""}`
+      : "Inverter status only: no live string data yet";
 
   const currentPage = parsePlantPath(location.pathname)?.page ?? "";
   const tabs: Array<{ page: PlantPage; label: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -119,7 +124,9 @@ export const SelectedPlantBanner: React.FC = () => {
                 <h2 className="text-sm font-bold text-white sm:text-base">
                   {plant?.name || "Loading Plant…"}
                 </h2>
-                <StatusBadge status={statusLabel} level={statusLevel} loading={statusLoading} dot />
+                <span title={statusTitle}>
+                  <StatusBadge status={statusLabel} level={statusLevel} loading={statusLoading} dot />
+                </span>
                 {plantOverviewLoading && (
                   <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
                 )}

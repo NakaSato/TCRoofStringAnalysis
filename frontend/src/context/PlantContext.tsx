@@ -144,6 +144,7 @@ export const PlantProvider: React.FC<{ plantId: number | null; live: boolean; ch
     for (const inv of lv.inverters) {
       for (const s of inv.strings) byStr.set(`${inv.device_sn}#${s.string_no}`, { ...s, at: inv.timestamp });
     }
+    const check = lv.string_check;
     const liveW = lv.inverters.reduce((a, i) => a + (i.pac_w ?? 0), 0);
     const hasLive = lv.inverters.length > 0;
     const dcReported = lv.inverters.filter((i) => i.ppv_w != null);
@@ -156,7 +157,13 @@ export const PlantProvider: React.FC<{ plantId: number | null; live: boolean; ch
     const online = hasLive ? lv.inverters.filter((i) => i.status === 1).length : ov.kpis.online_inverters;
     return {
       ...ov,
-      live: { fetched_at: liveRec!.fetched_at, stale: liveRec!.stale, data_at: liveDataAt, dc_kw: liveDcKw },
+      live: {
+        fetched_at: liveRec!.fetched_at,
+        stale: liveRec!.stale,
+        data_at: liveDataAt,
+        dc_kw: liveDcKw,
+        strings: check?.summary ?? null,
+      },
       plant: { ...ov.plant, status: liveStatus, ...(hasLive ? { current_power_w: liveW } : {}) },
       kpis: {
         ...ov.kpis,
@@ -181,7 +188,17 @@ export const PlantProvider: React.FC<{ plantId: number | null; live: boolean; ch
       }),
       strings: ov.strings.map((s) => {
         const l = byStr.get(`${s.device_sn}#${s.string_no}`);
-        return l ? { ...s, live_voltage_v: l.voltage_v, live_current_a: l.current_a, live_power_w: l.power_w, live_at: l.at } : s;
+        if (!l) return s;
+        const v = check?.inverters[s.device_sn]?.strings[String(s.string_no)];
+        return {
+          ...s,
+          live_voltage_v: l.voltage_v,
+          live_current_a: l.current_a,
+          live_power_w: l.power_w,
+          live_at: l.at,
+          live_status: v?.status ?? null,
+          live_reason: v?.reason ?? null,
+        };
       }),
     };
   }, [dbOverview, liveRec, fleetLive, plantId]);

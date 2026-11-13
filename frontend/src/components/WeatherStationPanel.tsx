@@ -8,6 +8,7 @@ import {
   GrowattLiveWeather,
   GrowattWeatherDay,
   GrowattWeatherField,
+  GrowattWeatherPoint,
 } from "../api/client";
 import { useLivePoll } from "../context/useLivePoll";
 import { PanelChart } from "./PanelChart";
@@ -17,6 +18,7 @@ import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { pickDay, pickTime, useUrlState } from "@/lib/useUrlState";
 
 /** Plant-local (Bangkok) date, YYYY-MM-DD. */
@@ -28,6 +30,19 @@ const shiftDay = (day: string, n: number) => {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+};
+
+const FIELDS: GrowattWeatherField[] = ["irradiance_wm2", "ambient_temp_c", "module_temp_c", "humidity_pct", "wind_speed_ms", "wind_dir_deg"];
+/** Live readings kept per sensor for the chart's tail (tab memory only): 24 × 5 min = 2 h. */
+const TAIL_MAX = 24;
+
+/** "DATALOGGER_SN:ADDRESS", the `?sensor=` value. */
+const sensorKey = (s: { datalogger_sn: string; address: number }) => `${s.datalogger_sn}:${s.address}`;
+
+/** Start of the 5-minute slot, like the stored series ("YYYY-MM-DD HH:MM:SS"). */
+const slotOf = (ts: string) => {
+  const m = Number(ts.slice(14, 16));
+  return `${ts.slice(0, 14)}${String(m - (m % 5)).padStart(2, "0")}:00`;
 };
 
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -68,10 +83,15 @@ export const WeatherStationPanel: React.FC<{
   dataUntil?: string | null;
   iecPr?: GrowattIecPr | null;
 }> = ({ plantId, day, dataUntil, iecPr }) => {
-  const [wx, setWx] = useState<GrowattWeatherDay | null>(null);
+  // the stored day, tagged with its plant so a plant switch never shows (or queries) the old sensors
+  const [loaded, setLoaded] = useState<{ plantId: number; data: GrowattWeatherDay } | null>(null);
+  const wx = loaded?.plantId === plantId ? loaded.data : null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<GrowattLive<GrowattLiveWeather> | null>(null);
+  // Live readings newer than the stored series, per sensor: real measurements the worker has not
+  // stored yet. Component memory only, never persisted.
+  const [tail, setTail] = useState<Record<string, GrowattWeatherPoint[]>>({});
   // Date / time filter in the URL (?wxDay=&wxFrom=&wxTo=), so a reload or shared link keeps it;
   // switching plant drops it. No wxDay = follow the overview's day; no time = open-ended.
   const today = plantToday();
@@ -89,15 +109,22 @@ export const WeatherStationPanel: React.FC<{
   const reqDay = pickedDay ?? day ?? undefined;
   const reqFrom = badWindow ? "" : timeFrom;
   const reqTo = badWindow ? "" : timeTo;
+  // Sensor (?wxSensor=SN:ADDR). Only offered with several sensors; default the first. The stored
+  // series is then that sensor's alone (the backend averages all sensors without `sensor`).
+  const sensorKeys = useMemo(() => (wx?.sensors ?? []).map(sensorKey), [wx]);
+  const multi = sensorKeys.length > 1;
+  const urlSensor = url.get("wxSensor") ?? "";
+  const selKey = multi ? (sensorKeys.includes(urlSensor) ? urlSensor : sensorKeys[0]) : sensorKeys[0] ?? null;
+  const reqSensor = multi ? selKey ?? undefined : undefined;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
-      .getGrowattPlantWeather(plantId, reqDay, { start: reqFrom || undefined, end: reqTo || undefined })
+      .getGrowattPlantWeather(plantId, reqDay, { start: reqFrom || undefined, end: reqTo || undefined }, reqSensor)
       .then((r) => {
         if (cancelled) return;
-        setWx(r);
+        setLoaded({ plantId, data: r });
         setError(null);
       })
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : String(err)))
@@ -105,26 +132,54 @@ export const WeatherStationPanel: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [plantId, reqDay, reqFrom, reqTo, dataUntil]);
+  }, [plantId, reqDay, reqFrom, reqTo, reqSensor, dataUntil]);
 
-  useEffect(() => setLive(null), [plantId]);
+  useEffect(() => {
+    setLive(null);
+    setTail({});
+  }, [plantId]);
   const viewingToday = shownDay === today;
   const showLive = viewingToday && !windowed;
   useLivePoll(
     Boolean(wx?.has_sensor) && showLive,
     plantId,
     () => api.getGrowattLiveWeather(plantId),
-    (r) => setLive(r),
+    (r) => {
+      setLive(r);
+      setTail((prev) => {
+        const next = { ...prev };
+        for (const s of r.data.sensors) {
+          if (!s.timestamp || s.timestamp.slice(0, 10) !== today) continue;
+          const k = sensorKey(s);
+          const pts = next[k] ?? [];
+          const ts = slotOf(s.timestamp);
+          if (pts.some((p) => p.timestamp === ts)) continue;
+          const pt = { timestamp: ts } as GrowattWeatherPoint;
+          FIELDS.forEach((f) => (pt[f] = s[f] ?? null));
+          next[k] = [...pts, pt].sort((a, b) => a.timestamp.localeCompare(b.timestamp)).slice(-TAIL_MAX);
+        }
+        return next;
+      });
+    },
     () => undefined // live unavailable: the stored history stays on screen
   );
 
   const measured = useMemo(() => {
     const set = new Set<GrowattWeatherField>();
-    wx?.sensors.forEach((s) => s.measured.forEach((f) => set.add(f)));
+    wx?.sensors.filter((s) => !reqSensor || sensorKey(s) === reqSensor).forEach((s) => s.measured.forEach((f) => set.add(f)));
     return set;
-  }, [wx]);
+  }, [wx, reqSensor]);
 
-  const now = showLive ? live?.data.sensors[0] ?? null : null;
+  const now = showLive ? live?.data.sensors.find((s) => sensorKey(s) === selKey) ?? null : null;
+  // Live points after the last stored one; dropped once the worker has stored that slot (DB wins).
+  const lastStored = wx?.series.length ? wx.series[wx.series.length - 1].timestamp : "";
+  const tailPts = useMemo(
+    () =>
+      showLive && selKey && (!multi || wx?.meta.sensor)
+        ? (tail[selKey] ?? []).filter((p) => p.timestamp > lastStored && p.timestamp.slice(0, 10) === shownDay)
+        : [],
+    [showLive, selKey, multi, wx, tail, lastStored, shownDay]
+  );
   const filtered = pickedDay != null || Boolean(timeFrom || timeTo);
   const clearFilter = () => {
     setUrl({ wxDay: null, wxFrom: null, wxTo: null });
@@ -134,9 +189,11 @@ export const WeatherStationPanel: React.FC<{
   const pr = prApplies ? iecPr : null;
   const setDayClamped = (d: string) => setUrl({ wxDay: d > today ? today : d });
   const k = wx?.kpis;
+  const tailPeak = tailPts.reduce<number | null>((m, p) => (p.irradiance_wm2 != null && (m == null || p.irradiance_wm2 > m) ? p.irradiance_wm2 : m), null);
+  const peakToday = tailPeak != null && (k?.peak_irradiance_wm2 == null || tailPeak > k.peak_irradiance_wm2) ? tailPeak : k?.peak_irradiance_wm2;
 
   const spec = useMemo<PanelChartSpec | null>(() => {
-    const series = wx?.series ?? [];
+    const series = [...(wx?.series ?? []), ...tailPts];
     if (!series.length) return null;
     const temps: ChartSeries[] = [];
     if (measured.has("module_temp_c"))
@@ -158,7 +215,7 @@ export const WeatherStationPanel: React.FC<{
         ...(temps.length ? [{ key: "t", title: "Temperature (°C)", zero: false, series: temps }] : []),
       ],
     };
-  }, [wx, measured]);
+  }, [wx, measured, tailPts]);
 
   const subtitle = wx?.sensors.length
     ? `${wx.sensors.length > 1 ? `${wx.sensors.length} sensors` : "Sensor"} ${wx.sensors
@@ -174,13 +231,17 @@ export const WeatherStationPanel: React.FC<{
       title="Weather Station"
       subtitle={subtitle}
       actions={
-        live && showLive ? (
+        live && now ? (
           <Badge
-            variant={live.stale ? "warn" : "ok"}
+            variant={live.stale || now.stale ? "warn" : "ok"}
             className="px-2 py-0.5 text-[11px] font-semibold"
-            title={`Fetched ${new Date(live.fetched_at).toLocaleTimeString()}`}
+            title={`Sensor reading at ${now.timestamp} · fetched ${new Date(live.fetched_at).toLocaleTimeString()}`}
           >
-            {live.stale ? "LIVE (STALE)" : "LIVE"} {now?.timestamp?.slice(11, 16)}
+            {live.stale || now.stale ? "LIVE (STALE)" : "LIVE"} {now.timestamp?.slice(11, 16)}
+          </Badge>
+        ) : wx?.meta.data_until ? (
+          <Badge variant="neutral" className="px-2 py-0.5 text-[11px] font-semibold" title={`Newest stored reading ${wx.meta.data_until}`}>
+            Last sync {wx.meta.data_until.slice(11, 16)}
           </Badge>
         ) : null
       }
@@ -245,6 +306,20 @@ export const WeatherStationPanel: React.FC<{
                 aria-label="To time"
               />
             </div>
+            {multi && selKey && (
+              <Select value={selKey} onValueChange={(v) => setUrl({ wxSensor: v === sensorKeys[0] ? null : v })}>
+                <SelectTrigger size="sm" className="w-auto text-[11px]" aria-label="Weather sensor">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {wx.sensors.map((s) => (
+                    <SelectItem key={sensorKey(s)} value={sensorKey(s)}>
+                      {s.device_name ?? "Sensor"} · {s.datalogger_sn}#{s.address}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {filtered && (
               <Button variant="ghost" size="sm" onClick={clearFilter}>
                 <X /> Reset
@@ -261,10 +336,10 @@ export const WeatherStationPanel: React.FC<{
               label={now ? "Irradiance now" : "Peak irradiance"}
               icon={Sun}
               tone="text-solar-400"
-              value={fmt(now ? now.irradiance_wm2 : k?.peak_irradiance_wm2, 0)}
+              value={fmt(now ? now.irradiance_wm2 : peakToday, 0)}
               unit="W/m²"
-              hint={now ? `Peak today ${fmt(k?.peak_irradiance_wm2, 0)} W/m²` : windowed ? "Plane of array · in window" : "Plane of array"}
-              meter={{ value: now ? now.irradiance_wm2 : k?.peak_irradiance_wm2, max: 1100, tone: "solar" }}
+              hint={now ? `Peak today ${fmt(peakToday, 0)} W/m²` : windowed ? "Plane of array · in window" : "Plane of array"}
+              meter={{ value: now ? now.irradiance_wm2 : peakToday, max: 1100, tone: "solar" }}
             />
             <Card
               label="Insolation"

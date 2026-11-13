@@ -243,7 +243,7 @@ def test_failed_sensor_is_reported_not_raised(tmp_path, monkeypatch):
 def test_weather_route_series_kpis_and_unmeasured_fields(env):
     c, _app, _S = env
     w = c.get(f"/api/growatt/plants/{PLANT}/weather", params={"day": "2026-11-11"}).json()
-    assert w["meta"] == {"source": "db", "day": "2026-11-11", "data_until": "2026-11-11 20:25:00", "window": None}
+    assert w["meta"] == {"source": "db", "day": "2026-11-11", "data_until": "2026-11-11 20:25:00", "window": None, "sensor": None}
     assert w["has_sensor"] is True
     s = w["sensors"][0]
     assert s["datalogger_sn"] == DL and s["address"] == ADDR
@@ -278,6 +278,30 @@ def test_weather_route_time_window_narrows_series_and_kpis(env):
     assert night["meta"]["window"] == {"start": "19:00", "end": None}
     assert night["kpis"]["insolation_kwh_m2"] == 0 and night["kpis"]["avg_module_temp_daylight_c"] is None
     assert c.get(url, params={"day": "2026-11-11", "start": "12:00", "end": "10:00"}).status_code == 422
+
+
+def test_weather_route_one_sensor_of_several(env):
+    """A second sensor reading 800 W/m²: default = average of both, `sensor=` = that sensor only."""
+    c, _app, Session = env
+    with Session() as s:
+        s.add(GrowattEnvSensor(datalogger_sn="DLW2", address=1, plant_id=PLANT, device_name="ENV_2"))
+        s.flush()
+        recs = [_env(DAY + timedelta(hours=8, minutes=m), 800) for m in range(0, 8 * 60 + 1, 5)]
+        for row in parse_env_records("DLW2", 1, recs):
+            s.add(GrowattEnvReading(**row))
+        s.commit()
+    url = f"/api/growatt/plants/{PLANT}/weather"
+    noon = lambda w: next(p for p in w["series"] if p["timestamp"] == "2026-11-11 12:00:00")["irradiance_wm2"]
+    both = c.get(url, params={"day": "2026-11-11"}).json()
+    assert noon(both) == 700 and both["meta"]["sensor"] is None
+    one = c.get(url, params={"day": "2026-11-11", "sensor": "DLW2:1"}).json()
+    assert noon(one) == 800 and one["kpis"]["peak_irradiance_wm2"] == 800
+    assert one["meta"]["sensor"] == {"datalogger_sn": "DLW2", "address": 1}
+    assert len(one["sensors"]) == 2  # every sensor is still listed
+    first = c.get(url, params={"day": "2026-11-11", "sensor": f"{DL}:{ADDR}"}).json()
+    assert noon(first) == 600
+    assert c.get(url, params={"sensor": "NOPE:9"}).status_code == 404
+    assert c.get(url, params={"sensor": "bad value"}).status_code == 422
 
 
 def test_weather_route_without_sensor_and_unknown_plant(env):

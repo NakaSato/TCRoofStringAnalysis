@@ -324,6 +324,10 @@ def test_live_latest_route_overlays_newest_record_without_writing(client):
     assert a["timestamp"] == "2026-11-12 11:47:31" and a["pac_w"] == 6100
     assert [s["string_no"] for s in a["strings"]] == [1, 2]
     assert a["strings"][0]["current_a"] == 5.1
+    # only 2 strings: too few peers for a verdict, never a guessed status
+    chk = body["data"]["string_check"]
+    assert chk["inverters"][SN_A]["status"] == "too_few_strings"
+    assert chk["summary"]["unknown"] == 2 and chk["summary"]["warning"] == 0
 
     client.get(f"/api/growatt/live/plants/{PLANT}/latest")
     assert len(fake.calls) == 3  # second call served from memory

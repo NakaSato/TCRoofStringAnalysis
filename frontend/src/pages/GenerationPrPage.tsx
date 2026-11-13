@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import {
   TrendingUp,
   Zap,
@@ -23,6 +24,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export const GenerationPrPage: React.FC = () => {
   const { selectedPlantOverview, plantOverviewLoading } = useAppContext();
+  const { hash } = useLocation();
+  const hasOverview = Boolean(selectedPlantOverview);
+  // "#weather-station" (from the Plant Overview tile): scroll to the panel once it is rendered
+  useEffect(() => {
+    if (hash === "#weather-station" && hasOverview) document.getElementById("weather-station")?.scrollIntoView({ behavior: "smooth" });
+  }, [hash, hasOverview]);
 
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
@@ -280,12 +287,14 @@ export const GenerationPrPage: React.FC = () => {
 
       {/* Weather station: measured irradiance / temperatures behind the IEC PR (moved from Plant Overview) */}
       {plant && selectedPlantOverview && (
-        <WeatherStationPanel
-          plantId={plant.plant_id}
-          day={selectedPlantOverview.meta.day ?? null}
-          dataUntil={selectedPlantOverview.meta.data_until ?? null}
-          iecPr={selectedPlantOverview.weather?.iec_pr ?? null}
-        />
+        <div id="weather-station" className="scroll-mt-4">
+          <WeatherStationPanel
+            plantId={plant.plant_id}
+            day={selectedPlantOverview.meta.day ?? null}
+            dataUntil={selectedPlantOverview.meta.data_until ?? null}
+            iecPr={selectedPlantOverview.weather?.iec_pr ?? null}
+          />
+        </div>
       )}
 
       {/* Google Maps Weather (modelled): rain at 09/12/17, cloud cover, days since rain */}
