@@ -1,11 +1,11 @@
 /**
  * Plant Overview: one high-level card per detail tab (2 Performance Ratio, 3 Inverters,
- * 5 String Diagnostics), each linking to its tab. Everything comes from the plant overview
+ * 4 Sensors, 5 String Diagnostics), each linking to its tab. Everything comes from the plant overview
  * already loaded (stored history + the live overlay); a missing value shows as "—".
  */
 import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Activity, ArrowRight, Cpu, TrendingUp } from "lucide-react";
+import { Activity, ArrowRight, Cpu, Gauge, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { GrowattPlantOverview } from "../api/client";
 import { Led, fmt } from "./ui";
@@ -157,6 +157,40 @@ export const OverviewTabSummaries: React.FC<{
   const name = (i: { alias?: string | null; device_sn: string }) =>
     i.alias || i.device_sn;
 
+  /* ---- 4. Sensors (stored weather of the overview's day; live status is on the tab) ---- */
+  const wx = overview.weather;
+  const hasSensor = !!wx?.has_sensor;
+  const irrSpec = useMemo<PanelChartSpec | null>(() => {
+    const pts = timeseries.filter((r) => r.irradiance_wm2 !== undefined);
+    if (!hasSensor || !pts.some((r) => r.irradiance_wm2 != null)) return null;
+    return {
+      xKind: "time",
+      x: pts.map((r) => r.timestamp),
+      panels: [
+        {
+          key: "g",
+          title: "POA irradiance (W/m²)",
+          series: [
+            {
+              key: "g",
+              name: "POA irradiance",
+              type: "line",
+              area: true,
+              color: SERIES.irradiance,
+              y: pts.map((r) => r.irradiance_wm2 ?? null),
+              format: (v) => `${fmt(v, 0)} W/m²`,
+            },
+          ],
+        },
+      ],
+    };
+  }, [timeseries, hasSensor]);
+  const probes = useMemo(
+    () => new Set((wx?.sensors ?? []).flatMap((x) => x.measured)).size,
+    [wx],
+  );
+  const records = (wx?.sensors ?? []).reduce((a, x) => a + x.samples, 0);
+
   /* ---- 5. String Diagnostics ---- */
   const worst = useMemo(
     () =>
@@ -170,7 +204,7 @@ export const OverviewTabSummaries: React.FC<{
   const total = kpis.string_count || 0;
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-4">
       <Card
         to={plantHref("generation")}
         step={2}
@@ -270,6 +304,62 @@ export const OverviewTabSummaries: React.FC<{
             <Line label="Switched off in settings" value={inv.off} />
           )}
         </div>
+      </Card>
+
+      <Card to={plantHref("sensors")} step={4} icon={Gauge} title="Sensors">
+        {!hasSensor ? (
+          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-white/[0.08] px-4 py-8 text-center text-xs text-slate-500">
+            No weather sensor at this plant, so irradiance and IEC PR are not measured here.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              <Stat
+                label="Insolation"
+                value={fmt(wx?.kpis.insolation_kwh_m2, 2)}
+                unit="kWh/m²"
+              />
+              <Stat
+                label="Peak irr."
+                value={fmt(wx?.kpis.peak_irradiance_wm2, 0)}
+                unit="W/m²"
+              />
+              <Stat
+                label="Max module"
+                value={fmt(wx?.kpis.max_module_temp_c, 1)}
+                unit="°C"
+              />
+            </div>
+            <PanelChart
+              spec={irrSpec}
+              height={150}
+              emptyLabel="No irradiance stored for this day."
+            />
+            <div className="space-y-1.5">
+              <Line
+                label={
+                  wx && wx.sensors.length === 1
+                    ? `Sensor · ${wx.sensors[0].datalogger_sn}#${wx.sensors[0].address}`
+                    : "Sensors"
+                }
+                value={wx && wx.sensors.length === 1 ? `${probes} / 6 probes` : `${wx?.sensors.length ?? 0} · ${probes} / 6 probes`}
+              />
+              <Line
+                label="Newest stored reading"
+                value={wx?.data_until ? wx.data_until.slice(0, 16) : "—"}
+              />
+              <Line label="Stored records (day)" value={records || "—"} />
+              <Line
+                label="IEC PR coverage"
+                value={
+                  wx?.iec_pr.coverage_pct == null
+                    ? "—"
+                    : `${fmt(wx.iec_pr.coverage_pct, 0)} %`
+                }
+              />
+            </div>
+          </>
+        )}
       </Card>
 
       <Card to={plantHref("strings")} step={5} icon={Activity} title="String Diagnostics">

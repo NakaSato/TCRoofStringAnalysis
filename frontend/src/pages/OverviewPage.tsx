@@ -520,7 +520,7 @@ export const OverviewPage: React.FC = () => {
                 </Panel>
               </div>
 
-              {/* High-level view of tabs 2–4, each linking to its tab */}
+              {/* High-level view of tabs 2–5, each linking to its tab */}
               {selectedPlantOverview && <OverviewTabSummaries overview={selectedPlantOverview} />}
 
               {/* Fault log reported by Growatt (string diagnostics are on String Diagnostics) */}
