@@ -154,7 +154,9 @@ class FetchAPIDatasetRequest(BaseModel):
     http_method: str = "GET"
     headers: Dict[str, str] = Field(default_factory=dict)
     records_key: Optional[str] = "data"
-    simulate_if_unreachable: bool = True
+    # Off by default: an unreachable endpoint is an error unless the caller asks for the sandbox
+    # simulator, whose data is then stored as source_type "simulated".
+    simulate_if_unreachable: bool = False
 
 
 class AnalyzeDatasetRequest(BaseModel):

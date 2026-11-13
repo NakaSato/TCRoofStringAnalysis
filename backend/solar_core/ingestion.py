@@ -364,6 +364,12 @@ def load_from_uploaded_file(file_obj: Union[io.BytesIO, Any], filename: str) -> 
     return normalize_dataframe(df)
 
 
+class EndpointUnreachable(RuntimeError):
+    """The provider endpoint could not be reached or refused the request (network error,
+    timeout, HTTP error status). A response that arrived but cannot be parsed raises
+    ``ValueError`` instead, so callers can tell a dead endpoint from a misconfigured one."""
+
+
 class SolarAPIClient:
     """Client for fetching PV string telemetry from Huawei FusionSolar, Sungrow, SolarEdge, or Generic REST API."""
 
@@ -377,7 +383,6 @@ class SolarAPIClient:
         dev_id: str,
         start_time_ms: int,
         end_time_ms: int,
-        simulate_if_unreachable: bool = False,
     ) -> pd.DataFrame:
         """Fetch string KPI history from Huawei FusionSolar Northbound API (`getDevHistoryKpi`).
 
@@ -398,14 +403,9 @@ class SolarAPIClient:
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
             resp.raise_for_status()
-            body = resp.json()
-            return self.parse_huawei_response(body, inverter_id=dev_id)
-        except Exception as exc:
-            if simulate_if_unreachable:
-                return self.parse_huawei_response(
-                    self.build_mock_huawei_payload(dev_id=dev_id), inverter_id=dev_id
-                )
-            raise RuntimeError(f"Huawei FusionSolar API request failed: {exc}") from exc
+        except requests.RequestException as exc:
+            raise EndpointUnreachable(f"Huawei FusionSolar API request failed: {exc}") from exc
+        return self.parse_huawei_response(resp.json(), inverter_id=dev_id)
 
     @staticmethod
     def parse_huawei_response(body: Dict[str, Any], inverter_id: str = "INV-01") -> pd.DataFrame:
@@ -458,7 +458,6 @@ class SolarAPIClient:
         ps_key: str,
         start_time_str: str,
         end_time_str: str,
-        simulate_if_unreachable: bool = False,
     ) -> pd.DataFrame:
         """Fetch string minute data from Sungrow iSolarCloud OpenAPI."""
         url = f"{base_url.rstrip('/')}/openapi/getDevicePointMinuteDataList"
@@ -473,15 +472,10 @@ class SolarAPIClient:
         try:
             resp = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
             resp.raise_for_status()
-            body = resp.json()
-            result_data = body.get("result_data", {}).get(ps_key, [])
-            wide_df = pd.DataFrame(result_data)
-            return normalize_dataframe(wide_df)
-        except Exception as exc:
-            if simulate_if_unreachable:
-                sim_df, _ = generate_simulated_string_data(days=5, num_strings=8)
-                return sim_df
-            raise RuntimeError(f"Sungrow iSolarCloud API request failed: {exc}") from exc
+        except requests.RequestException as exc:
+            raise EndpointUnreachable(f"Sungrow iSolarCloud API request failed: {exc}") from exc
+        result_data = resp.json().get("result_data", {}).get(ps_key, [])
+        return normalize_dataframe(pd.DataFrame(result_data))
 
     def fetch_generic_rest(
         self,
@@ -493,15 +487,18 @@ class SolarAPIClient:
         records_key: Optional[str] = None,
     ) -> pd.DataFrame:
         """Fetch string data from any generic REST API endpoint returning JSON records."""
-        resp = requests.request(
-            method=method.upper(),
-            url=endpoint_url,
-            headers=headers or {},
-            params=params,
-            json=json_body,
-            timeout=self.timeout,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.request(
+                method=method.upper(),
+                url=endpoint_url,
+                headers=headers or {},
+                params=params,
+                json=json_body,
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise EndpointUnreachable(f"Generic REST API request failed: {exc}") from exc
         payload = resp.json()
 
         if isinstance(payload, dict):

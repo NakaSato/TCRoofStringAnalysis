@@ -48,6 +48,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 **Ingestion**:
 - Every source must end up as the long-format columns in `solar_core.models.CANONICAL_COLUMNS`. `normalize_dataframe()` also accepts wide SCADA input (`PV1_U` / `pv1_u` …).
 - `POST /plants/{id}/datasets/{upload|fetch|simulate}` → `store_dataset_from_dataframe` → `execute_and_store_analysis`.
+- `fetch` with `simulate_if_unreachable` (default false): only when the provider endpoint can't be reached (`solar_core.ingestion.EndpointUnreachable`) does the route store simulator data instead, as `source_type = "simulated"` labelled "Sandbox simulator (… unreachable)", never under the provider's name. A response that arrives but can't be parsed stays a 400.
 
 ## Growatt data rules
 

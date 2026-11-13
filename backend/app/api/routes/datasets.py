@@ -25,6 +25,7 @@ from app.services.solar_service import (
     store_dataset_from_dataframe,
 )
 from solar_core.ingestion import (
+    EndpointUnreachable,
     SolarAPIClient,
     generate_simulated_string_data,
     load_from_uploaded_file,
@@ -113,6 +114,14 @@ async def upload_dataset(
     return out
 
 
+def _sandbox_fallback(client: SolarAPIClient, prov: str, dev_id: str):
+    """Simulated stand-in for an unreachable provider (Huawei goes through its real parser)."""
+    if "huawei" in prov:
+        return client.parse_huawei_response(client.build_mock_huawei_payload(dev_id=dev_id), inverter_id=dev_id)
+    df, _ = generate_simulated_string_data(days=5, num_strings=8)
+    return df
+
+
 @router.post(
     "/plants/{plant_id}/datasets/fetch",
     response_model=DatasetDetailOut,
@@ -130,6 +139,12 @@ def fetch_dataset_from_api(
 
     client = SolarAPIClient()
     prov = payload.provider.lower()
+    if "huawei" in prov:
+        label, src_type = f"Huawei FusionSolar API ({payload.dev_id})", "huawei_api"
+    elif "sungrow" in prov:
+        label, src_type = f"Sungrow iSolarCloud API ({payload.ps_key})", "sungrow_api"
+    else:
+        label, src_type = f"Generic REST API ({payload.base_url})", "generic_rest"
     try:
         if "huawei" in prov:
             end_ms = int(datetime.now().timestamp() * 1000)
@@ -140,10 +155,7 @@ def fetch_dataset_from_api(
                 dev_id=payload.dev_id,
                 start_time_ms=start_ms,
                 end_time_ms=end_ms,
-                simulate_if_unreachable=payload.simulate_if_unreachable,
             )
-            label = f"Huawei FusionSolar API ({payload.dev_id})"
-            src_type = "huawei_api"
         elif "sungrow" in prov:
             df = client.fetch_sungrow_isolarcloud(
                 base_url=payload.base_url,
@@ -152,10 +164,7 @@ def fetch_dataset_from_api(
                 ps_key=payload.ps_key,
                 start_time_str=payload.start_time_str,
                 end_time_str=payload.end_time_str,
-                simulate_if_unreachable=payload.simulate_if_unreachable,
             )
-            label = f"Sungrow iSolarCloud API ({payload.ps_key})"
-            src_type = "sungrow_api"
         else:
             df = client.fetch_generic_rest(
                 endpoint_url=payload.base_url,
@@ -163,8 +172,15 @@ def fetch_dataset_from_api(
                 headers=payload.headers,
                 records_key=payload.records_key,
             )
-            label = f"Generic REST API ({payload.base_url})"
-            src_type = "generic_rest"
+    except EndpointUnreachable as exc:
+        if not payload.simulate_if_unreachable:
+            raise HTTPException(status_code=400, detail=f"API fetch failed: {exc}") from exc
+        # Sandbox fallback: simulated data, stored and labelled as simulated, never under the
+        # provider's name. Only an unreachable endpoint falls back; a response that arrived but
+        # cannot be parsed is a configuration error and stays a 400 below.
+        df = _sandbox_fallback(client, prov, payload.dev_id)
+        label = f"Sandbox simulator ({label} unreachable)"
+        src_type = "simulated"
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"API fetch failed: {exc}") from exc
 
