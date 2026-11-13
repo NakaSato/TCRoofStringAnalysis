@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     publish_daily_write_budget: int = 15000  # stop before the Spark plan's 20k writes/day
     publish_sink: str = "json"  # json (data/firestore_export) | firestore
     worker_history_interval_min: int = 30
+    # Growatt alarm log (`alarm_data`, one call per inverter) → SQL, so the Active Alarm page
+    # reads the whole fleet from the DB. Today is re-read on this interval between
+    # WORKER_ALARMS_START_H and _END_H (plant-local); `alarms_yesterday` closes the day at 00:30.
+    worker_alarms_interval_min: int = 30
+    worker_alarms_start_h: int = 5
+    worker_alarms_end_h: int = 21
     # Sync the Growatt accounts (one per phase) in parallel threads. Growatt rate-limits per
     # token, so this cuts a fleet pass ~3x; set false if Growatt starts limiting per IP.
     worker_parallel_accounts: bool = True

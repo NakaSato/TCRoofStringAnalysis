@@ -16,6 +16,9 @@ Schedule (plant-local time, Asia/Bangkok):
     retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
     google_weather     18:15   Google Maps Weather: previous 24 h hourly (incl. 17:00), one call per
                                plant cell; then re-publishes yesterday's daily docs
+    alarms             every WORKER_ALARMS_INTERVAL_MIN (30) min, WORKER_ALARMS_START_H..END_H (05–21)
+                               today's alarm_data per inverter → SQL (Active Alarm page)
+    alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
 Runs queued from the API (`POST /growatt/sync/{job}`) start on the next tick (≤ 1 min).
 Daily jobs only fire within `GRACE` after their slot, so a worker started at noon does not
 publish a half day. Exception: `fleet` also runs at once when the inverter registry is empty
@@ -32,7 +35,7 @@ import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime, time as dtime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 
@@ -54,10 +57,16 @@ class Schedule:
     job: str
     every: Optional[timedelta] = None
     at: Optional[dtime] = None
+    # `every` jobs only: plant-local hours [start, end) the job may start in
+    between: Optional[Tuple[int, int]] = None
 
     def is_due(self, now: datetime, last: Optional[datetime]) -> bool:
         """`now` and `last` are timezone-aware."""
         if self.every is not None:
+            if self.between is not None:
+                h = now.astimezone(jobs.PLANT_TZ).hour
+                if not (self.between[0] <= h < self.between[1]):
+                    return False
             return last is None or now - last >= self.every
         assert self.at is not None
         local = now.astimezone(jobs.PLANT_TZ)
@@ -77,6 +86,12 @@ def default_schedule() -> List[Schedule]:
         Schedule("publish_today", at=dtime(19, 30)),
         Schedule("retention", at=dtime(3, 0)),
         Schedule("google_weather", at=dtime(18, 15)),
+        Schedule(
+            "alarms",
+            every=timedelta(minutes=settings.worker_alarms_interval_min),
+            between=(settings.worker_alarms_start_h, settings.worker_alarms_end_h),
+        ),
+        Schedule("alarms_yesterday", at=dtime(0, 30)),
     ]
 
 

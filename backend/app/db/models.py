@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, List, Optional
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -423,6 +424,46 @@ class GrowattEnvReading(Base):
     humidity_pct: Mapped[Optional[float]] = mapped_column(Float)
     wind_speed_ms: Mapped[Optional[float]] = mapped_column(Float)
     wind_dir_deg: Mapped[Optional[float]] = mapped_column(Float)
+
+
+class GrowattAlarm(Base):
+    """Alarm / fault record from `device/max/alarm_data` (one inverter-day per call), synced by the
+    worker's `alarms` jobs.
+
+    Source-timestamped history (Growatt's own start/end times, plant-local, naive), not a
+    realtime value. The rows of one inverter-day are replaced as a whole on each successful read,
+    so an alarm's `end_time` appears once Growatt closes it. `day` is the plant-local day queried.
+    """
+
+    __tablename__ = "growatt_alarms"
+    __table_args__ = (Index("ix_growatt_alarms_day_plant", "day", "plant_id"), Index("ix_growatt_alarms_sn_day", "device_sn", "day"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_sn: Mapped[str] = mapped_column(String(64), nullable=False)
+    plant_id: Mapped[int] = mapped_column(Integer, ForeignKey("growatt_plants.plant_id", ondelete="CASCADE"), nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    start_time: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime)  # null = still open (as Growatt reports it)
+    alarm_code: Mapped[Optional[str]] = mapped_column(String(32))
+    alarm_message: Mapped[Optional[str]] = mapped_column(String(255))
+    fault_type: Mapped[Optional[str]] = mapped_column(String(32))  # "Warning" / "Fault" …
+    status: Mapped[Optional[int]] = mapped_column(Integer)
+
+
+class GrowattAlarmSync(Base):
+    """When each inverter's alarm log for a plant-local day was last read successfully (UTC).
+
+    No row = never read: the UI shows that inverter-day as not synced, never as "no alarms".
+    """
+
+    __tablename__ = "growatt_alarm_syncs"
+    __table_args__ = (Index("ix_growatt_alarm_syncs_day", "day"),)
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, ForeignKey("growatt_plants.plant_id", ondelete="CASCADE"), nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    alarm_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class GrowattStringLayout(Base):

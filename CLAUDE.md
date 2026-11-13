@@ -25,8 +25,9 @@ Seeded logins (username / password): `admin` / `admin123`, `engineer` / `enginee
 ```
 Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /growatt/live/* ─► UI polls when refresh_in_s says
                  │              (never stored anywhere)
-                 └─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
-                                                                         └─► daily summaries ─► Firestore
+                 ├─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
+                 │                                                       └─► daily summaries ─► Firestore
+                 └─ alarm_data log ─► growatt-worker (every 30 min, 05–21; yesterday at 00:30) ─► SQL ─► /growatt/alarms (Active Alarm)
 Google Maps Weather ─┬─ current ─► backend memory cache (30 min per cell) ─► /growatt/live/plants/{id}/google-weather
   (modelled)         └─ history/hours ─► growatt-worker (18:15 daily) ─► SQL ─► daily summaries (rain at 09/12/17) ─► Firestore
 ```
@@ -58,6 +59,7 @@ Rules for every layer:
 - `PUBLISH_DAILY_WRITE_BUDGET`
 - `WORKER_HISTORY_INTERVAL_MIN`
 - `HISTORY_RETENTION_DAYS` (90)
+- `WORKER_ALARMS_INTERVAL_MIN` (30), `WORKER_ALARMS_START_H` / `_END_H` (5 / 21): alarm log sync window
 - `APP_ENV` (`dev` | `prod`), `ADMIN_USERNAME`, `ADMIN_PASSWORD`
 - `GOOGLE_WEATHER_API_KEY` (Secret Manager `tcroof-google-weather-key`), `GOOGLE_WEATHER_MONTHLY_BUDGET` (10000): Google Maps Weather uses its whole free tier; each day gets what is left of the month ÷ days left. `GOOGLE_WEATHER_DAY_START_H` / `_END_H` (6 / 18): daytime-only hours stored and fetched live
 

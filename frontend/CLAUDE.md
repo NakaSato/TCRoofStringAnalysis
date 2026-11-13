@@ -51,6 +51,7 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
 
 - **What the overlay changes.** `selectedPlantOverview` is the DB overview with the latest live record applied. Only "current" fields change: `kpis.current_power_kw`, `inverters[].current_ac_kw`, `mppt_latest`, `live_at`, and `strings[].live_voltage_v`/`live_current_a`/`live_power_w`. Daily aggregates always come from the DB.
 - **Polling** stops while `document.hidden`. Live values are never stored, in the browser or anywhere else.
+- **Fleet alarm log** (Active Alarm page): one DB request, `api.getFleetAlarms(day)` (`/growatt/alarms`), for every plant the user can see; the worker syncs Growatt's alarm log into SQL. `context/alarmLogStore.ts` keeps each day's answer in tab memory (not localStorage) so revisits show it at once, and re-reads it in the background (today every 2 min, past days every 30 min) only while the page is visible. Cleared on logout. `plants[].synced_inverters` / `synced_at` give per-plant coverage: show an unsynced plant as "not synced yet", never as "no alarms". The per-plant "Growatt Fault Log" panel still uses the live endpoint.
 - **Show freshness:** "Live · hh:mm" when live data is fresh, "Last sync" when it's stale or unavailable.
 - **Many numeric fields are `number | null`.**
   - Render them with `fmt()`.

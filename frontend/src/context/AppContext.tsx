@@ -15,6 +15,7 @@ import {
   clearAuthSession,
   AUTH_EXPIRED_EVENT,
 } from "../api/client";
+import { clearAlarmLogs } from "./alarmLogStore";
 import { useLivePoll } from "./useLivePoll";
 
 interface AppContextValue {
@@ -460,6 +461,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logout = () => {
     clearAuthSession();
+    clearAlarmLogs(); // the next user may see other plants
     setUser(null);
   };
 
