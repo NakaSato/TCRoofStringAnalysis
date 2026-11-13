@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     google_weather_base_url: str = "https://weather.googleapis.com/v1/"
     google_weather_cell_deg: float = 0.01  # ~1 km; 234 plants -> ~227 lookup points
     google_weather_monthly_budget: int = 10000  # = the free tier; lower it if the key is used elsewhere too
+    # Google's own per-day quota "History Hours Usage per day" counts hours returned, not calls: it
+    # refused calls after 174 cells x 24 h = 4,176 h. Kept a little below it.
+    google_weather_history_hours_per_day: int = 4000
     # Shared key for the PWA Report sheet (Apps Script) on GET /report/pwa/{day} (header X-Report-Key).
     # Empty = route disabled. Prod: Secret Manager `tcroof-report-key`.
     report_api_key: str = ""

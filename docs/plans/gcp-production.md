@@ -1,6 +1,8 @@
 # Plan & Spec: GCP production sizing and the ฿3,013/month cost cap
 
-Status: **Draft** · Created 2026-11-13 · Owner: Chanthawat
+Status: **Test month from 2026-11-13** (scenario A: API always on, hard stop at 96 %) · Created 2026-11-13 · Owner: Chanthawat
+
+Settings: `deploy/gcp.config` (sourced by `deploy/gcp.sh`).
 
 Move production from the free-tier setup (< $10/month) to the sized setup in the cost table below.
 Total spend must stay **at or under ฿3,013/month** (≈ $88.63). The billing account bills in **THB**.
@@ -92,7 +94,7 @@ maintenance_work_mem=512MB  max_connections=60  random_page_cost=1.1
 | Alert | How | Fires when |
 |---|---|---|
 | System down | uptime check `https://<domain>/api/health`, every 5 min from 3 regions | 2 failed checks in a row |
-| Data sync failing | uptime check on a new open endpoint `/api/health/worker`: 200 while the last `history` run that ended `ok`/`partial` finished less than 75 min ago, else 503. It returns only `{ok, last_history_at}`, no plant data. | 503 for 10 min |
+| Data sync failing | uptime check on a new open endpoint `/api/health/worker`: 200 while the last `history` run that ended `ok`/`partial` finished less than 120 min ago (a run takes up to ~1 h), else 503. It returns only `{ok, last_history_at}`, no plant data. | 503 for 10 min |
 | Disk almost full | Ops Agent on the VM, `disk/percent_used` for `/` | > 85 % |
 | Budget | §4 | 50 / 90 / 100 % |
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from fastapi import APIRouter, Depends, FastAPI
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -22,7 +24,8 @@ from app.api.routes import (
 from app.auth import get_current_user, require_admin
 from app.config import settings
 from app.db.seed import ensure_seeded
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, get_db
+from app.services import jobs
 
 
 @asynccontextmanager
@@ -74,6 +77,17 @@ def create_app() -> FastAPI:
     @app.get("/api/health", tags=["Health"])
     def health_check():
         return {"status": "ok", "service": settings.app_name, "version": settings.app_version}
+
+    # Open like /health: the uptime check behind the "data sync failing" alert. 503 when the
+    # worker has not finished a `history` run lately, or the database can't be reached.
+    @app.get("/health/worker", tags=["Health"])
+    @app.get("/api/health/worker", tags=["Health"])
+    def worker_health_check(db: Session = Depends(get_db)):
+        try:
+            body = jobs.worker_health(db)
+        except Exception:  # noqa: BLE001 - DB down is exactly what this check reports
+            return JSONResponse({"ok": False, "last_history_at": None, "error": "database unavailable"}, status_code=503)
+        return JSONResponse(body, status_code=200 if body["ok"] else 503)
 
     return app
 

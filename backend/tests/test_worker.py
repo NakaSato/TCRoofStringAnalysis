@@ -360,3 +360,23 @@ def test_prune_history_deletes_only_readings_older_than_keep_days(factory):
     assert left == left_str == [datetime(2026, 8, 14, 0, 0), datetime(2026, 11, 12, 9)]
     with factory() as db:
         assert prune_history(db, today, 90)["inverter_rows"] == 0  # idempotent
+
+
+def test_worker_health_needs_a_recent_finished_history_run(api, factory):
+    assert api.get("/api/health/worker").status_code == 503  # no run yet
+
+    now = datetime.now(timezone.utc)
+    with factory() as db:
+        db.add(SyncRun(job="history", status="ok", started_at=now - timedelta(minutes=50), finished_at=now - timedelta(minutes=10)))
+        db.add(SyncRun(job="history", status="running", started_at=now - timedelta(minutes=5)))
+        db.commit()
+    r = api.get("/api/health/worker")  # open: no token
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert set(r.json()) == {"ok", "last_history_at"}  # times only, no plant data
+
+    with factory() as db:
+        assert jobs.worker_health(db, now=now + jobs.WORKER_STALE_AFTER)["ok"] is False
+        db.add(SyncRun(job="history", status="failed", started_at=now, finished_at=now + timedelta(minutes=1)))
+        db.commit()
+        # a failed run doesn't count as a sync
+        assert jobs.worker_health(db, now=now + jobs.WORKER_STALE_AFTER)["ok"] is False

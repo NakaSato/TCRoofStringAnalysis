@@ -1,4 +1,4 @@
-# Runs on the e2-micro VM (/opt/tcroof): Postgres + the single Growatt worker.
+# Runs on the VM tcroof-db (/opt/tcroof): Postgres + the single Growatt worker.
 # The API runs on Cloud Run and reaches Postgres over the VPC (VM internal IP:5432).
 # Port 5432 is only open to the internal VPC range (GCP firewall), never the internet.
 services:
@@ -8,10 +8,12 @@ services:
       POSTGRES_USER: solar
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: tc_roof_solar
-    # Tuned for 1 GB RAM shared with the worker.
+    # Memory settings come from .env, sized by deploy/gcp.sh for the VM's machine type
+    # (defaults: an e2-micro, 1 GB RAM shared with the worker).
     command: >
-      postgres -c shared_buffers=128MB -c effective_cache_size=384MB
-               -c work_mem=4MB -c maintenance_work_mem=64MB -c max_connections=40
+      postgres -c shared_buffers=${PG_SHARED_BUFFERS:-128MB} -c effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-384MB}
+               -c work_mem=${PG_WORK_MEM:-4MB} -c maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-64MB}
+               -c max_connections=${PG_MAX_CONNECTIONS:-60} -c random_page_cost=1.1
     ports:
       - "5432:5432"
     volumes:

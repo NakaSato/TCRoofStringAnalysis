@@ -393,6 +393,23 @@ def last_started(db: Session, job: str) -> Optional[datetime]:
     return _aware(run.started_at) if run else None
 
 
+WORKER_STALE_AFTER = timedelta(minutes=120)  # a `history` run takes up to ~1 h; one starts every 30 min
+
+
+def worker_health(db: Session, now: Optional[datetime] = None) -> Dict[str, Any]:
+    """For the uptime check behind the "data sync failing" alert: ok while a `history` run ended
+    ok / partial within WORKER_STALE_AFTER. Only times, no plant data (the route is open)."""
+    now = _utc(now)
+    run = db.scalars(
+        select(SyncRun)
+        .where(SyncRun.job == "history", SyncRun.status.in_(("ok", "partial")), SyncRun.finished_at.is_not(None))
+        .order_by(SyncRun.finished_at.desc())
+        .limit(1)
+    ).first()
+    last = _aware(run.finished_at) if run and run.finished_at else None
+    return {"ok": last is not None and now - last < WORKER_STALE_AFTER, "last_history_at": last.isoformat() if last else None}
+
+
 def run_out(run: SyncRun) -> Dict[str, Any]:
     return {
         "id": run.id,
