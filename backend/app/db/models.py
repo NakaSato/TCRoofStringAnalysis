@@ -353,6 +353,8 @@ class GrowattInverterReading(Base):
     """Inverter-level 5-minute record from `device/max/max_data` (timestamp is plant-local time)."""
 
     __tablename__ = "growatt_inverter_readings"
+    # fleet-wide time filters (newest record, one day's energy) would otherwise scan the table
+    __table_args__ = (Index("ix_growatt_inv_ts", "timestamp"),)
 
     device_sn: Mapped[str] = mapped_column(String(64), ForeignKey("growatt_inverters.device_sn", ondelete="CASCADE"), primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)

@@ -301,7 +301,7 @@ def list_growatt_plants(
     `current_power_w` / `status` are the last values written by the sync job (see `synced_at`);
     use `/growatt/live/plants` for realtime values.
     """
-    return ov.list_plants_summary(db, plant_ids=allowed_plant_ids(db, user))
+    return ov.list_plants_summary_shared(db, plant_ids=allowed_plant_ids(db, user))
 
 
 @router.get("/plants/{plant_id}/inverters")

@@ -54,3 +54,77 @@ def test_list_and_overview_reject_impossible_capacity(tmp_path):
     ov = build_plant_overview(db, 1)
     assert ov["kpis"]["capacity_kwp"] is None
     assert ov["plant"]["reported_peak_power_kwp"] == 140_220.0
+
+
+def test_plant_list_is_computed_once_for_concurrent_callers(monkeypatch):
+    import threading
+    import time
+
+    from app.services import growatt_overview as ov
+
+    calls: list = []
+    rows = [{"plant_id": 1}, {"plant_id": 2}]
+
+    def slow(db, plant_ids=None):
+        calls.append(plant_ids)
+        time.sleep(0.3)
+        return rows
+
+    class _Db:
+        bind = object()
+        rolled_back = 0
+
+        def get_bind(self):
+            return _Db.bind
+
+        def rollback(self):
+            _Db.rolled_back += 1
+
+    monkeypatch.setattr(ov, "list_plants_summary", slow)
+    out: dict = {}
+
+    def call(name, ids):
+        out[name] = ov.list_plants_summary_shared(_Db(), ids)
+
+    threads = [threading.Thread(target=call, args=(n, ids)) for n, ids in (("all", None), ("eng", {2}), ("all2", None))]
+    threads[0].start()
+    time.sleep(0.05)  # the first caller leads; the others arrive while it runs
+    for t in threads[1:]:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert calls == [None]  # one computation, for every plant
+    assert out["all"] == rows and out["all2"] == rows and out["eng"] == [{"plant_id": 2}]
+    assert _Db.rolled_back == 2  # waiters released their connection
+    assert ov.list_plants_summary_shared(_Db(), set()) == []
+
+    # finished: the next caller computes again (nothing cached)
+    ov.list_plants_summary_shared(_Db(), None)
+    assert calls == [None, None]
+
+
+def test_newest_string_ts_per_inverter_and_input(tmp_path):
+    from datetime import datetime
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.db.models import Base, GrowattInverter, GrowattPlant, GrowattStringReading as S
+    from app.services.growatt_overview import newest_string_ts
+
+    eng = create_engine(f"sqlite:///{tmp_path / 't.db'}")
+    Base.metadata.create_all(eng)
+    t = lambda h: datetime(2026, 11, 13, h, 0)
+    with Session(eng) as db:
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.add_all([GrowattInverter(device_sn=sn, plant_id=1) for sn in ("A", "B", "C")])
+        db.flush()
+        row = lambda sn, h, no: S(device_sn=sn, timestamp=t(h), string_no=no, mppt_no=1, voltage_v=600, current_a=9, power_w=5400)
+        db.add_all([row("A", 9, 1), row("A", 10, 2), row("B", 12, 1)])
+        db.commit()
+        assert newest_string_ts(db, ["A", "B", "C"]) == t(12)
+        assert newest_string_ts(db, ["A"]) == t(10)
+        assert newest_string_ts(db, ["A"], string_no=1) == t(9)
+        assert newest_string_ts(db, ["C"]) is None  # no rows: None, not an error
+        assert newest_string_ts(db, []) is None

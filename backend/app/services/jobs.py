@@ -323,6 +323,10 @@ def execute(session_factory: sessionmaker, run_id: int) -> SyncRun:
     with session_factory() as db:
         run = db.get(SyncRun, run_id)
         assert run is not None
+        # end the read transaction now: held through a long job, its snapshot keeps Postgres
+        # from finishing CREATE INDEX CONCURRENTLY and VACUUM (seen in prod: 68 min "idle in
+        # transaction" during a history run)
+        db.commit()
         try:
             status, detail = JOBS[run.job](db)
             run.status, run.detail_json = status, _jsonable(detail)

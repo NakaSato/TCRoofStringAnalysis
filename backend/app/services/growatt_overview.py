@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import statistics
+import threading
 import time as _time
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -234,41 +235,40 @@ def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> Li
         )
     }
 
-    latest = db.scalar(select(func.max(R.timestamp)))
+    # Per-inverter "newest record" lookups ride the (device_sn, timestamp) primary key: one short
+    # index scan per inverter, instead of grouping the whole readings table on every request.
+    inv = GrowattInverter
+    inv_q = select(inv.plant_id, inv.device_sn)
+    if plant_ids is not None:
+        inv_q = inv_q.where(inv.plant_id.in_(plant_ids))
+
+    def newest(col, *where):
+        return (
+            select(col)
+            .where(R.device_sn == inv.device_sn, col.is_not(None), *where)
+            .order_by(R.timestamp.desc())
+            .limit(1)
+            .correlate(inv)
+            .scalar_subquery()
+        )
+
+    def per_plant(value) -> Dict[int, float]:
+        out: Dict[int, float] = {}
+        for pid, _sn, v in db.execute(inv_q.add_columns(value)):
+            if v is not None:
+                out[int(pid)] = out.get(int(pid), 0.0) + float(v)
+        return out
+
+    latest = db.scalar(select(func.max(R.timestamp)))  # ix_growatt_inv_ts
     energy_date = latest.date() if latest else None
     day_energy: Dict[int, float] = {}
     if energy_date:
         start, end = _day_bounds(energy_date)
         # eac_today of each inverter's last record that day (see overview for why not MAX()).
-        last_ts = (
-            select(R.device_sn, func.max(R.timestamp).label("ts"))
-            .where(R.timestamp >= start, R.timestamp < end, R.eac_today_kwh.is_not(None))
-            .group_by(R.device_sn)
-        ).subquery()
-        for pid, kwh in db.execute(
-            select(GrowattInverter.plant_id, func.sum(R.eac_today_kwh))
-            .join(last_ts, (R.device_sn == last_ts.c.device_sn) & (R.timestamp == last_ts.c.ts))
-            .join(GrowattInverter, GrowattInverter.device_sn == R.device_sn)
-            .group_by(GrowattInverter.plant_id)
-        ):
-            if kwh is not None:
-                day_energy[int(pid)] = float(kwh)
+        day_energy = per_plant(newest(R.eac_today_kwh, R.timestamp >= start, R.timestamp < end))
 
     # Lifetime energy: each inverter's newest stored eac_total counter, summed per plant.
-    last_total_ts = (
-        select(R.device_sn, func.max(R.timestamp).label("ts"))
-        .where(R.eac_total_kwh.is_not(None))
-        .group_by(R.device_sn)
-    ).subquery()
-    lifetime: Dict[int, float] = {}
-    for pid, kwh in db.execute(
-        select(GrowattInverter.plant_id, func.sum(R.eac_total_kwh))
-        .join(last_total_ts, (R.device_sn == last_total_ts.c.device_sn) & (R.timestamp == last_total_ts.c.ts))
-        .join(GrowattInverter, GrowattInverter.device_sn == R.device_sn)
-        .group_by(GrowattInverter.plant_id)
-    ):
-        if kwh is not None:
-            lifetime[int(pid)] = float(kwh)
+    lifetime = per_plant(newest(R.eac_total_kwh))
 
     return [
         {
@@ -297,6 +297,43 @@ def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> Li
         }
         for p in db_plants
     ]
+
+
+# One computation of the full plant list at a time per database: concurrent page loads wait for
+# it instead of each running the same queries (on the e2-micro, ten parallel copies of this
+# exhausted the API's connection pool). Nothing is cached once the computation has finished.
+_summary_lock = threading.Lock()
+_summary_inflight: Dict[int, Dict[str, Any]] = {}
+SUMMARY_WAIT_S = 120.0
+
+
+def list_plants_summary_shared(db: Session, plant_ids: Optional[Set[int]] = None) -> List[Dict[str, Any]]:
+    """`list_plants_summary` for every plant, shared by concurrent callers, then narrowed to
+    `plant_ids` (None = all). A waiting caller first ends its transaction, so it does not hold a
+    pooled connection while it waits."""
+    if plant_ids is not None and not plant_ids:
+        return []
+    key = id(db.get_bind())
+    with _summary_lock:
+        entry = _summary_inflight.get(key)
+        leader = entry is None
+        if leader:
+            entry = _summary_inflight[key] = {"done": threading.Event(), "rows": None}
+    assert entry is not None
+    if leader:
+        try:
+            entry["rows"] = list_plants_summary(db, None)
+        finally:
+            with _summary_lock:
+                _summary_inflight.pop(key, None)
+            entry["done"].set()
+        rows = entry["rows"]
+    else:
+        db.rollback()  # read-only so far: give the connection back while waiting
+        rows = entry["rows"] if entry["done"].wait(SUMMARY_WAIT_S) else None
+        if rows is None:  # the shared run failed or took too long: compute our own
+            rows = list_plants_summary(db, None)
+    return rows if plant_ids is None else [p for p in rows if p["plant_id"] in plant_ids]
 
 
 def list_inverters(db: Session, plant_id: int) -> List[Dict[str, Any]]:
@@ -331,6 +368,24 @@ WIRED_CACHE_S = 6 * 3600
 _wired_cache: Dict[Tuple[str, ...], Tuple[float, Dict[str, Set[int]]]] = {}
 
 
+def newest_string_ts(db: Session, sns: Sequence[str], string_no: Optional[int] = None) -> Optional[datetime]:
+    """Newest stored string record of these inverters (optionally one input), or None.
+
+    One lookup per inverter in primary-key order (device_sn, timestamp, …), so each is a short
+    backward index read. `max(timestamp) WHERE device_sn IN (…)` lets Postgres walk the
+    timestamp index instead, which for an inverter without recent string rows reads most of the
+    (GB-sized) table: minutes per call on the production VM."""
+    best: Optional[datetime] = None
+    for sn in dict.fromkeys(sns):
+        q = select(S.timestamp).where(S.device_sn == sn)
+        if string_no is not None:
+            q = q.where(S.string_no == string_no)
+        ts = db.scalar(q.order_by(S.device_sn.desc(), S.timestamp.desc()).limit(1))
+        if ts is not None and (best is None or ts > best):
+            best = ts
+    return best
+
+
 def wired_inputs(db: Session, sns: Sequence[str]) -> Dict[str, Set[int]]:
     """String inputs known to be connected, per inverter: String Layout rows plus inputs that
     carried current in the last `WIRED_LOOKBACK`. Wiring changes rarely, so the answer is kept
@@ -343,7 +398,7 @@ def wired_inputs(db: Session, sns: Sequence[str]) -> Dict[str, Set[int]]:
     out: Dict[str, Set[int]] = {}
     for sn, sno in load_layout(db, sns, fleet_wp=False):
         out.setdefault(sn, set()).add(sno)
-    latest = db.scalar(select(func.max(S.timestamp)).where(S.device_sn.in_(list(sns)))) if sns else None
+    latest = newest_string_ts(db, sns)
     if latest is not None:
         for sn, sno in db.execute(
             select(S.device_sn, S.string_no)
@@ -367,7 +422,7 @@ def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
     sns = [inv.device_sn for inv in invs]
     layout = load_layout(db, sns, fleet_wp=False)
     seen: Dict[Tuple[str, int], int] = {}
-    latest = db.scalar(select(func.max(S.timestamp)).where(S.device_sn.in_(sns))) if sns else None
+    latest = newest_string_ts(db, sns)
     if latest is not None:
         for sn, sno, mppt in db.execute(
             select(S.device_sn, S.string_no, func.max(S.mppt_no))
@@ -1000,9 +1055,7 @@ def build_string_detail(
     plant = _get_plant(db, plant_id)
 
     if day is None:
-        latest = db.scalar(
-            select(func.max(S.timestamp)).where(S.device_sn == device_sn, S.string_no == string_no)
-        )
+        latest = newest_string_ts(db, [device_sn], string_no)
         day = latest.date() if latest else None
     if day is None:
         raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no}")
