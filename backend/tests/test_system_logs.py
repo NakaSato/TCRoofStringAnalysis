@@ -207,6 +207,30 @@ def test_unhandled_exception_is_logged_with_traceback_and_request_id(env):
     assert "RuntimeError: kaboom" in (row.exc_text or "") and row.request_id
 
 
+def test_slow_live_route_is_info_other_slow_route_is_warning(env, monkeypatch):
+    f, _ = env
+    app = create_app()
+    r = APIRouter()
+
+    @r.get("/growatt/live/slowpoke")
+    def slow_live():
+        return {}
+
+    @r.get("/slowpoke")
+    def slow_db():
+        return {}
+
+    app.include_router(r, prefix="/api")
+    monkeypatch.setattr(settings, "log_slow_request_ms", -1)  # every request counts as slow
+    c = TestClient(app)
+    assert c.get("/api/growatt/live/slowpoke").status_code == 200
+    assert c.get("/api/slowpoke").status_code == 200
+    rows = {r.message.split(" slow:")[0]: r for r in _rows(f) if r.logger == "app.api.request"}
+    live, db = rows["GET /growatt/live/slowpoke"], rows["GET /slowpoke"]
+    assert live.level == "INFO" and "waited on Growatt / Google" in live.message
+    assert db.level == "WARNING" and "waited on" not in db.message
+
+
 def test_failed_login_and_admin_actions_are_audited(env):
     f, h = env
     app = create_app()

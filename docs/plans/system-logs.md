@@ -80,7 +80,7 @@ Created by `ensure_schema` (`create_all`); add a hand-written Alembic migration 
 
 Added by a small middleware (`app/api/request_log.py`):
 - `WARNING` for 5xx responses and unhandled exceptions (with traceback).
-- `WARNING` for requests slower than `LOG_SLOW_REQUEST_MS` (default 5 000 ms), with method, path template and duration.
+- `WARNING` for requests slower than `LOG_SLOW_REQUEST_MS` (default 5 000 ms), with method, path template and duration. Slow `/growatt/live/*` requests are `INFO` ("waited on Growatt / Google"): an expired live cache makes the next poll wait for the upstream, e.g. `plant/list` for every account (2026-11-13: 5–6 s).
 - `INFO` for failed logins (username only, never the password) and admin actions: sync job queued, user created/changed, plant assignment changed, fleet module changed.
 - No line for ordinary 2xx/4xx requests.
 
