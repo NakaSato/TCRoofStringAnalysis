@@ -13,6 +13,10 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+import requests.adapters
+
+# Keep-alive connections per host for one client (one Growatt account).
+POOL_MAXSIZE = 32
 
 # device/list `type` codes
 DEVICE_TYPE_NAMES: Dict[int, str] = {
@@ -49,6 +53,12 @@ class GrowattClient:
         self.timeout = timeout
         self.cache_ttl_s = cache_ttl_s
         self.session = requests.Session()
+        # One client is shared by several thread pools (live /latest, alarms, sensor sweep,
+        # concurrent requests); the default 10-connection pool would discard the extras
+        # ("Connection pool is full") and pay a fresh TLS handshake on the next call.
+        adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=POOL_MAXSIZE)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.session.headers.update({"token": token})
         self._cache: Dict[Tuple[str, Tuple[Tuple[str, Any], ...]], Tuple[float, Any]] = {}
         self._lock = threading.Lock()
