@@ -18,7 +18,7 @@ Run `bun run lint` and `bun run build` after every change. The Docker build (`Do
 
 ## Structure
 
-- **`src/api/client.ts`**: the only REST client.
+- **`src/api/client.ts`**: the only REST client. Response / request types live in `src/api/types/` by area (`auth`, `legacy`, `growatt`, `weather`, `sensors`, `systemLogs`) and are re-exported from `client.ts`, so import them from `../api/client` as before; add a new type to the file of its area.
   - It defines `apiFetch` and the `api.*` methods, with all response types next to them.
   - Base URL is `VITE_API_BASE_URL` (default `/api`). The JWT is kept in localStorage.
   - New endpoints get a typed method here; don't call `fetch` from components.
