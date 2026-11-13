@@ -1,0 +1,343 @@
+/** Plant directory hero: fleet KPIs, plant status donut, today's alarms donut and the right-edge toolbar. */
+import React from "react";
+import { Link } from "react-router-dom";
+import { Zap, Gauge, Cpu, Settings, ChevronRight, ChevronUp, Sun, BatteryCharging, Coins, Info, AlertCircle, Bell, LayoutGrid, Eye } from "lucide-react";
+import { getLastPlantId } from "../../context/routes";
+import { fmt, fmtInt } from "../ui";
+import type { FleetDirectory } from "./useFleetDirectory";
+import { MultiSegmentDonut } from "./parts";
+
+export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
+  const { selectGrowattPlant, statusFilter, setStatusFilter, showInspectorDrawer, setShowInspectorDrawer, heroMetrics } = d;
+  return (
+    <section className="relative overflow-hidden rounded-xl border border-sky-400/20 bg-gradient-to-b from-[#07264e] via-[#061c38] to-[#081224] shadow-[0_14px_40px_-12px_rgba(2,132,199,0.35)]">
+      {/* Perspective Solar Array Horizon Backdrop SVG */}
+      <svg
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-32 w-full opacity-25"
+        viewBox="0 0 1440 160"
+        preserveAspectRatio="none"
+      >
+        <defs>
+          <linearGradient id="solarHorizon" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0" />
+            <stop offset="100%" stopColor="#0284c7" stopOpacity="0.45" />
+          </linearGradient>
+        </defs>
+        <rect width="1440" height="160" fill="url(#solarHorizon)" />
+        {/* Perspective lines radiating from center horizon */}
+        {[-600, -400, -250, -120, 0, 120, 250, 400, 600, 800, 1000, 1200, 1440, 1680, 1900].map((x, idx) => (
+          <line
+            key={idx}
+            x1={720 + (x - 720) * 0.25}
+            y1={10}
+            x2={x}
+            y2={160}
+            stroke="#38bdf8"
+            strokeWidth="1"
+            strokeOpacity="0.35"
+          />
+        ))}
+        {[35, 62, 92, 125, 152].map((y, idx) => (
+          <line key={idx} x1="0" y1={y} x2="1440" y2={y} stroke="#38bdf8" strokeWidth="0.8" strokeOpacity="0.3" />
+        ))}
+      </svg>
+
+      {/* Radial sky glow */}
+      <div className="pointer-events-none absolute left-1/3 top-0 h-56 w-96 -translate-x-1/2 rounded-full bg-sky-400/10 blur-3xl" />
+
+      {/* 3-Column Content Grid */}
+      <div className="relative grid grid-cols-1 divide-y divide-white/[0.08] xl:grid-cols-12 xl:divide-x xl:divide-y-0">
+        {/* ---------------- COLUMN 1: Plant KPIs ---------------- */}
+        <div className="min-w-0 p-5 xl:col-span-4 xl:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold tracking-tight text-white">Plant KPIs</h3>
+              <Link
+                to="/settings"
+                title="Configure Plant KPIs & Tariff"
+                className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-white"
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            <Link
+              to="/generation"
+              className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+            {/* 1. Current power */}
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-sky-400/30 bg-sky-400/10 text-sky-300">
+                <Gauge className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-1">
+                  <span className="num text-lg font-bold text-white">
+                    {fmt(heroMetrics.currentPowerKw, 2)}
+                  </span>
+                  <span className="text-[11px] text-slate-300">kW</span>
+                </div>
+                <div className="text-[11px] text-slate-400">Current power</div>
+              </div>
+            </div>
+
+            {/* 2. Yield today */}
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/10 text-amber-300">
+                <Sun className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-1">
+                  <span className="num text-lg font-bold text-white">
+                    {fmt(heroMetrics.yieldTodayKwh, 2)}
+                  </span>
+                  <span className="text-[11px] text-slate-300">kWh</span>
+                </div>
+                <div className="text-[11px] text-slate-400">Yield today</div>
+              </div>
+            </div>
+
+            {/* 3. Revenue today */}
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
+                <Coins className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-1">
+                  <span className="num text-lg font-bold text-white">
+                    {fmt(heroMetrics.revenueTodayThb, 2)}
+                  </span>
+                  <span className="text-[11px] text-slate-300">฿</span>
+                </div>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  Revenue today
+                  <span title="Calculated using plant tariff (THB/kWh)">
+                    <Info className="h-3 w-3 text-slate-500" />
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Inverter rated power */}
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-sky-400/30 bg-sky-400/10 text-sky-300">
+                <Cpu className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-1">
+                  <span className="num text-lg font-bold text-white">
+                    {fmt(heroMetrics.ratedPowerKwp, 2)}
+                  </span>
+                  <span className="text-[11px] text-slate-300">kW</span>
+                </div>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  Inverter rated power
+                  <span title="Total installed rated capacity across monitored plants">
+                    <Info className="h-3 w-3 text-slate-500" />
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 5. Rated ESS capacity */}
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-400/25 bg-white/5 text-slate-300">
+                <BatteryCharging className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-1">
+                  <span className="num text-lg font-bold text-slate-300">--</span>
+                  <span className="text-[11px] text-slate-400">kWh</span>
+                </div>
+                <div className="text-[11px] text-slate-400">Rated ESS capacity</div>
+              </div>
+            </div>
+
+            {/* 6. Total yield */}
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
+                <Zap className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-1">
+                  <span className="num text-lg font-bold text-white">
+                    {fmt(heroMetrics.totalYieldKwh, 2)}
+                  </span>
+                  <span className="text-[11px] text-slate-300">kWh</span>
+                </div>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  Total yield
+                  <span title="Cumulative energy yield across monitored fleet">
+                    <Info className="h-3 w-3 text-slate-500" />
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ---------------- COLUMN 2: Plant Status Donut ---------------- */}
+        <div className="min-w-0 p-5 xl:col-span-4 xl:p-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold tracking-tight text-white">Plant Status</h3>
+            <button
+              onClick={() => setStatusFilter("ALL")}
+              title="Show all plants"
+              className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-center gap-8 pt-1">
+            <MultiSegmentDonut
+              totalValue={heroMetrics.totalPlants}
+              centerLabel="Total plants"
+              segments={[
+                { label: "Normal", value: heroMetrics.normalPlants, color: "#10b981" },
+                { label: "Faulty", value: heroMetrics.faultyPlants, color: "#ef4444" },
+                { label: "Disconnected", value: heroMetrics.disconnectedPlants, color: "#64748b" },
+              ]}
+            />
+
+            <div className="space-y-3">
+              <button
+                onClick={() => setStatusFilter(statusFilter === "Normal" ? "ALL" : "Normal")}
+                className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1 text-left transition ${
+                  statusFilter === "Normal" ? "bg-white/10 ring-1 ring-emerald-400/40" : "hover:bg-white/5"
+                }`}
+              >
+                <span className="mt-1.5 h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981]" />
+                <div>
+                  <div className="num text-sm font-bold leading-tight text-white">
+                    {heroMetrics.normalPlants}
+                  </div>
+                  <div className="text-[11px] text-slate-400">Normal</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter(statusFilter === "Faulty" ? "ALL" : "Faulty")}
+                className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1 text-left transition ${
+                  statusFilter === "Faulty" ? "bg-white/10 ring-1 ring-red-400/40" : "hover:bg-white/5"
+                }`}
+              >
+                <span className="mt-1.5 h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />
+                <div>
+                  <div className="num text-sm font-bold leading-tight text-white">
+                    {heroMetrics.faultyPlants}
+                  </div>
+                  <div className="text-[11px] text-slate-400">Faulty</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() =>
+                  setStatusFilter(statusFilter === "Disconnected" ? "ALL" : "Disconnected")
+                }
+                className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1 text-left transition ${
+                  statusFilter === "Disconnected" ? "bg-white/10 ring-1 ring-slate-400/40" : "hover:bg-white/5"
+                }`}
+              >
+                <span className="mt-1.5 h-2 w-2 rounded-full bg-slate-400" />
+                <div>
+                  <div className="num text-sm font-bold leading-tight text-white">
+                    {heroMetrics.disconnectedPlants}
+                  </div>
+                  <div className="text-[11px] text-slate-400">Disconnected</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ---------------- COLUMN 3: Active Alarms Donut ---------------- */}
+        <div className="min-w-0 p-5 pr-14 xl:col-span-4 xl:p-6 xl:pr-14">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold tracking-tight text-white">Active Alarms</h3>
+            <Link
+              to="/alarms"
+              title="Open Active Alarm (whole fleet)"
+              className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="flex items-center justify-center gap-8 pt-1">
+            <MultiSegmentDonut
+              totalValue={heroMetrics.totalAlarms == null ? "—" : heroMetrics.totalAlarms}
+              centerLabel="Alarms today"
+              segments={[
+                { label: "Faults", value: heroMetrics.faultCount ?? 0, color: "#ef4444" },
+                { label: "Warnings", value: heroMetrics.warningCount ?? 0, color: "#f59e0b" },
+                { label: "Other", value: heroMetrics.otherCount ?? 0, color: "#64748b" },
+              ]}
+            />
+
+            <div className="grid grid-cols-1 gap-2">
+              {[
+                { label: "Faults", value: heroMetrics.faultCount, icon: Bell, cls: "border-red-400/40 bg-red-500/15 text-red-400" },
+                { label: "Warnings", value: heroMetrics.warningCount, icon: AlertCircle, cls: "border-amber-400/40 bg-amber-500/15 text-amber-300" },
+                { label: "Other", value: heroMetrics.otherCount, icon: Info, cls: "border-slate-400/40 bg-slate-500/15 text-slate-300" },
+                { label: "Still open", value: heroMetrics.openCount, icon: Zap, cls: "border-sky-400/40 bg-sky-500/15 text-sky-300" },
+              ].map((row) => {
+                const Icon = row.icon;
+                return (
+                  <Link
+                    key={row.label}
+                    to="/alarms"
+                    className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 transition hover:bg-white/5"
+                  >
+                    <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${row.cls}`}>
+                      <Icon className="h-3 w-3" />
+                    </span>
+                    <div>
+                      <div className="num text-xs font-bold leading-tight text-white">{fmtInt(row.value)}</div>
+                      <div className="text-[11px] text-slate-400">{row.label}</div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Floating Right-Edge Quick Mode Toolbar (matches FusionSolar right dock) */}
+      <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 flex-col gap-1 rounded-lg border border-white/15 bg-ink-900/90 p-1 shadow-xl backdrop-blur md:flex">
+        <button
+          onClick={() => setShowInspectorDrawer((v) => !v)}
+          title="Toggle Selected Plant String Inspector Strip"
+          className={`rounded p-1.5 transition ${
+            showInspectorDrawer ? "bg-sky-500/20 text-sky-300" : "text-slate-400 hover:bg-white/10 hover:text-white"
+          }`}
+        >
+          <LayoutGrid className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => {
+            const last = getLastPlantId();
+            if (last != null) selectGrowattPlant(last);
+          }}
+          disabled={getLastPlantId() == null}
+          title="Open the last plant you viewed"
+          className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          title="Scroll to top"
+          className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+        >
+          <ChevronUp className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </section>
+  );
+};
