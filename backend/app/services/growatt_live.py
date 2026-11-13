@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, Tupl
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+from app.services.live_store import RedisLink, TieredDict, cache_map, cooldown_map, redis_link
 from solar_core.growatt import (
     ENV_FIELDS,
     GrowattAPIError,
@@ -113,8 +114,11 @@ class GrowattLiveService:
         device_gap_s: float = 0.0,
         sensor_ttl_s: float = 300.0,
         sensor_sweep: int = 12,
+        redis: Optional[RedisLink] = None,
     ):
-        """`client_factory(phase)` builds the client for one account; `phases` lists the accounts."""
+        """`client_factory(phase)` builds the client for one account; `phases` lists the accounts.
+        `redis`: mirror the cache and cooldowns in Redis (`live_store`); `clock` must then be a
+        wall clock."""
         self._client_factory = client_factory
         self._clients: Dict[int, GrowattClient] = {}
         self.phases: Tuple[int, ...] = tuple(sorted(phases))
@@ -133,11 +137,11 @@ class GrowattLiveService:
         # `sensor_sweep` dataloggers are refreshed per `sensor_status` request.
         self.sensor_ttl_s = sensor_ttl_s
         self.sensor_sweep = max(1, sensor_sweep)
-        # key -> (monotonic_ts, wall_ts, data, ttl_s)
-        self._cache: Dict[Hashable, Tuple[float, datetime, Any, float]] = {}
+        # key -> (clock_ts, wall_ts, data, ttl_s); memory, mirrored in Redis when configured
+        self._cache: TieredDict = cache_map("growatt", redis, ttl_index=3)
         self._key_locks: Dict[Hashable, threading.Lock] = {}
         self._lock = threading.Lock()
-        self._cooldown_until: Dict[Hashable, float] = {}
+        self._cooldown_until: TieredDict = cooldown_map("growatt-cooldown", redis, clock)
 
     def _get_client(self, phase: int) -> GrowattClient:
         with self._lock:
@@ -786,7 +790,11 @@ def _f(v: Any) -> Optional[float]:
 @lru_cache(maxsize=1)
 def get_live_service() -> GrowattLiveService:
     accounts = settings.growatt_accounts()  # {phase: token}; tokens never leave the backend
+    link = redis_link(settings.redis_url)
     return GrowattLiveService(
+        # cached timestamps outlive the process in Redis: a wall clock, not monotonic
+        clock=time.time if link else time.monotonic,
+        redis=link,
         client_factory=lambda phase: GrowattClient(token=accounts[phase], base_url=settings.growatt_base_url),
         ttl_s=settings.growatt_live_ttl_s,
         latest_ttl_s=settings.growatt_live_latest_ttl_s,

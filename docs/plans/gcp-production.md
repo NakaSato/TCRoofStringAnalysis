@@ -116,6 +116,7 @@ maintenance_work_mem=512MB  max_connections=60  random_page_cost=1.1
 - Google Weather: `GOOGLE_WEATHER_MONTHLY_BUDGET` (10,000 calls, the whole free tier).
 - Artifact Registry: keep only the 3 newest images (cleanup policy).
 - Logging: default 30-day retention, far under 50 GiB/month.
+- Redis (added 2026-11-13): a container on the existing VM (256 MB of its 8 GB, no persistence), not Memorystore (≈ $36 ≈ ฿1,200/month for the smallest instance, which would pass the cost guard's trip point). Extra cost ฿0; Cloud Run reaches it over the same Direct VPC egress as Postgres.
 
 ## 4. Cost cap: never more than ฿3,013/month
 

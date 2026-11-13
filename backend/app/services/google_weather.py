@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import ExternalApiCallCount, GoogleWeatherHourly, GrowattPlant
 from app.services.growatt_weather import CHECK_HOURS
+from app.services.live_store import RedisLink, TieredDict, cache_map, cooldown_map, redis_link
 from solar_core.google_weather import GoogleWeatherClient, GoogleWeatherError
 
 log = logging.getLogger("google_weather")
@@ -553,14 +554,17 @@ class GoogleWeatherLive:
         cooldown_s: float = 300.0,
         clock: Callable[[], float] = time.monotonic,
         now_local: Optional[Callable[[], datetime]] = None,
+        redis: Optional[RedisLink] = None,
     ):
         self._factory = client_factory
         self._now_local = now_local or (lambda: datetime.now(PLANT_TZ).replace(tzinfo=None))
         self._client: Optional[GoogleWeatherClient] = None
         self.ttl_s, self.cooldown_s = ttl_s, cooldown_s
         self._clock = clock
-        self._cache: Dict[Hashable, Tuple[float, datetime, Dict[str, Any]]] = {}
-        self._cooldown_until: Dict[Hashable, float] = {}
+        # key -> (clock_ts, wall_ts, data); memory, mirrored in Redis when configured, so a cold
+        # start does not spend Google's free-tier calls again
+        self._cache: TieredDict = cache_map("gweather", redis, ttl_index=None, fixed_ttl_s=ttl_s)
+        self._cooldown_until: TieredDict = cooldown_map("gweather-cooldown", redis, clock)
         self._locks: Dict[Hashable, threading.Lock] = {}
         self._lock = threading.Lock()
 
@@ -640,7 +644,10 @@ class GoogleWeatherLive:
 
 @lru_cache(maxsize=1)
 def get_google_live() -> GoogleWeatherLive:
-    return GoogleWeatherLive(make_client, ttl_s=settings.google_weather_live_ttl_s)
+    link = redis_link(settings.redis_url)
+    return GoogleWeatherLive(
+        make_client, ttl_s=settings.google_weather_live_ttl_s, clock=time.time if link else time.monotonic, redis=link
+    )
 
 
 def live_plant(db: Session, plant: GrowattPlant, live: GoogleWeatherLive) -> Dict[str, Any]:

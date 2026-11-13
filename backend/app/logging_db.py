@@ -50,6 +50,7 @@ _PATTERNS = [
     (re.compile(r"(Bearer\s+)[A-Za-z0-9._-]{12,}"), r"\1" + MASK),
     (re.compile(r"(token[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9._-]{12,}", re.I), r"\1" + MASK),
     (re.compile(r"(postgres(?:ql)?(?:\+\w+)?://[^:/@\s]+:)[^@\s]+(@)"), r"\1" + MASK + r"\2"),
+    (re.compile(r"(rediss?://[^:/@\s]*:)[^@\s]+(@)"), r"\1" + MASK + r"\2"),
 ]
 
 
@@ -66,12 +67,13 @@ def _secret_values() -> List[str]:
         settings.admin_password,
         settings.report_api_key,
     ]
-    try:
-        pw = urlsplit(settings.database_url).password
-    except ValueError:
-        pw = None
-    if pw:
-        vals.append(pw)
+    for url in (settings.database_url, settings.redis_url):
+        try:
+            pw = urlsplit(url).password if url else None
+        except ValueError:
+            pw = None
+        if pw:
+            vals.append(pw)
     # very short values would mask ordinary words
     return sorted({v.strip() for v in vals if v and len(v.strip()) >= 6}, key=len, reverse=True)
 

@@ -24,7 +24,7 @@ Seeded logins (username / password): `admin` / `admin123`, `engineer` / `enginee
 
 ```
 Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /growatt/live/* ─► UI polls when refresh_in_s says
-                 │              (never stored anywhere)
+                 │              (mirrored in Redis on the VM, no persistence, keys expire; never stored)
                  ├─ env_list sensor status ─► memory sweep (12 dataloggers/request, 300 s) ─► /growatt/live/sensors/status
                  │              (only while Weather Sensors / Active Alarm is open; never stored)
                  ├─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
@@ -37,7 +37,7 @@ Google Maps Weather ─┬─ current ─► backend memory cache (30 min per ce
 
 Rules for every layer:
 
-1. **Never store realtime values.** Live data stays in backend memory; SQL gets only source-timestamped history (Growatt records, Google Weather hours).
+1. **Never store realtime values.** Live data stays in memory only: the API process, mirrored in Redis on the VM (`REDIS_URL`; no persistence, every key expires, `services/live_store.py`) so a Cloud Run cold start stays warm. SQL gets only source-timestamped history (Growatt records, Google Weather hours).
 2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 1,250 writes (about 250 per publish of today: at 09:30, 13:30 and 17:30 for the PWA report checks and at 19:30, plus about 235 when `google_weather` re-publishes yesterday), capped at `PUBLISH_DAILY_WRITE_BUDGET`.
 3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load; irradiance only where a plant has a weather sensor), and label modelled values as modelled.
 4. **The Growatt tokens and the Google Weather key stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
@@ -47,7 +47,7 @@ Rules for every layer:
 `deploy/gcp.sh setup | backend | frontend | all | upsize | ip | snapshots | costguard | monitoring` (see header of the script). **Production settings live in `deploy/gcp.config`**; sizing, costs and the cost cap are in `docs/plans/gcp-production.md`.
 - **Frontend:** Firebase Hosting. `firebase.json` rewrites `/api/**` to Cloud Run.
 - **API:** Cloud Run service `tcroof-api` in us-central1. It runs min 0 / max 1 instance (scales to zero; a cold start of a few seconds after idle) and gets its secrets from Secret Manager.
-- **Postgres + `growatt-worker`:** VM `tcroof-db` (`e2-standard-2`, 8 GB) running `deploy/vm/compose.yml` from `/opt/tcroof`. It has a static internal IP and a static external IP (`tcroof-db-ext`, the worker's outbound address); port 5432 is reachable only inside the VPC. The disk is 100 GB `pd-balanced` to hold 90 days of raw readings for 629 inverters; the `retention` job deletes older readings. Postgres memory settings are written to the VM's `.env` by `deploy/gcp.sh backend` for the VM's machine type.
+- **Postgres + `growatt-worker` + Redis:** VM `tcroof-db` (`e2-standard-2`, 8 GB) running `deploy/vm/compose.yml` from `/opt/tcroof`. It has a static internal IP and a static external IP (`tcroof-db-ext`, the worker's outbound address); ports 5432 and 6379 are reachable only inside the VPC (firewall rules `tcroof-allow-postgres-internal` / `-redis-internal`), both with a password. Redis (256 MB, no persistence) mirrors the API's live cache at no extra cost; its password and URL are the secrets `tcroof-redis-password` / `tcroof-redis-url`. The disk is 100 GB `pd-balanced` to hold 90 days of raw readings for 629 inverters; the `retention` job deletes older readings. Postgres memory settings are written to the VM's `.env` by `deploy/gcp.sh backend` for the VM's machine type.
 - **Backups:** weekly disk snapshots only (policy `tcroof-db-weekly`, Sunday 02:00 Bangkok, kept 28 days); restore steps are above `cmd_snapshots`.
 - **Cost cap:** budget `tcroof-monthly` (฿3,000; planned spend ≈ ฿2,566) emails at 50/90/100 %; the `tcroof-cost-guard` function (`deploy/costguard/`) **disables billing on the project at 96 % (฿2,880)**, which stops everything until an admin re-links billing (disks and snapshots are kept).
 - **Alerts:** email when `/api/health` or `/api/health/worker` (no finished `history` run in 2 h) fails, or the VM disk is over 85 % (Ops Agent).
@@ -60,6 +60,7 @@ Rules for every layer:
 - `DATABASE_URL`
 - `GROWATT_TOKEN_PHASE1`..`4`: one Growatt account per project phase. The legacy `GROWATT_API_TOKEN` is used as phase 1 when `GROWATT_TOKEN_PHASE1` is empty.
 - `GROWATT_LIVE_TTL_S`
+- `REDIS_URL` (empty = memory only): Redis mirror of the live caches and Growatt / Google cooldowns
 - `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open); `SENSOR_ALARM_COVERAGE_PCT` (80): Active Alarm, past day: stored daylight coverage below this = data gap
 - `LOG_DB_ENABLED` (true), `LOG_DB_LEVEL` (INFO), `LOG_RETENTION_DAYS` (14), `LOG_MAX_ROWS` (500000), `LOG_FLUSH_INTERVAL_S` (5), `LOG_BUFFER_MAX` (5000), `LOG_SLOW_REQUEST_MS` (5000): System → Logs (`app_logs`)
 - `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_FILE`

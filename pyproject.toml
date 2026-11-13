@@ -20,6 +20,7 @@ dependencies = [
     "pyjwt>=2.15.1",
     "pytest>=9.2.0",
     "python-multipart>=0.0.33",
+    "redis>=5.0",
     "requests>=2.34.2",
     "sqlalchemy>=2.1.8",
     "uvicorn[standard]>=0.54.0",

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     sensor_late_min: int = 15  # last upload older than this = late
     sensor_offline_min: int = 60  # older than this (or Growatt says lost) = offline
     sensor_alarm_coverage_pct: float = 80.0
+    # Optional Redis (on the tcroof-db VM, no persistence) mirroring the live memory caches so a
+    # Cloud Run cold start / deploy keeps them warm; empty = process memory only
+    redis_url: str = ""
     # System → Logs: Python log records of the API and worker in SQL `app_logs` (redacted)
     log_db_enabled: bool = True
     log_db_level: str = "INFO"

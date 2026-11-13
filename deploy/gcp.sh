@@ -6,6 +6,7 @@
 #                                                   │  Direct VPC egress (private IP)
 #                                                   ▼
 #                                  VM "tcroof-db" (MACHINE_TYPE, e2-standard-2): Postgres 16 + growatt-worker
+#                                  + Redis (live-cache mirror for the API, no persistence, :6379 VPC only)
 #                                  disk DISK_GB pd-balanced (100 GB: 90 days of history for 629 inverters)
 #
 # Usage (from the repo root):
@@ -375,6 +376,18 @@ alert_policy() {  # display name, channel, condition JSON (created once; delete 
   rm -f "$f"
 }
 
+# Redis on the VM (deploy/vm/compose.yml): password secret, the URL Cloud Run uses (VM internal
+# IP), and a firewall rule that opens 6379 to the VPC only. Idempotent.
+redis_setup() {
+  secret_exists tcroof-redis-password || secret_put tcroof-redis-password "$(openssl rand -hex 24)"
+  secret_put tcroof-redis-url "redis://:$(secret_get tcroof-redis-password)@$(db_ip):6379/0"
+  g secrets add-iam-policy-binding tcroof-redis-url --member "serviceAccount:${API_SA}@${PROJECT}.iam.gserviceaccount.com" \
+    --role roles/secretmanager.secretAccessor >/dev/null
+  g compute firewall-rules describe tcroof-allow-redis-internal >/dev/null 2>&1 || \
+    g compute firewall-rules create tcroof-allow-redis-internal --network default \
+      --allow tcp:6379 --source-ranges 10.128.0.0/9 --target-tags tcroof-db >/dev/null
+}
+
 cmd_backend() {
   [ -f secrets/firebase-service-account.json ] || { echo "secrets/firebase-service-account.json missing"; exit 1; }
   local tag image; tag="$(git rev-parse --short HEAD)$(git diff --quiet || echo -dirty)-$(date +%Y%m%d%H%M)"
@@ -384,6 +397,7 @@ cmd_backend() {
   g builds submit --region "$REGION" --config deploy/cloudbuild.yaml --substitutions "_IMAGE=${image}" .
 
   pwa_sheet_access
+  redis_setup
   # Postgres memory for the VM's actual size (an e2-micro has 1 GB shared with the worker)
   local pg; if [ "$(vm_type)" = "e2-micro" ]; then
     pg="PG_SHARED_BUFFERS=128MB PG_EFFECTIVE_CACHE_SIZE=384MB PG_WORK_MEM=4MB PG_MAINTENANCE_WORK_MEM=64MB PG_MAX_CONNECTIONS=40"
@@ -396,6 +410,7 @@ cmd_backend() {
   cat > "$tmp/.env" <<EOF
 BACKEND_IMAGE=${image}
 POSTGRES_PASSWORD=$(secret_get tcroof-db-password)
+REDIS_PASSWORD=$(secret_get tcroof-redis-password)
 DATABASE_URL=postgresql+psycopg://solar:$(secret_get tcroof-db-password)@postgres:5432/tc_roof_solar
 $(for p in $(phase_secrets); do echo "GROWATT_TOKEN_PHASE$p=$(secret_get "tcroof-growatt-token-phase$p")"; done)
 FIREBASE_PROJECT_ID=${PROJECT}
@@ -424,7 +439,7 @@ EOF
     sudo docker compose ps"
 
   report_access
-  local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest,REPORT_API_KEY=tcroof-report-key:latest" p
+  local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest,REPORT_API_KEY=tcroof-report-key:latest,REDIS_URL=tcroof-redis-url:latest" p
   for p in $(phase_secrets); do secrets+=",GROWATT_TOKEN_PHASE$p=tcroof-growatt-token-phase$p:latest"; done
   [ -z "$(google_weather_secret)" ] || secrets+=",GOOGLE_WEATHER_API_KEY=tcroof-google-weather-key:latest"
 

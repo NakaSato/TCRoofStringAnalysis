@@ -1,6 +1,7 @@
-# Runs on the VM tcroof-db (/opt/tcroof): Postgres + the single Growatt worker.
-# The API runs on Cloud Run and reaches Postgres over the VPC (VM internal IP:5432).
-# Port 5432 is only open to the internal VPC range (GCP firewall), never the internet.
+# Runs on the VM tcroof-db (/opt/tcroof): Postgres + the single Growatt worker + Redis.
+# The API runs on Cloud Run and reaches Postgres (5432) and Redis (6379) over the VPC (VM
+# internal IP). Both ports are only open to the internal VPC range (GCP firewall), never the
+# internet, and both need a password.
 services:
   postgres:
     image: postgres:16-alpine
@@ -24,6 +25,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  # Mirror of the API's live memory cache (backend/app/services/live_store.py), so a Cloud Run
+  # cold start or deploy finds it warm. No persistence (--save "", --appendonly no): a restart
+  # empties it, and every key expires. Never a store of record.
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set in .env}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --save '' --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru"]
+    mem_limit: 384m
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   # Keep exactly one replica (see app/worker.py).
   growatt-worker:
