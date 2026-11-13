@@ -189,8 +189,34 @@ def _publish(db: Session, day: date) -> Tuple[str, Dict[str, Any]]:
     return ("partial" if rep.over_budget or rep.too_large else "ok"), detail
 
 
+def _pwa_sheet(now: datetime, db: Session) -> Optional[Dict[str, Any]]:
+    """Today's tab of the PWA Report Google Sheet, checks published so far. Errors are reported
+    in the run detail instead of failing the publish."""
+    from app.services import pwa_sheet
+
+    try:
+        return pwa_sheet.run_for_now(db, now)
+    except Exception as exc:  # noqa: BLE001 - sheet trouble must not undo a publish
+        log.exception("PWA sheet fill failed")
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
 def job_publish_today(db: Session) -> Tuple[str, Dict[str, Any]]:
-    return _publish(db, _today())
+    status, detail = _publish(db, _today())
+    sheet = _pwa_sheet(datetime.now(PLANT_TZ), db)
+    if sheet is not None:
+        detail["pwa_sheet"] = sheet
+        if "error" in sheet:
+            status = "partial"
+    return status, detail
+
+
+def job_pwa_sheet(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """PWA Report Google Sheet: today's tab (created if missing) with the checks published so far."""
+    sheet = _pwa_sheet(datetime.now(PLANT_TZ), db)
+    if sheet is None:
+        return "ok", {"skipped": "PWA_SHEET_ID not set"}
+    return ("failed" if "error" in sheet else "ok"), sheet
 
 
 def job_publish_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
@@ -234,6 +260,7 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "google_weather": job_google_weather,
     "alarms": job_alarms,
     "alarms_yesterday": job_alarms_yesterday,
+    "pwa_sheet": job_pwa_sheet,
 }
 
 

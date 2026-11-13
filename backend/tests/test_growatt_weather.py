@@ -321,6 +321,11 @@ def test_overview_iec_pr_from_measured_irradiance(env):
     assert k["insolation_kwh_m2"] == pytest.approx(h, abs=0.01)
     assert ov["weather"]["iec_pr"]["coverage_pct"] == 100 and ov["weather"]["iec_pr"]["reason"] is None
     assert ov["timeseries"][0]["irradiance_wm2"] == 600
+    # daily check times: the sensor reported 08:00–16:00, so nothing near 17:00
+    slots = ov["weather"]["check_slots"]
+    assert set(slots) == {"09", "13", "17"} and slots["17"] is None
+    assert slots["09"] == {"at": "09:00", "irradiance_wm2": 600, "module_temp_c": 48.0}
+    assert slots["13"]["irradiance_wm2"] == 600
     assert ov["loss_waterfall"][0]["stage"].startswith("POA Insolation")
     assert ov["loss_waterfall"][0]["kwh"] == pytest.approx(10 * h, abs=0.1)
 

@@ -67,6 +67,22 @@ phase_token_env() {  # phase -> token from .env (may be empty)
   printf '%s' "$v"
 }
 google_weather_secret() { secret_exists tcroof-google-weather-key && echo tcroof-google-weather-key; return 0; }
+# PWA Report sheet (Apps Script) -> GET /api/report/pwa/{day} with this shared key; the API reads
+# the day's docs from Firestore as its own service account (roles/datastore.viewer). Idempotent.
+report_access() {
+  local sa="serviceAccount:${API_SA}@${PROJECT}.iam.gserviceaccount.com"
+  secret_exists tcroof-report-key || secret_put tcroof-report-key "$(openssl rand -hex 24)"
+  g secrets add-iam-policy-binding tcroof-report-key --member "$sa" --role roles/secretmanager.secretAccessor >/dev/null
+  g projects add-iam-policy-binding "$PROJECT" --member "$sa" --role roles/datastore.viewer --condition=None >/dev/null
+}
+# PWA Report Google Sheet, filled by the worker (PWA_SHEET_ID in .env; empty = off). The worker
+# writes as the Firebase service account: the Sheets API must be on and the sheet shared with it.
+pwa_sheet_access() {
+  [ -n "$(env_value PWA_SHEET_ID)" ] || return 0
+  g services enable sheets.googleapis.com
+  local email; email="$(sed -n 's/.*"client_email": *"\([^"]*\)".*/\1/p' secrets/firebase-service-account.json)"
+  echo "PWA sheet: share https://docs.google.com/spreadsheets/d/$(env_value PWA_SHEET_ID)/edit as Editor with ${email}"
+}
 phase_secrets() { for p in $PHASES; do secret_exists "tcroof-growatt-token-phase$p" && echo "$p"; done; return 0; }
 
 cmd_setup() {
@@ -159,6 +175,8 @@ EOF
       --role roles/secretmanager.secretAccessor >/dev/null
   done
 
+  report_access
+
   echo; echo "Setup done. Next: deploy/gcp.sh all"
 }
 
@@ -190,6 +208,7 @@ cmd_backend() {
   log "Building $image (Cloud Build)"
   g builds submit --region "$REGION" --config deploy/cloudbuild.yaml --substitutions "_IMAGE=${image}" .
 
+  pwa_sheet_access
   log "Updating VM: Postgres + growatt-worker"
   local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
   umask 077
@@ -205,6 +224,7 @@ PUBLISH_DAILY_WRITE_BUDGET=15000
 WORKER_HISTORY_INTERVAL_MIN=30
 HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
 $([ -z "$(google_weather_secret)" ] || echo "GOOGLE_WEATHER_API_KEY=$(secret_get tcroof-google-weather-key)")
+$([ -z "$(env_value PWA_SHEET_ID)" ] || echo "PWA_SHEET_ID=$(env_value PWA_SHEET_ID)")
 EOF
   cp deploy/vm/compose.yml "$tmp/compose.yml"
   cp secrets/firebase-service-account.json "$tmp/firebase-service-account.json"
@@ -221,7 +241,8 @@ EOF
     sudo docker image prune -af >/dev/null
     sudo docker compose ps"
 
-  local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest" p
+  report_access
+  local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest,REPORT_API_KEY=tcroof-report-key:latest" p
   for p in $(phase_secrets); do secrets+=",GROWATT_TOKEN_PHASE$p=tcroof-growatt-token-phase$p:latest"; done
   [ -z "$(google_weather_secret)" ] || secrets+=",GOOGLE_WEATHER_API_KEY=tcroof-google-weather-key:latest"
 
@@ -233,7 +254,7 @@ EOF
     --network default --subnet default --vpc-egress private-ranges-only \
     --allow-unauthenticated \
     --set-secrets "$secrets" \
-    --set-env-vars "^@^CORS_ORIGINS=[\"https://${PROJECT}.web.app\",\"https://${PROJECT}.firebaseapp.com\"]@PUBLISH_SINK=json@APP_ENV=prod@HISTORY_RETENTION_DAYS=${RETENTION_DAYS}"
+    --set-env-vars "^@^CORS_ORIGINS=[\"https://${PROJECT}.web.app\",\"https://${PROJECT}.firebaseapp.com\"]@PUBLISH_SINK=json@APP_ENV=prod@FIREBASE_PROJECT_ID=${PROJECT}@HISTORY_RETENTION_DAYS=${RETENTION_DAYS}"
 }
 
 cmd_frontend() {

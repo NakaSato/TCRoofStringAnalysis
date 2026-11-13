@@ -39,6 +39,9 @@ data/*.json
 # MPPT / string CSV exports (old script output): plant names & serials
 data/exports/
 
+# Monitoring PWA Report workbooks (plant names & datalogger serials); only the scripts are tracked
+Monitoring Report/*.xlsx
+
 # macOS
 .DS_Store
 

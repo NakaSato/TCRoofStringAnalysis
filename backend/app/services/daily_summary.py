@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from app.config import DATA_DIR, settings
 from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PublishedDoc, PublishWriteCount
 from app.services import google_weather
+from app.services.daily_checks import build_checks
 from app.services.fleet_settings import config_docs
 from app.services.growatt_overview import build_plant_overview, plant_rated_ac_w, plausible_capacity_kwp
 
@@ -119,11 +120,14 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                     # IEC 61724-1 PR from the plant's weather sensor; null without one / poor coverage
                     "iec_pr_pct": k["iec_pr_pct"],
                     "weather": {
+                        "has_sensor": ov["weather"]["has_sensor"],
                         "insolation_kwh_m2": k["insolation_kwh_m2"],
                         "peak_irradiance_wm2": k["peak_irradiance_wm2"],
                         "avg_module_temp_c": k["avg_module_temp_c"],
                         "avg_ambient_temp_c": k["avg_ambient_temp_c"],
                         "pr_coverage_pct": ov["weather"]["iec_pr"]["coverage_pct"],
+                        # measured irradiance at the 09/13/17 checks; null = sensor silent then
+                        "slots": ov["weather"]["check_slots"],
                     },
                     # Google Maps Weather for the plant's grid cell: modelled, not measured
                     "google_weather": google_weather.day_summary(db, plant, day),
@@ -138,6 +142,8 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                     "critical_strings": k["critical_strings"],
                     "avg_health_score": k["avg_health_score"],
                     "hourly_kw": _hourly_kw(ov["timeseries"]),
+                    # inverters offline / in fault / with open alarms at the 09/13/17 checks
+                    "checks": build_checks(db, plant.plant_id, day),
                     "anomalies": [
                         {key: a[key] for key in ("string_id", "severity", "category", "pr_pct", "energy_loss_kwh")}
                         for a in ov["anomalies"][:TOP_ANOMALIES]
