@@ -85,9 +85,10 @@ def live_plant_latest(
 ) -> Dict[str, Any]:
     """Newest record per inverter (power, MPPT, per-string V/I) for one plant. Not persisted.
 
-    `data.string_check` = each string judged against its inverter's other strings in that same
-    record (`services/live_string_check.py`), realtime only. The DB is read only for the plant's
-    inverter list and String Layout module counts; nothing is written.
+    `data.string_check` = each string judged against its inverter's other strings in the same
+    record, flagged only when the 3 newest records agree (`services/live_string_check.py`),
+    realtime only. The DB is read only for the plant's inverter list, String Layout module counts
+    and which inputs are wired; nothing is written.
     """
     sns = [inv["device_sn"] for inv in ov.list_inverters(db, plant_id)]
     if not sns:
@@ -103,7 +104,9 @@ def live_plant_latest(
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
     check = live_string_check.check_plant(env["data"]["inverters"], ov.load_layout(db, sns, fleet_wp=False), ov.wired_inputs(db, sns))
-    return {**env, "data": {**env["data"], "string_check": check}}
+    # the older records were only input to the check: don't send them to the browser
+    invs = [{k: v for k, v in inv.items() if k != "previous_strings"} for inv in env["data"]["inverters"]]
+    return {**env, "data": {**env["data"], "inverters": invs, "string_check": check}}
 
 
 @router.get("/live/plants/{plant_id}/alarms")

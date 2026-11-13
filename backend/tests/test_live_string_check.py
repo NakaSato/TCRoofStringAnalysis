@@ -69,3 +69,29 @@ def test_mismatch_judged_only_in_strong_light():
     r = check_inverter("INV", morning, wired=set(range(1, 9)))
     assert r["strings"][7]["status"] == "Healthy"  # -21 %, but light too weak to judge mismatch
     assert r["strings"][8]["status"] == "Critical"  # an open string is clear in any light
+
+
+def test_fault_must_persist_across_the_newest_records():
+    """Nong Bua 13 Nov 10:01: a cloud edge left STR-04/17/19 at ~-50 % for one record only."""
+    wired = set(range(1, 9))
+    now = [_s(1, 8.0), _s(2, 7.6), _s(3, 8.3), _s(4, 3.5), _s(5, 8.1), _s(6, 3.9), _s(7, 0.1), _s(8, 7.7)]
+    calm = [_s(n, 2.4) for n in range(1, 7)] + [_s(7, 0.0), _s(8, 2.4)]  # earlier, weaker but even light
+    r = check_inverter("INV", now, wired=wired, previous=[calm, calm])
+    st = {k: v["status"] for k, v in r["strings"].items()}
+    assert r["records_judged"] == 3
+    assert st[4] == st[6] == "Healthy" and "not yet confirmed" in r["strings"][4]["reason"]
+    assert st[7] == "Critical"  # 0 A in every record: a real open string
+    # the same drop in every record is a fault
+    r = check_inverter("INV", now, wired=wired, previous=[now, now])
+    assert r["strings"][4]["status"] == r["strings"][6]["status"] == "Critical"
+    # Critical now, Warning before: Warning
+    warn = [_s(1, 8.0), _s(2, 7.6), _s(3, 8.3), _s(4, 6.4), _s(5, 8.1), _s(6, 7.9), _s(7, 0.1), _s(8, 7.7)]
+    assert check_inverter("INV", now, wired=wired, previous=[warn])["strings"][4]["status"] == "Warning"
+
+
+def test_check_plant_uses_previous_records():
+    now = [_s(1, 8.0), _s(2, 8.0), _s(3, 8.0), _s(4, 3.0)]
+    inv = {"device_sn": "A", "timestamp": "2026-11-13 10:01:17", "strings": now,
+           "previous_strings": [{"timestamp": "2026-11-13 09:56:17", "strings": [_s(n, 5.0) for n in range(1, 5)]}]}
+    out = check_plant([inv], wired={"A": {1, 2, 3, 4}})
+    assert out["summary"]["critical"] == 0 and out["summary"]["healthy"] == 4

@@ -13,6 +13,10 @@ comparable between strings of different length.
 - **Wired inputs only:** a MAX inverter has up to 24 string inputs and unused ones read 0 A
   forever. Only inputs in the String Layout or that carried current recently (`wired`) are
   judged; without that knowledge a 0 A input gets no verdict instead of "Critical".
+- **Persistence:** a string is flagged only when every one of the newest records Growatt returned
+  (`previous` = the older ones, same API call, ≈ 5 min apart) agrees; the mildest verdict wins.
+  A moving cloud shadow covers part of an array for one record and makes those strings look
+  40-50 % low; a real fault is still there 10 minutes later.
 - Too little light (median current below `MIN_MEDIAN_A`): no verdict (`status = None`). Below
   `WARN_MIN_MEDIAN_A` only open strings are flagged: in morning / evening light, strings facing
   different ways differ by 15-20 % without any fault.
@@ -38,13 +42,43 @@ def _pct(v: float, ref: float) -> float:
     return (v - ref) / ref * 100.0
 
 
+_RANK = {"Healthy": 0, "Warning": 1, "Critical": 2}
+
+
 def check_inverter(
     sn: str,
     strings: Sequence[Dict[str, Any]],
     layout: Optional[Layout] = None,
     wired: Optional[Set[int]] = None,
+    previous: Optional[Sequence[Sequence[Dict[str, Any]]]] = None,
 ) -> Dict[str, Any]:
-    """Per-string live status for one inverter's newest record.
+    """Per-string live status for one inverter: the newest record (`strings`) judged, and a
+    Warning / Critical kept only if each older record in `previous` (newest first) agrees.
+    The result's deviations and reason are the newest record's; `records_judged` says how many
+    records the verdict rests on.
+    """
+    out = _judge(sn, strings, layout, wired)
+    older = [_judge(sn, p, layout, wired)["strings"] for p in (previous or []) if p]
+    out["records_judged"] = 1 + len(older)
+    for no, v in out["strings"].items():
+        if v["status"] not in ("Warning", "Critical"):
+            continue
+        # mildest verdict across the records; a record with no verdict cannot confirm a fault
+        mild = min((_RANK.get((o.get(no) or {}).get("status") or "Healthy", 0) for o in older), default=_RANK[v["status"]])
+        if mild < _RANK[v["status"]]:
+            cut = "Warning" if mild == 1 else "Healthy"
+            v["reason"] = f"{v['reason']} (in the newest record only: not yet confirmed)"
+            v["status"] = cut
+    return out
+
+
+def _judge(
+    sn: str,
+    strings: Sequence[Dict[str, Any]],
+    layout: Optional[Layout] = None,
+    wired: Optional[Set[int]] = None,
+) -> Dict[str, Any]:
+    """Per-string status from one record.
 
     `wired` = string inputs known to be connected (String Layout rows, or current seen recently).
     Inputs outside it are left out. `None` = not known: an input at 0 A gets no verdict.
@@ -133,7 +167,8 @@ def check_plant(
     times: List[str] = []
     for inv in inverters:
         sn = inv["device_sn"]
-        r = check_inverter(sn, inv.get("strings") or [], layout, (wired or {}).get(sn))
+        prev = [p.get("strings") or [] for p in inv.get("previous_strings") or []]
+        r = check_inverter(sn, inv.get("strings") or [], layout, (wired or {}).get(sn), prev)
         r["timestamp"] = inv.get("timestamp")
         r["stale"] = bool(inv.get("stale"))
         per[sn] = r

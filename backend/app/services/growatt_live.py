@@ -532,11 +532,24 @@ def _env_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optiona
     }
 
 
+PREVIOUS_RECORDS = 2  # with the newest: 3 records ≈ 15 min a string fault must last
+
+
 def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str, Any]]:
-    recs = newest_max_records(client, sn, day, n=2)
+    # same single call either way (first page = 100 records); the older ones let the live string
+    # check require a fault to persist instead of flagging one passing cloud shadow
+    recs = newest_max_records(client, sn, day, n=1 + PREVIOUS_RECORDS)
     if not recs:
         return None
     inv_rows, str_rows = parse_max_records(sn, recs[:1])
+    previous = []
+    for rec in recs[1:]:
+        _, older = parse_max_records(sn, [rec])
+        ts = _record_ts(rec)
+        previous.append({
+            "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else None,
+            "strings": [{k: r[k] for k in ("string_no", "voltage_v", "current_a")} for r in older],
+        })
     row = inv_rows[0]
     prev = _record_ts(recs[1]) if len(recs) > 1 else None
     return {
@@ -557,6 +570,8 @@ def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str,
         "strings": [
             {k: r[k] for k in ("string_no", "mppt_no", "voltage_v", "current_a", "power_w")} for r in str_rows
         ],
+        # older records, newest first: input to the live string check only (the route drops it)
+        "previous_strings": previous,
     }
 
 
