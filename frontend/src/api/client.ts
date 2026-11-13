@@ -386,7 +386,13 @@ export type GrowattWeatherPoint = { timestamp: string } & Record<GrowattWeatherF
 
 /** /growatt/plants/{id}/weather — stored 5-minute weather-sensor history (DB only). */
 export interface GrowattWeatherDay {
-  meta: { source: "db"; day: string | null; data_until: string | null };
+  meta: {
+    source: "db";
+    day: string | null;
+    data_until: string | null;
+    /** plant-local time-of-day window (HH:MM, inclusive) the series and KPIs cover; null = whole day */
+    window: { start: string | null; end: string | null } | null;
+  };
   has_sensor: boolean;
   sensors: GrowattWeatherSensor[];
   kpis: GrowattWeatherKpis;
@@ -986,8 +992,14 @@ export const api = {
     ),
   getGrowattLiveWeather: (plantId: number) =>
     apiFetch<GrowattLive<GrowattLiveWeather>>(`/growatt/live/plants/${plantId}/weather`),
-  getGrowattPlantWeather: (plantId: number, day?: string) =>
-    apiFetch<GrowattWeatherDay>(`/growatt/plants/${plantId}/weather${day ? `?day=${day}` : ""}`),
+  getGrowattPlantWeather: (plantId: number, day?: string, window?: { start?: string; end?: string }) => {
+    const q = new URLSearchParams();
+    if (day) q.set("day", day);
+    if (window?.start) q.set("start", window.start);
+    if (window?.end) q.set("end", window.end);
+    const qs = q.toString();
+    return apiFetch<GrowattWeatherDay>(`/growatt/plants/${plantId}/weather${qs ? `?${qs}` : ""}`);
+  },
   getGoogleWeatherDay: (plantId: number, day?: string) =>
     apiFetch<GoogleWeatherDay>(`/growatt/plants/${plantId}/google-weather${day ? `?day=${day}` : ""}`),
   getGoogleWeatherLive: (plantId: number) =>
