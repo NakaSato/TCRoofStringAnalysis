@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Deploy TC Roof Solar to GCP / Firebase, sized for < $10/month.
+# Deploy TC Roof Solar to GCP / Firebase. Production sizing and the monthly cost cap (BUDGET_AMOUNT,
+# hard stop by the cost guard at COST_CAP_PCT): docs/plans/gcp-production.md.
 #
-#   Firebase Hosting (frontend)  ──/api/**──►  Cloud Run "tcroof-api" (us-central1, scale to zero)
+#   Firebase Hosting (frontend)  ──/api/**──►  Cloud Run "tcroof-api" (us-central1, min 1 / max 1 instance)
 #                                                   │  Direct VPC egress (private IP)
 #                                                   ▼
-#                                  e2-micro VM "tcroof-db" (free tier): Postgres 16 + growatt-worker
-#                                  disk DISK_GB (100 GB: 90 days of history for 629 inverters;
-#                                  30 GB is free, the rest ~$0.04/GB-month ≈ $2.80/month)
+#                                  VM "tcroof-db" (MACHINE_TYPE, e2-standard-2): Postgres 16 + growatt-worker
+#                                  disk DISK_GB pd-balanced (100 GB: 90 days of history for 629 inverters)
 #
 # Usage (from the repo root):
-#   deploy/gcp.sh setup      # one time: APIs, $10 budget alert, registry, secrets, VM
-#   deploy/gcp.sh snapshots  # daily VM disk snapshots, kept SNAPSHOT_KEEP_DAYS (also run by setup)
+#   deploy/gcp.sh setup      # one time: APIs, budget + cost guard, registry, secrets, VM
+#   deploy/gcp.sh snapshots  # weekly VM disk snapshots, kept SNAPSHOT_KEEP_DAYS (also run by setup)
+#   deploy/gcp.sh ip         # promote the VM's external IP to static (also run by upsize)
+#   deploy/gcp.sh upsize     # VM to MACHINE_TYPE / DISK_TYPE (stops the VM ~15 min; maintenance window)
+#   deploy/gcp.sh costguard  # budget BUDGET_AMOUNT + Pub/Sub + function that disables billing at COST_CAP_PCT
+#   deploy/gcp.sh monitoring # email alerts: API down, worker not syncing, disk > 85 %; Ops Agent on the VM
 #   deploy/gcp.sh backend    # build image, update VM (Postgres + worker), deploy Cloud Run API
 #   deploy/gcp.sh frontend   # build UI, deploy Firebase Hosting
 #   deploy/gcp.sh all        # backend + frontend
@@ -21,22 +25,35 @@
 #   gcloud secrets versions access latest --secret tcroof-admin-password --project tcroof-string-analysis
 set -euo pipefail
 
+# Official production settings (env vars of the same name override them for one run).
+. "$(dirname "$0")/gcp.config"
+
 PROJECT="${PROJECT:-tcroof-string-analysis}"
-REGION="${REGION:-us-central1}"        # e2-micro free tier exists only in us-west1/us-central1/us-east1
+REGION="${REGION:-us-central1}"
 ZONE="${ZONE:-us-central1-a}"
 VM="tcroof-db"
 DB_IP_NAME="tcroof-db-ip"
 REPO="tcroof"
 SERVICE="tcroof-api"
 API_SA="tcroof-api"
-BUDGET_USD="${BUDGET_USD:-10}"
-# Budgets must be in the billing account's currency (override with BUDGET_AMOUNT, e.g. 500 or 500THB).
-budget_amount_for() { case "$1" in USD) echo "$BUDGET_USD" ;; THB) echo 500 ;; EUR) echo 10 ;; *) echo "" ;; esac; }
-DISK_GB="${DISK_GB:-100}"              # pd-standard; must hold HISTORY_RETENTION_DAYS of readings
+EXT_IP_NAME="tcroof-db-ext"
+MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"  # 2 vCPU / 8 GB (Postgres page cache for charts + history)
+DISK_TYPE="${DISK_TYPE:-pd-balanced}"
+API_MIN_INSTANCES="${API_MIN_INSTANCES:-1}"    # 1 = no cold start (idle instance ≈ ฿447/month)
+# Monthly budget in the billing account's currency (override with BUDGET_AMOUNT, e.g. 3013 or 3013THB).
+BUDGET_NAME="tcroof-monthly"
+budget_amount_for() { case "$1" in THB) echo 3013 ;; USD) echo 89 ;; *) echo "" ;; esac; }
+COST_CAP_PCT="${COST_CAP_PCT:-96}"             # cost guard disables billing here (billing data lags ~1 day)
+COSTGUARD_DRY_RUN="${COSTGUARD_DRY_RUN:-false}"
+BUDGET_TOPIC="tcroof-budget"
+GUARD="tcroof-cost-guard"
+DISK_GB="${DISK_GB:-100}"              # must hold HISTORY_RETENTION_DAYS of readings
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
-SNAPSHOT_POLICY="tcroof-db-daily"
-SNAPSHOT_KEEP_DAYS="${SNAPSHOT_KEEP_DAYS:-7}"  # daily disk snapshots kept; incremental, ~$0.05/GB-month
-SNAPSHOT_HOUR_UTC="${SNAPSHOT_HOUR_UTC:-19}"   # 19:00 UTC = 02:00 Bangkok, no PV output
+SNAPSHOT_POLICY="tcroof-db-weekly"
+OLD_SNAPSHOT_POLICIES="tcroof-db-daily"        # detached from the disk when found
+SNAPSHOT_KEEP_DAYS="${SNAPSHOT_KEEP_DAYS:-28}" # weekly snapshots kept 4 weeks; no daily backup
+SNAPSHOT_DAY_UTC="${SNAPSHOT_DAY_UTC:-saturday}" # Saturday 19:00 UTC = Sunday 02:00 Bangkok, no PV output
+SNAPSHOT_HOUR_UTC="${SNAPSHOT_HOUR_UTC:-19}"
 REGISTRY="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
 
 cd "$(dirname "$0")/.."
@@ -57,6 +74,8 @@ env_value() {  # missing key -> empty string (grep's exit 1 must not trip set -e
   { grep -E "^$1=" .env 2>/dev/null || true; } | tail -1 | cut -d= -f2- | sed -e 's/[[:space:]]*#.*$//' -e 's/^"//' -e 's/"$//'
 }
 db_ip() { g compute addresses describe "$DB_IP_NAME" --region "$REGION" --format='value(address)'; }
+vm_disk() { g compute instances describe "$VM" --zone "$ZONE" --format='value(disks[0].source.basename())'; }
+vm_type() { g compute instances describe "$VM" --zone "$ZONE" --format='value(machineType.basename())'; }
 
 # One Growatt account per project phase. Secret tcroof-growatt-token-phaseN <-> env GROWATT_TOKEN_PHASEN.
 # The legacy GROWATT_API_TOKEN stands in for phase 1 when GROWATT_TOKEN_PHASE1 is empty.
@@ -93,19 +112,7 @@ cmd_setup() {
   g services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com \
     compute.googleapis.com secretmanager.googleapis.com billingbudgets.googleapis.com cloudbilling.googleapis.com
 
-  local ba cur amount
-  ba="$(g billing projects describe "$PROJECT" --format='value(billingAccountName)' | sed 's#billingAccounts/##')"
-  cur="$(gcloud billing accounts describe "$ba" --format='value(currencyCode)')"
-  amount="${BUDGET_AMOUNT:-$(budget_amount_for "$cur")}"; amount="${amount%"$cur"}"  # accept 500 or 500THB
-  [ -n "$amount" ] || { echo "Billing account currency is $cur: set BUDGET_AMOUNT (~\$${BUDGET_USD} in $cur)"; exit 1; }
-  log "Budget alert at ${amount} ${cur}/month (emails billing admins at 50/90/100%)"
-  # The Budgets API needs a quota project when called with user credentials.
-  if ! gcloud billing budgets list --billing-project="$PROJECT" --billing-account="$ba" --format='value(displayName)' | grep -qx "tcroof-${BUDGET_USD}usd"; then
-    gcloud billing budgets create --billing-project="$PROJECT" --billing-account="$ba" --display-name="tcroof-${BUDGET_USD}usd" \
-      --budget-amount="${amount}${cur}" --filter-projects="projects/$PROJECT" \
-      --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
-      --threshold-rule=percent=1.0,basis=forecasted-spend
-  fi
+  cmd_costguard
 
   log "Artifact Registry (keep only the 3 newest images to stay in the 0.5 GB free tier)"
   g artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1 || \
@@ -140,26 +147,27 @@ EOF
   local gw_key; gw_key="$(env_value GOOGLE_WEATHER_API_KEY)"
   [ -z "$gw_key" ] || secret_put tcroof-google-weather-key "$gw_key"
 
-  log "Static internal IP + VM $VM (e2-micro, 30 GB pd-standard = free tier)"
+  log "Static internal IP + VM $VM ($MACHINE_TYPE, ${DISK_GB} GB $DISK_TYPE)"
   g compute addresses describe "$DB_IP_NAME" --region "$REGION" >/dev/null 2>&1 || \
     g compute addresses create "$DB_IP_NAME" --region "$REGION" --subnet default
   secret_put tcroof-database-url "postgresql+psycopg://solar:$(secret_get tcroof-db-password)@$(db_ip):5432/tc_roof_solar"
   if ! g compute instances describe "$VM" --zone "$ZONE" >/dev/null 2>&1; then
-    g compute instances create "$VM" --zone "$ZONE" --machine-type e2-micro \
+    g compute instances create "$VM" --zone "$ZONE" --machine-type "$MACHINE_TYPE" \
       --image-family debian-12 --image-project debian-cloud \
-      --boot-disk-size "${DISK_GB}GB" --boot-disk-type pd-standard \
+      --boot-disk-size "${DISK_GB}GB" --boot-disk-type "$DISK_TYPE" \
       --private-network-ip "$(db_ip)" --tags tcroof-db \
       --scopes cloud-platform --metadata-from-file startup-script=deploy/vm/startup.sh
   else
     # Grow (never shrink) the disk of an existing VM; Debian grows the root filesystem on reboot.
-    local cur; cur="$(g compute disks describe "$VM" --zone "$ZONE" --format='value(sizeGb)')"
+    local disk cur; disk="$(vm_disk)"; cur="$(g compute disks describe "$disk" --zone "$ZONE" --format='value(sizeGb)')"
     if [ "$cur" -lt "$DISK_GB" ]; then
       log "Resizing $VM disk ${cur} GB -> ${DISK_GB} GB"
-      g compute disks resize "$VM" --zone "$ZONE" --size "${DISK_GB}GB" --quiet
+      g compute disks resize "$disk" --zone "$ZONE" --size "${DISK_GB}GB" --quiet
       echo "Reboot the VM once to grow the filesystem: gcloud compute instances reset $VM --zone $ZONE"
     fi
   fi
 
+  cmd_ip
   cmd_snapshots
 
   log "Firewall: Postgres reachable from inside the VPC only"
@@ -180,24 +188,188 @@ EOF
   echo; echo "Setup done. Next: deploy/gcp.sh all"
 }
 
-# Daily snapshot of the VM disk (Postgres history + worker state). Snapshots are crash-consistent,
-# which Postgres recovers from like a power cut (WAL replay). Restore:
-#   gcloud compute snapshots list --filter="sourceDisk~$VM" --project $PROJECT
+# Weekly snapshot of the VM disk (Postgres history + worker state), kept SNAPSHOT_KEEP_DAYS; no daily
+# backup, so a restore can be up to 7 days old (refill Growatt history with growatt_sync --start/--end).
+# Snapshots are crash-consistent, which Postgres recovers from like a power cut (WAL replay). Restore:
+#   gcloud compute snapshots list --filter="sourceDisk~tcroof-db" --project $PROJECT
 #   gcloud compute disks create tcroof-db-restore --source-snapshot SNAPSHOT --zone $ZONE --project $PROJECT
+# A disk takes one snapshot schedule only, so older policies are detached first.
 cmd_snapshots() {
-  log "Daily snapshots of $VM disk at ${SNAPSHOT_HOUR_UTC}:00 UTC, kept ${SNAPSHOT_KEEP_DAYS} days"
-  local start; start="$(printf '%02d:00' "$SNAPSHOT_HOUR_UTC")"
+  local disk p start; disk="$(vm_disk)"; start="$(printf '%02d:00' "$SNAPSHOT_HOUR_UTC")"
+  log "Weekly snapshots of disk $disk, ${SNAPSHOT_DAY_UTC} ${start} UTC, kept ${SNAPSHOT_KEEP_DAYS} days"
   if g compute resource-policies describe "$SNAPSHOT_POLICY" --region "$REGION" >/dev/null 2>&1; then
     g compute resource-policies update snapshot-schedule "$SNAPSHOT_POLICY" --region "$REGION" \
-      --max-retention-days "$SNAPSHOT_KEEP_DAYS" --daily-schedule --start-time "$start" >/dev/null
+      --max-retention-days "$SNAPSHOT_KEEP_DAYS" --weekly-schedule "$SNAPSHOT_DAY_UTC" --start-time "$start" >/dev/null
   else
     g compute resource-policies create snapshot-schedule "$SNAPSHOT_POLICY" --region "$REGION" \
-      --description "Daily snapshot of the $VM disk (Postgres)" \
+      --description "Weekly snapshot of the $VM disk (Postgres)" \
       --max-retention-days "$SNAPSHOT_KEEP_DAYS" --on-source-disk-delete keep-auto-snapshots \
-      --daily-schedule --start-time "$start" --storage-location "$REGION"
+      --weekly-schedule "$SNAPSHOT_DAY_UTC" --start-time "$start" --storage-location "$REGION"
   fi
-  g compute disks describe "$VM" --zone "$ZONE" --format='value(resourcePolicies)' | grep -q "/$SNAPSHOT_POLICY" || \
-    g compute disks add-resource-policies "$VM" --zone "$ZONE" --resource-policies "$SNAPSHOT_POLICY"
+  local attached; attached="$(g compute disks describe "$disk" --zone "$ZONE" --format='value(resourcePolicies)')"
+  for p in $OLD_SNAPSHOT_POLICIES; do
+    if grep -q "/$p" <<<"$attached"; then
+      g compute disks remove-resource-policies "$disk" --zone "$ZONE" --resource-policies "$p"
+    fi
+  done
+  grep -q "/$SNAPSHOT_POLICY" <<<"$attached" || \
+    g compute disks add-resource-policies "$disk" --zone "$ZONE" --resource-policies "$SNAPSHOT_POLICY"
+}
+
+# The VM's external IP (the worker's outbound address to Growatt and Google) as a static address,
+# so it survives a stop/start and can be allow-listed. Promoting in place keeps the address.
+cmd_ip() {
+  if g compute addresses describe "$EXT_IP_NAME" --region "$REGION" >/dev/null 2>&1; then
+    log "Static external IP $EXT_IP_NAME: $(g compute addresses describe "$EXT_IP_NAME" --region "$REGION" --format='value(address)')"
+    return 0
+  fi
+  local ip; ip="$(g compute instances describe "$VM" --zone "$ZONE" --format='value(networkInterfaces[0].accessConfigs[0].natIP)')"
+  [ -n "$ip" ] || { echo "$VM has no external IP"; exit 1; }
+  log "Promoting external IP $ip to static ($EXT_IP_NAME)"
+  g compute addresses create "$EXT_IP_NAME" --addresses "$ip" --region "$REGION"
+}
+
+# VM to MACHINE_TYPE and its boot disk to DISK_TYPE. Stops the VM (~15 min): run it in the
+# 21:30-23:00 Bangkok window. A disk can't change type in place: snapshot -> new disk -> swap the
+# boot disk. The old disk is kept (delete it after a week); runs cut off by the stop are retried.
+cmd_upsize() {
+  local disk dtype mtype; disk="$(vm_disk)"; mtype="$(vm_type)"
+  dtype="$(g compute disks describe "$disk" --zone "$ZONE" --format='value(type.basename())')"
+  if [ "$mtype" = "$MACHINE_TYPE" ] && [ "$dtype" = "$DISK_TYPE" ]; then
+    log "$VM is already $MACHINE_TYPE with a $DISK_TYPE disk"; return 0
+  fi
+  cmd_ip  # an ephemeral external IP would change on stop/start
+  log "Stopping $VM ($mtype, $dtype disk $disk)"
+  g compute instances stop "$VM" --zone "$ZONE"
+
+  if [ "$dtype" != "$DISK_TYPE" ]; then
+    local stamp snap new p; stamp="$(date -u +%Y%m%d%H%M)"
+    snap="tcroof-db-upsize-$stamp"; new="tcroof-db-${DISK_TYPE#pd-}-$stamp"
+    log "Disk $disk ($dtype) -> $new ($DISK_TYPE) via snapshot $snap"
+    g compute disks snapshot "$disk" --zone "$ZONE" --snapshot-names "$snap" --storage-location "$REGION"
+    g compute disks create "$new" --zone "$ZONE" --type "$DISK_TYPE" --source-snapshot "$snap" --size "${DISK_GB}GB"
+    g compute instances detach-disk "$VM" --zone "$ZONE" --disk "$disk"
+    g compute instances attach-disk "$VM" --zone "$ZONE" --disk "$new" --boot
+    g compute instances set-disk-auto-delete "$VM" --zone "$ZONE" --disk "$new" --auto-delete
+    for p in $SNAPSHOT_POLICY $OLD_SNAPSHOT_POLICIES; do  # the old disk stops taking snapshots
+      g compute disks describe "$disk" --zone "$ZONE" --format='value(resourcePolicies)' | grep -q "/$p" && \
+        g compute disks remove-resource-policies "$disk" --zone "$ZONE" --resource-policies "$p"
+    done
+    echo "Kept: old disk $disk and snapshot $snap. Delete them after a week:"
+    echo "  gcloud compute disks delete $disk --zone $ZONE --project $PROJECT"
+    echo "  gcloud compute snapshots delete $snap --project $PROJECT"
+  fi
+  [ "$mtype" = "$MACHINE_TYPE" ] || { log "Machine type $mtype -> $MACHINE_TYPE"; g compute instances set-machine-type "$VM" --zone "$ZONE" --machine-type "$MACHINE_TYPE"; }
+
+  log "Starting $VM"
+  g compute instances start "$VM" --zone "$ZONE"
+  cmd_snapshots
+  log "Waiting for Postgres + growatt-worker"
+  g compute ssh "$VM" --zone "$ZONE" --command "for i in \$(seq 1 30); do sudo docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -q 'postgres.*healthy' && break; sleep 10; done; sudo docker ps --format '{{.Names}}: {{.Status}}'"
+  echo "Next: deploy/gcp.sh backend (Postgres settings for $MACHINE_TYPE), then deploy/gcp.sh monitoring"
+}
+
+# Budget BUDGET_AMOUNT/month with email at 50/90/100 % (and 100 % forecast) to the billing admins,
+# published to Pub/Sub BUDGET_TOPIC. Function GUARD (deploy/costguard) disables billing on the project
+# once actual cost reaches COST_CAP_PCT % of the budget: everything stops, disks and snapshots are
+# kept. Restore: gcloud billing projects link $PROJECT --billing-account ACCOUNT, then start the VM.
+# COSTGUARD_DRY_RUN=true deploys it logging only.
+cmd_costguard() {
+  local ba cur amount sa topic id
+  ba="$(g billing projects describe "$PROJECT" --format='value(billingAccountName)' | sed 's#billingAccounts/##')"
+  cur="$(gcloud billing accounts describe "$ba" --format='value(currencyCode)')"
+  amount="${BUDGET_AMOUNT:-$(budget_amount_for "$cur")}"; amount="${amount%"$cur"}"  # accept 3013 or 3013THB
+  [ -n "$amount" ] || { echo "Billing account currency is $cur: set BUDGET_AMOUNT"; exit 1; }
+  sa="${GUARD}@${PROJECT}.iam.gserviceaccount.com"; topic="projects/${PROJECT}/topics/${BUDGET_TOPIC}"
+
+  log "Cost guard: APIs, topic $BUDGET_TOPIC, service account $GUARD"
+  g services enable pubsub.googleapis.com cloudfunctions.googleapis.com run.googleapis.com eventarc.googleapis.com \
+    cloudbuild.googleapis.com artifactregistry.googleapis.com cloudbilling.googleapis.com billingbudgets.googleapis.com
+  g pubsub topics describe "$BUDGET_TOPIC" >/dev/null 2>&1 || g pubsub topics create "$BUDGET_TOPIC"
+  g iam service-accounts describe "$sa" >/dev/null 2>&1 || \
+    g iam service-accounts create "$GUARD" --display-name "Cost guard: disables billing over the budget cap"
+  g projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$sa" --role roles/billing.projectManager --condition=None >/dev/null
+
+  log "Deploying function $GUARD (cap ${COST_CAP_PCT} %, dry run: $COSTGUARD_DRY_RUN)"
+  g functions deploy "$GUARD" --gen2 --region "$REGION" --runtime python312 --source deploy/costguard \
+    --entry-point stop_billing --trigger-topic "$BUDGET_TOPIC" \
+    --service-account "$sa" --trigger-service-account "$sa" \
+    --memory 256Mi --max-instances 1 --no-allow-unauthenticated \
+    --set-env-vars "PROJECT_ID=${PROJECT},CAP_PCT=${COST_CAP_PCT},DRY_RUN=${COSTGUARD_DRY_RUN}"
+  g run services add-iam-policy-binding "$GUARD" --region "$REGION" --member "serviceAccount:$sa" --role roles/run.invoker >/dev/null
+
+  log "Budget $BUDGET_NAME: ${amount} ${cur}/month (email at 50/90/100 %, forecast 100 %; Pub/Sub -> $GUARD)"
+  # The Budgets API needs a quota project when called with user credentials.
+  local bb=(gcloud billing budgets --billing-project="$PROJECT")
+  id="$("${bb[@]}" list --billing-account="$ba" --filter="displayName=$BUDGET_NAME" --format='value(name)' | head -1)"
+  if [ -z "$id" ]; then
+    "${bb[@]}" create --billing-account="$ba" --display-name="$BUDGET_NAME" \
+      --budget-amount="${amount}${cur}" --filter-projects="projects/$PROJECT" \
+      --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 \
+      --threshold-rule=percent=1.0,basis=forecasted-spend --notifications-rule-pubsub-topic="$topic"
+  else
+    "${bb[@]}" update "$id" --billing-account="$ba" --budget-amount="${amount}${cur}" --notifications-rule-pubsub-topic="$topic" >/dev/null
+  fi
+  # Earlier budgets of this project (e.g. tcroof-10usd, ฿500, email only) are replaced by this one.
+  for id in $("${bb[@]}" list --billing-account="$ba" --format='value(name,displayName)' | awk -v n="$BUDGET_NAME" '$2 ~ /^tcroof-/ && $2 != n {print $1}'); do
+    "${bb[@]}" delete "$id" --quiet
+  done
+}
+
+# Email alerts (ALERT_EMAIL, default: the gcloud account): API down (/api/health), worker not
+# syncing (/api/health/worker = 503 when no history run finished in 2 h), disk > 85 % (Ops Agent).
+cmd_monitoring() {
+  local email host token ch
+  email="${ALERT_EMAIL:-$(gcloud config get-value account 2>/dev/null)}"; host="${PROJECT}.web.app"
+  g services enable monitoring.googleapis.com
+  token="$(gcloud auth print-access-token)"
+  local api="https://monitoring.googleapis.com/v3/projects/${PROJECT}"
+
+  log "Email channel for $email"
+  ch="$(curl -fsS -H "Authorization: Bearer $token" "$api/notificationChannels" |
+    python3 -c 'import json,sys; e=sys.argv[1]; print(next((c["name"] for c in json.load(sys.stdin).get("notificationChannels",[]) if c.get("labels",{}).get("email_address")==e), ""))' "$email")"
+  [ -n "$ch" ] || ch="$(curl -fsS -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' "$api/notificationChannels" \
+    -d "{\"type\":\"email\",\"displayName\":\"tcroof alerts ($email)\",\"labels\":{\"email_address\":\"$email\"}}" |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
+
+  local check path name id
+  for check in "tcroof-api-health:/api/health:API down" "tcroof-worker-health:/api/health/worker:Data sync failing"; do
+    IFS=: read -r name path title <<<"$check"
+    id="$(g monitoring uptime list-configs --filter="displayName=$name" --format='value(name.basename())' | head -1)"
+    if [ -z "$id" ]; then
+      log "Uptime check $name: https://${host}${path} every 5 min"
+      g monitoring uptime create "$name" --resource-type=uptime-url --resource-labels="host=${host},project_id=${PROJECT}" \
+        --protocol=https --path="$path" --period=5 --timeout=30 --regions=usa-iowa,asia-pacific,europe >/dev/null
+      id="$(g monitoring uptime list-configs --filter="displayName=$name" --format='value(name.basename())' | head -1)"
+    fi
+    alert_policy "tcroof: $title" "$ch" "$(cat <<JSON
+{"displayName":"${title} (uptime check failing)","conditionThreshold":{
+ "filter":"metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${id}\"",
+ "aggregations":[{"alignmentPeriod":"600s","perSeriesAligner":"ALIGN_NEXT_OLDER","crossSeriesReducer":"REDUCE_COUNT_FALSE","groupByFields":["resource.label.host"]}],
+ "comparison":"COMPARISON_GT","thresholdValue":1,"duration":"300s","trigger":{"count":1}}}
+JSON
+)"
+  done
+
+  if [ "$(vm_type)" != "e2-micro" ]; then
+    log "Ops Agent on $VM (disk / memory metrics)"
+    g compute ssh "$VM" --zone "$ZONE" --command "systemctl is-active --quiet google-cloud-ops-agent || {
+      curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh && sudo bash add-google-cloud-ops-agent-repo.sh --also-install; }"
+    alert_policy "tcroof: Disk almost full" "$ch" '{"displayName":"VM disk used > 85 %","conditionThreshold":{
+ "filter":"metric.type="agent.googleapis.com/disk/percent_used" AND resource.type="gce_instance" AND metric.label.state="used"",
+ "aggregations":[{"alignmentPeriod":"300s","perSeriesAligner":"ALIGN_MEAN"}],
+ "comparison":"COMPARISON_GT","thresholdValue":85,"duration":"300s","trigger":{"count":1}}}'
+  else
+    echo "Skipping the Ops Agent on an e2-micro (not enough RAM): run again after deploy/gcp.sh upsize"
+  fi
+}
+
+alert_policy() {  # display name, channel, condition JSON (created once; delete it in the console to change)
+  g monitoring policies list --filter="displayName=\"$1\"" --format='value(name)' | grep -q . && return 0
+  local f; f="$(mktemp)"
+  printf '{"displayName":"%s","combiner":"OR","conditions":[%s],"notificationChannels":["%s"],"alertStrategy":{"autoClose":"86400s"}}' "$1" "$3" "$2" >"$f"
+  g monitoring policies create --policy-from-file="$f" >/dev/null && log "Alert policy: $1"
+  rm -f "$f"
 }
 
 cmd_backend() {
@@ -209,6 +381,12 @@ cmd_backend() {
   g builds submit --region "$REGION" --config deploy/cloudbuild.yaml --substitutions "_IMAGE=${image}" .
 
   pwa_sheet_access
+  # Postgres memory for the VM's actual size (an e2-micro has 1 GB shared with the worker)
+  local pg; if [ "$(vm_type)" = "e2-micro" ]; then
+    pg="PG_SHARED_BUFFERS=128MB PG_EFFECTIVE_CACHE_SIZE=384MB PG_WORK_MEM=4MB PG_MAINTENANCE_WORK_MEM=64MB PG_MAX_CONNECTIONS=40"
+  else
+    pg="PG_SHARED_BUFFERS=2GB PG_EFFECTIVE_CACHE_SIZE=5GB PG_WORK_MEM=16MB PG_MAINTENANCE_WORK_MEM=512MB PG_MAX_CONNECTIONS=60"
+  fi
   log "Updating VM: Postgres + growatt-worker"
   local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
   umask 077
@@ -223,6 +401,7 @@ PUBLISH_SINK=firestore
 PUBLISH_DAILY_WRITE_BUDGET=15000
 WORKER_HISTORY_INTERVAL_MIN=30
 HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
+$(tr ' ' '\n' <<<"$pg")
 $([ -z "$(google_weather_secret)" ] || echo "GOOGLE_WEATHER_API_KEY=$(secret_get tcroof-google-weather-key)")
 $([ -z "$(env_value PWA_SHEET_ID)" ] || echo "PWA_SHEET_ID=$(env_value PWA_SHEET_ID)")
 EOF
@@ -250,7 +429,7 @@ EOF
   g run deploy "$SERVICE" --region "$REGION" --image "$image" \
     --service-account "${API_SA}@${PROJECT}.iam.gserviceaccount.com" \
     --port 8000 --cpu 1 --memory 1Gi --cpu-boost \
-    --min-instances 0 --max-instances 1 --concurrency 80 --timeout 300 \
+    --min-instances "$API_MIN_INSTANCES" --max-instances 1 --concurrency 80 --timeout 300 \
     --network default --subnet default --vpc-egress private-ranges-only \
     --allow-unauthenticated \
     --set-secrets "$secrets" \
@@ -268,8 +447,12 @@ cmd_frontend() {
 case "${1:-}" in
   setup) cmd_setup ;;
   snapshots) cmd_snapshots ;;
+  ip) cmd_ip ;;
+  upsize) cmd_upsize ;;
+  costguard) cmd_costguard ;;
+  monitoring) cmd_monitoring ;;
   backend) cmd_backend ;;
   frontend) cmd_frontend ;;
   all) cmd_backend; cmd_frontend ;;
-  *) sed -n '2,17p' "$0"; exit 1 ;;
+  *) sed -n '2,23p' "$0"; exit 1 ;;
 esac

@@ -39,14 +39,17 @@ Rules for every layer:
 3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load; irradiance only where a plant has a weather sensor), and label modelled values as modelled.
 4. **The Growatt tokens and the Google Weather key stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
 
-## Deploy (GCP, sized for < $10/month)
+## Deploy (GCP, test month at ≤ ฿3,013/month)
 
-`deploy/gcp.sh setup | backend | frontend | all` (see header of the script).
+`deploy/gcp.sh setup | backend | frontend | all | upsize | ip | snapshots | costguard | monitoring` (see header of the script). **Production settings live in `deploy/gcp.config`**; sizing, costs and the cost cap are in `docs/plans/gcp-production.md`.
 - **Frontend:** Firebase Hosting. `firebase.json` rewrites `/api/**` to Cloud Run.
-- **API:** Cloud Run service `tcroof-api` in us-central1. It scales to zero, runs at most 1 instance, and gets its secrets from Secret Manager.
-- **Postgres + `growatt-worker`:** free-tier e2-micro VM `tcroof-db` running `deploy/vm/compose.yml` from `/opt/tcroof`. It has a static internal IP, and port 5432 is reachable only inside the VPC. The disk is 100 GB (`DISK_GB`; 30 GB free, about $2.80/month for the rest) to hold 90 days of raw readings for 629 inverters; the `retention` job deletes older readings. Daily snapshots of that disk (policy `tcroof-db-daily`, 02:00 Bangkok, kept `SNAPSHOT_KEEP_DAYS` = 7) are set up by `deploy/gcp.sh snapshots`, which `setup` also runs; restore steps are above `cmd_snapshots`.
+- **API:** Cloud Run service `tcroof-api` in us-central1. It runs min 1 / max 1 instance (no cold start) and gets its secrets from Secret Manager.
+- **Postgres + `growatt-worker`:** VM `tcroof-db` (`e2-standard-2`, 8 GB) running `deploy/vm/compose.yml` from `/opt/tcroof`. It has a static internal IP and a static external IP (`tcroof-db-ext`, the worker's outbound address); port 5432 is reachable only inside the VPC. The disk is 100 GB `pd-balanced` to hold 90 days of raw readings for 629 inverters; the `retention` job deletes older readings. Postgres memory settings are written to the VM's `.env` by `deploy/gcp.sh backend` for the VM's machine type.
+- **Backups:** weekly disk snapshots only (policy `tcroof-db-weekly`, Sunday 02:00 Bangkok, kept 28 days); restore steps are above `cmd_snapshots`.
+- **Cost cap:** budget `tcroof-monthly` (฿3,013) emails at 50/90/100 %; the `tcroof-cost-guard` function (`deploy/costguard/`) **disables billing on the project at 96 %**, which stops everything until an admin re-links billing (disks and snapshots are kept).
+- **Alerts:** email when `/api/health` or `/api/health/worker` (no finished `history` run in 2 h) fails, or the VM disk is over 85 % (Ops Agent).
 - **Production login:** `APP_ENV=prod` seeds only the admin from secret `tcroof-admin-password` (created by `setup`, or from `ADMIN_PASSWORD` in `.env`). There are no demo accounts.
-- **Why not Cloud SQL:** it alone costs about $9+/month, and history grows by about 0.5 GB/day (629 inverters), which rules out the free Postgres tiers.
+- **Why not Cloud SQL:** a comparable instance (2 vCPU / 8 GB) costs well over the whole ฿3,013 budget, and history grows by about 0.5 GB/day (629 inverters), which rules out the free Postgres tiers.
 
 ## Config
 
