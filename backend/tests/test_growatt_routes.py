@@ -686,3 +686,40 @@ def test_live_alarms_route_merges_pages_newest_first_and_caches_past_day(client)
     assert len(asked) == 2 * 6  # INVA + INVC, 6 new days (2026-11-10 still cached)
     assert [a["alarm_code"] for a in w["alarms"]] == [209, 207, 206]
     assert client.get(f"/api/growatt/live/plants/{PLANT}/alarms", params={"days": 40}).status_code == 422
+
+
+def test_plant_curve_holds_a_missing_inverter_for_at_most_10_min(tmp_path):
+    """Inverters report every 4-5 min, so a record drifts past a slot edge and the slot misses
+    that inverter. The plant curve holds the inverter's own last slot value for up to 10 min
+    (as energy integration credits a reading), never longer, and says how many are held."""
+    from app.services.growatt_overview import build_plant_overview
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'hold.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    day = datetime(2026, 11, 11)
+    with Session() as s:
+        s.add(GrowattPlant(plant_id=PLANT, name="P", peak_power_kwp=20.0))
+        s.flush()
+        s.add_all([GrowattInverter(device_sn=SN_A, plant_id=PLANT), GrowattInverter(device_sn=SN_B, plant_id=PLANT)])
+        s.flush()
+        for m in range(0, 60, 5):  # A: one record in every slot, 10:00-10:55
+            s.add(GrowattInverterReading(device_sn=SN_A, timestamp=day + timedelta(hours=10, minutes=m, seconds=30), pac_w=6000, ppv_w=6200))
+        # B: 10:00 slot (two records), nothing in 10:05 / 10:10, 10:15, then silent
+        for mm, ss in ((0, 40), (4, 50), (15, 10)):
+            s.add(GrowattInverterReading(device_sn=SN_B, timestamp=day + timedelta(hours=10, minutes=mm, seconds=ss), pac_w=4000, ppv_w=4100))
+        s.commit()
+        ov = build_plant_overview(s, PLANT, day.date())
+
+    slot = {r["timestamp"][11:16]: r for r in ov["timeseries"]}
+    assert list(slot) == [f"10:{m:02d}" for m in range(0, 60, 5)]  # no slot is created by holding
+    assert (slot["10:00"]["pac_kw"], slot["10:00"]["inverters"], slot["10:00"]["held"]) == (10.0, 2, 0)
+    # B held from its 10:00 slot (5 and 10 min old)
+    for t in ("10:05", "10:10"):
+        assert (slot[t]["pac_kw"], slot[t]["inverters"], slot[t]["held"]) == (10.0, 2, 1)
+    assert (slot["10:15"]["pac_kw"], slot["10:15"]["held"]) == (10.0, 0)
+    for t in ("10:20", "10:25"):
+        assert (slot[t]["pac_kw"], slot[t]["held"]) == (10.0, 1)
+    # 15 min after B's last slot: no longer held, the sum is A alone and says so
+    for t in ("10:30", "10:55"):
+        assert (slot[t]["pac_kw"], slot[t]["inverters"], slot[t]["held"]) == (6.0, 1, 0)

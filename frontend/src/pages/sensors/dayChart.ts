@@ -166,7 +166,8 @@ export const sensorDaySpec = (
     const rows: Array<{ label: string; value: string }> = [];
     if (temps.length === 2 && mod[i] != null && amb[i] != null) rows.push({ label: "Module − ambient", value: `${fmt(mod[i]! - amb[i]!, 1)} °C` });
     const r = o.all ? pwAt.get(pts[i].timestamp) : undefined;
-    if (r?.inverters != null && total && r.inverters < total) rows.push({ label: "Inverters in the AC sum", value: `${r.inverters} of ${total}` });
+    if (r?.inverters != null && total && (r.inverters < total || r.held))
+      rows.push({ label: "Inverters in AC", value: `${r.inverters} of ${total}${r.held ? ` · ${r.held} held ≤ 10 min` : ""}` });
     return rows;
   };
   return {

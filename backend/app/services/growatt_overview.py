@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import statistics
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import case, func, select
@@ -254,11 +254,29 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
                 b["fac"].append(fac)
         buckets: Dict[datetime, Dict[str, List[float]]] = {}
         for (ts, _sn), b in per_inv.items():
-            slot = buckets.setdefault(ts, {"pac": [], "ppv": [], "temp": [], "fac": []})
+            slot = buckets.setdefault(ts, {"pac": [], "ppv": [], "temp": [], "fac": [], "held": []})
             slot["pac"].append(statistics.mean(b["pac"]))
             slot["ppv"].append(statistics.mean(b["ppv"]))
             slot["temp"].extend(b["temp"])
             slot["fac"].extend(b["fac"])
+        # Inverters report every 4-5 min, so a record often drifts past a slot edge and the slot
+        # misses that inverter, making the plant sum dip. A missing inverter keeps its own last
+        # slot value for up to MAX_GAP_H (as energy integration credits a reading), in slots that
+        # exist anyway; never longer, never another inverter's value. `held` counts these.
+        hold = timedelta(hours=MAX_GAP_H)
+        last: Dict[str, Tuple[datetime, float, float]] = {}
+        by_slot: Dict[datetime, Set[str]] = {}
+        for t, sn in per_inv:
+            by_slot.setdefault(t, set()).add(sn)
+        for ts in sorted(buckets):
+            for sn in by_slot[ts]:
+                b = per_inv[(ts, sn)]
+                last[sn] = (ts, statistics.mean(b["pac"]), statistics.mean(b["ppv"]))
+            for sn, (t, pac, ppv) in last.items():
+                if sn not in by_slot[ts] and ts - t <= hold:
+                    buckets[ts]["pac"].append(pac)
+                    buckets[ts]["ppv"].append(ppv)
+                    buckets[ts]["held"].append(1.0)
         for ts in sorted(buckets):
             b = buckets[ts]
             hr = ts.hour + ts.minute / 60.0
@@ -273,8 +291,9 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
                     "expected_kw": expected_kw,
                     "temp_c": _round(_mean(b["temp"]), 1),
                     "freq_hz": _round(_mean(b["fac"]), 2),
-                    # inverters with a record in this slot: a sum over fewer than the plant has is low
+                    # inverters in the sum (measured + held); a sum over fewer than the plant has is low
                     "inverters": len(b["pac"]),
+                    "held": len(b["held"]),
                 }
             )
 
