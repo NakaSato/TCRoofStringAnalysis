@@ -1,7 +1,7 @@
 /** Live detail and the stored day of one weather sensor. */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { GrowattLive, GrowattWeatherDay, SensorLive } from "../../api/client";
+import type { GrowattLive, GrowattWeatherDay, SensorLive, SensorToday } from "../../api/client";
 import { useLivePoll } from "../../context/useLivePoll";
 import type { ViewRow } from "../../components/sensorView";
 import type { PanelChartSpec } from "../../components/PanelChart";
@@ -19,8 +19,11 @@ const useCountdown = (at: number | null) => {
   return at == null ? null : Math.max(0, Math.round((at - Date.now()) / 1000));
 };
 
+/** What the hooks need of a sensor: a `ViewRow` (Sensors tab) or the Plant Overview's own. */
+export type SensorRef = Pick<ViewRow, "key" | "datalogger_sn" | "address" | "plant_id" | "last_reading_at">;
+
 /** Live detail (polled on `refresh_in_s`, memory only) and today's stored series (DB) of one sensor. */
-export const useSensorDetail = (sensor: ViewRow | null, now: string, dayArg?: string, win?: { start: string; end: string }) => {
+export const useSensorDetail = (sensor: SensorRef | null, now: string, dayArg?: string, win?: { start: string; end: string }) => {
   const [detail, setDetail] = useState<GrowattLive<SensorLive> | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [nextAt, setNextAt] = useState<number | null>(null);
@@ -49,6 +52,27 @@ export const useSensorDetail = (sensor: ViewRow | null, now: string, dayArg?: st
     (err) => setDetailError(err instanceof Error ? err.message : String(err))
   );
   const countdown = useCountdown(nextAt);
+
+  // Today only: today's 5-min records straight from Growatt (`env_data`, backend memory only),
+  // polled on `refresh_in_s`, so the chart is complete between the worker's syncs. A past day
+  // never asks Growatt: it is read from the DB alone.
+  const [liveDay, setLiveDay] = useState<SensorToday | null>(null);
+  const [liveDayError, setLiveDayError] = useState<string | null>(null);
+  const isToday = day === today;
+  useEffect(() => {
+    setLiveDay(null);
+    setLiveDayError(null);
+  }, [key, isToday]);
+  useLivePoll(
+    Boolean(sensor) && isToday,
+    `${key}:${today}`,
+    () => api.getLiveSensorToday(sensor!.datalogger_sn, sensor!.address),
+    (r) => {
+      setLiveDay(r.data);
+      setLiveDayError(r.error ?? null);
+    },
+    (err) => setLiveDayError(err instanceof Error ? err.message : String(err))
+  );
 
   // today's stored series of this sensor alone (DB), re-read with the page's list
   const plantId = sensor?.plant_id;
@@ -80,5 +104,5 @@ export const useSensorDetail = (sensor: ViewRow | null, now: string, dayArg?: st
     return sensorDaySpec(pts, (f) => f === "irradiance_wm2" || measured.has(f), { day: stored!.meta.day ?? today, now: (stored!.meta.day ?? today) === today ? now : null, all: false });
   }, [stored, sensor?.datalogger_sn, sensor?.address, today, now]);
 
-  return { detail, detailError, countdown, stored, storedError, spec, today, day };
+  return { detail, detailError, countdown, stored, storedError, spec, today, day, liveDay: isToday && liveDay?.day === today ? liveDay : null, liveDayError };
 };

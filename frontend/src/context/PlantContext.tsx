@@ -8,7 +8,7 @@ import { overviewCache } from "./plantCache";
 const OVERVIEW_REFRESH_MS = 5 * 60_000; // DB history refresh (worker syncs every 30 min)
 
 /** Same names as the backend's solar_core.growatt.INVERTER_STATUS_NAMES. */
-const INVERTER_STATUS_NAMES: Record<number, string> = { 0: "Offline", 1: "Normal", 3: "Fault" };
+export const INVERTER_STATUS_NAMES: Record<number, string> = { 0: "Offline", 1: "Normal", 3: "Fault" };
 
 
 export interface PlantContextValue {
@@ -21,6 +21,14 @@ export interface PlantContextValue {
   plantError: { status: number | null; message: string } | null;
   /** the selected plant's live record (inverter status) has not answered yet */
   plantLiveLoading: boolean;
+  /**
+   * The plant's newest live record as the backend sent it (memory only), whatever the overview's
+   * day: the overlay above is applied only when both are the same day, so a page that shows
+   * "now" next to an older stored day reads it from here.
+   */
+  plantLive: GrowattLive<GrowattLivePlantLatest> | null;
+  /** the last live request failed (DB values remain) */
+  plantLiveFailed: boolean;
   /** re-read the overview now */
   reloadPlant: () => Promise<void>;
 }
@@ -31,6 +39,8 @@ const PlantContext = createContext<PlantContextValue>({
   plantOverviewLoading: false,
   plantError: null,
   plantLiveLoading: false,
+  plantLive: null,
+  plantLiveFailed: false,
   reloadPlant: async () => undefined,
 });
 
@@ -210,6 +220,8 @@ export const PlantProvider: React.FC<{ plantId: number | null; live: boolean; ch
       plantOverviewLoading: loading,
       plantError: error,
       plantLiveLoading: plantId != null && live && !liveRec && !liveFailed,
+      plantLive: liveRec && liveRec.data?.plant_id === plantId ? liveRec : null,
+      plantLiveFailed: liveFailed,
       reloadPlant,
     }),
     [plantId, selectedPlantOverview, loading, error, live, liveRec, liveFailed, reloadPlant]

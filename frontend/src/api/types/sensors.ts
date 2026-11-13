@@ -79,6 +79,16 @@ export interface SensorLiveStatus {
   thresholds: { late_min: number; offline_min: number };
 }
 
+/** /growatt/live/sensors/{dl}/{addr}/today — today's 5-min records straight from Growatt (`env_data`, memory only, never stored). */
+export interface SensorToday {
+  /** plant-local day the records belong to (today on the server) */
+  day: string;
+  /** probes not 0 all day; the others are null in `series` */
+  measured: GrowattWeatherField[];
+  /** oldest first, 5-min slots, plant-local "YYYY-MM-DD HH:MM:SS" */
+  series: Array<{ timestamp: string } & Record<GrowattWeatherField, number | null>>;
+}
+
 /** /growatt/live/sensors/{dl}/{addr} — one sensor for the Info view (memory only, never stored). */
 export interface SensorLive {
   status: SensorLiveRow;

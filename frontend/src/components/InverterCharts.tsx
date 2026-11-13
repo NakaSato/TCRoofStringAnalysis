@@ -1,66 +1,19 @@
 /**
  * Extra charts for the Inverters page (all from stored history, DB only):
- * - InverterComparisonPanel: day yield of every inverter of the plant vs the plant average
  * - StringHeatmapPanel: string current × 5-minute slot for one inverter
  * - InverterTrendPanel: daily yield of one inverter vs the plant's average inverter, 7–90 days
  */
 import { useUrlState } from "@/lib/useUrlState";
 import React, { useEffect, useMemo, useState } from "react";
-import { BarChart3, Grid3x3, TrendingUp } from "lucide-react";
+import { Grid3x3, TrendingUp } from "lucide-react";
 import { api } from "../api/client";
-import type { GrowattInverterDaily, GrowattInverterTimeseries, GrowattPlantOverview } from "../api/client";
-import { ComparisonBars, DailyTrendChart, StringHeatmap } from "./D3Charts";
-import { EmptyState, LoadingState, Panel, fmt } from "./ui";
+import type { GrowattInverterDaily, GrowattInverterTimeseries } from "../api/client";
+import { DailyTrendChart, StringHeatmap } from "./D3Charts";
+import { EmptyState, LoadingState, Panel } from "./ui";
 import { Button } from "@/components/ui/button";
 
-type OverviewInverter = GrowattPlantOverview["inverters"][number];
-
-const invName = (i: OverviewInverter) => i.alias || i.device_sn;
-
 /* -------------------------------------------------------------------------- */
-/* 1. Inverter comparison                                                     */
-/* -------------------------------------------------------------------------- */
-export const InverterComparisonPanel: React.FC<{
-  inverters: OverviewInverter[];
-  selectedSn: string | null;
-  day: string | null;
-  className?: string;
-}> = ({ inverters, selectedSn, day, className = "" }) => {
-  const rows = useMemo(() => inverters.filter((i) => i.yield_today_kwh != null), [inverters]);
-  const avg = rows.length ? rows.reduce((a, i) => a + (i.yield_today_kwh as number), 0) / rows.length : null;
-
-  const bars = useMemo(
-    () =>
-      rows.map((i) => ({
-        key: i.device_sn,
-        label: invName(i),
-        value: i.yield_today_kwh as number,
-        detail: [
-          { label: "Serial", value: i.device_sn },
-          { label: "Specific yield", value: i.specific_yield == null ? "—" : `${fmt(i.specific_yield, 2)} kWh/kWp` },
-        ],
-      })),
-    [rows],
-  );
-
-  return (
-    <Panel
-      className={className}
-      icon={BarChart3}
-      title="Inverter Comparison"
-      subtitle={`Day yield, % of plant average${avg != null ? ` (${fmt(avg, 0)} kWh, dashed)` : ""} · selected in blue, below 90 % in red`}
-    >
-      {bars.length && avg != null ? (
-        <ComparisonBars rows={bars} average={avg} unit="kWh" selectedKey={selectedSn} />
-      ) : (
-        <EmptyState icon={BarChart3} title="No yield stored" description={`No inverter has a stored yield${day ? ` for ${day}` : ""}.`} />
-      )}
-    </Panel>
-  );
-};
-
-/* -------------------------------------------------------------------------- */
-/* 2. String current heatmap                                                  */
+/* 1. String current heatmap                                                  */
 /* -------------------------------------------------------------------------- */
 export const StringHeatmapPanel: React.FC<{
   label: string;
@@ -90,7 +43,7 @@ export const StringHeatmapPanel: React.FC<{
 };
 
 /* -------------------------------------------------------------------------- */
-/* 3. Multi-day trend                                                         */
+/* 2. Multi-day trend                                                         */
 /* -------------------------------------------------------------------------- */
 const RANGES = [7, 30, 90] as const;
 

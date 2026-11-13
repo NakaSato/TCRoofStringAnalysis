@@ -1,14 +1,13 @@
 /** Plant Sensors tab, Status view: the stored-day card (chart, figures, CSV) and the sensor card. */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, CircleHelp, Clock, CloudOff, RefreshCw, WifiOff, X } from "lucide-react";
-import type { GrowattWeatherPoint, GrowattWeatherField, SensorLiveRow, SensorStatus } from "../../api/client";
+import type { SensorLiveRow, SensorStatus } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
 import { Led, LoadingState, StatusBadge, fmt, fmtInt } from "../../components/ui";
 import { FlagList, STATUS_VIEW } from "../../components/sensorView";
 import type { ViewRow } from "../../components/sensorView";
 import { PanelChart } from "../../components/PanelChart";
-import type { PanelChartSpec } from "../../components/PanelChart";
 import { cn } from "@/lib/utils";
 import { pickDay, pickTime, useUrlState } from "@/lib/useUrlState";
 import { Input } from "@/components/ui/input";
@@ -23,13 +22,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { dayLabel, fromDate, toDate } from "@/lib/day";
-import { FIELDS, slotOf, shiftDay, minutesBetween, fmtAge } from "./format";
-import { usePlantPower, sensorDaySpec } from "./dayChart";
-import { useSensorDetail } from "./useSensorDetail";
+import { FIELDS, shiftDay, minutesBetween, fmtAge } from "./format";
+import { useSensorDayChart } from "./useSensorDayChart";
 import { Row } from "./SensorInfo";
-
-/** Live readings kept for the chart's tail (tab memory only): 24 × 5 min = 2 h. */
-const TAIL_MAX = 24;
 
 /** One plain sentence on why the sensor has its status. */
 const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: { late_min: number; offline_min: number }) => {
@@ -107,73 +102,23 @@ export const PlantSensorView: React.FC<{
   const timeTo = pickTime(url.get("to"));
   const badWindow = Boolean(timeFrom && timeTo && timeFrom > timeTo);
   const windowed = Boolean(timeFrom || timeTo) && !badWindow;
-  const reqWin = windowed ? { start: timeFrom, end: timeTo } : undefined;
-  const { detail, detailError, stored, storedError, today, day } = useSensorDetail(sensor, now, pickDay(url.get("day")) ?? undefined, reqWin);
   // IEC 61724 PR is a whole-day figure of the plant overview's day (null day = today)
   const { selectedPlantOverview } = useAppContext();
   const ov = selectedPlantOverview?.plant.plant_id === sensor?.plant_id ? selectedPlantOverview : null;
-  const power = usePlantPower(sensor?.plant_id, day, today, ov);
+  const { detail, detailError, storedError, today, day, liveDayError, dayStored, pts, tailPts, dayMeasured, daySpec } = useSensorDayChart(sensor, now, {
+    day: pickDay(url.get("day")) ?? undefined,
+    from: windowed ? timeFrom : undefined,
+    to: windowed ? timeTo : undefined,
+    ov,
+  });
   const iecPr = !windowed && ov && (ov.meta.day ?? today) === day ? ov.weather?.iec_pr ?? null : null;
   // "#weather-station" (Plant Overview tile): scroll to the stored-day card once it has loaded
   const { hash } = useLocation();
-  const dayLoaded = Boolean(stored);
+  const dayLoaded = Boolean(dayStored);
   useEffect(() => {
     if (hash === "#weather-station" && dayLoaded) document.getElementById("weather-station")?.scrollIntoView({ behavior: "smooth" });
   }, [hash, dayLoaded]);
   const setDay = (d: string) => setUrl({ day: d >= today ? null : d });
-
-  // the stored day of this sensor alone (a response for another sensor / day is not shown)
-  const dayStored =
-    stored &&
-    stored.meta.day === day &&
-    stored.meta.sensor?.datalogger_sn === sensor?.datalogger_sn &&
-    stored.meta.sensor?.address === sensor?.address &&
-    (stored.meta.window?.start ?? "") === (reqWin?.start ?? "") &&
-    (stored.meta.window?.end ?? "") === (reqWin?.end ?? "")
-      ? stored
-      : null;
-  const pts = dayStored?.series ?? [];
-
-  // Live tail: each newest reading the live poll brings (today only) is kept as a point until the
-  // worker has stored that slot (the DB wins), so today's chart moves without waiting for a sync.
-  const liveRd = detail?.data.reading ?? null;
-  const [tail, setTail] = useState<GrowattWeatherPoint[]>([]);
-  useEffect(() => setTail([]), [sensor?.key]);
-  useEffect(() => {
-    if (!liveRd || liveRd.timestamp.slice(0, 10) !== today) return;
-    const ts = slotOf(liveRd.timestamp);
-    setTail((prev) => {
-      if (prev.some((p) => p.timestamp === ts)) return prev;
-      const pt = { timestamp: ts } as GrowattWeatherPoint;
-      FIELDS.forEach((f) => (pt[f] = liveRd[f] ?? null));
-      return [...prev, pt].sort((a, b) => a.timestamp.localeCompare(b.timestamp)).slice(-TAIL_MAX);
-    });
-  }, [liveRd, today]);
-  const lastStoredTs = pts.length ? pts[pts.length - 1].timestamp : "";
-  const tailPts = useMemo(
-    () => (day === today && dayStored && !windowed ? tail.filter((p) => p.timestamp > lastStoredTs && p.timestamp.slice(0, 10) === day) : []),
-    [day, today, dayStored, windowed, tail, lastStoredTs]
-  );
-  const chartPts = useMemo(() => (tailPts.length ? [...pts, ...tailPts] : pts), [pts, tailPts]);
-  const dayMeasured = useMemo(
-    () => new Set<GrowattWeatherField>(dayStored?.sensors.find((x) => x.datalogger_sn === sensor?.datalogger_sn && x.address === sensor?.address)?.measured ?? []),
-    [dayStored, sensor?.datalogger_sn, sensor?.address]
-  );
-  const daySpec = useMemo<PanelChartSpec | null>(() => {
-    // a lone live point draws nothing: wait for a second one (or for stored data)
-    if (!chartPts.length || (!pts.length && chartPts.length < 2)) return null;
-    // with nothing stored yet today, the live points alone decide which probes to draw
-    const has = (f: GrowattWeatherField) => (dayMeasured.size ? dayMeasured.has(f) : chartPts.some((p) => p[f] != null));
-    return sensorDaySpec(chartPts, has, {
-      day,
-      from: windowed ? timeFrom : undefined,
-      to: windowed ? timeTo : undefined,
-      now: day === today ? now : null,
-      liveFrom: tailPts.length ? pts.length : undefined,
-      all: true,
-      power,
-    });
-  }, [chartPts, dayMeasured, pts.length, tailPts.length, day, today, now, windowed, timeFrom, timeTo, power]);
 
   // drag-to-zoom: the dragged range, widened to whole 5-min slots, becomes the ?from=&to= window
   const zoomTo = (lo: number, hi: number) => {
@@ -265,7 +210,8 @@ export const PlantSensorView: React.FC<{
             Stored 5-min records{windowed ? ` · ${timeFrom || "00:00"}–${timeTo || "24:00"} only` : ""}
             {badWindow ? " · “From” is after “To”: whole day shown" : ""}
             {pts.length ? ` · ${fmtInt(pts.length)} from ${pts[0].timestamp.slice(11, 16)} to ${pts[pts.length - 1].timestamp.slice(11, 16)}` : ""}
-            {tailPts.length ? ` · + ${tailPts.length} live to ${tailPts[tailPts.length - 1].timestamp.slice(11, 16)}, not stored yet` : ""}
+            {tailPts.length ? ` · + ${tailPts.length} from Growatt live to ${tailPts[tailPts.length - 1].timestamp.slice(11, 16)}, not stored yet` : ""}
+            {isToday && liveDayError ? ` · Today's live records failed: ${liveDayError}` : ""}
           </CardDescription>
           <CardAction className="flex flex-wrap items-center justify-end gap-2 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:mt-2 max-sm:justify-self-start max-sm:justify-start">
             <ButtonGroup>

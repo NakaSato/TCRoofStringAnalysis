@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # page sweeps the fleet a few dataloggers per request, so it costs calls only while open.
     sensor_status_ttl_s: int = 300  # how long one datalogger's sensor list is reused
     sensor_sweep_per_request: int = 12  # max dataloggers refreshed per status request
+    # Today's energy per plant for the plant directory (`plant/data`, one call per plant, memory only)
+    plant_today_ttl_s: int = 300  # how long one plant's answer is reused
+    plant_today_sweep_per_request: int = 40  # max plants refreshed per /live/plants/today request
     sensor_late_min: int = 15  # last upload older than this = late
     sensor_offline_min: int = 60  # older than this (or Growatt says lost) = offline
     sensor_alarm_coverage_pct: float = 80.0

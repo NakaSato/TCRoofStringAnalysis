@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
 from app.config import settings
-from app.db.models import SyncRun, User
+from app.db.models import GrowattPlant, SyncRun, User
 from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry
 from app.services import fleet_settings
@@ -65,6 +65,29 @@ def live_plants(
     if allowed is None:
         return env
     return {**env, "data": [p for p in env["data"] if p["plant_id"] in allowed]}
+
+
+@router.get("/live/plants/today")
+def live_plants_today(
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Today's energy of every plant the user may see (`plant/data`, memory only; the plant
+    directory's Yield today). `plant/list` has no today energy, so this is one call per plant,
+    swept like `/live/sensors/status`: each request refreshes at most
+    `PLANT_TODAY_SWEEP_PER_REQUEST` plants (oldest first) and serves the rest from the shared
+    memory cache (`PLANT_TODAY_TTL_S`). `data.plants` is keyed by plant id; `today_energy_kwh`
+    is null when the plant's last upload is not from today. Never written to SQL."""
+    allowed = allowed_plant_ids(db, user)
+    q = select(GrowattPlant.plant_id, GrowattPlant.phase)
+    if allowed is not None:
+        q = q.where(GrowattPlant.plant_id.in_(allowed))
+    plants = [(int(pid), ph) for pid, ph in db.execute(q).all()]
+    try:
+        return live.plant_today(plants, coords=ov.plant_coords(db))
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
 
 @router.get("/live/plants/{plant_id}/inverters")
@@ -222,6 +245,28 @@ def live_sensor(
             "thresholds": {"late_min": settings.sensor_late_min, "offline_min": settings.sensor_offline_min},
         },
     }
+
+
+@router.get("/live/sensors/{datalogger_sn}/{address}/today")
+def live_sensor_today(
+    datalogger_sn: str,
+    address: int,
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Today's 5-minute records of one weather sensor straight from Growatt (`env_data`, today
+    only; memory only, never stored), so the sensor page's chart is complete between the
+    worker's syncs. A past day is read from the DB (`/plants/{id}/weather`). 404 when the sensor
+    is not registered or its plant is not visible."""
+    found = growatt_sensors.find_sensor(db, datalogger_sn, address, allowed_plant_ids(db, user))
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"Weather sensor {datalogger_sn}#{address} not found")
+    sensor, phase = found
+    try:
+        return live.sensor_today(datalogger_sn, address, phase=phase, coords=ov.plant_coords(db, sensor.plant_id))
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
 
 @router.get("/sensors")

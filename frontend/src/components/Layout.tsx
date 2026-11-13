@@ -5,6 +5,8 @@ import {
   Settings,
   Bell,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Radio,
   Clock,
   LogOut,
@@ -56,12 +58,15 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "System",
     items: [
-      { to: "/settings", label: "Global Settings", icon: Settings, description: "Fleet-wide module & settings for every plant" },
+      { to: "/settings", label: "Settings", icon: Settings, description: "Fleet-wide module & settings for every plant" },
       { to: "/users", label: "Users & Access", icon: Users, description: "Accounts, roles & plant assignments" },
       { to: "/logs", label: "Logs", icon: ScrollText, description: "Backend and worker logs, errors & job runs" },
     ],
   },
 ];
+
+/** localStorage key: "1" = desktop sidebar collapsed to icons (key name kept so saved choices carry over). */
+const NAV_COLLAPSED_KEY = "tcroof.navCollapsed";
 
 /** Fleet pages not in the sidebar (reached by links, e.g. from Active Alarm or Weather Station).
  * Listed here only for the header breadcrumb. */
@@ -112,6 +117,23 @@ export const Layout: React.FC = () => {
   const now = useClock();
 
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
+  // desktop sidebar full / collapsed to icons (top-bar button or Ctrl/⌘+B); remembered per browser
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(NAV_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleNav = () =>
+    setNavCollapsed((h) => {
+      try {
+        localStorage.setItem(NAV_COLLAPSED_KEY, h ? "0" : "1");
+      } catch {
+        /* storage blocked: the choice lasts this tab only */
+      }
+      return !h;
+    });
   const [cmdOpen, setCmdOpen] = useState<boolean>(false);
   const [alarmsOpen, setAlarmsOpen] = useState<boolean>(false);
 
@@ -120,6 +142,10 @@ export const Layout: React.FC = () => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCmdOpen((prev) => !prev);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b" && window.matchMedia("(min-width: 1024px)").matches) {
+        e.preventDefault();
+        toggleNav();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -173,77 +199,125 @@ export const Layout: React.FC = () => {
     .join("")
     .toUpperCase();
 
-  const sidebar = (
-    <aside className="flex h-full w-64 flex-col border-r border-white/[0.06] bg-ink-900/95 backdrop-blur-xl">
+  // compact = the desktop bar collapsed to an icon strip (names in tooltips)
+  const renderSidebar = (compact: boolean) => (
+    <aside
+      className={`flex h-full flex-col border-r border-white/[0.06] bg-ink-900/95 backdrop-blur-xl transition-[width] duration-200 ease-out motion-reduce:transition-none ${
+        compact ? "w-16" : "w-64"
+      }`}
+    >
       {/* Brand */}
-      <div className="flex items-center gap-3 px-5 pb-4 pt-5">
+      <div className={`flex items-center gap-3 pb-4 pt-5 ${compact ? "justify-center px-0" : "px-5"}`}>
         <img src="/favicon.svg" alt="TC Renewable" className="h-9 w-9 shrink-0 rounded-xl ring-1 ring-white/10" />
-        <div className="min-w-0">
-          <div className="text-sm font-extrabold tracking-tight text-white">GenZ Monitoring</div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
-        </div>
+        {!compact && (
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold tracking-tight text-white">GenZ Monitoring</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
+          </div>
+        )}
       </div>
 
-      {/* Fleet summary card */}
-      <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-ink-850/80 p-3">
-        <div className="flex items-center justify-between">
-          <span className="eyebrow">Fleet</span>
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
-            <Led level={fleetLevel} pulse={!growattLiveStatus.stale && growattLiveStatus.fetchedAt != null} />
-            {fleetLiveLabel}
-          </span>
-        </div>
-        <div className="mt-1.5 text-[13px] font-semibold text-slate-100">
-          {plantListLoaded ? `${fmtInt(fleet.plants)} plants` : "—"}
-        </div>
-        <div className="mt-0.5 text-[11px] text-slate-500">
-          Online <span className="num font-semibold text-emerald-300">{fmtInt(fleet.online)}</span>
-          {" · "}
-          Offline <span className="num font-semibold text-red-300">{fmtInt(fleet.offline)}</span>
-        </div>
-        <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-2.5 text-[11px]">
-          <div>
-            <div className="text-slate-500">AC Power</div>
-            <div className="num font-semibold text-energy-300">{fmt(fleet.acKw, 1)} kW</div>
+      {/* Fleet summary card (compact: status LED, figures in the tooltip) */}
+      {compact ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className="mx-auto mb-3 flex h-8 w-10 items-center justify-center rounded-lg border border-white/[0.06] bg-ink-850/80"
+              aria-label={`Fleet: ${fleetLiveLabel}`}
+            >
+              <Led level={fleetLevel} pulse={!growattLiveStatus.stale && growattLiveStatus.fetchedAt != null} />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <div className="font-semibold">Fleet · {fleetLiveLabel}</div>
+            <div>{plantListLoaded ? `${fmtInt(fleet.plants)} plants` : "—"} · Online {fmtInt(fleet.online)} · Offline {fmtInt(fleet.offline)}</div>
+            <div>AC {fmt(fleet.acKw, 1)} kW · DC {fmt(fleet.dcKwp, 1)} kWp</div>
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-ink-850/80 p-3">
+          <div className="flex items-center justify-between">
+            <span className="eyebrow">Fleet</span>
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+              <Led level={fleetLevel} pulse={!growattLiveStatus.stale && growattLiveStatus.fetchedAt != null} />
+              {fleetLiveLabel}
+            </span>
           </div>
-          <div>
-            <div className="text-slate-500">DC Capacity</div>
-            <div className="num font-semibold text-solar-400">{fmt(fleet.dcKwp, 1)} kWp</div>
+          <div className="mt-1.5 text-[13px] font-semibold text-slate-100">
+            {plantListLoaded ? `${fmtInt(fleet.plants)} plants` : "—"}
+          </div>
+          <div className="mt-0.5 text-[11px] text-slate-500">
+            Online <span className="num font-semibold text-emerald-300">{fmtInt(fleet.online)}</span>
+            {" · "}
+            Offline <span className="num font-semibold text-red-300">{fmtInt(fleet.offline)}</span>
+          </div>
+          <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-2.5 text-[11px]">
+            <div>
+              <div className="text-slate-500">AC Power</div>
+              <div className="num font-semibold text-energy-300">{fmt(fleet.acKw, 1)} kW</div>
+            </div>
+            <div>
+              <div className="text-slate-500">DC Capacity</div>
+              <div className="num font-semibold text-solar-400">{fmt(fleet.dcKwp, 1)} kWp</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-4">
+      {/* compact: no scrollbar gutter (an 8 px bar would push the icons off-centre); still scrolls */}
+      <nav
+        className={`flex-1 space-y-4 overflow-y-auto overflow-x-hidden pb-4 ${
+          compact ? "px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "px-3"
+        }`}
+      >
         {NAV_GROUPS.map((group) => ({ ...group, items: group.items.filter(canSee) }))
           .filter((group) => group.items.length > 0)
           .map((group) => (
           <div key={group.title}>
-            <div className="eyebrow px-3 pb-1.5">{group.title}</div>
+            {compact ? (
+              <div className="mx-4 mb-2 border-t border-white/[0.06]" aria-hidden />
+            ) : (
+              <div className="eyebrow px-3 pb-1.5">{group.title}</div>
+            )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon;
-                return (
+                const link = (
                   <NavLink
                     key={item.label}
                     to={item.to}
                     end={item.to === "/"}
+                    aria-label={compact ? item.label : undefined}
                     className={({ isActive }) =>
-                      `group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition ${
+                      `group relative flex items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition ${
+                        compact ? "mx-auto size-10 justify-center px-0 py-0" : "px-3"
+                      } ${
                         isActive
-                          ? "bg-solar-500/15 text-white"
+                          ? "bg-white/[0.07] text-white ring-1 ring-inset ring-white/10"
                           : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
                       }`
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        {isActive && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-solar-400 shadow-[0_0_10px_rgba(245,180,42,0.8)]" />}
+                        {isActive && !compact && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-solar-400" />}
                         <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-solar-400" : "text-slate-500 group-hover:text-slate-300"}`} />
-                        <span className="flex-1 truncate">{item.label}</span>
+                        {!compact && <span className="flex-1 truncate">{item.label}</span>}
                       </>
                     )}
                   </NavLink>
+                );
+                return compact ? (
+                  <Tooltip key={item.label}>
+                    {/* trigger on a wrapper: asChild on NavLink would stringify its className function */}
+                    <TooltipTrigger asChild>
+                      <div className="flex justify-center">{link}</div>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{item.label}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  link
                 );
               })}
             </div>
@@ -252,23 +326,46 @@ export const Layout: React.FC = () => {
       </nav>
 
       {/* User */}
-      <div className="flex items-center gap-3 border-t border-white/[0.06] px-4 py-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-energy-500/20 text-[11px] font-bold text-energy-300 ring-1 ring-energy-400/30">
-          {initials}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-semibold text-slate-100">{user?.full_name}</div>
-          <div className="truncate text-[11px] uppercase tracking-wider text-slate-500">
-            {user ? `${user.username ?? user.email} · ${user.role}` : ""}
-          </div>
-        </div>
+      <div
+        className={`flex items-center border-t border-white/[0.06] py-3 ${
+          compact ? "flex-col gap-2 px-0" : "gap-3 px-4"
+        }`}
+      >
+        {compact ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-energy-500/20 text-[11px] font-bold text-energy-300 ring-1 ring-energy-400/30"
+                aria-label={user?.full_name}
+              >
+                {initials}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <div className="font-semibold">{user?.full_name}</div>
+              <div>{user ? `${user.username ?? user.email} · ${user.role}` : ""}</div>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-energy-500/20 text-[11px] font-bold text-energy-300 ring-1 ring-energy-400/30">
+              {initials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-semibold text-slate-100">{user?.full_name}</div>
+              <div className="truncate text-[11px] uppercase tracking-wider text-slate-500">
+                {user ? `${user.username ?? user.email} · ${user.role}` : ""}
+              </div>
+            </div>
+          </>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out">
               <LogOut className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Sign out</TooltipContent>
+          <TooltipContent side={compact ? "right" : undefined}>Sign out</TooltipContent>
         </Tooltip>
       </div>
     </aside>
@@ -277,13 +374,13 @@ export const Layout: React.FC = () => {
   return (
     <div className="flex min-h-screen text-slate-200">
       {/* Desktop sidebar */}
-      <div className="sticky top-0 hidden h-screen shrink-0 lg:block">{sidebar}</div>
+      <div className="sticky top-0 hidden h-screen shrink-0 lg:block">{renderSidebar(navCollapsed)}</div>
 
       {/* Mobile sidebar */}
       {mobileNavOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileNavOpen(false)} />
-          <div className="absolute inset-y-0 left-0">{sidebar}</div>
+          <div className="absolute inset-y-0 left-0">{renderSidebar(false)}</div>
         </div>
       )}
 
@@ -295,6 +392,21 @@ export const Layout: React.FC = () => {
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
               <Menu className="size-5" />
             </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hidden lg:inline-flex"
+                  onClick={toggleNav}
+                  aria-label={navCollapsed ? "Expand left tab bar" : "Collapse left tab bar"}
+                  aria-pressed={!navCollapsed}
+                >
+                  {navCollapsed ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Resize left tab bar</TooltipContent>
+            </Tooltip>
 
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] text-slate-500">

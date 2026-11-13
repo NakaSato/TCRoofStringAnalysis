@@ -95,6 +95,27 @@ export interface GrowattLivePlant {
   status: number | null;
 }
 
+/** /growatt/live/plants/today: today's energy per plant from Growatt `plant/data` (memory only),
+ * swept a batch of plants per request; `sweep` says how many are fresh. */
+export interface GrowattLivePlantsToday {
+  /** plant-local day the values are judged against */
+  day: string;
+  /** keyed by plant id; a plant not checked yet is absent */
+  plants: Record<
+    string,
+    {
+      fetched_at: string;
+      stale: boolean;
+      /** plant-local time of the plant's last upload */
+      last_update_time: string | null;
+      /** null when the last upload is not from today */
+      today_energy_kwh: number | null;
+    }
+  >;
+  errors: Record<string, string>;
+  sweep: { fresh: number; checked: number; total: number; oldest_age_s: number };
+}
+
 export interface GrowattLiveGrid {
   v_r: number | null; v_s: number | null; v_t: number | null;
   v_rs: number | null; v_st: number | null; v_tr: number | null;

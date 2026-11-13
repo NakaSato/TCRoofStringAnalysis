@@ -583,3 +583,55 @@ def test_route_day_param_and_engineer_filter(factory):
     assert body["meta"]["day"] == "2026-11-12" and body["meta"]["is_today"] is False
     assert [s["key"] for s in body["sensors"]] == ["DL1:1", "DL1:2"]  # plant 2's sensor hidden
     assert eng.get("/api/growatt/sensors?day=nope").status_code == 422
+
+
+# --------------------------------------------------------------------------- today's records live (sensor page chart)
+
+
+class _EnvDay(_EnvList):
+    """Fake `env_data` for today: newest first, one off-slot record, humidity never fitted (0)."""
+
+    def __init__(self):
+        super().__init__()
+        self.day_calls: list = []
+
+    def env_history(self, datalogger_sn, address, start_date, end_date, stop_before=None):
+        self.day_calls.append((datalogger_sn, address, start_date, end_date))
+        d = start_date.isoformat()
+        return [
+            {"timeText": f"{d} 11:57:10", "radiant": "650", "envTemp": "31", "panelTemp": "48", "envHumidity": "0", "windSpeed": "0", "windAngle": "0"},
+            {"timeText": f"{d} 11:50:00", "radiant": "600", "envTemp": "30", "panelTemp": "47", "envHumidity": "0", "windSpeed": "1.2", "windAngle": "90"},
+            {"timeText": "bad", "radiant": "1"},
+        ]
+
+
+def test_live_sensor_today_series_cached_and_never_stored(factory, monkeypatch):
+    fake = _EnvDay()
+    svc = GrowattLiveService(client_factory=lambda phase: fake, clock=_Clock(), phases=(1, 2), now_local=lambda: NOW)  # type: ignore[arg-type,return-value]
+    admin = _api(factory, "admin")
+    admin.app_ref.dependency_overrides[get_live_service] = lambda: svc  # type: ignore[attr-defined]
+    with factory() as db:
+        stored = db.scalar(select(func.count()).select_from(GrowattEnvReading))
+
+    body = admin.get("/api/growatt/live/sensors/DL1/1/today").json()
+    d = body["data"]
+    assert body["source"] == "live" and d["day"] == NOW.date().isoformat()
+    day = NOW.date().isoformat()
+    assert [p["timestamp"] for p in d["series"]] == [f"{day} 11:50:00", f"{day} 11:55:00"]  # oldest first, 5-min slots
+    assert d["series"][1]["irradiance_wm2"] == 650.0
+    assert d["series"][0]["humidity_pct"] is None and "humidity_pct" not in d["measured"]  # 0 all day = not fitted
+    assert d["series"][1]["wind_speed_ms"] == 0.0  # fitted (non-zero earlier today): a real 0 stays 0
+    assert fake.day_calls == [("DL1", 1, NOW.date(), NOW.date())]
+
+    admin.get("/api/growatt/live/sensors/DL1/1/today")
+    assert len(fake.day_calls) == 1  # cached
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(GrowattEnvReading)) == stored  # nothing written
+
+
+def test_live_sensor_today_404_for_invisible_sensor(factory):
+    fake = _EnvDay()
+    eng = _api(factory, "engineer")
+    eng.app_ref.dependency_overrides[get_live_service] = lambda: _svc(fake, _Clock())  # type: ignore[attr-defined]
+    assert eng.get("/api/growatt/live/sensors/DL1/1/today").status_code == 404
+    assert fake.day_calls == []

@@ -25,10 +25,13 @@ Seeded logins (username / password): `admin` / `admin123`, `engineer` / `enginee
 ```
 Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /growatt/live/* ─► UI polls when refresh_in_s says
                  │              (mirrored in Redis on the VM, no persistence, keys expire; never stored)
+                 ├─ plant/data today energy ─► memory sweep (40 plants/request, 300 s) ─► /growatt/live/plants/today
+                 │              (only while the plant directory is open; never stored)
                  ├─ env_list sensor status ─► memory sweep (12 dataloggers/request, 300 s) ─► /growatt/live/sensors/status
                  │              (only while Weather Sensors / Active Alarm is open; never stored)
                  ├─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
                  │                                                       └─► daily summaries ─► Firestore
+                 ├─ env_data today (one sensor) ─► backend memory cache (300 s) ─► /growatt/live/sensors/{dl}/{addr}/today ─► sensor page chart (today only)
                  ├─ env_data sensor history ─► growatt-worker (every 30 min with history; also every 10 min, 05–20) ─► SQL
                  └─ alarm_data log ─► growatt-worker (every 30 min, 05–21; yesterday at 00:30) ─► SQL ─► /growatt/alarms (Active Alarm)
 API + worker logging ─► app_logs (SQL, redacted, 14 days) ─► /system/logs (admin: System → Logs)
@@ -63,6 +66,7 @@ Rules for every layer:
 - `GROWATT_LIVE_TTL_S`
 - `REDIS_URL` (empty = memory only): Redis mirror of the live caches and Growatt / Google cooldowns
 - `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open); `SENSOR_ALARM_COVERAGE_PCT` (80): Active Alarm, past day: stored daylight coverage below this = data gap
+- `PLANT_TODAY_TTL_S` (300), `PLANT_TODAY_SWEEP_PER_REQUEST` (40): plant directory Yield today (`plant/data` per plant, memory only, swept only while the directory is open)
 - `LOG_DB_ENABLED` (true), `LOG_DB_LEVEL` (INFO), `LOG_RETENTION_DAYS` (14), `LOG_MAX_ROWS` (500000), `LOG_FLUSH_INTERVAL_S` (5), `LOG_BUFFER_MAX` (5000), `LOG_SLOW_REQUEST_MS` (5000): System → Logs (`app_logs`)
 - `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_FILE`
 - `PUBLISH_SINK` (`json` | `firestore`)

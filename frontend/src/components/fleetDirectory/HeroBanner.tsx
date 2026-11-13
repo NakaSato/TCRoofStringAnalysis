@@ -1,14 +1,31 @@
-/** Plant directory hero: fleet KPIs, plant status donut, today's alarms donut and the right-edge toolbar. */
+/**
+ * Plant directory hero: fleet KPIs, plant status donut, today's alarms donut and the right-edge toolbar.
+ * Realtime: current power, total yield, yield / revenue today and plant status (live polls, never
+ * stored). The alarm donut is the worker's stored alarm log, labelled with its sync time; the live
+ * count of faulty plants sits above it.
+ */
 import React from "react";
 import { Link } from "react-router-dom";
 import { Zap, Gauge, Cpu, Settings, ChevronRight, ChevronUp, Sun, BatteryCharging, Coins, Info, AlertCircle, Bell, LayoutGrid, Eye } from "lucide-react";
 import { getLastPlantId } from "../../context/routes";
-import { fmt, fmtInt } from "../ui";
+import { Led, fmt, fmtInt } from "../ui";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { MultiSegmentDonut } from "./parts";
 
+const hhmmLocal = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
-  const { selectGrowattPlant, statusFilter, setStatusFilter, showInspectorDrawer, setShowInspectorDrawer, heroMetrics } = d;
+  const { selectGrowattPlant, statusFilter, setStatusFilter, showInspectorDrawer, setShowInspectorDrawer, heroMetrics, growattLiveStatus } = d;
+  const yl = heroMetrics.yieldLive;
+  const sweeping = yl.checked < yl.total;
+  const kpiFresh = yl.loading || growattLiveStatus.loading
+    ? { level: "off" as const, text: "Loading…" }
+    : yl.stale || growattLiveStatus.stale
+      ? { level: "warn" as const, text: `Last sync${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` }
+      : sweeping
+        ? { level: "warn" as const, text: `Checking ${yl.checked}/${yl.total}` }
+        : { level: "ok" as const, text: `Live${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` };
+  const todayHint = `Live from Growatt (plant/data, not stored): ${yl.checked} of ${yl.total} plants checked; a plant not checked yet or not reporting today counts as —`;
   return (
     <section className="relative overflow-hidden rounded-xl border border-sky-400/20 bg-gradient-to-b from-[#07264e] via-[#061c38] to-[#081224] shadow-[0_14px_40px_-12px_rgba(2,132,199,0.35)]">
       {/* Perspective Solar Array Horizon Backdrop SVG */}
@@ -52,6 +69,10 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           <div className="mb-5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold tracking-tight text-white">Plant KPIs</h3>
+              <span className="num inline-flex items-center gap-1.5 text-[11px] text-slate-400" title={todayHint}>
+                <Led level={kpiFresh.level} pulse={kpiFresh.level === "ok"} />
+                {kpiFresh.text}
+              </span>
               <Link
                 to="/settings"
                 title="Configure Plant KPIs & Tariff"
@@ -97,7 +118,12 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   </span>
                   <span className="text-[11px] text-slate-300">kWh</span>
                 </div>
-                <div className="text-[11px] text-slate-400">Yield today</div>
+                <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                  Yield today
+                  <span title={todayHint}>
+                    <Info className="h-3 w-3 text-slate-500" />
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -115,7 +141,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
                   Revenue today
-                  <span title="Calculated using plant tariff (THB/kWh)">
+                  <span title={`Live yield today × plant tariff (THB/kWh). ${todayHint}`}>
                     <Info className="h-3 w-3 text-slate-500" />
                   </span>
                 </div>
@@ -258,7 +284,22 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
         {/* ---------------- COLUMN 3: Active Alarms Donut ---------------- */}
         <div className="min-w-0 p-5 pr-14 xl:col-span-4 xl:p-6 xl:pr-14">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold tracking-tight text-white">Active Alarms</h3>
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="text-sm font-semibold tracking-tight text-white">Active Alarms</h3>
+              <button
+                onClick={() => setStatusFilter(statusFilter === "Faulty" ? "ALL" : "Faulty")}
+                title="Plants Growatt reports as faulty right now (live plant status); click to list them"
+                className={`num inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] transition ${
+                  statusFilter === "Faulty" ? "bg-white/10 ring-1 ring-red-400/40" : "hover:bg-white/5"
+                } ${heroMetrics.faultyPlants > 0 ? "text-red-300" : "text-slate-400"}`}
+              >
+                <Led
+                  level={growattLiveStatus.loading ? "off" : heroMetrics.faultyPlants > 0 ? "crit" : "ok"}
+                  pulse={!growattLiveStatus.loading && !growattLiveStatus.stale}
+                />
+                {growattLiveStatus.loading ? "Live …" : `${heroMetrics.faultyPlants} faulty now`}
+              </button>
+            </div>
             <Link
               to="/alarms"
               title="Open Active Alarm (whole fleet)"
@@ -271,7 +312,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           <div className="flex items-center justify-center gap-8 pt-1">
             <MultiSegmentDonut
               totalValue={heroMetrics.totalAlarms == null ? "—" : heroMetrics.totalAlarms}
-              centerLabel="Alarms today"
+              centerLabel={heroMetrics.alarmSyncedAt ? `Log · ${hhmmLocal(heroMetrics.alarmSyncedAt)}` : "Log today"}
               segments={[
                 { label: "Faults", value: heroMetrics.faultCount ?? 0, color: "#ef4444" },
                 { label: "Warnings", value: heroMetrics.warningCount ?? 0, color: "#f59e0b" },

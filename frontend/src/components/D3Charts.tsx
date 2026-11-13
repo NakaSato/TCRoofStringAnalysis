@@ -1,6 +1,5 @@
 /**
  * Hand-built D3 charts (D3 does the maths: scales, ticks, shapes; React renders the SVG).
- * - ComparisonBars: horizontal bars vs an average line
  * - StringHeatmap: string current × time slot, with per-slot median comparison
  * - DailyTrendChart: daily bars + plant-average line, and % of average in its own panel
  * Missing values are never drawn as 0: a null cell / bar / point is left empty.
@@ -8,152 +7,14 @@
 import React, { useMemo, useState } from "react";
 import * as d3 from "d3";
 import { fmt } from "./ui";
-import { C, TICK_FONT, TipRow, Tooltip, textWidth, useWidth } from "./chartKit";
+import { C, TICK_FONT, TipRow, Tooltip, useWidth } from "./chartKit";
 import type { TipState } from "./chartKit";
 import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
 
 /* -------------------------------------------------------------------------- */
-/* 1. Horizontal comparison bars                                              */
-/* -------------------------------------------------------------------------- */
-/** Horizontal bar: square at the baseline, rounded at the value end. */
-function hBarPath(w: number, y: number, h: number, r: number) {
-  if (w <= 0 || h <= 0) return "";
-  const rr = Math.min(r, h / 2, w);
-  return `M0,${y}H${w - rr}Q${w},${y} ${w},${y + rr}V${y + h - rr}Q${w},${y + h} ${w - rr},${y + h}H0Z`;
-}
-
-export interface BarRow {
-  key: string;
-  label: string;
-  value: number;
-  /** extra lines for the tooltip */
-  detail?: Array<{ label: string; value: string }>;
-}
-
-export const ComparisonBars: React.FC<{
-  rows: BarRow[];
-  average: number;
-  unit: string;
-  selectedKey?: string | null;
-  /** value / average below this share is flagged (rose) */
-  lowShare?: number;
-}> = ({ rows, average, unit, selectedKey, lowShare = 0.9 }) => {
-  const [ref, width] = useWidth<HTMLDivElement>();
-  const [tip, setTip] = useState<TipState | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
-
-  const rowH = 26;
-  const labelW = Math.min(150, Math.max(48, d3.max(rows, (r) => textWidth(r.label)) ?? 48) + 8);
-  const m = { t: 22, r: 52, b: 28, l: labelW };
-  const height = m.t + m.b + rows.length * rowH;
-  const iw = Math.max(0, width - m.l - m.r);
-
-  const x = useMemo(
-    () => d3.scaleLinear().domain([0, (d3.max(rows, (r) => r.value) ?? 1) * 1.05]).nice().range([0, iw]),
-    [rows, iw],
-  );
-  const y = useMemo(
-    () => d3.scaleBand().domain(rows.map((r) => r.key)).range([0, rows.length * rowH]).padding(rows.length < 4 ? 0.5 : 0.28),
-    [rows],
-  );
-  const ticks = x.ticks(Math.max(2, Math.floor(iw / 80)));
-
-  return (
-    <div ref={ref} className="relative w-full" onMouseLeave={() => (setTip(null), setHover(null))}>
-      {width > 0 && (
-        <svg width={width} height={height} className="block">
-          <g transform={`translate(${m.l},${m.t})`}>
-            {ticks.map((t) => (
-              <g key={t} transform={`translate(${x(t)},0)`}>
-                <line y2={rows.length * rowH} stroke={C.grid} />
-                <text y={rows.length * rowH + 18} textAnchor="middle" fill={C.muted} fontSize={TICK_FONT} className="num">
-                  {d3.format("~s")(t)}
-                </text>
-              </g>
-            ))}
-            <text x={iw} y={rows.length * rowH + 18} dx={m.r - 4} textAnchor="end" fill={C.muted} fontSize={TICK_FONT}>
-              {unit}
-            </text>
-
-            {rows.map((r) => {
-              const share = r.value / average;
-              const selected = r.key === selectedKey;
-              const color = selected ? C.sky : share < lowShare ? C.rose : C.amber;
-              const yy = y(r.key) ?? 0;
-              const dim = hover != null && hover !== r.key;
-              return (
-                <g
-                  key={r.key}
-                  onMouseMove={(e) => {
-                    const box = ref.current!.getBoundingClientRect();
-                    setHover(r.key);
-                    setTip({
-                      x: e.clientX - box.left,
-                      y: e.clientY - box.top,
-                      content: (
-                        <>
-                          <div className="mb-1 font-semibold text-white">{r.label}</div>
-                          <TipRow label="Yield" value={`${fmt(r.value, 1)} ${unit}`} />
-                          <TipRow label="vs average" value={`${fmt(share * 100, 0)}%`} />
-                          {r.detail?.map((d) => <TipRow key={d.label} label={d.label} value={d.value} />)}
-                        </>
-                      ),
-                    });
-                  }}
-                >
-                  {/* full-row hit area */}
-                  <rect x={-m.l} y={yy - (rowH - y.bandwidth()) / 2} width={width} height={rowH} fill={hover === r.key ? "rgba(148,163,184,0.06)" : "transparent"} />
-                  <text
-                    x={-8}
-                    y={yy + y.bandwidth() / 2}
-                    dy="0.35em"
-                    textAnchor="end"
-                    fill={selected ? C.sky : C.text}
-                    fontSize={TICK_FONT}
-                    fontWeight={selected ? 700 : 500}
-                  >
-                    {r.label.length > 20 ? `${r.label.slice(0, 19)}…` : r.label}
-                  </text>
-                  <path
-                    d={hBarPath(Math.max(0, x(r.value)), yy, y.bandwidth(), 3)}
-                    fill={color}
-                    fillOpacity={dim ? 0.35 : selected ? 1 : 0.8}
-                  />
-                  <text
-                    x={x(r.value) + 6}
-                    y={yy + y.bandwidth() / 2}
-                    dy="0.35em"
-                    fill={C.text}
-                    fontSize={TICK_FONT}
-                    fontWeight={600}
-                    className="num"
-                  >
-                    {share < lowShare && <tspan fill={C.rose}>▼ </tspan>}
-                    {fmt(share * 100, 0)}%
-                  </text>
-                </g>
-              );
-            })}
-
-            {/* average marker */}
-            <g transform={`translate(${x(average)},0)`} pointerEvents="none">
-              <line y1={-6} y2={rows.length * rowH} stroke={C.ref} strokeWidth={1.5} strokeDasharray="4 3" />
-              <text y={-10} textAnchor="middle" fill={C.ref} fontSize={TICK_FONT} fontWeight={600} className="num">
-                avg {fmt(average, 0)}
-              </text>
-            </g>
-          </g>
-        </svg>
-      )}
-      <Tooltip tip={tip} width={width} />
-    </div>
-  );
-};
-
-/* -------------------------------------------------------------------------- */
-/* 2. String current heatmap                                                  */
+/* 1. String current heatmap                                                  */
 /* -------------------------------------------------------------------------- */
 const parseTs = d3.timeParse("%Y-%m-%d %H:%M:%S");
 const hhmm = d3.timeFormat("%H:%M");
@@ -304,7 +165,7 @@ export const StringHeatmap: React.FC<{
 };
 
 /* -------------------------------------------------------------------------- */
-/* 3. Daily trend: bars + average line + % line (right axis)                  */
+/* 2. Daily trend: bars + average line + % line (right axis)                  */
 /* -------------------------------------------------------------------------- */
 export interface TrendRow {
   day: string;

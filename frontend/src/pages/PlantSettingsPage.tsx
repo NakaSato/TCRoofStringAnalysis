@@ -66,8 +66,8 @@ export const PlantSettingsPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         icon={Globe2}
-        eyebrow="System · Global Settings"
-        title="Global Settings"
+        eyebrow="System · Settings"
+        title="Settings"
         description="Fleet-wide settings that apply to every Growatt plant. Settings that belong to one plant live on that plant's tabs."
       />
 

@@ -37,6 +37,27 @@ INVERTER_TYPES = {1, 4, 5, 6, 7}
 INVERTER_STATUS_NAMES: Dict[int, str] = {0: "Offline", 1: "Normal", 3: "Fault"}
 
 
+# Longest raw reply quoted in an error message.
+ERROR_SNIPPET_MAX = 300
+
+
+def _snippet(value: Any) -> str:
+    text = value if isinstance(value, str) else repr(value)
+    text = " ".join(text.split())
+    return text if len(text) <= ERROR_SNIPPET_MAX else text[: ERROR_SNIPPET_MAX - 1] + "…"
+
+
+def growatt_error_text(body: Dict[str, Any]) -> str:
+    """Growatt's own reason for a refused call: `error_msg`, else another message field it
+    sent (`msg`, `message`, …), else the raw reply (shortened). Never a made-up text."""
+    for key in ("error_msg", "msg", "message", "error_message", "error", "result_msg"):
+        val = body.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    rest = {k: v for k, v in body.items() if k != "error_code"}
+    return f"no message; reply {_snippet(rest)}" if rest else "no message and no other fields"
+
+
 class GrowattAPIError(RuntimeError):
     def __init__(self, message: str, error_code: Optional[int] = None):
         super().__init__(message)
@@ -75,9 +96,11 @@ class GrowattClient:
             raise GrowattAPIError(f"Growatt request {path} failed: {exc}") from exc
         except ValueError as exc:
             raise GrowattAPIError(f"Growatt request {path} returned non-JSON response") from exc
+        if not isinstance(body, dict):
+            raise GrowattAPIError(f"Growatt {path} returned an unexpected reply: {_snippet(body)}")
         code = body.get("error_code")
         if code != 0:
-            raise GrowattAPIError(f"Growatt {path} error {code}: {body.get('error_msg') or 'unknown error'}", error_code=code)
+            raise GrowattAPIError(f"Growatt {path} error {code}: {growatt_error_text(body)}", error_code=code)
         return body.get("data")
 
     def _get(self, path: str, use_cache: bool = True, **params: Any) -> Any:
@@ -103,6 +126,12 @@ class GrowattClient:
             if not batch or len(plants) >= int(data.get("count") or 0):
                 return plants
             page += 1
+
+    def plant_data(self, plant_id: int) -> Dict[str, Any]:
+        """`plant/data`: one plant's current power, today / month / year / total energy and
+        `last_update_time` (plant-local). `plant/list` has no today energy; this is the only
+        plant-level source of it. One call per plant, never cached here."""
+        return self._get("plant/data", use_cache=False, plant_id=plant_id) or {}
 
     def list_devices(self, plant_id: int, refresh: bool = False) -> List[Dict[str, Any]]:
         devices: List[Dict[str, Any]] = []

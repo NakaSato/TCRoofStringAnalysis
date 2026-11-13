@@ -15,9 +15,9 @@ export type * from "./types/sensors";
 export type * from "./types/systemLogs";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
-import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattPlant, GrowattPlantOverview, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
+import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
-import type { SensorList, SensorLive, SensorLiveStatus } from "./types/sensors";
+import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
 
 export function getStoredToken(): string | null {
@@ -201,9 +201,14 @@ export const api = {
     apiFetch<GrowattLive<SensorLiveStatus>>(`/growatt/live/sensors/status${plantId != null ? `?plant_id=${plantId}` : ""}`),
   getLiveSensor: (dataloggerSn: string, address: number) =>
     apiFetch<GrowattLive<SensorLive>>(`/growatt/live/sensors/${encodeURIComponent(dataloggerSn)}/${address}`),
+  /** today's 5-min records of one sensor from Growatt (memory only; today only) */
+  getLiveSensorToday: (dataloggerSn: string, address: number) =>
+    apiFetch<GrowattLive<SensorToday>>(`/growatt/live/sensors/${encodeURIComponent(dataloggerSn)}/${address}/today`),
 
   // Growatt — realtime (backend memory only; poll, never stored)
   getGrowattLivePlants: () => apiFetch<GrowattLive<GrowattLivePlant[]>>("/growatt/live/plants"),
+  /** today's energy per plant (`plant/data`, swept a batch per request; poll on refresh_in_s) */
+  getGrowattLivePlantsToday: () => apiFetch<GrowattLive<GrowattLivePlantsToday>>("/growatt/live/plants/today"),
   getGrowattLiveInverters: (plantId: number) =>
     apiFetch<GrowattLive<GrowattInverter[]>>(`/growatt/live/plants/${plantId}/inverters`),
   getGrowattLivePlantLatest: (plantId: number) =>

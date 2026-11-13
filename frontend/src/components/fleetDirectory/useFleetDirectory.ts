@@ -1,9 +1,17 @@
 /**
  * State and derived data of the plant directory (fleet home page): the rows built from the
  * Growatt plant list, fleet totals and alarm counts for the hero banner, filters, sort and paging.
+ *
+ * Realtime only for status, power and today's energy: status / power / total from the fleet live
+ * poll, Yield today from `/growatt/live/plants/today` (Growatt `plant/data`, swept by the backend a
+ * batch of plants per request), polled here while the directory is open. A plant not checked yet
+ * shows "—", never the stored day's yield.
  */
 import { useMemo, useState } from "react";
+import { api } from "../../api/client";
+import type { GrowattLive, GrowattLivePlantsToday } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
+import { useLivePoll } from "../../context/useLivePoll";
 import { plantToday, useAlarmLog } from "../../context/alarmLogStore";
 import { LOADING_STATUS } from "../ui";
 import type { StatusLevel } from "../ui";
@@ -22,6 +30,21 @@ export const useFleetDirectory = () => {
     growattLiveStatus,
   } = useAppContext();
   const alarmLog = useAlarmLog(plantToday()).view?.result ?? null;
+
+  // today's energy per plant, realtime (backend memory only; never stored)
+  const [liveToday, setLiveToday] = useState<GrowattLive<GrowattLivePlantsToday> | null>(null);
+  const [liveTodayFailed, setLiveTodayFailed] = useState(false);
+  useLivePoll(
+    true,
+    "plants-today",
+    api.getGrowattLivePlantsToday,
+    (r) => {
+      setLiveToday(r);
+      setLiveTodayFailed(false);
+    },
+    () => setLiveTodayFailed(true)
+  );
+  const todayByPlant = liveToday?.data.plants;
   const [loadingCloud, setLoadingCloud] = useState(false);
   const [cloudNotice, setCloudNotice] = useState<string | null>(null);
 
@@ -36,7 +59,7 @@ export const useFleetDirectory = () => {
 
   // Applied filters (updated when clicking Search, or live on input)
   const [sortField, setSortField] = useState<
-    "name" | "location" | "createdDate" | "capacityKwp" | "stringsCount" | "currentPowerKw" | "specificEnergyKwhPerKwp" | "yieldTodayKwh" | "totalEnergyKwh"
+    "statusRank" | "name" | "location" | "createdDate" | "capacityKwp" | "stringsCount" | "currentPowerKw" | "specificEnergyKwhPerKwp" | "yieldTodayKwh" | "totalEnergyKwh"
   >("capacityKwp");
   const [sortAsc, setSortAsc] = useState(false);
   const [pageSize, setPageSize] = useState(10);
@@ -68,9 +91,18 @@ export const useFleetDirectory = () => {
       const capKwp = gp.peak_power_kwp ?? null;
       const totalKwh = gp.total_energy_kwh ?? null;
       const curKw = gp.current_power_w == null ? null : gp.current_power_w / 1000;
-      // Measured energy of the latest synced day only — null (shown "—") when it is missing.
-      const dayKwh = gp.today_energy_kwh ?? null;
+      // realtime today's energy (plant/data); null (shown "—") until checked or when not from today
+      const dayKwh = todayByPlant?.[String(gp.plant_id)]?.today_energy_kwh ?? null;
       const invCnt = gp.inverter_count ?? null;
+      // 0,0 is Growatt's "not set"
+      const located =
+        gp.latitude != null &&
+        gp.longitude != null &&
+        Number.isFinite(gp.latitude) &&
+        Number.isFinite(gp.longitude) &&
+        !(gp.latitude === 0 && gp.longitude === 0) &&
+        Math.abs(gp.latitude) <= 90 &&
+        Math.abs(gp.longitude) <= 180;
 
       items.push({
         uid: `growatt-${gp.plant_id}`,
@@ -79,6 +111,8 @@ export const useFleetDirectory = () => {
         phase: gp.phase ?? null,
         name: gp.name || `Growatt Plant #${gp.plant_id}`,
         location: [gp.city, gp.country].filter(Boolean).join(", ") || "Thailand",
+        latitude: located ? gp.latitude : null,
+        longitude: located ? gp.longitude : null,
         capacityKwp: capKwp,
         currentPowerKw: curKw,
         yieldTodayKwh: dayKwh,
@@ -86,7 +120,8 @@ export const useFleetDirectory = () => {
         specificEnergyKwhPerKwp: capKwp && dayKwh != null ? dayKwh / capKwp : null,
         prPct: null,
         statusLabel: isUnknown ? LOADING_STATUS : isNormal ? "Normal" : isDisconnected ? "Disconnected" : "Faulty",
-        statusLevel: isUnknown ? "neutral" : isNormal ? "ok" : isDisconnected ? "info" : "crit",
+        statusLevel: isUnknown ? "neutral" : isNormal ? "ok" : isDisconnected ? "neutral" : "crit",
+        statusRank: isUnknown ? null : isNormal ? 1 : isDisconnected ? 2 : 3,
         stringsCount: invCnt,
         modulesCount: null,
         invertersCount: invCnt,
@@ -99,7 +134,7 @@ export const useFleetDirectory = () => {
     }
 
     return items;
-  }, [activePlant, activeDataset, analysisRun, growattPlants, growattLiveStatus.loading]);
+  }, [growattPlants, todayByPlant]);
 
   // Compute Fleet KPIs, Plant Status breakdown, and Active Alarms breakdown for the 3-column Hero Banner
   const heroMetrics = useMemo(() => {
@@ -124,6 +159,15 @@ export const useFleetDirectory = () => {
     // shown as "—", never as zero alarms.
     const rows = alarmLog && alarmLog.syncedAt != null ? alarmLog.rows : null;
     const countLevel = (lvl: StatusLevel) => (rows ? rows.filter((r) => r.level === lvl).length : null);
+    // freshness of Yield today: how many plants the backend sweep has checked
+    const sweep = liveToday?.data.sweep ?? null;
+    const yieldLive = {
+      checked: sweep?.checked ?? 0,
+      total: sweep?.total ?? unifiedPlants.length,
+      fetchedAt: liveToday?.fetched_at ?? null,
+      stale: Boolean(liveToday?.stale) || liveTodayFailed,
+      loading: !liveToday && !liveTodayFailed,
+    };
     const faultCount = countLevel("crit");
     const warningCount = countLevel("warn");
     const otherCount = rows ? rows.length - (faultCount ?? 0) - (warningCount ?? 0) : null;
@@ -145,8 +189,11 @@ export const useFleetDirectory = () => {
       otherCount,
       openCount,
       totalAlarms,
+      yieldLive,
+      /** newest worker read of today's alarm log (UTC ISO); null = not synced today */
+      alarmSyncedAt: alarmLog?.syncedAt ?? null,
     };
-  }, [unifiedPlants, activePlant, analysisRun, alarmLog]);
+  }, [unifiedPlants, activePlant, analysisRun, alarmLog, liveToday, liveTodayFailed]);
 
   // Filter & Sort plants for the table
   const filteredPlants = useMemo(() => {
@@ -203,6 +250,7 @@ export const useFleetDirectory = () => {
 
   const handleSort = (
     field:
+      | "statusRank"
       | "name"
       | "location"
       | "createdDate"

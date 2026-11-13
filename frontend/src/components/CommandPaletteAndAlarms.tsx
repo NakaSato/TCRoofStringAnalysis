@@ -106,7 +106,7 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "nav-settings",
         category: "Navigation",
-        title: "Global Settings",
+        title: "Settings",
         subtitle: "Fleet module & settings that apply to every plant",
         icon: Settings,
         onSelect: go("/settings"),
