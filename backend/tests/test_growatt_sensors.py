@@ -521,3 +521,65 @@ def test_stale_history_flag_rules():
     assert gs.stale_history_flag("late", "2026-11-13 11:58:00", synced) is None
     assert gs.stale_history_flag("online", "2026-11-13 11:58:00", None) is None  # not synced: status says it
     assert gs.stale_history_flag("online", None, synced) is None
+
+
+# --- past day (Active Alarm) ----------------------------------------------------------------
+
+TOMORROW = TODAY + timedelta(days=1)
+
+
+def _history_run(db, local):
+    db.add(
+        SyncRun(
+            job="history", status="ok",
+            started_at=local.replace(tzinfo=timezone(timedelta(hours=7))).astimezone(timezone.utc),
+            finished_at=local.replace(tzinfo=timezone(timedelta(hours=7))).astimezone(timezone.utc) + timedelta(minutes=5),
+        )
+    )
+    db.commit()
+
+
+def test_past_day_coverage_counts_the_whole_daylight_window(factory):
+    with factory() as db:
+        _history_run(db, TOMORROW.replace(hour=1))  # the day is fully fetched
+        body = gs.list_sensors(db, None, now_local=lambda: TOMORROW.replace(hour=12), day=TODAY.date())
+    assert body["meta"]["day"] == "2026-11-13" and body["meta"]["is_today"] is False
+    assert body["meta"]["coverage_window"] == {"start": "06:00", "until": "18:00"}
+    assert body["meta"]["alarm_coverage_pct"] == 80.0
+    by = {s["key"]: s for s in body["sensors"]}
+    # 06:00–18:00 = 144 slots; DL1#1 stored 36 (5-min, a gap), DL1#2 48 (1-min records count once per slot)
+    assert by["DL1:1"]["coverage_pct"] == 25.0 and by["DL1:2"]["coverage_pct"] == 33.3
+    assert by["DL2:1"]["coverage_pct"] == 0.0
+    assert all(s["coverage_today_pct"] is None for s in body["sensors"])  # not today
+
+
+def test_past_day_not_fetched_yet_is_not_judged(factory):
+    # the newest history run (10:00 that day) read only up to 10:00: later slots are not gaps
+    with factory() as db:
+        body = gs.list_sensors(db, None, now_local=lambda: TOMORROW.replace(hour=0, minute=10), day=TODAY.date())
+    assert body["meta"]["coverage_window"]["until"] == "10:00"
+    assert {s["key"]: s["coverage_pct"] for s in body["sensors"]}["DL1:1"] == 75.0
+
+
+def test_past_day_flags_use_the_probes_of_that_week_only(factory):
+    with factory() as db:
+        # module temp read 0 all of today and never before; it works only from tomorrow on
+        _add_sensor(db, "DL3", _slots(6, 14), module_temp_c=0.0)
+        db.add(GrowattEnvReading(datalogger_sn="DL3", address=1, timestamp=TOMORROW.replace(hour=9), module_temp_c=40.0))
+        db.commit()
+        body = gs.list_sensors(db, None, now_local=lambda: TOMORROW.replace(hour=12), day=TODAY.date())
+    s = next(x for x in body["sensors"] if x["key"] == "DL3:1")
+    assert s["flags"] == []  # not measured that week: 0 was "not fitted", not a fault
+    assert "module_temp_c" in s["measured"]  # the list's probes are judged up to now
+
+
+def test_route_day_param_and_engineer_filter(factory):
+    with factory() as db:
+        uid = db.scalar(select(User.id).where(User.username == "engineer"))
+        db.add(UserPlantAssignment(user_id=uid, plant_id=1))
+        db.commit()
+    eng = _api(factory, "engineer")
+    body = eng.get("/api/growatt/sensors?day=2026-11-12").json()
+    assert body["meta"]["day"] == "2026-11-12" and body["meta"]["is_today"] is False
+    assert [s["key"] for s in body["sensors"]] == ["DL1:1", "DL1:2"]  # plant 2's sensor hidden
+    assert eng.get("/api/growatt/sensors?day=nope").status_code == 422

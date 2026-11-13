@@ -81,10 +81,11 @@ def plant_sensors(db: Session, plant_id: int) -> List[GrowattEnvSensor]:
 
 
 def measured_by_sensor(
-    db: Session, since: datetime, plant_ids: Optional[Iterable[int]] = None
+    db: Session, since: datetime, plant_ids: Optional[Iterable[int]] = None, until: Optional[datetime] = None
 ) -> Dict[Tuple[str, int], List[str]]:
-    """Fields that read non-zero at least once since `since`, per sensor with stored readings
-    in that window (`plant_ids` None = every plant). Sensors without readings are absent."""
+    """Fields that read non-zero at least once since `since` (and before `until`, if given), per
+    sensor with stored readings in that window (`plant_ids` None = every plant). Sensors without
+    readings are absent."""
     cols = [getattr(E, f) for f in FIELDS]
     aggs = [a for c in cols for a in (func.min(c), func.max(c))]
     q = (
@@ -95,6 +96,8 @@ def measured_by_sensor(
     )
     if plant_ids is not None:
         q = q.where(GrowattEnvSensor.plant_id.in_(list(plant_ids) or [-1]))
+    if until is not None:
+        q = q.where(E.timestamp < until)
     out: Dict[Tuple[str, int], List[str]] = {}
     for row in db.execute(q).all():
         r = tuple(row)

@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db.models import GrowattEnvReading, GrowattEnvSensor, GrowattInverter, GrowattInverterReading, GrowattPlant, SyncRun
 from app.services import growatt_weather as wx
 from app.services.jobs import PLANT_TZ, _aware
@@ -127,6 +128,7 @@ def _span(minutes: int) -> str:
 def probe_flags(
     values: Dict[str, Dict[datetime, List[float]]],
     measured: Optional[List[str]],
+    day_label: str = "today",
 ) -> List[Dict[str, Any]]:
     """`probe_missing` per probe that reported in the last 7 days (`measured`) but read 0 in every
     stored reading of today's daylight. `values[field][slot]` = today's non-null readings in that
@@ -146,7 +148,7 @@ def probe_flags(
                 "code": "probe_missing",
                 "field": f,
                 "reason": (
-                    f"{FIELD_LABEL[f]} read 0 in all {len(slots)} stored slots today "
+                    f"{FIELD_LABEL[f]} read 0 in all {len(slots)} stored slots {day_label} "
                     f"({_hm(first)}–{_hm(last + timedelta(minutes=SLOT_MIN))}) but reported in the last 7 days: "
                     "probe fault or disconnected"
                 ),
@@ -309,10 +311,19 @@ def list_sensors(
     db: Session,
     allowed: Optional[Set[int]],
     now_local: Optional[Callable[[], datetime]] = None,
+    day: Optional[date] = None,
 ) -> Dict[str, Any]:
-    """Every registered weather sensor of the plants the user may see (`allowed` None = all)."""
+    """Every registered weather sensor of the plants the user may see (`allowed` None = all).
+
+    `day` (default today, plant-local) is the day coverage and the stored-data flags are judged
+    on; for a past day the whole 06:00–18:00 window counts (`coverage_pct`), and probes count as
+    measured from the 7 days before that day's end. The newest stored reading is always the
+    newest, whatever the day."""
     now = (now_local or (lambda: datetime.now(PLANT_TZ).replace(tzinfo=None)))()
-    today = now.date()
+    real_today = now.date()
+    today = day or real_today
+    is_today = today == real_today
+    day_end = min(now, datetime.combine(today + timedelta(days=1), time()))
 
     q = (
         select(S, GrowattPlant.name, GrowattPlant.phase)
@@ -334,6 +345,8 @@ def list_sensors(
     last: Dict[Tuple[str, int], GrowattEnvReading] = {(r.datalogger_sn, r.address): r for r in db.scalars(last_q)}
 
     measured = wx.measured_by_sensor(db, now - MEASURED_LOOKBACK, plant_filter)
+    # flags judge a past day by the probes reporting in the week up to that day, not later
+    measured_then = measured if is_today else wx.measured_by_sensor(db, day_end - MEASURED_LOOKBACK, plant_filter, until=day_end)
 
     synced = last_env_sync(db)
     until = coverage_until(today, now, synced)
@@ -380,9 +393,11 @@ def list_sensors(
         rec = last.get(k)
         last_at = s.history_synced_until
         vals = values.get(k, {})
-        flags = probe_flags(vals, fields)
+        cov = round(100.0 * len(seen.get(k, ())) / expected, 1) if expected else None
+        then = measured_then.get(k)
+        flags = probe_flags(vals, then, "today" if is_today else f"on {today.isoformat()}")
         if not any(fl["field"] == "irradiance_wm2" for fl in flags):  # all-day zero already says it
-            zf = irradiance_zero_flag(vals.get("irradiance_wm2", {}), fields, producing.get(s.plant_id, set()))
+            zf = irradiance_zero_flag(vals.get("irradiance_wm2", {}), then, producing.get(s.plant_id, set()))
             if zf:
                 flags.append(zf)
         sensors.append(
@@ -404,7 +419,9 @@ def list_sensors(
                     if rec is None
                     else {f: (getattr(rec, f) if fields is None or f in fields else None) for f in wx.FIELDS}
                 ),
-                "coverage_today_pct": round(100.0 * len(seen.get(k, ())) / expected, 1) if expected else None,
+                # share of `meta.day`'s judged daylight slots with a stored reading
+                "coverage_pct": cov,
+                "coverage_today_pct": cov if is_today else None,
                 "flags": flags,
             }
         )
@@ -414,6 +431,9 @@ def list_sensors(
             "day": today.isoformat(),
             "coverage_window": {"start": f"{COVERAGE_START_H:02d}:00", "until": until.strftime("%H:%M") if until else None},
             "synced_at": synced.isoformat() if synced else None,
+            "is_today": is_today,
+            # Active Alarm, past day: below this stored coverage a sensor counts as a data gap
+            "alarm_coverage_pct": settings.sensor_alarm_coverage_pct,
         },
         "sensors": sensors,
     }

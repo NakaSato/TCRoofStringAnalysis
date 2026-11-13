@@ -224,14 +224,16 @@ def live_sensor(
 @router.get("/sensors")
 def fleet_sensors(
     plant_id: Optional[int] = Query(None, description="Only this plant's sensors (the plant Sensors tab)"),
+    day: Optional[date] = Query(None, description="Plant-local day for coverage and flags (YYYY-MM-DD); default = today"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Every weather sensor of the plants the user may see, from the registry and stored history
     (DB only, never calls Growatt): newest stored reading, probes reporting in the last 7 days and
     today's daylight coverage. `status` is `not_synced` (nothing stored) or `unknown`: online state
-    is realtime and comes from the live sweep, never from SQL. `plant_id` narrows it to one plant."""
-    return growatt_sensors.list_sensors(db, _sensor_scope(db, user, plant_id))
+    is realtime and comes from the live sweep, never from SQL. `plant_id` narrows it to one plant.
+    `day` judges coverage (`coverage_pct`) and the stored-data flags on a past day (Active Alarm)."""
+    return growatt_sensors.list_sensors(db, _sensor_scope(db, user, plant_id), day=day)
 
 
 @router.get("/alarms")

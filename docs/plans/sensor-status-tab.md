@@ -202,13 +202,14 @@ _Done 2026-11-13. Deviations: `probe_missing` checks irradiance, module/ambient 
 - [x] Tests for each flag, including no flag when data is missing
 
 ### Phase 5: Active Alarm
-- [ ] `GET /growatt/sensors?day=` returns `coverage_pct` for that day (DB only); `SENSOR_ALARM_COVERAGE_PCT` in config + `.env.example`
-- [ ] "Weather sensors" panel on `ActiveAlarmPage.tsx`: today = live offline/late/flagged; past day = stored data gaps
-- [ ] "Sensors offline" KPI tile; plant filter applies; link to `/sensors?status=offline`
-- [ ] Growatt alarm log and CSV export unchanged (no sensor rows)
-- [ ] Unchecked sensors (sweep incomplete) never listed as offline
-- [ ] Tests: past-day coverage per sensor on mixed intervals; engineer filter
-- [ ] `bun run lint` and `bun run build` pass
+_Done 2026-11-13. Deviations: `?day=` also judges the stored-data flags on that day, with the probes that reported in the 7 days up to the day's end (a probe fitted later does not make an earlier day's zeros a fault); the response's `measured` / newest reading stay "as of now". A past day is judged only up to the start of the newest finished `history` run, as for today, so a day not fully fetched yet shows fewer gaps, not false ones. `coverage_today_pct` is kept (null for a past day) next to the new `coverage_pct`; `meta` gains `is_today` and `alarm_coverage_pct`. The past-day tile reads "Sensor data gaps". The shared pieces (status labels, flag chips, live overlay) moved to `components/sensorView.tsx`; the panel and its hook are in `components/SensorAlarmPanel.tsx`. Dev DB: 31 sensors with gaps on 2026-11-12 (judged to 12:50), 32 on 11-11 (full day); 0.2–0.8 s per request._
+- [x] `GET /growatt/sensors?day=` returns `coverage_pct` for that day (DB only); `SENSOR_ALARM_COVERAGE_PCT` in config + `.env.example`
+- [x] "Weather sensors" panel on `ActiveAlarmPage.tsx`: today = live offline/late/flagged; past day = stored data gaps
+- [x] "Sensors offline" KPI tile; plant filter applies; link to `/sensors?status=offline`
+- [x] Growatt alarm log and CSV export unchanged (no sensor rows)
+- [x] Unchecked sensors (sweep incomplete) never listed as offline
+- [x] Tests: past-day coverage per sensor on mixed intervals; engineer filter
+- [x] `bun run lint` and `bun run build` pass
 
 ### Phase 6: docs & deploy
 - [ ] `backend/CLAUDE.md`: Growatt data rules table rows for the 3 endpoints; weather-sensor section (live sweep, status rules)

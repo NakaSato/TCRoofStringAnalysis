@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CloudOff,
   Download,
+  Gauge,
   Hash,
   Info,
   RefreshCw,
@@ -24,6 +25,7 @@ import { pickDay, useUrlState } from "@/lib/useUrlState";
 import { plantPath } from "../context/routes";
 import { PageHeader, Panel, StatusBadge, Led, EmptyState, LoadingState, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
+import { SENSOR_PANEL_ID, SensorAlarmPanel, useSensorAlarms } from "../components/SensorAlarmPanel";
 import { PanelChart } from "../components/PanelChart";
 import type { PanelChartSpec } from "../components/PanelChart";
 import { STATUS } from "../components/chartTheme";
@@ -116,6 +118,15 @@ export const ActiveAlarmPage: React.FC = () => {
   const setCodeFilter = (c: string | null) => setUrl({ code: c });
 
   const { view, refresh } = useAlarmLog(day);
+  // weather sensors: live offline / late / flagged today, stored data gaps for a past day
+  const sensorAlarms = useSensorAlarms(day, day === today);
+  const sensorTileCount = (() => {
+    const inPlant = (s: { plant_id: number }) => plantFilter == null || s.plant_id === plantFilter;
+    return day === today
+      ? sensorAlarms.sensors.filter((s) => inPlant(s) && s.st === "offline").length
+      : sensorAlarms.rows.filter(inPlant).length;
+  })();
+  const scrollToSensors = () => document.getElementById(SENSOR_PANEL_ID)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const result = view?.result ?? null;
   const loading = view?.running ?? false;
   const error = view?.error ?? null;
@@ -324,7 +335,7 @@ export const ActiveAlarmPage: React.FC = () => {
       </div>
 
       {/* severity tiles = filters */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <FilterTile
           label="Open now"
           value={stats.open}
@@ -357,7 +368,25 @@ export const ActiveAlarmPage: React.FC = () => {
             of {fmtInt(plants.length)} · {fmtInt(stats.total)} alarms
           </span>
         </div>
+        <FilterTile
+          label={isToday ? "Sensors offline" : "Sensor data gaps"}
+          value={sensorTileCount}
+          icon={Gauge}
+          text={isToday ? "text-red-300" : "text-amber-300"}
+          ring="ring-red-400/50"
+          active={false}
+          hint={
+            isToday
+              ? sensorAlarms.sweeping
+                ? `Live check ${fmtInt(sensorAlarms.checked)} / ${fmtInt(sensorAlarms.sensors.length)} · click to view`
+                : `${fmtInt(sensorAlarms.late)} late · ${fmtInt(sensorAlarms.flagged)} flagged · click to view`
+              : `Stored coverage < ${sensorAlarms.threshold}% · click to view`
+          }
+          onClick={scrollToSensors}
+        />
       </div>
+
+      <SensorAlarmPanel alarms={sensorAlarms} day={day} plantFilter={plantFilter} />
 
       {/* when and what */}
       <div className="grid gap-5 xl:grid-cols-3">

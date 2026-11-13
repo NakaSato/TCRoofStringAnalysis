@@ -549,7 +549,9 @@ export interface SensorRow {
   measured: GrowattWeatherField[] | null;
   /** newest stored reading; unmeasured probes are null */
   last: Record<GrowattWeatherField, number | null> | null;
-  /** share of today's daylight 5-min slots (06:00 → `meta.coverage_window.until`) with a stored reading */
+  /** share of `meta.day`'s daylight 5-min slots (06:00 → `meta.coverage_window.until`) with a stored reading */
+  coverage_pct: number | null;
+  /** `coverage_pct` when `meta.day` is today, else null */
   coverage_today_pct: number | null;
   /** checks on stored data; empty = nothing found (or not enough data to judge) */
   flags: SensorFlag[];
@@ -563,6 +565,9 @@ export interface SensorList {
     coverage_window: { start: string; until: string | null };
     /** start of the last finished history sync (UTC) */
     synced_at: string | null;
+    is_today: boolean;
+    /** Active Alarm, past day: stored coverage below this = data gap (`SENSOR_ALARM_COVERAGE_PCT`) */
+    alarm_coverage_pct: number;
   };
   sensors: SensorRow[];
 }
@@ -1122,8 +1127,14 @@ export const api = {
 
   getFleetAlarms: (day?: string) => apiFetch<FleetAlarmDay>(`/growatt/alarms${day ? `?day=${day}` : ""}`),
   /** `plantId`: only that plant's sensors (the plant Sensors tab); omitted = every visible plant */
-  listSensors: (plantId?: number) =>
-    apiFetch<SensorList>(`/growatt/sensors${plantId != null ? `?plant_id=${plantId}` : ""}`),
+  /** `day` (YYYY-MM-DD): judge coverage and the stored-data flags on that day (default today) */
+  listSensors: (plantId?: number, day?: string) => {
+    const q = new URLSearchParams();
+    if (plantId != null) q.set("plant_id", String(plantId));
+    if (day) q.set("day", day);
+    const qs = q.toString();
+    return apiFetch<SensorList>(`/growatt/sensors${qs ? `?${qs}` : ""}`);
+  },
   getLiveSensorStatus: (plantId?: number) =>
     apiFetch<GrowattLive<SensorLiveStatus>>(`/growatt/live/sensors/status${plantId != null ? `?plant_id=${plantId}` : ""}`),
   getLiveSensor: (dataloggerSn: string, address: number) =>
