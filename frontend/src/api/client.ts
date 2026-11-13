@@ -511,7 +511,17 @@ export interface GoogleWeatherNow extends GoogleWeatherValues {
 export interface GrowattLiveWeather {
   plant_id: number;
   sensors: Array<
-    { datalogger_sn: string; address: number; timestamp: string; stale?: boolean; fetched_at?: string } & Record<
+    {
+      datalogger_sn: string;
+      address: number;
+      timestamp: string;
+      /** seconds between the sensor's last two live records (memory only); null until measured */
+      interval_s: number | null;
+      /** newest stored reading of this sensor (plant-local); live points after it are not in the DB yet */
+      stored_until: string | null;
+      stale?: boolean;
+      fetched_at?: string;
+    } & Record<
       GrowattWeatherField,
       number | null
     >

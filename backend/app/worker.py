@@ -23,6 +23,9 @@ Schedule (plant-local time, Asia/Bangkok):
     alarms             every WORKER_ALARMS_INTERVAL_MIN (30) min, WORKER_ALARMS_START_H..END_H (05–21)
                                today's alarm_data per inverter → SQL (Active Alarm page)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
+    env_history        every WORKER_ENV_INTERVAL_MIN (10) min, WORKER_ENV_START_H..END_H (05–20)
+                               weather-sensor env_data only (0 = off); a `history` start counts as
+                               one, since `history` syncs the sensors too
 Runs queued from the API (`POST /growatt/sync/{job}`) start on the next tick (≤ 1 min).
 Daily jobs only fire within `GRACE` after their slot, so a worker started at noon does not
 publish a half day. Exception: `fleet` also runs at once when the inverter registry is empty
@@ -69,6 +72,8 @@ class Schedule:
     at: Optional[dtime] = None
     # `every` jobs only: plant-local hours [start, end) the job may start in
     between: Optional[Tuple[int, int]] = None
+    # `every` jobs only: other jobs whose start also counts as a run of this one (they do its work too)
+    covered_by: Tuple[str, ...] = ()
 
     def is_due(self, now: datetime, last: Optional[datetime]) -> bool:
         """`now` and `last` are timezone-aware."""
@@ -106,6 +111,18 @@ def default_schedule() -> List[Schedule]:
             between=(settings.worker_alarms_start_h, settings.worker_alarms_end_h),
         ),
         Schedule("alarms_yesterday", at=dtime(0, 30)),
+        *(
+            [
+                Schedule(
+                    "env_history",
+                    every=timedelta(minutes=settings.worker_env_interval_min),
+                    between=(settings.worker_env_start_h, settings.worker_env_end_h),
+                    covered_by=("history",),
+                )
+            ]
+            if settings.worker_env_interval_min > 0
+            else []
+        ),
     ]
 
 
@@ -137,6 +154,12 @@ def _bootstrap_due(job: str, db, now: datetime, last: Optional[datetime]) -> boo
     return last is not None and now - last >= FLEET_RETRY and _last_fleet_incomplete(db)
 
 
+def _last_start(db, s: Schedule) -> Optional[datetime]:
+    """When the job (or one of the jobs covering it) last started."""
+    starts = [t for t in (jobs.last_started(db, j) for j in (s.job, *s.covered_by)) if t is not None]
+    return max(starts) if starts else None
+
+
 def tick(session_factory, schedule: List[Schedule], now: datetime) -> List[str]:
     """Run queued (API-requested) runs, then every due job once, sequentially. Returns the jobs started."""
     started = []
@@ -148,7 +171,7 @@ def tick(session_factory, schedule: List[Schedule], now: datetime) -> List[str]:
         started.append(run.job)
     for s in schedule:
         with session_factory() as db:
-            last = jobs.last_started(db, s.job)
+            last = _last_start(db, s)
             if not (s.is_due(now, last) or _bootstrap_due(s.job, db, now, last)):
                 continue
             try:

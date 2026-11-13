@@ -415,7 +415,7 @@ class GrowattLiveService:
             key = ("env", dl, addr)
             label = f"{dl}/{addr}"
             try:
-                r = self._get(key, lambda c, dl=dl, addr=addr: _env_row(c, dl, addr), ttl, ph, gap_s=self.device_gap_s)
+                r = self._get(key, self._env_fetch(key, dl, addr), ttl, ph, gap_s=self.device_gap_s)
             except LiveUnavailable as exc:
                 errors[label] = str(exc)
                 refresh.append(self._refresh_in(key))
@@ -445,6 +445,24 @@ class GrowattLiveService:
                 refresh_in=min(refresh),
             )
         )
+
+    def _env_fetch(self, key: Hashable, datalogger_sn: str, address: int) -> Callable[[GrowattClient], Any]:
+        """`env_last_data` for one sensor, with `interval_s` measured from the record cached
+        before it (memory / Redis only): `env_last_data` returns one record, so the gap between
+        two different record times is the sensor's upload rhythm. A refetch of the same record
+        keeps the interval already measured; the first record has none (`_latest_ttl` uses
+        `DEFAULT_INTERVAL_S`). Gaps outside `MIN_INTERVAL_S`..`MAX_INTERVAL_S` are outages, not
+        the rhythm, and are not used."""
+
+        def fetch(client: GrowattClient) -> Optional[Dict[str, Any]]:
+            row = _env_row(client, datalogger_sn, address)
+            hit = self._cache.get(key)
+            prev = hit[2] if hit else None
+            if row is not None and isinstance(prev, dict):
+                row["interval_s"] = _record_gap(prev, row)
+            return row
+
+        return fetch
 
     def sensor_status(
         self, dataloggers: Sequence[Tuple[str, Optional[int]]], coords: Optional[Coords] = None
@@ -563,7 +581,7 @@ class GrowattLiveService:
         raw: Optional[Dict[str, Any]] = None
         r: Optional[_Result] = None
         try:
-            r = self._get(key, lambda c: _env_row(c, datalogger_sn, address), ttl, ph, gap_s=self.device_gap_s)
+            r = self._get(key, self._env_fetch(key, datalogger_sn, address), ttl, ph, gap_s=self.device_gap_s)
         except LiveUnavailable as exc:
             errors["reading"] = str(exc)
         if r is not None:
@@ -693,11 +711,26 @@ def _env_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optiona
         "datalogger_sn": datalogger_sn,
         "address": address,
         "timestamp": str(rec.get("timeText")),  # plant-local
-        "interval_s": None,  # env_last_data has no previous record; sensors report every 5 min
+        "interval_s": None,  # set by `_env_fetch` from the previously cached record
         **{col: _f(rec.get(key)) for key, col in ENV_FIELDS.items()},
         # the record as reported, for the sensor Info view's "Raw record" (admin only; memory only)
         "raw": {str(k): v for k, v in rec.items() if isinstance(v, (str, int, float, bool)) or v is None},
     }
+
+
+def _record_gap(prev: Dict[str, Any], row: Dict[str, Any]) -> Optional[float]:
+    """Seconds between two consecutive records of one sensor (`interval_s`)."""
+    try:
+        a = datetime.strptime(str(prev["timestamp"]), "%Y-%m-%d %H:%M:%S")
+        b = datetime.strptime(str(row["timestamp"]), "%Y-%m-%d %H:%M:%S")
+    except (KeyError, TypeError, ValueError):
+        return None
+    gap = (b - a).total_seconds()
+    if gap < 0:  # an older record than the cached one: Growatt glitch, measure again next time
+        return None
+    if MIN_INTERVAL_S <= gap <= MAX_INTERVAL_S:
+        return gap
+    return prev.get("interval_s")  # same record, or an outage gap: keep the rhythm already measured
 
 
 def _env_status_rows(client: GrowattClient, datalogger_sn: str) -> List[Dict[str, Any]]:

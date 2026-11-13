@@ -117,6 +117,10 @@ export const WeatherStationPanel: React.FC<{
   const urlSensor = url.get("wxSensor") ?? "";
   const selKey = multi ? (sensorKeys.includes(urlSensor) ? urlSensor : sensorKeys[0]) : sensorKeys[0] ?? null;
   const reqSensor = multi ? selKey ?? undefined : undefined;
+  // Set from the live endpoint's `stored_until` when the worker has stored readings newer than the
+  // loaded series (e.g. `env_history`): re-read the stored day then, without waiting for the
+  // overview's `dataUntil`. Set only to a newer slot, so it re-reads once per sync.
+  const [storedMark, setStoredMark] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,11 +137,12 @@ export const WeatherStationPanel: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [plantId, reqDay, reqFrom, reqTo, reqSensor, dataUntil]);
+  }, [plantId, reqDay, reqFrom, reqTo, reqSensor, dataUntil, storedMark]);
 
   useEffect(() => {
     setLive(null);
     setTail({});
+    setStoredMark(null);
   }, [plantId]);
   const viewingToday = shownDay === today;
   const showLive = viewingToday && !windowed;
@@ -172,15 +177,23 @@ export const WeatherStationPanel: React.FC<{
   }, [wx, reqSensor]);
 
   const now = showLive ? live?.data.sensors.find((s) => sensorKey(s) === selKey) ?? null : null;
-  // Live points after the last stored one; dropped once the worker has stored that slot (DB wins).
+  // Live points after the stored ones; dropped once the worker has stored that slot (DB wins).
+  // "Stored" = the loaded series' last slot, or the sensor's `stored_until` if that is newer.
   const lastStored = wx?.series.length ? wx.series[wx.series.length - 1].timestamp : "";
+  const storedSlot = now?.stored_until ? slotOf(now.stored_until) : "";
+  const cutoff = storedSlot > lastStored ? storedSlot : lastStored;
   const tailPts = useMemo(
     () =>
       showLive && selKey && (!multi || wx?.meta.sensor)
-        ? (tail[selKey] ?? []).filter((p) => p.timestamp > lastStored && p.timestamp.slice(0, 10) === shownDay)
+        ? (tail[selKey] ?? []).filter((p) => p.timestamp > cutoff && p.timestamp.slice(0, 10) === shownDay)
         : [],
-    [showLive, selKey, multi, wx, tail, lastStored, shownDay]
+    [showLive, selKey, multi, wx, tail, cutoff, shownDay]
   );
+  useEffect(() => {
+    if (showLive && wx && storedSlot.slice(0, 10) === shownDay && storedSlot > lastStored) {
+      setStoredMark((m) => (m != null && m >= storedSlot ? m : storedSlot));
+    }
+  }, [showLive, wx, storedSlot, lastStored, shownDay]);
   const filtered = pickedDay != null || Boolean(timeFrom || timeTo);
   const clearFilter = () => {
     setUrl({ wxDay: null, wxFrom: null, wxTo: null });

@@ -261,14 +261,17 @@ def live_plant_weather(
 ) -> Dict[str, Any]:
     """Newest weather-sensor reading (irradiance, temperatures, humidity, wind) per sensor. Not persisted.
 
-    The DB is read only for the plant's sensor list and which probes it has; nothing is written.
+    Each sensor row carries `interval_s` (gap between its last two live records, memory only;
+    null until measured) and `stored_until` (newest stored reading, `history_synced_until`), so
+    the UI knows which live points the DB series doesn't hold yet. The DB is read only for the
+    plant's sensors and which probes they have; nothing is written.
     """
     since = datetime.now(jobs.PLANT_TZ).replace(tzinfo=None) - timedelta(days=7)
     measured = wx.measured_fields(db, plant_id, since)
     if not measured:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no weather sensor")
     try:
-        return live.plant_weather(
+        env = live.plant_weather(
             plant_id,
             [(dl, addr, fields) for (dl, addr), fields in measured.items()],
             phase=ov.plant_phase(db, plant_id),
@@ -276,6 +279,11 @@ def live_plant_weather(
         )
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    stored = {(s.datalogger_sn, s.address): s.history_synced_until for s in wx.plant_sensors(db, plant_id)}
+    for row in env["data"]["sensors"]:
+        until = stored.get((row["datalogger_sn"], row["address"]))
+        row["stored_until"] = until.strftime("%Y-%m-%d %H:%M:%S") if until else None
+    return env
 
 
 @router.get("/live/plants/{plant_id}/google-weather")

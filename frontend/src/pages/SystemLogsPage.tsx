@@ -37,7 +37,7 @@ const RANGES = { "1h": 1, "24h": 24, "7d": 24 * 7, "14d": 24 * 14 } as const;
 type Range = keyof typeof RANGES;
 const RANGE_KEYS = Object.keys(RANGES) as Range[];
 /** Worker jobs (`app.services.jobs.JOBS`). */
-const JOBS = ["all", "history", "backfill", "fleet", "alarms", "alarms_yesterday", "google_weather", "publish_today", "publish_yesterday", "pwa_sheet", "retention"] as const;
+const JOBS = ["all", "history", "env_history", "backfill", "fleet", "alarms", "alarms_yesterday", "google_weather", "publish_today", "publish_yesterday", "pwa_sheet", "retention"] as const;
 
 const LEVEL_VIEW: Record<SystemLogLevel, StatusLevel> = { DEBUG: "neutral", INFO: "info", WARNING: "warn", ERROR: "crit", CRITICAL: "crit" };
 

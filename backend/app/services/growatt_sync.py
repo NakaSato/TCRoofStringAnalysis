@@ -322,16 +322,38 @@ def sync_env_history(
     return n
 
 
-def _sync_envs(db: Session, client: GrowattClient, sensors: Sequence[GrowattEnvSensor], window, pause_s: float) -> Dict[str, Any]:
+# Consecutive 10012 answers that end a sweep with `max_rate_limited` (the `env_history` job): the
+# rest wait for the next run, which starts with the sensors stored longest ago.
+MAX_RATE_LIMITED = 3
+
+
+def _sync_envs(
+    db: Session,
+    client: GrowattClient,
+    sensors: Sequence[GrowattEnvSensor],
+    window,
+    pause_s: float,
+    retries: int = 3,
+    max_rate_limited: Optional[int] = None,
+) -> Dict[str, Any]:
     totals: Dict[str, Any] = {"env_sensors": len(sensors), "env_rows": 0, "env_failed": []}
-    for sensor in sensors:
+    limited = 0
+    for idx, sensor in enumerate(sensors):
         start, end, stop_before = window(sensor)
         try:
-            totals["env_rows"] += sync_env_history(db, client, sensor, start, end, stop_before=stop_before)
+            totals["env_rows"] += sync_env_history(db, client, sensor, start, end, retries=retries, stop_before=stop_before)
+            limited = 0
         except Exception as exc:  # keep going; report at the end
             db.rollback()
             totals["env_failed"].append((f"{sensor.datalogger_sn}/{sensor.address}", str(exc)))
             log.error("env %s/%s sync failed: %s", sensor.datalogger_sn, sensor.address, exc)
+            if max_rate_limited and isinstance(exc, GrowattAPIError) and exc.error_code == RATE_LIMIT_CODE:
+                limited += 1
+                if limited >= max_rate_limited:
+                    left = len(sensors) - idx - 1
+                    totals["env_failed"].append(("rate limited", f"{left} sensors left for the next run"))
+                    log.warning("env_data rate limited; %d sensors wait for the next run", left)
+                    break
         time.sleep(pause_s)
     return totals
 
@@ -359,8 +381,13 @@ def sync_env_incremental(
     pause_s: float = 0.3,
     phase: Optional[int] = None,
     include_untagged: bool = False,
+    retries: int = 3,
+    max_rate_limited: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Weather records new since each sensor's `history_synced_until` (same rules as inverters)."""
+    """Weather records new since each sensor's `history_synced_until` (same rules as inverters).
+
+    Sensors go never-synced / stored-longest-ago first, so a sweep cut short by `max_rate_limited`
+    consecutive 10012s (with `retries=0`, the `env_history` job) continues where it lagged most."""
     floor = datetime.combine(today - timedelta(days=max_back_days), datetime.min.time())
 
     def window(s: GrowattEnvSensor):
@@ -370,8 +397,11 @@ def sync_env_incremental(
         since = max(since, floor)
         return since.date(), today, since
 
-    sensors = list(db.scalars(_env_sensors_query(phase, include_untagged)))
-    return _sync_envs(db, client, sensors, window, pause_s)
+    sensors = sorted(
+        db.scalars(_env_sensors_query(phase, include_untagged)),
+        key=lambda s: (s.history_synced_until is not None, s.history_synced_until or datetime.min),
+    )
+    return _sync_envs(db, client, sensors, window, pause_s, retries=retries, max_rate_limited=max_rate_limited)
 
 
 def _inverters_query(phase: Optional[int], include_untagged: bool):

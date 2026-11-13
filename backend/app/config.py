@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     worker_alarms_interval_min: int = 30
     worker_alarms_start_h: int = 5
     worker_alarms_end_h: int = 21
+    # Weather-sensor history only (`env_history`), every WORKER_ENV_INTERVAL_MIN between
+    # WORKER_ENV_START_H and _END_H (plant-local; irradiance is 0 at night, `history` still
+    # covers env every 30 min). 0 disables the job.
+    worker_env_interval_min: int = 10
+    worker_env_start_h: int = 5
+    worker_env_end_h: int = 20
     # Sync the Growatt accounts (one per phase) in parallel threads. Growatt rate-limits per
     # token, so this cuts a fleet pass ~3x; set false if Growatt starts limiting per IP.
     worker_parallel_accounts: bool = True

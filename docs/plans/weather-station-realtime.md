@@ -110,24 +110,26 @@ _Done 2026-11-13. Needed one small DB-only backend change: the stored day averag
 - [x] `bun run lint` and `bun run build` pass
 
 ### Phase 2: live endpoint
-- [ ] Per-sensor previous record time kept in the live cache → `interval_s`
-- [ ] `stored_until` per sensor from `growatt_env_readings` (SQLAlchemy `func.max`, no raw SQL)
-- [ ] `GrowattLiveWeather` type in `api/client.ts` updated (`interval_s`, `stored_until`)
-- [ ] Frontend uses `stored_until` for tail filtering and the extra re-read
-- [ ] Tests (fake live client, no network): interval from two records; TTL uses it; `stored_until` matches seeded rows; unmeasured fields null; nothing written to SQL by the live route
-- [ ] `uv run pytest -q` passes
+_Done 2026-11-13. `stored_until` reads `growatt_env_sensors.history_synced_until`, which `sync_env` already sets to the stored `MAX(timestamp)` after each upsert, so no extra `MAX` query per request. The interval is measured from the record cached before (memory / Redis), so it survives a Cloud Run cold start when Redis is on; a gap outside 30–900 s (outage) keeps the interval already measured._
+- [x] Per-sensor previous record time kept in the live cache → `interval_s`
+- [x] `stored_until` per sensor (from `history_synced_until` = stored max; no raw SQL)
+- [x] `GrowattLiveWeather` type in `api/client.ts` updated (`interval_s`, `stored_until`)
+- [x] Frontend uses `stored_until` for tail filtering and the extra re-read (once per newer stored slot)
+- [x] Tests (fake live client, no network): interval from two records; TTL uses it; `stored_until` matches seeded rows; unmeasured fields null; nothing written to SQL by the live route
+- [x] `uv run pytest -q` passes (210)
 
 ### Phase 3: `env_history` job
-- [ ] `job_env_history` in `services/jobs.py`, registered in `JOBS`
-- [ ] Schedule in `worker.py` with interval + daytime window; `0` disables
-- [ ] 3 × 10012 ends an account's sweep; run `partial`
-- [ ] Settings keys from §5.5 in `config.py` and `.env.example`
-- [ ] Tests: job upserts env rows idempotently alongside `history`; window respected; disabled at 0
+_Code done 2026-11-13; trial and prod switch-on open. The worker runs jobs one after another, so a `history` start counts as an env sync (`Schedule.covered_by`): the two never both pull `env_data` in the same tick (otherwise every 30 min each sensor would be read twice). Sensors are swept never-synced / oldest-stored first with `retries=0`, so a sweep cut short by 10012 continues where it lags most and never sleeps 60–120 s per sensor._
+- [x] `job_env_history` in `services/jobs.py`, registered in `JOBS`
+- [x] Schedule in `worker.py` with interval + daytime window; `0` disables
+- [x] 3 × 10012 ends an account's sweep; run `partial`
+- [x] Settings keys from §5.5 in `config.py` and `.env.example`
+- [x] Tests: job upserts env rows idempotently alongside `history`; window respected; disabled at 0; `history` start covers it; oldest-first + 10012 stop (`uv run pytest -q`: 214)
 - [ ] Dev trial for one day: compare 10012 counts for `env_data` and inverter `max_data` with the job on vs off
 - [ ] Decide interval (10 or 15 min) from the trial, then enable in prod
 
 ### Phase 4: docs & deploy
-- [ ] `backend/CLAUDE.md`: Worker table (`env_history`), Weather sensors section (live `interval_s`, `stored_until`)
+- [x] `backend/CLAUDE.md`: Worker table (`env_history`) (Weather sensors section: live `interval_s`, `stored_until` done in Phase 2)
 - [ ] `frontend/CLAUDE.md`: Weather Station live tail and Overview tile under "Growatt data in the UI"
 - [ ] `CLAUDE.md`: data-flow diagram (env history every 10 min, daytime) and Config keys
 - [ ] Deploy backend + worker (VM) and frontend

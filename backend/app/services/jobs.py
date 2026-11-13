@@ -142,6 +142,22 @@ def job_history(db: Session) -> Tuple[str, Dict[str, Any]]:
     )
 
 
+def job_env_history(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Weather-sensor records only, more often than `history` (daytime), so the stored day's
+    irradiance, peak and insolation lag the sensor by minutes instead of up to half an hour.
+    No retries on 10012: 3 in a row end the account's sweep (run `partial`); the next run
+    starts with the sensors stored longest ago."""
+    from app.services.growatt_sync import MAX_RATE_LIMITED, sync_env_incremental
+
+    today = _today()
+    return _per_phase(
+        db,
+        lambda db, c, phase, untagged: sync_env_incremental(
+            db, c, today, phase=phase, include_untagged=untagged, retries=0, max_rate_limited=MAX_RATE_LIMITED
+        ),
+    )
+
+
 def job_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Re-read the previous two full days to catch uploads that arrived late."""
     from app.services.growatt_sync import sync_all_history, sync_env_all
@@ -260,6 +276,7 @@ def job_google_weather(db: Session) -> Tuple[str, Dict[str, Any]]:
 
 JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "history": job_history,
+    "env_history": job_env_history,
     "backfill": job_backfill,
     "fleet": job_fleet,
     "publish_today": job_publish_today,

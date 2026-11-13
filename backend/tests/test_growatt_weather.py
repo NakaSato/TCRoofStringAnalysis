@@ -384,3 +384,187 @@ def test_live_weather_nulls_unfitted_probes_and_writes_nothing(env, monkeypatch)
     with Session() as db:
         assert db.scalar(select(func.count()).select_from(GrowattEnvReading)) == before
     assert c.get(f"/api/growatt/live/plants/{BARE}/weather").status_code == 404
+
+
+class _EnvSeq:
+    """env_last_data returning whatever record time the test sets."""
+
+    def __init__(self):
+        self.ts = datetime(2026, 11, 12, 11, 45)
+        self.calls = 0
+
+    def env_latest(self, datalogger_sn, address):
+        self.calls += 1
+        return _env(self.ts, 700)
+
+
+def test_live_weather_measures_interval_from_consecutive_records_and_ttl_follows_it():
+    t = [1_000.0]
+    now = [datetime(2026, 11, 12, 11, 45, 30)]
+    fake = _EnvSeq()
+    svc = GrowattLiveService(
+        client_factory=lambda phase: fake,  # type: ignore[arg-type,return-value]
+        clock=lambda: t[0],
+        now_local=lambda: now[0],
+    )
+    sensors = [(DL, ADDR, None)]
+
+    first = svc.plant_weather(PLANT, sensors)
+    assert first["data"]["sensors"][0]["interval_s"] is None  # one record: not measured yet
+    assert first["refresh_in_s"] == pytest.approx(330)  # default 300 s rhythm + 60 s grace - 30 s since the record
+
+    # next record 2 min later: the sensor's real rhythm is 120 s
+    t[0] += 330
+    fake.ts, now[0] = datetime(2026, 11, 12, 11, 47), datetime(2026, 11, 12, 11, 47, 30)
+    second = svc.plant_weather(PLANT, sensors)
+    assert second["data"]["sensors"][0]["interval_s"] == 120
+    assert second["refresh_in_s"] == pytest.approx(150)  # 120 + 60 - 30, not the 5-min default
+
+    # the same record fetched again keeps the measured interval
+    t[0] += 150
+    now[0] = datetime(2026, 11, 12, 11, 50)
+    assert svc.plant_weather(PLANT, sensors)["data"]["sensors"][0]["interval_s"] == 120
+
+    # a 2 h outage is not the rhythm: keep 120
+    t[0] += 3600
+    fake.ts, now[0] = datetime(2026, 11, 12, 13, 50), datetime(2026, 11, 12, 13, 50, 10)
+    assert svc.plant_weather(PLANT, sensors)["data"]["sensors"][0]["interval_s"] == 120
+    assert fake.calls == 4
+
+
+def test_live_weather_carries_stored_until_per_sensor(env, monkeypatch):
+    c, app, Session = env
+    app.dependency_overrides[get_live_service] = lambda: GrowattLiveService(client_factory=lambda phase: _EnvLive(), ttl_s=60)  # type: ignore[arg-type,return-value]
+    from app.api.routes import growatt as routes
+
+    class _Now(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 12, 12, 0, tzinfo=tz)
+
+    monkeypatch.setattr(routes, "datetime", _Now)
+    with Session() as db:
+        stored_max = db.scalar(select(func.max(GrowattEnvReading.timestamp)))
+        sensor = db.get(GrowattEnvSensor, (DL, ADDR))
+        sensor.history_synced_until = stored_max  # as `sync_env` sets it
+        db.commit()
+    s = c.get(f"/api/growatt/live/plants/{PLANT}/weather").json()["data"]["sensors"][0]
+    assert s["stored_until"] == stored_max.strftime("%Y-%m-%d %H:%M:%S") == "2026-11-11 20:25:00"
+    assert s["timestamp"] > s["stored_until"]  # the live record is newer than the DB series
+
+
+# --------------------------------------------------------------------------- env_history job
+
+
+def _sensors_db(tmp_path, n: int):
+    """n sensors on one phase-1 plant; sensor i last stored i hours before 10:00 (0 = never)."""
+    engine = build_engine(f"sqlite:///{tmp_path / 'eh.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session() as db:
+        db.add(GrowattPlant(plant_id=PLANT, name="P", phase=1))
+        db.flush()
+        for i in range(n):
+            synced = None if i == 0 else DAY + timedelta(hours=10 - i)
+            db.add(GrowattEnvSensor(datalogger_sn=f"DL{i}", address=1, plant_id=PLANT, history_synced_until=synced))
+        db.commit()
+    return Session
+
+
+def test_env_sweep_goes_oldest_first_and_stops_after_three_rate_limits(tmp_path, monkeypatch):
+    waits: list = []
+    monkeypatch.setattr(growatt_sync.time, "sleep", waits.append)
+    Session = _sensors_db(tmp_path, 6)
+    calls: list = []
+
+    class Limited:
+        def env_history(self, dl, addr, start, end, stop_before=None):
+            calls.append(dl)
+            raise GrowattAPIError("rate limited", error_code=10012)
+
+    with Session() as db:
+        totals = growatt_sync.sync_env_incremental(
+            db, Limited(), DAY.date(), pause_s=0, phase=1, retries=0, max_rate_limited=3  # type: ignore[arg-type]
+        )
+    # never synced first, then the sensor stored longest ago; no retries; 3 × 10012 ends the sweep
+    assert calls == ["DL0", "DL5", "DL4"]
+    assert totals["env_failed"][-1] == ("rate limited", "3 sensors left for the next run")
+    assert not any(waits)  # retries=0: no 60–120 s rate-limit waits
+
+
+def test_env_sweep_keeps_going_after_one_rate_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(growatt_sync.time, "sleep", lambda s: None)
+    Session = _sensors_db(tmp_path, 4)
+    calls: list = []
+
+    class Flaky:
+        def env_history(self, dl, addr, start, end, stop_before=None):
+            calls.append(dl)
+            if dl in ("DL0", "DL2"):  # never two in a row
+                raise GrowattAPIError("rate limited", error_code=10012)
+            return []
+
+    with Session() as db:
+        totals = growatt_sync.sync_env_incremental(
+            db, Flaky(), DAY.date(), pause_s=0, phase=1, retries=0, max_rate_limited=3  # type: ignore[arg-type]
+        )
+    assert sorted(calls) == ["DL0", "DL1", "DL2", "DL3"]
+    assert [f[0] for f in totals["env_failed"]] == ["DL0/1", "DL2/1"]
+
+
+def test_env_history_job_upserts_alongside_history(tmp_path, monkeypatch):
+    from app.services import jobs
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'j.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    acct = _Account()
+    monkeypatch.setattr(jobs, "_clients", lambda: {1: acct})
+    monkeypatch.setattr(jobs, "_today", lambda: DAY.date())
+    monkeypatch.setattr(growatt_sync.time, "sleep", lambda s: None)
+    with Session() as db:
+        growatt_sync.sync_fleet(db, acct, pause_s=0, phase=1)  # type: ignore[arg-type]
+        status, detail = jobs.job_env_history(db)
+        assert status == "ok" and detail["env_rows"] == 3 and detail["env_sensors"] == 1
+        jobs.job_history(db)  # same records again from the full history job
+        status, _ = jobs.job_env_history(db)
+        assert status == "ok"
+        assert db.scalar(select(func.count()).select_from(GrowattEnvReading)) == 3  # idempotent
+        assert "env_history" in jobs.JOBS
+
+
+def test_env_history_schedule_window_history_overlap_and_off(tmp_path, monkeypatch):
+    from app import worker
+    from app.services import jobs
+    from app.worker import Schedule, tick
+
+    bkk = jobs.PLANT_TZ
+    s = Schedule("env_history", every=timedelta(minutes=10), between=(5, 20), covered_by=("history",))
+    assert s.is_due(datetime(2026, 11, 13, 5, 0, tzinfo=bkk), None)
+    assert not s.is_due(datetime(2026, 11, 13, 4, 59, tzinfo=bkk), None)
+    assert not s.is_due(datetime(2026, 11, 13, 20, 0, tzinfo=bkk), None)
+
+    names = lambda: [x.job for x in worker.default_schedule()]  # noqa: E731
+    monkeypatch.setattr(worker.settings, "worker_env_interval_min", 10)
+    assert "env_history" in names()
+    monkeypatch.setattr(worker.settings, "worker_env_interval_min", 0)
+    assert "env_history" not in names()
+
+    # a `history` start counts as an env sync: the two never both run in one tick
+    engine = build_engine(f"sqlite:///{tmp_path / 'w.db'}")
+    Base.metadata.create_all(bind=engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as db:
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.flush()
+        db.add(GrowattInverter(device_sn="I", plant_id=1))
+        db.commit()
+    ran: list = []
+    monkeypatch.setattr(jobs, "JOBS", {j: (lambda db, j=j: ran.append(j) or ("ok", {})) for j in ("history", "env_history")})
+    sched = [Schedule("history", every=timedelta(minutes=30)), s]
+    t0 = datetime(2026, 11, 13, 10, 0, tzinfo=bkk)
+    assert tick(factory, sched, t0) == ["history"]
+    assert tick(factory, sched, t0 + timedelta(minutes=5)) == []
+    assert tick(factory, sched, t0 + timedelta(minutes=10)) == ["env_history"]
+    assert tick(factory, sched, t0 + timedelta(minutes=20)) == ["env_history"]
+    assert tick(factory, sched, t0 + timedelta(minutes=30)) == ["history"]

@@ -78,7 +78,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - Kept fields: `radiant` (POA W/m²), `envTemp`, `panelTemp`, `envHumidity`, `windSpeed`, `windAngle`. The ~20 others (rain, pressure, …) are always 0 here and are dropped. `timeText` is plant-local; ignore the `calendar` millis (labelled Asia/Shanghai, an hour off).
   - Readings are stored as reported. An unfitted probe reads 0, so a field that is 0 for a sensor all day is returned as null for that day (live: 0 all of the last 7 days).
   - `iec_pr_pct = (E_AC / kWp) / (H_POA / 1 kW/m²)`, null (with `weather.iec_pr.reason`) without a sensor or when irradiance covers < 90 % of the plant's producing 5-min slots. With it, the loss waterfall starts from measured `kWp × H` and uses measured module temperature.
-  - Live: `/growatt/live/plants/{id}/weather` (`env_last_data`), cached per sensor like `/latest`.
+  - Live: `/growatt/live/plants/{id}/weather` (`env_last_data`), cached per sensor like `/latest`. `interval_s` = gap between the sensor's last two different live records (measured from the cached one; null until then; outage gaps outside 30–900 s keep the old value), so the cache expires on the sensor's real rhythm. `stored_until` = `history_synced_until` (newest stored reading); the UI draws live points after it as the chart's tail and re-reads the stored day when it passes the loaded series.
   - **Health flags** (`services/growatt_sensors.py`) are checks, not measurements: each has a `reason`, and none fires without stored data behind it.
     - `probe_missing`: a probe (irradiance, module/ambient temperature, humidity) that reported in the 7 days up to the day reads 0 in every stored reading of the day's daylight. It needs ≥ 24 slots between 09:00 and 15:00. Wind is not checked, because a calm day reads 0.
     - `irradiance_zero_daylight`: irradiance is 0 in ≥ 12 five-min slots between 10:00 and 15:00 in which a stored inverter reading of the plant had `pac_w > 0`. If irradiance reads 0 all day, only `probe_missing` is raised.
@@ -137,6 +137,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 | `google_weather` | 18:15: Google Maps Weather, today's daytime hours (13 h) per plant cell, then re-publishes yesterday |
 | `alarms` | every `WORKER_ALARMS_INTERVAL_MIN` (30) min, 05:00–21:00 (`WORKER_ALARMS_START_H`/`_END_H`): today's `alarm_data` per inverter → SQL |
 | `alarms_yesterday` | 00:30: yesterday's alarm log once more (evening alarms, late closings) |
+| `env_history` | every `WORKER_ENV_INTERVAL_MIN` (10) min, 05:00–20:00 (`WORKER_ENV_START_H`/`_END_H`; 0 = off): weather-sensor `env_data` only, so the stored day lags the sensor by ≤ ~15 min. A `history` start counts as a run (`Schedule.covered_by`; `history` syncs the sensors too). Sensors go never-synced / oldest-stored first, no retries; 3 consecutive 10012s end that account's sweep (run `partial`) |
 
 - Daily jobs fire only within 3 h after their slot.
 - `services/jobs.py` holds the job bodies and the run log / lock (`sync_runs`).
