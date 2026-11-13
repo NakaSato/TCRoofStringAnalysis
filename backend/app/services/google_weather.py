@@ -13,8 +13,9 @@ Cost model (10,000 free calls/month, then $0.15 per 1,000):
   hours, so 18:15 is the earliest run that holds the 17:00 hour; consecutive runs cover
   yesterday 18:00 → today 17:00 without gaps. The job then re-publishes yesterday's Firestore
   daily docs so their 18:00–23:00 hours land; `publish_today` (19:30) carries today's slots.
-- Firestore daily plant docs carry `google_weather.slots` = the rain status at 09:00, 12:00 and
-  17:00 (`SLOT_HOURS`), for linking "ฝนตก" (raining) to the plant's production.
+- Firestore daily plant docs carry `google_weather.slots` = the rain status at 09:00, 13:00 and
+  17:00 (`SLOT_HOURS`, the PWA report's check times), for linking "ฝนตก" (raining) to the
+  plant's production; `weather.slots` holds the sensor's measured irradiance at the same times.
 - Daytime only (`GOOGLE_WEATHER_DAY_START_H`–`_END_H`, 06:00–18:00): only those hours are
   stored and read, so day totals / days since rain count daytime rain only. Google bills per
   call, not per hour, so this saves storage and night-time live calls, not history calls.
@@ -45,6 +46,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import ExternalApiCallCount, GoogleWeatherHourly, GrowattPlant
+from app.services.growatt_weather import CHECK_HOURS
 from solar_core.google_weather import GoogleWeatherClient, GoogleWeatherError
 
 log = logging.getLogger("google_weather")
@@ -92,7 +94,7 @@ def min_day_hours() -> int:
     return max(1, end - start - 2)
 
 FETCH_WORKERS = 8
-SLOT_HOURS = (9, 12, 17)  # rain status published per day (plant-local hour that starts then)
+SLOT_HOURS = CHECK_HOURS  # rain status published per day (plant-local hour that starts then)
 RAIN_WORDS = ("RAIN", "SHOWER", "THUNDER", "DRIZZLE")
 SOURCE = "Google Maps Platform Weather API"
 
@@ -347,7 +349,7 @@ def is_raining(precip_mm: Optional[float], condition: Optional[str]) -> Optional
 
 
 def slots(rows: Sequence[Dict[str, Any]]) -> Dict[str, Optional[Dict[str, Any]]]:
-    """Weather at SLOT_HOURS ("09", "12", "17"); None for an hour not stored (yet)."""
+    """Weather at SLOT_HOURS ("09", "13", "17"); None for an hour not stored (yet)."""
     by_hour = {int(r["hour"][11:13]): r for r in rows}
     out: Dict[str, Optional[Dict[str, Any]]] = {}
     for h in SLOT_HOURS:

@@ -1048,6 +1048,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "data_until": weather["meta"]["data_until"],
             "kpis": wk,
             "iec_pr": pr,
+            # sensor reading at the daily check times 09/13/17 (None = no reading near that time)
+            "check_slots": growatt_weather.check_slots(weather["series"], day),
         },
         "loss_waterfall": loss_waterfall,
         "strings": strings_summary,

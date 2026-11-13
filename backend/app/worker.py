@@ -8,12 +8,15 @@ several API workers would each start a scheduler and multiply Growatt calls.
     PYTHONPATH=backend uv run python -m app.worker --list       # schedule + last runs
 
 Schedule (plant-local time, Asia/Bangkok):
-    history            every WORKER_HISTORY_INTERVAL_MIN (30) min  incremental max_data pull
+    history            every WORKER_HISTORY_INTERVAL_MIN (30) min  incremental max_data pull,
+                       and at 09:25 / 13:25 / 17:25 so each PWA check's readings are in
     backfill           02:00   re-read the previous two days (late uploads)
     fleet              05:30   plant / inverter registry
     publish_yesterday  06:00   finalize yesterday's daily summaries
-    publish_today      09:45, 13:45, 17:45   today so far, after each O&M check (09 / 13 / 17:00), so the
-                               PWA report sheet can fill each check the same day; 19:30 the full day
+    pwa_sheet          06:05   PWA Report Google Sheet: today's tab (skipped without PWA_SHEET_ID)
+    publish_today      09:30 / 13:30 / 17:30   today so far, after each PWA check (09/13/17);
+                               also fills those checks into the PWA Report sheet
+                       19:30   publish today after sunset
     retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
     google_weather     18:15   Google Maps Weather: previous 24 h hourly (incl. 17:00), one call per
                                plant cell; then re-publishes yesterday's daily docs
@@ -44,6 +47,7 @@ from app.config import settings
 from app.db.models import GrowattInverter, GrowattPlant
 from app.db.session import SessionLocal, ensure_schema
 from app.services import jobs
+from app.services.pwa_sheet import CHECK_HOURS as PWA_CHECK_HOURS, PUBLISH_MIN as PWA_PUBLISH_MIN
 
 log = logging.getLogger("worker")
 
@@ -54,7 +58,7 @@ UNTAGGED_RETRY = timedelta(hours=6)  # bounded: a plant no account lists stays u
 # after a `fleet` run that did not finish ok (an account failed, e.g. Growatt 10012, or the run was
 # abandoned): its plants keep a stale registry and no weather sensors until fleet succeeds
 FLEET_RETRY = timedelta(hours=6)
-PWA_CHECK_HOURS = (9, 13, 17)  # O&M check times; publish_today runs at hh:45 after each
+PWA_HISTORY_LEAD_MIN = 5  # history pull this many minutes before each check's publish
 
 
 @dataclass(frozen=True)
@@ -88,9 +92,11 @@ def default_schedule() -> List[Schedule]:
         Schedule("history", every=timedelta(minutes=settings.worker_history_interval_min)),
         Schedule("backfill", at=dtime(2, 0)),
         Schedule("publish_yesterday", at=dtime(6, 0)),
-        # one job, several slots: each slot runs once (last run < slot); docs are overwritten
-        *(Schedule("publish_today", at=dtime(h, 45)) for h in PWA_CHECK_HOURS),
+        # each PWA check: fresh history at hh:25, then publish today so far (and fill the sheet) at hh:30
+        *(Schedule("history", at=dtime(h, PWA_PUBLISH_MIN - PWA_HISTORY_LEAD_MIN)) for h in PWA_CHECK_HOURS),
+        *(Schedule("publish_today", at=dtime(h, PWA_PUBLISH_MIN)) for h in PWA_CHECK_HOURS),
         Schedule("publish_today", at=dtime(19, 30)),
+        Schedule("pwa_sheet", at=dtime(6, 5)),
         Schedule("retention", at=dtime(3, 0)),
         Schedule("google_weather", at=dtime(18, 15)),
         Schedule(

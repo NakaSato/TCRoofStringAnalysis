@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.routes import (
     analysis,
@@ -14,6 +15,7 @@ from app.api.routes import (
     maintenance,
     plants,
     rca,
+    report,
     she,
     users,
 )
@@ -49,9 +51,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # JSON (fleet lists, the PWA report) shrinks ~5-10x; clients that don't ask get it plain.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     api_router = APIRouter()
     api_router.include_router(auth.router)  # /auth/login is the only route open without a token
+    api_router.include_router(report.router)  # PWA Report sheet: shared key (X-Report-Key), no login
     # Every data route needs a signed-in user. Growatt routes scope engineers to their assigned
     # plants per route (app.auth.require_plant_*); fleet settings and jobs are admin only.
     api_router.include_router(growatt.router, dependencies=[Depends(get_current_user)])

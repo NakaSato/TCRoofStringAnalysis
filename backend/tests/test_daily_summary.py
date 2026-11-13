@@ -54,6 +54,7 @@ def test_day_docs_layout_and_no_realtime_fields(db):
     plant = docs[f"daily/{DAY}/plants/{PLANT}"]
     assert len(plant["hourly_kw"]) == 24 and plant["hourly_kw"][10] == pytest.approx(10.0)
     assert plant["hourly_kw"][3] is None
+    assert plant["weather"]["has_sensor"] is False and set(plant["weather"]["slots"]) == {"09", "13", "17"}
 
     inv = docs[f"daily/{DAY}/inverters/{SN_A}"]
     assert set(inv["strings"]) == {"1", "2"}

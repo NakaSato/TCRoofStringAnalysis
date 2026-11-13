@@ -67,6 +67,34 @@ def test_interval_and_daily_due_rules():
     assert daily.is_due(datetime(2026, 11, 12, 12, 30, tzinfo=timezone.utc), None)
 
 
+def test_publish_today_runs_after_each_check_and_after_sunset():
+    slots = [s for s in default_schedule() if s.job == "publish_today"]
+    assert [s.at for s in slots] == [dtime(9, 30), dtime(13, 30), dtime(17, 30), dtime(19, 30)]
+
+    def due(h, m, last):
+        now = datetime(2026, 11, 12, h, m, tzinfo=BKK)
+        return any(s.is_due(now, last) for s in slots)
+
+    yesterday = datetime(2026, 11, 11, 19, 31, tzinfo=BKK)
+    assert not due(9, 29, yesterday)
+    assert due(9, 30, yesterday)
+    at_0930 = datetime(2026, 11, 12, 9, 31, tzinfo=BKK)
+    assert not due(12, 0, at_0930)  # once per slot
+    assert due(13, 30, at_0930)
+    at_1730 = datetime(2026, 11, 12, 17, 31, tzinfo=BKK)
+    assert not due(19, 29, at_1730)
+    assert due(19, 30, at_1730)
+
+
+def test_history_pulled_before_each_check_publish():
+    slots = [s.at for s in default_schedule() if s.job == "history" and s.at]
+    assert slots == [dtime(9, 25), dtime(13, 25), dtime(17, 25)]
+    pull = next(s for s in default_schedule() if s.job == "history" and s.at == dtime(9, 25))
+    # an interval pull at 09:10 does not cover 09:00 well enough: pull again at 09:25
+    assert pull.is_due(datetime(2026, 11, 12, 9, 25, tzinfo=BKK), datetime(2026, 11, 12, 9, 10, tzinfo=BKK))
+    assert not pull.is_due(datetime(2026, 11, 12, 9, 40, tzinfo=BKK), datetime(2026, 11, 12, 9, 26, tzinfo=BKK))
+
+
 def _seed_registry(factory) -> None:
     with factory() as db:
         db.add(GrowattPlant(plant_id=1, name="P"))

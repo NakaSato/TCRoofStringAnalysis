@@ -152,7 +152,7 @@ def test_build_day_kpis_and_days_since_rain(Session):
         rainy = gw.build_day(db, plant, DAY - timedelta(days=3))
         assert rainy["kpis"]["rain_mm"] == 8.0 and rainy["kpis"]["rain_hours"] == 4
         assert rainy["rain"]["days_since_rain"] == 0
-        assert rainy["slots"]["12"]["raining"] is True and rainy["slots"]["12"]["status_th"] == "ฝนตก"
+        assert rainy["slots"]["13"]["raining"] is True and rainy["slots"]["13"]["status_th"] == "ฝนตก"
         assert rainy["slots"]["09"]["status_th"] == "ไม่มีฝน" and rainy["slots"]["17"]["raining"] is False
         assert out["kpis"]["rained"] is False and rainy["kpis"]["rained"] is True
 
@@ -162,7 +162,7 @@ def test_build_day_kpis_and_days_since_rain(Session):
 
         assert gw.build_day(db, db.get(GrowattPlant, 4))["has_location"] is False
         summary = gw.day_summary(db, plant, DAY)
-        assert summary["days_since_rain"] == 3 and set(summary["slots"]) == {"09", "12", "17"}
+        assert summary["days_since_rain"] == 3 and set(summary["slots"]) == {"09", "13", "17"}
         assert gw.day_summary(db, plant, DAY + timedelta(days=9)) is None
 
 

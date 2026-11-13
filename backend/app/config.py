@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     google_weather_base_url: str = "https://weather.googleapis.com/v1/"
     google_weather_cell_deg: float = 0.01  # ~1 km; 234 plants -> ~227 lookup points
     google_weather_monthly_budget: int = 10000  # = the free tier; lower it if the key is used elsewhere too
+    # Shared key for the PWA Report sheet (Apps Script) on GET /report/pwa/{day} (header X-Report-Key).
+    # Empty = route disabled. Prod: Secret Manager `tcroof-report-key`.
+    report_api_key: str = ""
+    # Monitoring PWA Report Google Sheet, filled by the worker (services/pwa_sheet.py) through the
+    # Sheets API. Empty = off. Share the sheet as Editor with the service account's client_email.
+    pwa_sheet_id: str = ""  # from the sheet URL: /spreadsheets/d/<id>/edit
+    pwa_sheet_credentials_file: str = ""  # service-account JSON; empty = FIREBASE_CREDENTIALS_FILE
     google_weather_live_ttl_s: int = 1800  # current conditions are cached 30 min per cell (memory only)
     # Daytime window (plant-local hours, end exclusive): only these hours are stored, and live
     # current conditions are only fetched inside it (night: last value, no Google call).

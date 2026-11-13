@@ -30,6 +30,10 @@ E = GrowattEnvReading
 FIELDS = ("irradiance_wm2", "ambient_temp_c", "module_temp_c", "humidity_pct", "wind_speed_ms", "wind_dir_deg")
 DAYLIGHT_WM2 = 50.0  # irradiance above which a slot counts as daylight (module-temperature mean)
 MIN_PR_COVERAGE = 0.9  # share of producing slots that must have an irradiance sample for IEC PR
+# Daily O&M check times (plant-local hour) of the PWA monitoring report; Firestore daily plant
+# docs carry the sensor irradiance and Google's weather at these hours (`check_slots`).
+CHECK_HOURS = (9, 13, 17)
+CHECK_NEAREST = timedelta(minutes=10)  # a check takes the 5-minute slot nearest hh:00 within this
 
 
 def _bucket(ts: datetime) -> datetime:
@@ -280,6 +284,24 @@ def _result(
         "kpis": {**empty, **kpis},
         "series": series,
     }
+
+
+def check_slots(series: Sequence[Dict[str, Any]], day: Optional[date]) -> Dict[str, Optional[Dict[str, Any]]]:
+    """Sensor reading at each CHECK_HOURS time ("09", "13", "17"): the 5-minute slot nearest
+    hh:00 within CHECK_NEAREST, or None when the sensor reported nothing that close."""
+    points = [
+        (datetime.strptime(p["timestamp"], "%Y-%m-%d %H:%M:%S"), p) for p in series if p.get("irradiance_wm2") is not None
+    ]
+    out: Dict[str, Optional[Dict[str, Any]]] = {}
+    for h in CHECK_HOURS:
+        hit = None
+        if day is not None and points:
+            at = datetime.combine(day, time(h))
+            ts, p = min(points, key=lambda tp: abs(tp[0] - at))
+            if abs(ts - at) <= CHECK_NEAREST:
+                hit = {"at": ts.strftime("%H:%M"), "irradiance_wm2": p["irradiance_wm2"], "module_temp_c": p["module_temp_c"]}
+        out[f"{h:02d}"] = hit
+    return out
 
 
 def iec_pr(
