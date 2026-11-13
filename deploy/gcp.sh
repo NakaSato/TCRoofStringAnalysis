@@ -2,7 +2,7 @@
 # Deploy TC Roof Solar to GCP / Firebase. Production sizing and the monthly cost cap (BUDGET_AMOUNT,
 # hard stop by the cost guard at COST_CAP_PCT): docs/plans/gcp-production.md.
 #
-#   Firebase Hosting (frontend)  ──/api/**──►  Cloud Run "tcroof-api" (us-central1, min 1 / max 1 instance)
+#   Firebase Hosting (frontend)  ──/api/**──►  Cloud Run "tcroof-api" (us-central1, min API_MIN_INSTANCES / max 1)
 #                                                   │  Direct VPC egress (private IP)
 #                                                   ▼
 #                                  VM "tcroof-db" (MACHINE_TYPE, e2-standard-2): Postgres 16 + growatt-worker
