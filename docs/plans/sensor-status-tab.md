@@ -189,10 +189,11 @@ _Built 2026-11-13 (dev trial pending). Deviations: status is judged in `growatt_
 - [ ] One-day dev trial: 10012 counts on inverter `max_data` with the page open vs closed
 
 ### Phase 3: Info tab
-- [ ] `GET /growatt/live/sensors/{dl}/{addr}` (newest reading, measured nulls, `raw` admin only)
-- [ ] Info view: identity, live state, newest reading, stored data + mini chart, raw record
-- [ ] Opened from Status row (sheet) and via `?tab=info&sensor=`; link from `WeatherStationPanel`
-- [ ] Tests: 404 for invisible plant; engineer gets `raw: null`; unmeasured → null
+_Done 2026-11-13. Deviations: a Status row opens the Info tab (no side sheet: the app has no sheet component and the tab keeps the URL shareable). The endpoint reuses both existing caches (`env_list` sweep entry, `env_last_data` per sensor), so opening Info while the plant's Weather Station is open costs no extra calls; a failed part is reported in `data.errors` and only both failing gives 503. `raw` keeps scalar fields only. Checked against real Growatt (admin 200 with raw, engineer 404 for an unassigned plant)._
+- [x] `GET /growatt/live/sensors/{dl}/{addr}` (newest reading, measured nulls, `raw` admin only)
+- [x] Info view: identity, live state + next-refresh countdown, newest reading (irradiance meter, wind compass), stored data + today's chart, raw record (collapsed)
+- [x] Opened from a Status row and via `?tab=info&sensor=`; "Sensor status" link from `WeatherStationPanel`
+- [x] Tests: 404 for invisible / unregistered sensor (no Growatt call); engineer gets `raw: null`; unmeasured → null; reading failure still serves status; `lastUpdateTime` China-time conversion
 
 ### Phase 4: health flags
 - [ ] `probe_missing`, `irradiance_zero_daylight`, `stale_history` in `growatt_sensors.py`, each with reason text

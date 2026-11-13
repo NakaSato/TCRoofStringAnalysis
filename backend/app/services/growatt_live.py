@@ -428,6 +428,7 @@ class GrowattLiveService:
                     for col in ENV_FIELDS.values():
                         if col not in measured:
                             row[col] = None
+                row.pop("raw", None)  # the full record is only for the sensor Info view (`sensor_live`)
                 out.append({**row, "stale": r.stale, "fetched_at": r.wall.isoformat()})
         if not all_walls:
             raise LiveUnavailable("; ".join(f"{k}: {e}" for k, e in errors.items()) or "no weather sensors")
@@ -526,6 +527,75 @@ class GrowattLiveService:
             )
         )
 
+    def sensor_live(
+        self,
+        datalogger_sn: str,
+        address: int,
+        phase: Optional[int] = None,
+        measured: Optional[Sequence[str]] = None,
+        coords: Optional[Coords] = None,
+    ) -> Dict[str, Any]:
+        """One weather sensor for its Info view: online state from its datalogger's `env_list`
+        (the same shared cache as the fleet sweep, refreshed here if expired) and its newest
+        `env_last_data` record (the same cache as `plant_weather`, so the two never double the
+        calls). Not persisted. Fields outside `measured` are null in `reading`; `raw` is the
+        record as Growatt reported it. Raises LiveUnavailable only when both parts fail.
+        """
+        ph = self.resolve_phase(phase)
+        errors: Dict[str, str] = {}
+
+        status_env: Optional[Dict[str, Any]] = None
+        try:
+            status_env = self.sensor_status([(datalogger_sn, phase)], coords=coords)
+        except LiveUnavailable as exc:
+            errors["status"] = str(exc)
+        entry = status_env["data"]["dataloggers"].get(datalogger_sn) if status_env else None
+        if status_env and status_env["data"]["errors"]:
+            errors["status"] = "; ".join(status_env["data"]["errors"].values())
+
+        key = ("env", datalogger_sn, address)
+        ttl = lambda row: self._night(max(self.device_gap_s, self._latest_ttl(row)), coords)
+        reading: Optional[Dict[str, Any]] = None
+        raw: Optional[Dict[str, Any]] = None
+        r: Optional[_Result] = None
+        try:
+            r = self._get(key, lambda c: _env_row(c, datalogger_sn, address), ttl, ph, gap_s=self.device_gap_s)
+        except LiveUnavailable as exc:
+            errors["reading"] = str(exc)
+        if r is not None:
+            if r.error:
+                errors["reading"] = r.error
+            if r.data is not None:
+                row = dict(r.data)
+                raw = row.pop("raw", None)
+                if measured is not None:
+                    for col in ENV_FIELDS.values():
+                        if col not in measured:
+                            row[col] = None
+                reading = {**row, "stale": r.stale, "fetched_at": r.wall.isoformat()}
+
+        if r is None and entry is None:
+            raise LiveUnavailable("; ".join(f"{k}: {e}" for k, e in errors.items()) or "sensor unavailable")
+        refresh = [x for x in (r.refresh_in if r else None, status_env["refresh_in_s"] if status_env else None) if x is not None]
+        walls = [w for w in (r.wall if r else None,) if w is not None]
+        if entry:
+            walls.append(datetime.fromisoformat(entry["fetched_at"]))
+        return self._envelope(
+            _Result(
+                min(walls),
+                {
+                # this datalogger's `env_list` entry ({fetched_at, stale, sensors}); None = not checked
+                "datalogger": entry,
+                    "reading": reading,
+                    "raw": raw,
+                    "errors": errors,
+                },
+                stale=bool((r is not None and r.stale) or (entry is not None and entry["stale"])),
+                error="; ".join(f"{k}: {e}" for k, e in errors.items()) or None,
+                refresh_in=min(refresh) if refresh else self.sensor_ttl_s,
+            )
+        )
+
     def plant_alarms(
         self,
         plant_id: int,
@@ -621,6 +691,8 @@ def _env_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optiona
         "timestamp": str(rec.get("timeText")),  # plant-local
         "interval_s": None,  # env_last_data has no previous record; sensors report every 5 min
         **{col: _f(rec.get(key)) for key, col in ENV_FIELDS.items()},
+        # the record as reported, for the sensor Info view's "Raw record" (admin only; memory only)
+        "raw": {str(k): v for k, v in rec.items() if isinstance(v, (str, int, float, bool)) or v is None},
     }
 
 

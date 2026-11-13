@@ -7,22 +7,37 @@ import {
   CircleHelp,
   Clock,
   CloudOff,
+  Code,
   Database,
   Gauge,
   Info,
   ListChecks,
   RefreshCw,
   Search,
+  Sun,
   TriangleAlert,
   WifiOff,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api } from "../api/client";
-import type { GrowattLive, GrowattWeatherField, SensorList, SensorLiveRow, SensorLiveStatus, SensorRow, SensorStatus } from "../api/client";
+import type {
+  GrowattLive,
+  GrowattWeatherDay,
+  GrowattWeatherField,
+  SensorList,
+  SensorLive,
+  SensorLiveRow,
+  SensorLiveStatus,
+  SensorRow,
+  SensorStatus,
+} from "../api/client";
 import { useLivePoll } from "../context/useLivePoll";
 import { plantPath } from "../context/routes";
-import { EmptyState, LoadingState, PageHeader, Panel, StatusBadge, fmt, fmtInt } from "../components/ui";
+import { EmptyState, LoadingState, Meter, PageHeader, Panel, StatusBadge, fmt, fmtInt } from "../components/ui";
+import { PanelChart } from "../components/PanelChart";
+import type { ChartSeries, PanelChartSpec } from "../components/PanelChart";
+import { SERIES } from "../components/chartTheme";
 import type { StatusLevel } from "../components/ui";
 import { cn } from "@/lib/utils";
 import { pick, useUrlState } from "@/lib/useUrlState";
@@ -497,7 +512,33 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
   </div>
 );
 
-/** One sensor: live state from the sweep, everything else from the stored data. */
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+const compass = (deg: number | null | undefined) => (deg == null ? "" : COMPASS[Math.round(deg / 45) % 8]);
+const DIGITS: Record<GrowattWeatherField, number> = {
+  irradiance_wm2: 0,
+  module_temp_c: 1,
+  ambient_temp_c: 1,
+  humidity_pct: 0,
+  wind_speed_ms: 1,
+  wind_dir_deg: 0,
+};
+
+/** Seconds left until `at` (ms), ticking once a second while mounted. */
+const useCountdown = (at: number | null) => {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (at == null) return;
+    const id = window.setInterval(() => tick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [at]);
+  return at == null ? null : Math.max(0, Math.round((at - Date.now()) / 1000));
+};
+
+/**
+ * One sensor: identity, live state and newest reading (`/growatt/live/sensors/{dl}/{addr}`,
+ * polled on `refresh_in_s` while open; memory only), plus today's stored series and coverage (DB).
+ * The raw record is sent to admins only.
+ */
 const SensorInfo: React.FC<{
   sensor: ViewRow | null;
   sensors: ViewRow[];
@@ -505,6 +546,77 @@ const SensorInfo: React.FC<{
   until: string | null;
   onPick: (key: string) => void;
 }> = ({ sensor, sensors, now, until, onPick }) => {
+  const [detail, setDetail] = useState<GrowattLive<SensorLive> | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [nextAt, setNextAt] = useState<number | null>(null);
+  const [stored, setStored] = useState<GrowattWeatherDay | null>(null);
+  const [storedError, setStoredError] = useState<string | null>(null);
+  const key = sensor?.key ?? "";
+  const today = now.slice(0, 10);
+
+  useEffect(() => {
+    setDetail(null);
+    setDetailError(null);
+    setNextAt(null);
+  }, [key]);
+
+  useLivePoll(
+    Boolean(sensor),
+    key,
+    () => api.getLiveSensor(sensor!.datalogger_sn, sensor!.address),
+    (r) => {
+      setDetail(r);
+      setDetailError(null);
+      setNextAt(Date.now() + (r.refresh_in_s ?? 60) * 1000);
+    },
+    (err) => setDetailError(err instanceof Error ? err.message : String(err))
+  );
+  const countdown = useCountdown(nextAt);
+
+  // today's stored series of this sensor alone (DB), re-read with the page's list
+  const plantId = sensor?.plant_id;
+  const lastReading = sensor?.last_reading_at;
+  useEffect(() => {
+    if (plantId == null || !key) return;
+    let cancelled = false;
+    setStoredError(null);
+    api
+      .getGrowattPlantWeather(plantId, today, undefined, key)
+      .then((r) => !cancelled && setStored(r))
+      .catch((err) => {
+        if (cancelled) return;
+        setStored(null);
+        setStoredError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [plantId, key, today, lastReading]);
+
+  const spec = useMemo<PanelChartSpec | null>(() => {
+    const pts = stored?.meta.sensor && stored.meta.sensor.datalogger_sn === sensor?.datalogger_sn && stored.meta.sensor.address === sensor?.address ? stored.series : null;
+    if (!pts?.length) return null;
+    const measured = new Set(stored?.sensors.find((x) => x.datalogger_sn === sensor?.datalogger_sn && x.address === sensor?.address)?.measured ?? FIELDS);
+    const temps: ChartSeries[] = [];
+    if (measured.has("module_temp_c"))
+      temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: pts.map((p) => p.module_temp_c), unit: "°C" });
+    if (measured.has("ambient_temp_c"))
+      temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: pts.map((p) => p.ambient_temp_c), unit: "°C" });
+    return {
+      xKind: "time",
+      x: pts.map((p) => p.timestamp),
+      panels: [
+        {
+          key: "g",
+          title: "POA irradiance (W/m²)",
+          weight: temps.length ? 1.4 : 1,
+          series: [{ key: "g", name: "POA irradiance", type: "line", area: true, color: SERIES.irradiance, y: pts.map((p) => p.irradiance_wm2), format: (v) => `${fmt(v, 0)} W/m²` }],
+        },
+        ...(temps.length ? [{ key: "t", title: "Temperature (°C)", zero: false, series: temps }] : []),
+      ],
+    };
+  }, [stored, sensor?.datalogger_sn, sensor?.address]);
+
   const picker = (
     <Select value={sensor?.key ?? ""} onValueChange={onPick}>
       <SelectTrigger size="sm" className="w-72" aria-label="Sensor">
@@ -525,61 +637,144 @@ const SensorInfo: React.FC<{
         <EmptyState icon={Gauge} title="No sensor selected" description="Pick one here, or click a row on the Status tab." />
       </Panel>
     );
-  const st = STATUS_VIEW[sensor.st];
-  const l = sensor.live;
+
+  // the sensor's own live answer is newer than the fleet sweep's row once it has arrived
+  const l = detail?.data.status ?? sensor.live;
+  const stView = STATUS_VIEW[l && l.status !== "unknown" ? l.status : sensor.status];
+  const rd = detail?.data.reading ?? null;
+  const measured = detail?.data.measured !== undefined ? detail.data.measured : sensor.measured;
+  const fitted = (f: GrowattWeatherField) => !measured || measured.includes(f);
+  const raw = detail?.data.raw ?? null;
+  const readingError = detail?.data.errors.reading;
+
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Panel icon={Info} title={`${sensor.datalogger_sn}#${sensor.address}`} subtitle={sensor.device_name ?? undefined} actions={picker}>
-        <Row label="Status">
-          <StatusBadge status={st.label} level={st.level} />
-        </Row>
-        <Row label="Plant">
-          <Link to={`${plantPath(sensor.plant_id, "generation")}#weather-station`} className="hover:text-solar-300">
-            {sensor.plant_name}
-          </Link>
-        </Row>
-        <Row label="Phase (Growatt account)">{sensor.phase ?? "—"}</Row>
-        <Row label="Datalogger SN">{sensor.datalogger_sn}</Row>
-        <Row label="Bus address">{sensor.address}</Row>
-        <Row label="Last upload (Growatt)">
-          {l?.last_update_time ? `${l.last_update_time} · ${fmtAge(minutesBetween(l.last_update_time, now))}` : "—"}
-        </Row>
-        <Row label="Growatt says lost">{l?.lost == null ? "—" : l.lost ? "Yes" : "No"}</Row>
-        <Row label="Live check">
-          {l?.checked_at ? `${hhmm(l.checked_at)}${l.stale ? " · stale" : ""}${l.listed === false ? " · not in the datalogger's list" : ""}` : "Not checked yet"}
-        </Row>
-        <Row label="Newest stored reading">
-          {sensor.last_reading_at ? `${sensor.last_reading_at} · ${fmtAge(minutesBetween(sensor.last_reading_at, now))}` : "Nothing stored yet"}
-        </Row>
-        <Row label={`Coverage today (06:00–${until ?? "—"})`}>
-          <span className={coverageTone(sensor.coverage_today_pct)}>
-            {sensor.coverage_today_pct == null ? "—" : `${fmt(sensor.coverage_today_pct, 0)}%`}
-          </span>
-        </Row>
-        <p className="mt-3 text-[11px] text-slate-500">Online state comes from Growatt's live sensor list (memory only, re-checked about every 5 min while this page is open).</p>
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel icon={Info} title={`${sensor.datalogger_sn}#${sensor.address}`} subtitle={sensor.device_name ?? undefined} actions={picker}>
+          <Row label="Status">
+            <StatusBadge status={stView.label} level={stView.level} />
+          </Row>
+          <Row label="Plant">
+            <Link to={`${plantPath(sensor.plant_id, "generation")}#weather-station`} className="hover:text-solar-300">
+              {sensor.plant_name}
+            </Link>
+          </Row>
+          <Row label="Phase (Growatt account)">{sensor.phase ?? "—"}</Row>
+          <Row label="Datalogger SN">{sensor.datalogger_sn}</Row>
+          <Row label="Bus address">{sensor.address}</Row>
+          <Row label="Device name">{sensor.device_name ?? "—"}</Row>
+          <Row label="Last upload (Growatt)">
+            {l?.last_update_time ? `${l.last_update_time} · ${fmtAge(minutesBetween(l.last_update_time, now))}` : "—"}
+          </Row>
+          <Row label="Growatt says lost">{l?.lost == null ? "—" : l.lost ? "Yes" : "No"}</Row>
+          <Row label="Live check">
+            {l?.checked_at ? `${hhmm(l.checked_at)}${l.stale ? " · stale" : ""}${l.listed === false ? " · not in the datalogger's list" : ""}` : "Not checked yet"}
+          </Row>
+          <Row label="Next refresh">{countdown == null ? (detailError ? "—" : "…") : countdown ? `in ${countdown} s` : "now"}</Row>
+          <p className="mt-3 text-[11px] text-slate-500">
+            Online state comes from Growatt's live sensor list (memory only). Online = upload ≤ {detail?.data.thresholds.late_min ?? 15} min ago, late up to{" "}
+            {detail?.data.thresholds.offline_min ?? 60} min.
+            {detailError ? ` Live request failed: ${detailError}` : detail?.data.errors.status ? ` Status check failed: ${detail.data.errors.status}` : ""}
+          </p>
+        </Panel>
+
+        <Panel
+          icon={Sun}
+          title="Newest reading"
+          subtitle={rd ? `Record ${rd.timestamp} · ${fmtAge(minutesBetween(rd.timestamp, now))}` : "From Growatt, live"}
+          actions={
+            rd ? (
+              <Badge variant={rd.stale ? "warn" : "ok"} className="px-2 py-0.5 text-[11px] font-semibold" title={`Fetched ${hhmm(rd.fetched_at)}`}>
+                {rd.stale ? "LIVE (STALE)" : "LIVE"} {rd.timestamp.slice(11, 16)}
+              </Badge>
+            ) : null
+          }
+        >
+          {!detail && !detailError ? (
+            <LoadingState label="Asking Growatt for the newest reading…" />
+          ) : !rd ? (
+            <EmptyState
+              icon={CloudOff}
+              title="No live reading"
+              description={readingError ?? detailError ?? "Growatt has no record for this sensor."}
+              className="py-8"
+            />
+          ) : (
+            <>
+              <div className="mb-3 rounded-lg border border-white/[0.06] bg-ink-850/70 p-3">
+                <div className="flex items-baseline justify-between">
+                  <span className="eyebrow">Irradiance</span>
+                  <span className="num text-xl font-bold text-solar-300">
+                    {fitted("irradiance_wm2") ? fmt(rd.irradiance_wm2, 0) : "—"} <span className="text-xs font-normal text-slate-500">W/m²</span>
+                  </span>
+                </div>
+                {fitted("irradiance_wm2") && rd.irradiance_wm2 != null && <Meter value={rd.irradiance_wm2} max={1100} tone="solar" className="mt-2" />}
+              </div>
+              {FIELDS.filter((f) => f !== "irradiance_wm2").map((f) => (
+                <Row key={f} label={FIELD_LABEL[f]}>
+                  {!fitted(f) ? (
+                    <span className="text-slate-500">Not fitted</span>
+                  ) : (
+                    <>
+                      {fmt(rd[f], DIGITS[f])} <span className="text-xs text-slate-500">{FIELD_UNIT[f]}</span>
+                      {f === "wind_dir_deg" && rd[f] != null && <span className="ml-1 text-xs text-slate-400">{compass(rd[f])}</span>}
+                    </>
+                  )}
+                </Row>
+              ))}
+            </>
+          )}
+          <p className="mt-3 text-[11px] text-slate-500">
+            {measured
+              ? "Live from Growatt, never stored here. Not fitted = the probe read 0 in every stored record of the last 7 days."
+              : "Live from Growatt, never stored here. Nothing stored in the last 7 days, so every probe is shown as reported."}
+          </p>
+        </Panel>
+      </div>
+
+      <Panel icon={Database} title="Stored data" subtitle={`Today ${today} · 5-min records in the database`}>
+        <div className="grid gap-x-8 md:grid-cols-3">
+          <Row label="Newest stored reading">
+            {sensor.last_reading_at ? `${sensor.last_reading_at.slice(11, 16)} · ${fmtAge(minutesBetween(sensor.last_reading_at, now))}` : "Nothing stored yet"}
+          </Row>
+          <Row label={`Coverage today (06:00–${until ?? "—"})`}>
+            <span className={coverageTone(sensor.coverage_today_pct)}>{sensor.coverage_today_pct == null ? "—" : `${fmt(sensor.coverage_today_pct, 0)}%`}</span>
+          </Row>
+          <Row label="Probes reporting (7 d)">{sensor.measured ? sensor.measured.map((f) => FIELD_LABEL[f]).join(", ") || "none" : "—"}</Row>
+        </div>
+        <div className="mt-3">
+          {spec ? (
+            <PanelChart spec={spec} height={240} />
+          ) : (
+            <EmptyState
+              icon={Sun}
+              title="No readings stored today"
+              description={storedError ?? "The worker stores this sensor's 5-min records every 30 min; nothing has arrived for today yet."}
+              className="py-8"
+            />
+          )}
+        </div>
       </Panel>
-      <Panel icon={Database} title="Newest stored reading" subtitle={sensor.last_reading_at ?? "Nothing stored yet"}>
-        {FIELDS.map((f) => {
-          const fitted = !sensor.measured || sensor.measured.includes(f);
-          return (
-            <Row key={f} label={FIELD_LABEL[f]}>
-              {!fitted ? (
-                <span className="text-slate-500">Not fitted</span>
-              ) : (
-                <>
-                  {fmt(sensor.last?.[f], f === "irradiance_wm2" || f === "wind_dir_deg" || f === "humidity_pct" ? 0 : 1)}{" "}
-                  <span className="text-xs text-slate-500">{FIELD_UNIT[f]}</span>
-                </>
-              )}
-            </Row>
-          );
-        })}
-        <p className="mt-3 text-[11px] text-slate-500">
-          {sensor.measured
-            ? "Not fitted = the probe read 0 in every stored record of the last 7 days."
-            : "No stored reading in the last 7 days, so which probes are fitted is unknown."}
-        </p>
-      </Panel>
+
+      {raw && (
+        <Panel icon={Code} title="Raw record" subtitle="Admin only · every field of the newest record as Growatt reported it">
+          <details>
+            <summary className="cursor-pointer text-xs text-slate-400 hover:text-white">Show {Object.keys(raw).length} fields</summary>
+            <div className="mt-2 grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
+              {Object.entries(raw)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([k, v]) => (
+                  <Row key={k} label={k}>
+                    {v == null ? "null" : String(v)}
+                  </Row>
+                ))}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Only irradiance, temperatures, humidity and wind are used; the other fields are always 0 at these plants.
+            </p>
+          </details>
+        </Panel>
+      )}
     </div>
   );
 };

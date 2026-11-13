@@ -580,6 +580,23 @@ export interface SensorLiveStatus {
   thresholds: { late_min: number; offline_min: number };
 }
 
+/** /growatt/live/sensors/{dl}/{addr} — one sensor for the Info view (memory only, never stored). */
+export interface SensorLive {
+  status: SensorLiveRow;
+  /** probes that reported in the last 7 days; null = unknown (nothing stored), every field kept */
+  measured: GrowattWeatherField[] | null;
+  /** newest `env_last_data` record; unmeasured probes null; null = Growatt has none / failed */
+  reading: ({ datalogger_sn: string; address: number; timestamp: string; stale: boolean; fetched_at: string } & Record<
+    GrowattWeatherField,
+    number | null
+  >) | null;
+  /** the record exactly as Growatt reported it; admins only (null for engineers) */
+  raw: Record<string, string | number | boolean | null> | null;
+  /** per part ("status", "reading") when Growatt failed for it */
+  errors: Record<string, string>;
+  thresholds: { late_min: number; offline_min: number };
+}
+
 /** /growatt/plants/{id}/inverters/{sn}/timeseries — one inverter's stored 5-minute day curve (DB only). */
 export interface GrowattInverterTimeseries {
   meta: GrowattDbMeta;
@@ -1094,6 +1111,8 @@ export const api = {
   getFleetAlarms: (day?: string) => apiFetch<FleetAlarmDay>(`/growatt/alarms${day ? `?day=${day}` : ""}`),
   listSensors: () => apiFetch<SensorList>("/growatt/sensors"),
   getLiveSensorStatus: () => apiFetch<GrowattLive<SensorLiveStatus>>("/growatt/live/sensors/status"),
+  getLiveSensor: (dataloggerSn: string, address: number) =>
+    apiFetch<GrowattLive<SensorLive>>(`/growatt/live/sensors/${encodeURIComponent(dataloggerSn)}/${address}`),
 
   // Growatt — realtime (backend memory only; poll, never stored)
   getGrowattLivePlants: () => apiFetch<GrowattLive<GrowattLivePlant[]>>("/growatt/live/plants"),

@@ -98,6 +98,44 @@ def visible_sensors(db: Session, allowed: Optional[Set[int]]) -> List[Tuple[str,
     return [(dl, addr, ph) for dl, addr, ph in db.execute(q.order_by(S.datalogger_sn, S.address))]
 
 
+def live_row(
+    dl: str,
+    addr: int,
+    entry: Optional[Dict[str, Any]],
+    now_local: datetime,
+    late_min: float,
+    offline_min: float,
+) -> Dict[str, Any]:
+    """One sensor's live state from its datalogger's cached `env_list` entry (None = not checked)."""
+    hit = next((e for e in entry["sensors"] if e["address"] == addr), None) if entry else None
+    return {
+        "key": _key(dl, addr),
+        "status": live_status(hit["lost"], hit["last_update_time"], now_local, late_min, offline_min) if hit else "unknown",
+        "lost": hit["lost"] if hit else None,
+        "last_update_time": hit["last_update_time"] if hit else None,  # plant-local
+        "checked_at": entry["fetched_at"] if entry else None,
+        "stale": entry["stale"] if entry else None,
+        "listed": hit is not None if entry else None,  # False = env_list no longer lists it
+    }
+
+
+def find_sensor(db: Session, dl: str, addr: int, allowed: Optional[Set[int]]) -> Optional[Tuple[GrowattEnvSensor, Optional[int]]]:
+    """The registered sensor and its plant's phase, or None when unknown or its plant is not visible."""
+    row = db.execute(
+        select(S, GrowattPlant.phase)
+        .join(GrowattPlant, GrowattPlant.plant_id == S.plant_id)
+        .where(S.datalogger_sn == dl, S.address == addr)
+    ).first()
+    if row is None or (allowed is not None and row[0].plant_id not in allowed):
+        return None
+    return row[0], row[1]
+
+
+def measured_for(db: Session, s: GrowattEnvSensor, now_local: datetime) -> Optional[List[str]]:
+    """Probes the sensor reported in the last 7 days; None = no stored reading then (unknown)."""
+    return wx.measured_by_sensor(db, now_local - MEASURED_LOOKBACK, [s.plant_id]).get((s.datalogger_sn, s.address))
+
+
 def overlay_live_status(
     env: Dict[str, Any],
     sensors: List[Tuple[str, int, Optional[int]]],
@@ -109,23 +147,7 @@ def overlay_live_status(
     cached `env_list` entry still turns late / offline as its upload ages. A datalogger not
     checked yet, or a sensor its `env_list` does not list, is `unknown`."""
     dls = env["data"]["dataloggers"]
-    rows: List[Dict[str, Any]] = []
-    for dl, addr, _ph in sensors:
-        entry = dls.get(dl)
-        hit = next((e for e in entry["sensors"] if e["address"] == addr), None) if entry else None
-        rows.append(
-            {
-                "key": _key(dl, addr),
-                "status": live_status(hit["lost"], hit["last_update_time"], now_local, late_min, offline_min)
-                if hit
-                else "unknown",
-                "lost": hit["lost"] if hit else None,
-                "last_update_time": hit["last_update_time"] if hit else None,  # plant-local
-                "checked_at": entry["fetched_at"] if entry else None,
-                "stale": entry["stale"] if entry else None,
-                "listed": hit is not None if entry else None,  # False = env_list no longer lists it
-            }
-        )
+    rows = [live_row(dl, addr, dls.get(dl), now_local, late_min, offline_min) for dl, addr, _ph in sensors]
     data = env["data"]
     return {
         **env,

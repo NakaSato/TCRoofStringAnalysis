@@ -165,6 +165,46 @@ def live_sensor_status(
     )
 
 
+@router.get("/live/sensors/{datalogger_sn}/{address}")
+def live_sensor(
+    datalogger_sn: str,
+    address: int,
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """One weather sensor for the Info view (memory only): live online state (its datalogger's
+    `env_list`, shared with the fleet sweep) and the newest `env_last_data` record. Probes not
+    measured in the last 7 days are null. `raw` = the record as Growatt reported it, admins only
+    (engineers get null). 404 when the sensor is not registered or its plant is not visible."""
+    found = growatt_sensors.find_sensor(db, datalogger_sn, address, allowed_plant_ids(db, user))
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"Weather sensor {datalogger_sn}#{address} not found")
+    sensor, phase = found
+    now_local = datetime.now(jobs.PLANT_TZ).replace(tzinfo=None)
+    measured = growatt_sensors.measured_for(db, sensor, now_local)
+    try:
+        env = live.sensor_live(
+            datalogger_sn, address, phase=phase, measured=measured, coords=ov.plant_coords(db, sensor.plant_id)
+        )
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    d = env["data"]
+    return {
+        **env,
+        "data": {
+            "status": growatt_sensors.live_row(
+                datalogger_sn, address, d["datalogger"], now_local, settings.sensor_late_min, settings.sensor_offline_min
+            ),
+            "measured": measured,
+            "reading": d["reading"],
+            "raw": d["raw"] if user.role == "admin" else None,
+            "errors": d["errors"],
+            "thresholds": {"late_min": settings.sensor_late_min, "offline_min": settings.sensor_offline_min},
+        },
+    }
+
+
 @router.get("/sensors")
 def fleet_sensors(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
     """Every weather sensor of the plants the user may see, from the registry and stored history

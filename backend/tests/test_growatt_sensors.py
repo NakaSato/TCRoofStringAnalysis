@@ -276,3 +276,97 @@ def test_status_route_engineer_sweeps_own_dataloggers_and_writes_nothing(factory
     assert by["DL1:2"]["status"] == "offline" and by["DL1:2"]["lost"] is True
     assert body["source"] == "live" and body["data"]["sweep"]["fresh"] == 2
     assert counts() == before  # nothing stored
+
+
+# --------------------------------------------------------------------------- one sensor (Info view, memory only)
+
+
+class _EnvLast(_EnvList):
+    """Fake `env_list` + `env_last_data`; `ambient` probe reads a value Growatt sends even if not fitted."""
+
+    def __init__(self, answers=None):
+        super().__init__(answers)
+        self.last_calls: list = []
+
+    def env_latest(self, datalogger_sn, address):
+        self.last_calls.append((datalogger_sn, address))
+        return {
+            "timeText": "2026-11-13 11:55:00", "radiant": "640.5", "envTemp": "31.2", "panelTemp": "47.8",
+            "envHumidity": "12.0", "windSpeed": "1.5", "windAngle": "200", "lost": False, "extra": {"nested": 1},
+        }
+
+
+def _now_patch(monkeypatch):
+    from app.api.routes import growatt as routes
+
+    class _Now(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.replace(tzinfo=tz) if tz else NOW
+
+    monkeypatch.setattr(routes, "datetime", _Now)
+
+
+def test_live_sensor_reading_status_and_raw_for_admin(factory, monkeypatch):
+    _now_patch(monkeypatch)
+    fake = _EnvLast()
+    svc = _svc(fake, _Clock())
+    admin = _api(factory, "admin")
+    admin.app_ref.dependency_overrides[get_live_service] = lambda: svc  # type: ignore[attr-defined]
+
+    before = len(fake.last_calls)
+    body = admin.get("/api/growatt/live/sensors/DL1/1").json()
+    assert body["source"] == "live"
+    d = body["data"]
+    assert d["status"]["key"] == "DL1:1" and d["status"]["status"] == "online"
+    assert d["reading"]["timestamp"] == "2026-11-13 11:55:00" and d["reading"]["irradiance_wm2"] == 640.5
+    assert d["reading"]["humidity_pct"] is None  # stored history says the probe is not fitted: null, never 12
+    assert "raw" not in d["reading"]
+    assert d["raw"]["envHumidity"] == "12.0" and d["raw"]["timeText"] == "2026-11-13 11:55:00"
+    assert "extra" not in d["raw"]  # only scalar fields are passed through
+    assert "humidity_pct" not in d["measured"]
+
+    # same cache as the plant's Weather Station: a second view does not call Growatt again
+    admin.get("/api/growatt/live/sensors/DL1/1")
+    assert len(fake.last_calls) == before + 1 and fake.calls == ["DL1"]
+    # and plant_weather never exposes the raw record
+    pw = svc.plant_weather(1, [("DL1", 1, None)])
+    assert "raw" not in pw["data"]["sensors"][0]
+
+
+def test_live_sensor_404_and_engineer_gets_no_raw(factory, monkeypatch):
+    _now_patch(monkeypatch)
+    fake = _EnvLast()
+    svc = _svc(fake, _Clock())
+    eng = _api(factory, "engineer")
+    eng.app_ref.dependency_overrides[get_live_service] = lambda: svc  # type: ignore[attr-defined]
+
+    assert eng.get("/api/growatt/live/sensors/DL1/1").status_code == 404  # plant 1 not assigned
+    assert eng.get("/api/growatt/live/sensors/NOPE/1").status_code == 404  # not registered
+    assert fake.calls == [] and fake.last_calls == []  # nothing asked of Growatt for an invisible sensor
+
+    with factory() as db:
+        uid = db.scalar(select(User.id).where(User.username == "engineer"))
+        db.add(UserPlantAssignment(user_id=uid, plant_id=2))
+        db.commit()
+    body = eng.get("/api/growatt/live/sensors/DL2/1").json()
+    assert body["data"]["raw"] is None
+    assert body["data"]["measured"] is None  # nothing stored: probes unknown, so every field is kept
+    assert body["data"]["reading"]["humidity_pct"] == 12.0
+
+
+def test_live_sensor_reading_fails_but_status_still_served(factory, monkeypatch):
+    _now_patch(monkeypatch)
+
+    class _NoLast(_EnvLast):
+        def env_latest(self, datalogger_sn, address):
+            raise GrowattAPIError("rate limited", error_code=10012)
+
+    svc = _svc(_NoLast(), _Clock())
+    admin = _api(factory, "admin")
+    admin.app_ref.dependency_overrides[get_live_service] = lambda: svc  # type: ignore[attr-defined]
+    r = admin.get("/api/growatt/live/sensors/DL1/2")
+    assert r.status_code == 200
+    d = r.json()["data"]
+    assert d["reading"] is None and "reading" in d["errors"] and d["status"]["status"] == "unknown"  # DL1 lists only #1 in the fake
+    assert d["status"]["listed"] is False
