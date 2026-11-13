@@ -86,7 +86,7 @@ def live_plant_latest(
     """Newest record per inverter (power, MPPT, per-string V/I) for one plant. Not persisted.
 
     `data.string_check` = each string judged against its inverter's other strings in the same
-    record, flagged only when the 3 newest records agree (`services/live_string_check.py`),
+    record, flagged only when the 6 newest records agree (`services/live_string_check.py`),
     realtime only. The DB is read only for the plant's inverter list, String Layout module counts
     and which inputs are wired; nothing is written.
     """

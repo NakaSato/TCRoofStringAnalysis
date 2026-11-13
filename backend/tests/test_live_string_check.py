@@ -95,3 +95,15 @@ def test_check_plant_uses_previous_records():
            "previous_strings": [{"timestamp": "2026-11-13 09:56:17", "strings": [_s(n, 5.0) for n in range(1, 5)]}]}
     out = check_plant([inv], wired={"A": {1, 2, 3, 4}})
     assert out["summary"]["critical"] == 0 and out["summary"]["healthy"] == 4
+
+
+def test_nong_bua_mppt_drift_during_ramp_is_not_a_fault():
+    """13 Nov: STR-17 (own MPPT, 13 modules) drifted to ~0 A near open-circuit voltage for 15 min
+    while the sky cleared, then recovered. Peers 1-6 at the measured STR-02 current."""
+    wired = set(range(1, 7)) | {17}
+    seq = [(2.5, 2.6), (4.4, 4.9), (6.3, 10.0), (7.9, 5.2), (7.6, 3.9), (7.8, 0.1)]  # 09:41..10:06, oldest first
+    recs = [[_s(n, peer) for n in range(1, 7)] + [_s(17, s17, v=600.0)] for peer, s17 in seq]
+    newest, previous = recs[-1], list(reversed(recs[:-1]))
+    r = check_inverter("INV", newest, wired=wired, previous=previous)
+    assert r["records_judged"] == 6
+    assert r["strings"][17]["status"] == "Healthy" and "not yet confirmed" in r["strings"][17]["reason"]

@@ -532,7 +532,7 @@ def _env_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optiona
     }
 
 
-PREVIOUS_RECORDS = 2  # with the newest: 3 records ≈ 15 min a string fault must last
+PREVIOUS_RECORDS = 5  # with the newest: 6 records ≈ 30 min a string fault must last
 
 
 def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str, Any]]:
