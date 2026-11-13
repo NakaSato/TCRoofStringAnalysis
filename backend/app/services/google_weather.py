@@ -31,6 +31,7 @@ Cost model (10,000 free calls/month, then $0.15 per 1,000):
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections import Counter
@@ -55,6 +56,9 @@ H = GoogleWeatherHourly
 API_HISTORY = "google_weather_history"
 API_CURRENT = "google_weather_current"
 APIS = (API_HISTORY, API_CURRENT)
+# Hours returned by `history/hours`, counted per billing day like calls (not part of APIS: Google's
+# per-day quota "History Hours Usage per day" meters hours, the monthly free tier meters calls).
+API_HISTORY_HOURS = "google_weather_history_hours"
 STORED = (
     "condition",
     "is_daytime",
@@ -92,6 +96,18 @@ def min_day_hours() -> int:
     """A stored day with fewer daytime hours is incomplete (not a default day, rain unknown)."""
     start, end = window()
     return max(1, end - start - 2)
+
+def history_lookback_hours(now_local: Optional[datetime] = None) -> int:
+    """Hours of history one call asks for: back to the start of the latest daytime window that has
+    begun (today's, or yesterday's before it opens), rounded up, at most 24. At 18:15 that is 13
+    (06:00–17:00), about half of a 24 h request, so Google's per-day hour quota covers every cell."""
+    now = now_local or datetime.now(PLANT_TZ).replace(tzinfo=None)
+    start, _ = window()
+    opened = now.replace(hour=start, minute=0, second=0, microsecond=0)
+    if now < opened:
+        opened -= timedelta(days=1)
+    return max(1, min(24, math.ceil((now - opened).total_seconds() / 3600)))
+
 
 FETCH_WORKERS = 8
 SLOT_HOURS = CHECK_HOURS  # rain status published per day (plant-local hour that starts then)
@@ -167,6 +183,12 @@ def allowance(db: Session, day: Optional[date] = None) -> int:
     return max(0, left_month // (next_month - d).days)
 
 
+def history_hours_left(db: Session, day: Optional[date] = None) -> int:
+    """History hours Google's per-day quota still allows today (our own count of it)."""
+    d = day or billing_day()
+    return max(0, settings.google_weather_history_hours_per_day - _calls(db, d, d + timedelta(days=1), API_HISTORY_HOURS))
+
+
 def remaining(db: Session, api: str, day: Optional[date] = None, cells: Optional[int] = None) -> int:
     """Calls `api` may still make today. Live calls keep one call per cell free for the history
     job until it has run today."""
@@ -237,16 +259,26 @@ def _store_hours(db: Session, cell_key: str, rows: Sequence[Dict[str, Any]]) -> 
     return len(seen)
 
 
+def _oldest_first(db: Session, cells: Dict[str, Tuple[float, float]]) -> List[Tuple[str, Tuple[float, float]]]:
+    """Cells with no stored hours first, then the stalest: when a run is cut short (budget or a
+    429) the next run starts with the cells it missed, instead of always the same last ones."""
+    latest: Dict[str, datetime] = {k: h for k, h in db.execute(select(H.cell_key, func.max(H.hour)).group_by(H.cell_key))}
+    return sorted(cells.items(), key=lambda kv: (latest.get(kv[0]) is not None, latest.get(kv[0]) or datetime.min, kv[0]))
+
+
 def sync_history(
     db: Session,
     client: GoogleWeatherClient,
     cells: Optional[Dict[str, Tuple[float, float]]] = None,
     workers: int = FETCH_WORKERS,
+    now_local: Optional[datetime] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    """Store the past 24 hours for every cell, within today's call budget."""
+    """Store today's daytime hours (see `history_lookback_hours`) for every cell, within today's
+    call budget and Google's per-day history-hour quota."""
     cells = fleet_cells(db) if cells is None else cells
-    left = remaining(db, API_HISTORY)
-    todo = list(cells.items())[:left]
+    hours = history_lookback_hours(now_local)
+    left = min(remaining(db, API_HISTORY), history_hours_left(db) // hours)
+    todo = _oldest_first(db, cells)[:left]
     skipped = len(cells) - len(todo)
 
     quota_hit = threading.Event()  # Google's per-day quota (HTTP 429): stop calling for today
@@ -256,7 +288,7 @@ def sync_history(
         if quota_hit.is_set():
             return key, GoogleWeatherError("skipped: Google daily quota exceeded (HTTP 429)")
         try:
-            return key, client.history_hours(lat, lon, hours=24)
+            return key, client.history_hours(lat, lon, hours=hours)
         except GoogleWeatherError as exc:
             if "HTTP 429" in str(exc):
                 quota_hit.set()
@@ -265,24 +297,33 @@ def sync_history(
     calls_before = client.calls
     with ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="gweather") as pool:
         results = list(pool.map(fetch, todo))
-    record_calls(db, API_HISTORY, client.calls - calls_before)
+    refused = sum(1 for _, r in results if isinstance(r, GoogleWeatherError) and "HTTP 429" in str(r) and not str(r).startswith("skipped"))
+    calls = client.calls - calls_before - refused  # a call Google refused with 429 is not billed
+    record_calls(db, API_HISTORY, calls)
 
-    stored, failed = 0, {}
+    stored, failed, hours_returned = 0, {}, 0
     for key, res in results:
         if isinstance(res, Exception):
             failed[key] = str(res)
             continue
+        hours_returned += len(res)
         stored += _store_hours(db, key, res)
+    record_calls(db, API_HISTORY_HOURS, hours_returned)
     db.commit()
     if failed:
         log.warning("google weather: %d of %d cells failed, e.g. %s", len(failed), len(todo), next(iter(failed.values())))
+    if skipped:
+        log.warning("google weather: %d of %d cells skipped (call budget / daily history-hour quota)", skipped, len(cells))
     detail = {
         "cells": len(cells),
+        "lookback_hours": hours,
         "fetched": len(todo) - len(failed),
         "failed": len(failed),
         "skipped_budget": skipped,
         "hours_stored": stored,
-        "calls": client.calls - calls_before,
+        "hours_returned": hours_returned,
+        "history_hours_left_today": history_hours_left(db),
+        "calls": calls,
         "calls_today": calls_today(db),
         "usage": month_usage(db),
         "google_quota_exceeded": quota_hit.is_set(),

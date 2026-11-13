@@ -18,7 +18,7 @@ Schedule (plant-local time, Asia/Bangkok):
                                also fills those checks into the PWA Report sheet
                        19:30   publish today after sunset
     retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
-    google_weather     18:15   Google Maps Weather: previous 24 h hourly (incl. 17:00), one call per
+    google_weather     18:15   Google Maps Weather: today's 06–17 h hourly (13 h lookback), one call per
                                plant cell; then re-publishes yesterday's daily docs
     alarms             every WORKER_ALARMS_INTERVAL_MIN (30) min, WORKER_ALARMS_START_H..END_H (05–21)
                                today's alarm_data per inverter → SQL (Active Alarm page)

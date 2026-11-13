@@ -342,3 +342,46 @@ def test_client_errors_never_contain_the_api_key():
         assert key not in str(ei.value)
         assert ei.value.__cause__ is None
         assert ei.value.__context__ is None or ei.value.__suppress_context__
+
+
+def test_history_lookback_covers_todays_window_only():
+    assert gw.history_lookback_hours(datetime(2026, 11, 12, 18, 15)) == 13  # 06:00–17:00 (+ margin)
+    assert gw.history_lookback_hours(datetime(2026, 11, 12, 19, 30)) == 14
+    assert gw.history_lookback_hours(datetime(2026, 11, 13, 0, 11)) == 19  # before 06:00: yesterday's window
+    assert gw.history_lookback_hours(datetime(2026, 11, 12, 6, 0)) == 1
+
+
+def test_sync_history_asks_for_lookback_and_respects_daily_hour_quota(Session, monkeypatch):
+    asked: list[int] = []
+
+    class Spy(FakeClient):
+        def history_hours(self, lat, lon, hours=24):
+            asked.append(hours)
+            return super().history_hours(lat, lon, hours)
+
+    evening = datetime(2026, 11, 12, 18, 15)
+    monkeypatch.setattr(settings, "google_weather_history_hours_per_day", 30)  # room for 2 x 13 h, not 3
+    with Session() as db:
+        status, d = gw.sync_history(db, Spy(), workers=1, now_local=evening)
+        assert asked == [13, 13] and status == "ok" and d["lookback_hours"] == 13
+        assert d["hours_returned"] == 48 and gw.history_hours_left(db) == 0  # Fake returns 24 h each
+        status, d = gw.sync_history(db, Spy(), workers=1, now_local=evening)
+        assert status == "partial" and d["calls"] == 0 and d["skipped_budget"] == 2
+
+
+def test_sync_history_retries_missed_cells_first_and_does_not_count_429(Session):
+    class QuotaAfterFirst(FakeClient):
+        def history_hours(self, lat, lon, hours=24):
+            if self.calls:
+                self.calls += 1
+                raise GoogleWeatherError("history/hours:lookup: HTTP 429 Quota exceeded")
+            return super().history_hours(lat, lon, hours)
+
+    with Session() as db:
+        status, d = gw.sync_history(db, QuotaAfterFirst(), workers=1)
+        assert status == "partial" and d["calls"] == 1 and d["google_quota_exceeded"]
+        assert gw.calls_today(db, gw.API_HISTORY) == 1  # the refused call is not counted
+        done = db.scalars(select(GoogleWeatherHourly.cell_key).distinct()).all()
+        cells = list(gw.fleet_cells(db))
+        missed = next(c for c in cells if c not in done)
+        assert [k for k, _ in gw._oldest_first(db, gw.fleet_cells(db))][0] == missed
