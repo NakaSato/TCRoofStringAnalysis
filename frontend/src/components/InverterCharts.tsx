@@ -79,7 +79,7 @@ export const StringHeatmapPanel: React.FC<{
       }`}
     >
       {loading ? (
-        <LoadingState label="Loading string currents…" />
+        <LoadingState label="Loading string currents…" shape="chart" />
       ) : h && h.string_nos.length ? (
         <StringHeatmap stringNos={h.string_nos} timestamps={h.timestamps} currentA={h.current_a} />
       ) : (
@@ -162,7 +162,7 @@ export const InverterTrendPanel: React.FC<{
       }
     >
       {loading ? (
-        <LoadingState label="Loading daily history…" />
+        <LoadingState label="Loading daily history…" shape="chart" />
       ) : hasAny ? (
         <DailyTrendChart rows={trend} height={300} />
       ) : (

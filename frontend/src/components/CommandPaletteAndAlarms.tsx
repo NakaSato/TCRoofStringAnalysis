@@ -12,14 +12,13 @@ import {
   LogOut,
   Cpu,
   Bell,
-  SlidersHorizontal,
   CheckCircle2,
   ArrowRight,
   CornerDownLeft,
   CheckCheck,
 } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
-import { canAccessPath, isAdmin } from "../auth/access";
+import { canAccessPath } from "../auth/access";
 import { StatusBadge, Led, statusLevel, fmt } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -43,10 +42,9 @@ interface CommandItem {
 export const CommandPaletteModal: React.FC<{
   open: boolean;
   onClose: () => void;
-  onOpenSpecs: () => void;
   onOpenAlarms: () => void;
   onSignOut: () => void;
-}> = ({ open, onClose, onOpenSpecs, onOpenAlarms, onSignOut }) => {
+}> = ({ open, onClose, onOpenAlarms, onSignOut }) => {
   const { analysisRun, setInspectedStringId, user } = useAppContext();
   const navigate = useNavigate();
   const plantHref = usePlantHref();
@@ -143,17 +141,6 @@ export const CommandPaletteModal: React.FC<{
     }));
 
     const actionItems: CommandItem[] = [
-      ...(isAdmin(user) ? [{
-        id: "act-specs",
-        category: "Quick Actions",
-        title: "Open Quick Plant Parameters Drawer",
-        subtitle: "Adjust modules/string, Wp, target PR & tariff with instant recalculation",
-        icon: SlidersHorizontal,
-        onSelect: () => {
-          onClose();
-          onOpenSpecs();
-        },
-      } as CommandItem] : []),
       {
         id: "act-alarms",
         category: "Quick Actions",
@@ -180,7 +167,7 @@ export const CommandPaletteModal: React.FC<{
 
     const allowedNav = navItems.filter((n) => !n.path || canAccessPath(user, n.path));
     return [...stringItems, ...allowedNav, ...alarmItems, ...actionItems];
-  }, [analysisRun, navigate, onClose, onOpenAlarms, onOpenSpecs, onSignOut, setInspectedStringId, user, plantHref]);
+  }, [analysisRun, navigate, onClose, onOpenAlarms, onSignOut, setInspectedStringId, user, plantHref]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

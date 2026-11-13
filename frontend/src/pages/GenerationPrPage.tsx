@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo } from "react";
-import { useLocation } from "react-router-dom";
+import React, { useMemo } from "react";
 import {
   TrendingUp,
   Zap,
@@ -18,18 +17,11 @@ import type { PanelChartSpec } from "../components/PanelChart";
 import { SERIES, STATUS } from "../components/chartTheme";
 import { Panel, KpiTile, StatusBadge, LoadingState, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
-import { WeatherStationPanel } from "../components/WeatherStationPanel";
 import { GoogleWeatherPanel } from "../components/GoogleWeatherPanel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const GenerationPrPage: React.FC = () => {
   const { selectedPlantOverview, plantOverviewLoading } = useAppContext();
-  const { hash } = useLocation();
-  const hasOverview = Boolean(selectedPlantOverview);
-  // "#weather-station" (from the Plant Overview tile): scroll to the panel once it is rendered
-  useEffect(() => {
-    if (hash === "#weather-station" && hasOverview) document.getElementById("weather-station")?.scrollIntoView({ behavior: "smooth" });
-  }, [hash, hasOverview]);
 
   const plant = selectedPlantOverview?.plant;
   const kpis = selectedPlantOverview?.kpis;
@@ -214,7 +206,7 @@ export const GenerationPrPage: React.FC = () => {
     return (
       <div className="space-y-6">
         <SelectedPlantBanner />
-        <LoadingState label="Computing selected plant Performance Ratio & inverter generation curves…" />
+        <LoadingState label="Computing selected plant Performance Ratio & inverter generation curves…" shape="page" />
       </div>
     );
   }
@@ -284,18 +276,6 @@ export const GenerationPrPage: React.FC = () => {
           hint={`Tariff ฿${tariff.toFixed(2)}/kWh`}
         />
       </div>
-
-      {/* Weather station: measured irradiance / temperatures behind the IEC PR (moved from Plant Overview) */}
-      {plant && selectedPlantOverview && (
-        <div id="weather-station" className="scroll-mt-4">
-          <WeatherStationPanel
-            plantId={plant.plant_id}
-            day={selectedPlantOverview.meta.day ?? null}
-            dataUntil={selectedPlantOverview.meta.data_until ?? null}
-            iecPr={selectedPlantOverview.weather?.iec_pr ?? null}
-          />
-        </div>
-      )}
 
       {/* Google Maps Weather (modelled): rain at 09/12/17, cloud cover, days since rain */}
       {plant && selectedPlantOverview && (

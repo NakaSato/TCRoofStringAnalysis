@@ -128,7 +128,7 @@ export const GrowattAlarmLogPanel: React.FC<{
       }
     >
       {!res && !error ? (
-        <LoadingState label="Reading the Growatt fault log…" />
+        <LoadingState label="Reading the Growatt fault log…" shape="table" />
       ) : !res && error ? (
         <EmptyState icon={CloudOff} title="Growatt fault log unavailable" description={error} />
       ) : alarms.length === 0 ? (

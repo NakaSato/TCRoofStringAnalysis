@@ -175,7 +175,7 @@ export const InvertersPage: React.FC = () => {
     return (
       <div className="space-y-6">
         <SelectedPlantBanner />
-        <LoadingState label="Loading the plant's inverters…" />
+        <LoadingState label="Loading the plant's inverters…" shape="page" />
       </div>
     );
   }

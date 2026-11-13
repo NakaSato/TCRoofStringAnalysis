@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -25,6 +26,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { api } from "../api/client";
 import type {
+  GrowattPlantOverview,
   GrowattLive,
   GrowattWeatherPoint,
   GrowattWeatherDay,
@@ -41,15 +43,17 @@ import { useLivePoll } from "../context/useLivePoll";
 import { useAppContext } from "../context/AppContext";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { plantPath } from "../context/routes";
-import { EmptyState, KpiTile, Led, LoadingState, Meter, PageHeader, Panel, StatusBadge, fmt, fmtInt } from "../components/ui";
+import { EmptyState, Led, LoadingState, Meter, PageHeader, Panel, StatusBadge, fmt, fmtInt } from "../components/ui";
 import { FIELD_LABEL, FlagChips, FlagList, STATUS_VIEW, overlay } from "../components/sensorView";
 import type { ViewRow } from "../components/sensorView";
 import { PanelChart } from "../components/PanelChart";
-import type { ChartSeries, PanelChartSpec } from "../components/PanelChart";
-import { SERIES } from "../components/chartTheme";
+import { alarmHourSpec, inverterEvents } from "../components/alarmEvents";
+import { plantToday, useAlarmLog } from "../context/alarmLogStore";
+import type { ChartSeries, PanelChartSpec, XBand, XMarker } from "../components/PanelChart";
+import { CATEGORICAL, SERIES, STATUS } from "../components/chartTheme";
 import type { StatusLevel } from "../components/ui";
 import { cn } from "@/lib/utils";
-import { pick, pickDay, useUrlState } from "@/lib/useUrlState";
+import { pick, pickDay, pickTime, useUrlState } from "@/lib/useUrlState";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +61,17 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Spinner } from "@/components/ui/spinner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { Calendar } from "@/components/ui/calendar";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { dayLabel, fromDate, toDate } from "@/lib/day";
 
 /** DB list re-read while the page is visible: the worker stores new readings every 30 min. */
 const REFRESH_MS = 5 * 60_000;
@@ -172,7 +187,7 @@ export const PlantSensorsPage: React.FC = () => {
     <div className="space-y-6">
       <SelectedPlantBanner />
       {selectedGrowattPlantId == null ? (
-        <LoadingState label="Loading the plant…" />
+        <LoadingState label="Loading the plant…" shape="page" />
       ) : (
         // remount on plant switch: no rows of the previous plant shown under the new one
         <SensorsView key={selectedGrowattPlantId} plantId={selectedGrowattPlantId} />
@@ -305,7 +320,8 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
   const liveErrors = live ? Object.keys(live.data.errors).length : 0;
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-5">
+      {!one && (
       <PageHeader
         icon={Gauge}
         eyebrow={one ? "Plant" : "Monitoring"}
@@ -330,12 +346,13 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
               </Badge>
             )}
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-              <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+              {loading ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
               Refresh
             </Button>
           </>
         }
       />
+      )}
 
       {!one && <Tabs value={tab} onValueChange={(v) => setUrl({ tab: v === "status" ? null : v })}>
         <TabsList>
@@ -351,7 +368,7 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       </Tabs>}
 
       {loading && !data ? (
-        <LoadingState label="Loading weather sensors…" />
+        <LoadingState label="Loading weather sensors…" shape="table" />
       ) : error && !data ? (
         <EmptyState icon={CloudOff} title="Sensor list unavailable" description={error} />
       ) : !sensors.length ? (
@@ -372,6 +389,8 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
           until={until ?? null}
           onPick={(key) => setUrl({ sensor: key })}
           thresholds={live?.data.thresholds ?? { late_min: 15, offline_min: 60 }}
+          onRefresh={load}
+          refreshing={loading}
           notes={[error ? `List refresh failed: ${error}` : "", liveError ? `Live check failed: ${liveError}` : ""].filter(Boolean)}
         />
       ) : tab === "status" ? (
@@ -483,7 +502,7 @@ const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                         </TableCell>
                         {!one && <TableCell className="max-w-[220px]">
                           <Link
-                            to={`${plantPath(s.plant_id, "generation")}#weather-station`}
+                            to={`${plantPath(s.plant_id, "sensors")}#weather-station`}
                             onClick={(e) => e.stopPropagation()}
                             className="block truncate font-medium text-slate-100 hover:text-solar-300"
                             title={s.plant_name}
@@ -582,8 +601,177 @@ const useCountdown = (at: number | null) => {
   return at == null ? null : Math.max(0, Math.round((at - Date.now()) / 1000));
 };
 
+/** Default x range of a sensor's day chart (plant-local), so days line up and today shows what is left. */
+const CHART_START = "05:00";
+const CHART_END = "19:00";
+/** Irradiance axis reaches at least this, so a dull day looks dull next to a bright one. */
+const IRR_AXIS_MIN = 1200;
+/** Today: no record for longer than this before "now" is shaded as a gap. */
+const TRAILING_GAP_MIN = 20;
+const WIND_TICK = ["N", "E", "S", "W", "N"];
+/** Wind has no role colour; the free palette slot keeps it apart from AC power (cyan). */
+const WIND_COLOR = CATEGORICAL[5];
+
+/** The plant's stored 5-min AC curve for a day (the overview's `timeseries`) and its inverter count. */
+type PlantPower = { ts: GrowattPlantOverview["timeseries"]; inverters: number };
+/** Past days' curves, kept in tab memory (a past day only changes when the worker back-fills it). */
+const powerCache = new Map<string, PlantPower>();
+
+/**
+ * Plant AC power for the sensor chart: today comes from the plant overview the plant pages
+ * already hold (refreshed every 5 min); another day reads `/growatt/plants/{id}/overview?day=`
+ * once. DB only. Null while loading, on error, or when the plant has nothing stored that day.
+ */
+const usePlantPower = (plantId: number | undefined, day: string, today: string, ov: GrowattPlantOverview | null): PlantPower | null => {
+  const ctx = ov && ov.plant.plant_id === plantId && (ov.meta.day ?? today) === day ? ov : null;
+  const fromCtx = useMemo(() => (ctx ? { ts: ctx.timeseries, inverters: ctx.kpis.inverter_count } : null), [ctx]);
+  const key = plantId == null ? "" : `${plantId}:${day}`;
+  const [fetched, setFetched] = useState<{ key: string; v: PlantPower | null } | null>(null);
+  const useCtx = Boolean(fromCtx);
+  useEffect(() => {
+    if (useCtx || !key || plantId == null) return;
+    const hit = powerCache.get(key);
+    if (hit) return setFetched({ key, v: hit });
+    let cancelled = false;
+    api
+      .getGrowattPlantOverview(plantId, day)
+      .then((o) => {
+        const v = { ts: o.timeseries, inverters: o.kpis.inverter_count };
+        if (day < today) powerCache.set(key, v);
+        if (!cancelled) setFetched({ key, v });
+      })
+      .catch(() => !cancelled && setFetched({ key, v: null }));
+    return () => {
+      cancelled = true;
+    };
+  }, [key, useCtx, plantId, day, today]);
+  return fromCtx ?? (fetched?.key === key ? fetched.v : null);
+};
+
+/**
+ * The day chart of one sensor: fixed daylight x range (or the time window), stable y axes,
+ * record gaps hatched, today's "now" marker with the rest of the day shaded, and the live
+ * readings not stored yet in a band of their own. `all` = every fitted probe (else irradiance
+ * and temperatures only).
+ */
+const sensorDaySpec = (
+  pts: GrowattWeatherPoint[],
+  has: (f: GrowattWeatherField) => boolean,
+  o: { day: string; from?: string; to?: string; now?: string | null; liveFrom?: number; all: boolean; power?: PlantPower | null }
+): PanelChartSpec | null => {
+  if (!pts.length) return null;
+  const y = (f: GrowattWeatherField) => pts.map((p) => p[f]);
+  const panels: PanelChartSpec["panels"] = [];
+  const temps: ChartSeries[] = [];
+  if (has("module_temp_c")) temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: y("module_temp_c"), unit: "°C" });
+  if (has("ambient_temp_c")) temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: y("ambient_temp_c"), unit: "°C" });
+  if (has("irradiance_wm2")) {
+    const peak = Math.max(0, ...pts.map((p) => p.irradiance_wm2 ?? 0));
+    panels.push({
+      key: "g",
+      title: "POA irradiance (W/m²)",
+      weight: temps.length ? 1.4 : 1,
+      yMin: 0,
+      yMax: Math.max(IRR_AXIS_MIN, Math.ceil(peak / 200) * 200),
+      series: [{ key: "g", name: "POA irradiance", type: "line", area: true, color: SERIES.irradiance, y: y("irradiance_wm2"), format: (v) => `${fmt(v, 0)} W/m²` }],
+    });
+  }
+  // plant AC power on its own x (the plant's 5-min slots), under irradiance so the two shapes compare
+  const pw = (o.power?.ts ?? []).filter((r) => {
+    const t = r.timestamp.slice(11, 16);
+    return r.timestamp.slice(0, 10) === o.day && (!o.from || t >= o.from) && (!o.to || t <= o.to);
+  });
+  const fullCount = Math.max(0, ...pw.map((r) => r.inverters ?? 0));
+  // only producing slots: at night a few inverters logging 0 kW says nothing about the sum
+  const partial = (r: (typeof pw)[number]) => r.pac_kw > 0 && r.inverters != null && r.inverters < fullCount;
+  if (o.all && pw.length) {
+    const px = pw.map((r) => r.timestamp);
+    const series: ChartSeries[] = [
+      { key: "pac", name: "Plant AC power", type: "line", color: SERIES.ac, x: px, y: pw.map((r) => r.pac_kw), format: (v) => `${fmt(v, 1)} kW` },
+    ];
+    // a slot summed over fewer inverters than the day's usual count reads low: mark it, don't hide it
+    if (pw.some(partial))
+      series.push({
+        key: "pacPart",
+        name: "Not every inverter reported",
+        type: "points",
+        size: 6,
+        color: STATUS.warn,
+        x: px,
+        y: pw.map((r) => (partial(r) ? r.pac_kw : null)),
+        noTip: true,
+      });
+    panels.push({ key: "p", title: "Plant AC power (kW)", series });
+  }
+  if (temps.length) panels.push({ key: "t", title: "Temperature (°C)", zero: false, series: temps });
+  if (o.all && has("humidity_pct"))
+    panels.push({
+      key: "h",
+      title: "Humidity (%)",
+      yMin: 0,
+      yMax: 100,
+      ticks: [0, 50, 100],
+      series: [{ key: "h", name: "Humidity", type: "line", color: SERIES.secondary, y: y("humidity_pct"), format: (v) => `${fmt(v, 0)} %` }],
+    });
+  if (o.all && has("wind_speed_ms"))
+    panels.push({ key: "w", title: "Wind speed (m/s)", series: [{ key: "w", name: "Wind speed", type: "line", color: WIND_COLOR, y: y("wind_speed_ms"), unit: "m/s" }] });
+  if (o.all && has("wind_dir_deg"))
+    panels.push({
+      key: "d",
+      title: "Wind direction",
+      weight: 0.8,
+      yMin: 0,
+      yMax: 360,
+      ticks: [0, 90, 180, 270, 360],
+      tickFormat: (t) => WIND_TICK[Math.round(t / 90)] ?? "",
+      series: [{ key: "d", name: "Wind direction", type: "points", size: 5, color: WIND_COLOR, y: y("wind_dir_deg"), format: (v) => `${fmt(v, 0)}° ${compass(v)}` }],
+    });
+  if (!panels.length) return null;
+
+  // x range: the time window, else daylight; a "from" after "to" falls back to the default end
+  const lo = o.from || CHART_START;
+  const hi = o.to && o.to > lo ? o.to : CHART_END > lo ? CHART_END : "23:59";
+  const at = (t: string) => `${o.day} ${t}:00`;
+  const xDomain: [string, string] = [at(lo), at(hi)];
+  const last = pts[pts.length - 1].timestamp;
+
+  const bands: XBand[] = [];
+  const markers: XMarker[] = [];
+  if (o.liveFrom != null && o.liveFrom < pts.length)
+    bands.push({ from: pts[Math.max(0, o.liveFrom - 1)].timestamp, to: last, label: "Live, not stored yet", kind: "live" });
+  if (o.now && o.now.slice(0, 10) === o.day) {
+    const now = o.now > last ? o.now : last;
+    if (minutesBetween(last, now) > TRAILING_GAP_MIN) bands.push({ from: last, to: now, label: `No reading since ${last.slice(11, 16)}`, kind: "gap" });
+    if (now < xDomain[1]) bands.push({ from: now, to: xDomain[1], label: "Later today", kind: "muted" });
+    markers.push({ x: now, label: `Now ${now.slice(11, 16)}` });
+  }
+
+  const mod = y("module_temp_c");
+  const amb = y("ambient_temp_c");
+  const pwAt = new Map(pw.map((r) => [r.timestamp, r]));
+  const total = o.power?.inverters ?? 0;
+  const tipExtra = (i: number) => {
+    const rows: Array<{ label: string; value: string }> = [];
+    if (temps.length === 2 && mod[i] != null && amb[i] != null) rows.push({ label: "Module − ambient", value: `${fmt(mod[i]! - amb[i]!, 1)} °C` });
+    const r = o.all ? pwAt.get(pts[i].timestamp) : undefined;
+    if (r?.inverters != null && total && r.inverters < total) rows.push({ label: "Inverters in the AC sum", value: `${r.inverters} of ${total}` });
+    return rows;
+  };
+  return {
+    xKind: "time",
+    x: pts.map((p) => p.timestamp),
+    xDomain,
+    xStep: 5 * 60_000,
+    gaps: "No data",
+    bands,
+    markers,
+    panels,
+    tipExtra,
+  };
+};
+
 /** Live detail (polled on `refresh_in_s`, memory only) and today's stored series (DB) of one sensor. */
-const useSensorDetail = (sensor: ViewRow | null, now: string, dayArg?: string) => {
+const useSensorDetail = (sensor: ViewRow | null, now: string, dayArg?: string, win?: { start: string; end: string }) => {
   const [detail, setDetail] = useState<GrowattLive<SensorLive> | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [nextAt, setNextAt] = useState<number | null>(null);
@@ -616,12 +804,14 @@ const useSensorDetail = (sensor: ViewRow | null, now: string, dayArg?: string) =
   // today's stored series of this sensor alone (DB), re-read with the page's list
   const plantId = sensor?.plant_id;
   const lastReading = sensor?.last_reading_at;
+  const winStart = win?.start ?? "";
+  const winEnd = win?.end ?? "";
   useEffect(() => {
     if (plantId == null || !key) return;
     let cancelled = false;
     setStoredError(null);
     api
-      .getGrowattPlantWeather(plantId, day, undefined, key)
+      .getGrowattPlantWeather(plantId, day, winStart || winEnd ? { start: winStart || undefined, end: winEnd || undefined } : undefined, key)
       .then((r) => !cancelled && setStored(r))
       .catch((err) => {
         if (cancelled) return;
@@ -631,33 +821,53 @@ const useSensorDetail = (sensor: ViewRow | null, now: string, dayArg?: string) =
     return () => {
       cancelled = true;
     };
-  }, [plantId, key, day, lastReading]);
+  }, [plantId, key, day, lastReading, winStart, winEnd]);
 
   const spec = useMemo<PanelChartSpec | null>(() => {
     const pts = stored?.meta.sensor && stored.meta.sensor.datalogger_sn === sensor?.datalogger_sn && stored.meta.sensor.address === sensor?.address ? stored.series : null;
     if (!pts?.length) return null;
     const measured = new Set(stored?.sensors.find((x) => x.datalogger_sn === sensor?.datalogger_sn && x.address === sensor?.address)?.measured ?? FIELDS);
-    const temps: ChartSeries[] = [];
-    if (measured.has("module_temp_c"))
-      temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: pts.map((p) => p.module_temp_c), unit: "°C" });
-    if (measured.has("ambient_temp_c"))
-      temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: pts.map((p) => p.ambient_temp_c), unit: "°C" });
-    return {
-      xKind: "time",
-      x: pts.map((p) => p.timestamp),
-      panels: [
-        {
-          key: "g",
-          title: "POA irradiance (W/m²)",
-          weight: temps.length ? 1.4 : 1,
-          series: [{ key: "g", name: "POA irradiance", type: "line", area: true, color: SERIES.irradiance, y: pts.map((p) => p.irradiance_wm2), format: (v) => `${fmt(v, 0)} W/m²` }],
-        },
-        ...(temps.length ? [{ key: "t", title: "Temperature (°C)", zero: false, series: temps }] : []),
-      ],
-    };
-  }, [stored, sensor?.datalogger_sn, sensor?.address]);
+    // irradiance always has a panel here (empty = "—"), as before
+    return sensorDaySpec(pts, (f) => f === "irradiance_wm2" || measured.has(f), { day: stored!.meta.day ?? today, now: (stored!.meta.day ?? today) === today ? now : null, all: false });
+  }, [stored, sensor?.datalogger_sn, sensor?.address, today, now]);
 
   return { detail, detailError, countdown, stored, storedError, spec, today, day };
+};
+
+/**
+ * Today's Growatt alarms of the sensor's plant by start hour (stored alarm log, the same
+ * `/growatt/alarms` read as Active Alarm, kept in tab memory), next to the sensor's own series.
+ */
+const PlantAlarmsByHour: React.FC<{ plantId: number; plantName: string }> = ({ plantId, plantName }) => {
+  const today = plantToday();
+  const { view } = useAlarmLog(today);
+  const result = view?.result ?? null;
+  const events = useMemo(() => inverterEvents(result, true).filter((e) => e.plant_id === plantId), [result, plantId]);
+  const spec = useMemo(() => alarmHourSpec(events), [events]);
+  const synced = result?.plants.find((p) => p.plant_id === plantId);
+  return (
+    <Panel
+      title="Alarms by hour"
+      subtitle={`${plantName} · today · ${fmtInt(events.length)} alarm${events.length === 1 ? "" : "s"}`}
+      actions={
+        <Link to={`/alarms?plant=${plantId}`} className="text-xs text-solar-300 hover:text-solar-200">
+          Active Alarm →
+        </Link>
+      }
+    >
+      {!result ? (
+        view?.error ? (
+          <EmptyState title="Alarm log unavailable" description={view.error} className="py-8" />
+        ) : (
+          <LoadingState label="Loading alarms…" shape="table" />
+        )
+      ) : spec ? (
+        <PanelChart spec={spec} height={180} />
+      ) : (
+        <EmptyState title={synced && synced.synced_inverters > 0 ? "No alarms today" : "Not synced yet"} className="py-8" />
+      )}
+    </Panel>
+  );
 };
 
 /**
@@ -712,7 +922,7 @@ const SensorInfo: React.FC<{
             <StatusBadge status={stView.label} level={stView.level} />
           </Row>
           <Row label="Plant">
-            <Link to={`${plantPath(sensor.plant_id, "generation")}#weather-station`} className="hover:text-solar-300">
+            <Link to={`${plantPath(sensor.plant_id, "sensors")}#weather-station`} className="hover:text-solar-300">
               {sensor.plant_name}
             </Link>
           </Row>
@@ -754,7 +964,7 @@ const SensorInfo: React.FC<{
           }
         >
           {!detail && !detailError ? (
-            <LoadingState label="Asking Growatt for the newest reading…" />
+            <LoadingState label="Asking Growatt for the newest reading…" shape="lines" />
           ) : !rd ? (
             <EmptyState
               icon={CloudOff}
@@ -819,6 +1029,8 @@ const SensorInfo: React.FC<{
         </div>
       </Panel>
 
+      <PlantAlarmsByHour plantId={sensor.plant_id} plantName={sensor.plant_name} />
+
       {raw && (
         <Panel icon={Code} title="Raw record" subtitle="Admin only · every field of the newest record as Growatt reported it">
           <details>
@@ -842,14 +1054,6 @@ const SensorInfo: React.FC<{
   );
 };
 
-const HERO_TONE: Record<StatusLevel, { ring: string; text: string; bg: string }> = {
-  ok: { ring: "border-emerald-400/25", text: "text-emerald-300", bg: "from-emerald-500/10" },
-  warn: { ring: "border-amber-400/30", text: "text-amber-300", bg: "from-amber-500/10" },
-  crit: { ring: "border-red-400/30", text: "text-red-300", bg: "from-red-500/10" },
-  info: { ring: "border-sky-400/25", text: "text-sky-300", bg: "from-sky-500/10" },
-  neutral: { ring: "border-white/[0.08]", text: "text-slate-300", bg: "from-white/[0.03]" },
-};
-
 /** One plain sentence on why the sensor has its status. */
 const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: { late_min: number; offline_min: number }) => {
   const age = l?.last_update_time ? fmtAge(minutesBetween(l.last_update_time, now)) : null;
@@ -859,7 +1063,7 @@ const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: {
     case "late":
       return `Last upload ${age ?? "—"}: later than the ${th.late_min} min it should take`;
     case "offline":
-      return l?.lost ? "Growatt reports the sensor as lost" : `No upload for over ${th.offline_min} min · last ${age ?? "never"}`;
+      return l?.lost ? `Growatt reports the sensor as lost · last upload ${age ?? "never"}` : `No upload for over ${th.offline_min} min · last ${age ?? "never"}`;
     case "not_synced":
       return "Nothing stored yet and not checked live";
     default:
@@ -867,18 +1071,46 @@ const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: {
   }
 };
 
-const Stat: React.FC<{ label: string; children: React.ReactNode; hint?: React.ReactNode }> = ({ label, children, hint }) => (
-  <div className="min-w-0">
-    <div className="eyebrow">{label}</div>
-    <div className="num mt-1 truncate text-sm font-semibold text-slate-100">{children}</div>
-    {hint && <div className="mt-0.5 truncate text-[11px] text-slate-500">{hint}</div>}
+/** Status → Alert variant: online needs no callout. */
+const ALERT_VARIANT: Record<SensorStatus, "warn" | "destructive" | "default" | null> = {
+  online: null,
+  late: "warn",
+  offline: "destructive",
+  not_synced: "warn",
+  unknown: "default",
+};
+
+/** What the O&M team can do about a sensor's state (shown under the reason). */
+const statusAdvice = (st: SensorStatus, l: SensorLiveRow | null) =>
+  st === "offline"
+    ? l?.lost
+      ? "Check the sensor's power and its RS485 link to the datalogger."
+      : "Check the datalogger's connection."
+    : st === "late"
+      ? "Usually a slow datalogger upload; it clears by itself when the next upload arrives."
+      : st === "not_synced"
+        ? "The worker has not stored anything for this sensor yet, and Growatt has not been asked."
+        : "Growatt's sensor list is checked a few dataloggers at a time.";
+
+/** "1264 s" → "21 min" / "45 s" */
+
+/** A cell of the stored day's figures: at least 9rem wide, rules on its left and bottom. */
+const KPI_CELL = "-mb-px -ml-px min-w-36 flex-1 basis-36 border-b border-l border-white/[0.06] px-4 py-3";
+
+/** One labelled number in a divided row (Active Alarm style). */
+const Stat: React.FC<{ label: string; children: React.ReactNode; hint?: React.ReactNode; className?: string }> = ({ label, children, hint, className }) => (
+  <div className={cn("flex min-w-0 flex-col gap-1 px-5 py-4", className)}>
+    <span className="eyebrow">{label}</span>
+    <span className="num truncate text-lg font-semibold tracking-tight text-foreground">{children}</span>
+    {hint && <span className="truncate text-[11px] text-muted-foreground">{hint}</span>}
   </div>
 );
 
 /**
- * Plant tab "Sensors": most plants have one sensor, so it opens on that sensor at once — a status
- * hero (why it has its state), the newest live reading as tiles, today's stored chart, and the device
- * details / raw record folded away. With several sensors a switcher picks one (`?sensor=`).
+ * Plant tab "Sensors": most plants have one sensor, so it opens on that sensor at once. Cards, top
+ * to bottom: status (why, what to do, upload / check / storage times), the newest reading Growatt
+ * holds (labelled with its age, so an old record never reads as live), the stored day with its
+ * chart, and device details folded away. With several sensors line tabs pick one (`?sensor=`).
  */
 const PlantSensorView: React.FC<{
   sensors: ViewRow[];
@@ -888,15 +1120,41 @@ const PlantSensorView: React.FC<{
   onPick: (key: string) => void;
   thresholds: { late_min: number; offline_min: number };
   notes: string[];
-}> = ({ sensors, selected, now, until, onPick, thresholds, notes }) => {
+  onRefresh: () => void;
+  refreshing: boolean;
+}> = ({ sensors, selected, now, until, onPick, thresholds, notes, onRefresh, refreshing }) => {
   const sensor = selected ?? sensors[0] ?? null;
   const [url, setUrl] = useUrlState();
-  const { detail, detailError, countdown, stored, storedError, today, day } = useSensorDetail(sensor, now, pickDay(url.get("day")) ?? undefined);
+  // time-of-day window (?from=&to=, HH:MM): day numbers and chart cover it only; "from" after "to" = whole day
+  const timeFrom = pickTime(url.get("from"));
+  const timeTo = pickTime(url.get("to"));
+  const badWindow = Boolean(timeFrom && timeTo && timeFrom > timeTo);
+  const windowed = Boolean(timeFrom || timeTo) && !badWindow;
+  const reqWin = windowed ? { start: timeFrom, end: timeTo } : undefined;
+  const { detail, detailError, stored, storedError, today, day } = useSensorDetail(sensor, now, pickDay(url.get("day")) ?? undefined, reqWin);
+  // IEC 61724 PR is a whole-day figure of the plant overview's day (null day = today)
+  const { selectedPlantOverview } = useAppContext();
+  const ov = selectedPlantOverview?.plant.plant_id === sensor?.plant_id ? selectedPlantOverview : null;
+  const power = usePlantPower(sensor?.plant_id, day, today, ov);
+  const iecPr = !windowed && ov && (ov.meta.day ?? today) === day ? ov.weather?.iec_pr ?? null : null;
+  // "#weather-station" (Plant Overview tile): scroll to the stored-day card once it has loaded
+  const { hash } = useLocation();
+  const dayLoaded = Boolean(stored);
+  useEffect(() => {
+    if (hash === "#weather-station" && dayLoaded) document.getElementById("weather-station")?.scrollIntoView({ behavior: "smooth" });
+  }, [hash, dayLoaded]);
   const setDay = (d: string) => setUrl({ day: d >= today ? null : d });
 
   // the stored day of this sensor alone (a response for another sensor / day is not shown)
   const dayStored =
-    stored && stored.meta.day === day && stored.meta.sensor?.datalogger_sn === sensor?.datalogger_sn && stored.meta.sensor?.address === sensor?.address ? stored : null;
+    stored &&
+    stored.meta.day === day &&
+    stored.meta.sensor?.datalogger_sn === sensor?.datalogger_sn &&
+    stored.meta.sensor?.address === sensor?.address &&
+    (stored.meta.window?.start ?? "") === (reqWin?.start ?? "") &&
+    (stored.meta.window?.end ?? "") === (reqWin?.end ?? "")
+      ? stored
+      : null;
   const pts = dayStored?.series ?? [];
 
   // Live tail: each newest reading the live poll brings (today only) is kept as a point until the
@@ -916,8 +1174,8 @@ const PlantSensorView: React.FC<{
   }, [liveRd, today]);
   const lastStoredTs = pts.length ? pts[pts.length - 1].timestamp : "";
   const tailPts = useMemo(
-    () => (day === today && dayStored ? tail.filter((p) => p.timestamp > lastStoredTs && p.timestamp.slice(0, 10) === day) : []),
-    [day, today, dayStored, tail, lastStoredTs]
+    () => (day === today && dayStored && !windowed ? tail.filter((p) => p.timestamp > lastStoredTs && p.timestamp.slice(0, 10) === day) : []),
+    [day, today, dayStored, windowed, tail, lastStoredTs]
   );
   const chartPts = useMemo(() => (tailPts.length ? [...pts, ...tailPts] : pts), [pts, tailPts]);
   const dayMeasured = useMemo(
@@ -929,39 +1187,39 @@ const PlantSensorView: React.FC<{
     if (!chartPts.length || (!pts.length && chartPts.length < 2)) return null;
     // with nothing stored yet today, the live points alone decide which probes to draw
     const has = (f: GrowattWeatherField) => (dayMeasured.size ? dayMeasured.has(f) : chartPts.some((p) => p[f] != null));
-    const y = (f: GrowattWeatherField) => chartPts.map((p) => p[f]);
-    const panels: PanelChartSpec["panels"] = [];
-    if (has("irradiance_wm2"))
-      panels.push({
-        key: "g",
-        title: "POA irradiance (W/m²)",
-        weight: 1.4,
-        series: [{ key: "g", name: "POA irradiance", type: "line", area: true, color: SERIES.irradiance, y: y("irradiance_wm2"), format: (v) => `${fmt(v, 0)} W/m²` }],
-      });
-    const temps: ChartSeries[] = [];
-    if (has("module_temp_c")) temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: y("module_temp_c"), unit: "°C" });
-    if (has("ambient_temp_c")) temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: y("ambient_temp_c"), unit: "°C" });
-    if (temps.length) panels.push({ key: "t", title: "Temperature (°C)", zero: false, series: temps });
-    if (has("humidity_pct"))
-      panels.push({ key: "h", title: "Humidity (%)", series: [{ key: "h", name: "Humidity", type: "line", color: SERIES.secondary, y: y("humidity_pct"), format: (v) => `${fmt(v, 0)} %` }] });
-    if (has("wind_speed_ms"))
-      panels.push({ key: "w", title: "Wind speed (m/s)", series: [{ key: "w", name: "Wind speed", type: "line", color: SERIES.ac, y: y("wind_speed_ms"), unit: "m/s" }] });
-    if (has("wind_dir_deg"))
-      panels.push({
-        key: "d",
-        title: "Wind direction (°)",
-        weight: 0.7,
-        series: [{ key: "d", name: "Wind direction", type: "points", color: SERIES.ac, y: y("wind_dir_deg"), format: (v) => `${fmt(v, 0)}° ${compass(v)}` }],
-      });
-    return panels.length ? { xKind: "time", x: chartPts.map((p) => p.timestamp), panels } : null;
-  }, [chartPts, dayMeasured]);
+    return sensorDaySpec(chartPts, has, {
+      day,
+      from: windowed ? timeFrom : undefined,
+      to: windowed ? timeTo : undefined,
+      now: day === today ? now : null,
+      liveFrom: tailPts.length ? pts.length : undefined,
+      all: true,
+      power,
+    });
+  }, [chartPts, dayMeasured, pts.length, tailPts.length, day, today, now, windowed, timeFrom, timeTo, power]);
+
+  // drag-to-zoom: the dragged range, widened to whole 5-min slots, becomes the ?from=&to= window
+  const zoomTo = (lo: number, hi: number) => {
+    const slot = (ms: number, up: boolean) => {
+      const d = new Date(ms);
+      const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (ymd < day) return "00:00";
+      if (ymd > day) return "23:59";
+      const min = d.getHours() * 60 + d.getMinutes();
+      const m = Math.min(23 * 60 + 55, up ? Math.ceil(min / 5) * 5 : Math.floor(min / 5) * 5);
+      return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    };
+    const from = slot(lo, false);
+    const to = slot(hi, true);
+    if (from < to) setUrl({ from, to });
+  };
 
   const exportCsv = () => {
     if (!sensor || !pts.length) return;
     const cols = FIELDS.filter((f) => dayMeasured.has(f));
     const head = ["timestamp", ...cols.map((f) => `${f}`)];
     const body = pts.map((p) => [p.timestamp, ...cols.map((f) => (p[f] == null ? "" : String(p[f])))].join(","));
-    const meta = `# plant ${sensor.plant_id} ${sensor.plant_name.replace(/[\r\n,]/g, " ")} · sensor ${sensor.datalogger_sn}#${sensor.address} · ${day} · stored 5-min records, plant-local time`;
+    const meta = `# plant ${sensor.plant_id} ${sensor.plant_name.replace(/[\r\n,]/g, " ")} · sensor ${sensor.datalogger_sn}#${sensor.address} · ${day}${windowed ? ` ${timeFrom || "00:00"}-${timeTo || "24:00"}` : ""} · stored 5-min records, plant-local time`;
     const blob = new Blob([[meta, head.join(","), ...body].join("\n")], { type: "text/csv" });
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -973,254 +1231,202 @@ const PlantSensorView: React.FC<{
     setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
   if (!sensor) return null;
 
   // the sensor's own live answer is newer than the sweep's row once it has arrived
   const l = detail?.data.status ?? sensor.live;
   const st: SensorStatus = l && l.status !== "unknown" ? l.status : sensor.status;
   const view = STATUS_VIEW[st];
-  const tone = HERO_TONE[view.level];
   const plantFlags = [...sensor.flags, ...(l?.flags ?? [])];
   const th = detail?.data.thresholds ?? thresholds;
-  const rd = detail?.data.reading ?? null;
-  const measured = detail?.data.measured !== undefined ? detail.data.measured : sensor.measured;
-  const fitted = (f: GrowattWeatherField) => !measured || measured.includes(f);
   const raw = detail?.data.raw ?? null;
   const readingError = detail?.data.errors.reading ?? detail?.data.errors.status;
-  const cov = sensor.coverage_today_pct;
+  const alertVariant = ALERT_VARIANT[st];
+  const isToday = day === today;
 
-  const tile = (f: GrowattWeatherField, icon: LucideIcon, t: React.ComponentProps<typeof KpiTile>["tone"], extra?: React.ReactNode) => (
-    <KpiTile
-      key={f}
-      label={FIELD_LABEL[f]}
-      icon={icon}
-      tone={fitted(f) && rd?.[f] != null ? t : "neutral"}
-      value={!fitted(f) ? <span className="text-slate-600">—</span> : fmt(rd?.[f], DIGITS[f])}
-      unit={fitted(f) ? FIELD_UNIT[f] : undefined}
-      hint={!fitted(f) ? "Probe not fitted" : extra}
-    />
-  );
+  // peak includes the live points not stored yet (real readings), so it matches the chart
+  const tailPeak = tailPts.reduce<number | null>((m, p) => (p.irradiance_wm2 != null && (m == null || p.irradiance_wm2 > m) ? p.irradiance_wm2 : m), null);
+  const storedPeak = dayStored?.kpis.peak_irradiance_wm2 ?? null;
+  const peakIrr = tailPeak != null && (storedPeak == null || tailPeak > storedPeak) ? tailPeak : storedPeak;
+  const dayKpis = (
+    [
+      ["Insolation", dayStored?.kpis.insolation_kwh_m2, 2, "kWh/m²", "irradiance_wm2"],
+      ["Peak irradiance", peakIrr, 0, "W/m²", "irradiance_wm2"],
+      ["Max module", dayStored?.kpis.max_module_temp_c, 1, "°C", "module_temp_c"],
+      ["Avg module (day)", dayStored?.kpis.avg_module_temp_daylight_c, 1, "°C", "module_temp_c"],
+      ["Max ambient", dayStored?.kpis.max_ambient_temp_c, 1, "°C", "ambient_temp_c"],
+      ["Avg ambient", dayStored?.kpis.avg_ambient_temp_c, 1, "°C", "ambient_temp_c"],
+      ["Avg humidity", dayStored?.kpis.avg_humidity_pct, 0, "%", "humidity_pct"],
+      ["Avg wind", dayStored?.kpis.avg_wind_speed_ms, 1, "m/s", "wind_speed_ms"],
+      ["Max wind", dayStored?.kpis.max_wind_speed_ms, 1, "m/s", "wind_speed_ms"],
+    ] as const
+  ).filter(([, , , , f]) => dayMeasured.has(f));
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {sensors.length > 1 && (
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Sensors of this plant">
-          {sensors.map((s) => {
-            const v = STATUS_VIEW[s.st];
-            const on = s.key === sensor.key;
-            return (
-              <button
-                key={s.key}
-                type="button"
-                role="tab"
-                aria-selected={on}
-                onClick={() => onPick(s.key)}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-lg border border-white/[0.07] bg-ink-900/80 px-3 py-2 text-left transition hover:border-white/15",
-                  on && "bg-ink-850 ring-1 ring-solar-400/40"
-                )}
-              >
-                <Led level={v.level === "info" ? "neutral" : v.level} />
-                <span>
-                  <span className="num block text-xs font-semibold text-slate-100">
-                    {s.datalogger_sn}#{s.address}
-                  </span>
-                  <span className="block text-[11px] text-slate-500">
-                    {v.label}
-                    {s.upload ? ` · ${fmtAge(minutesBetween(s.upload, now))}` : ""}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <Tabs value={sensor.key} onValueChange={onPick}>
+          <TabsList variant="line" aria-label="Sensors of this plant">
+            {sensors.map((s) => (
+              <TabsTrigger key={s.key} value={s.key} className="num">
+                <Led level={STATUS_VIEW[s.st].level === "info" ? "off" : STATUS_VIEW[s.st].level} />
+                {s.datalogger_sn}#{s.address}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       )}
 
-      {/* status hero */}
-      <section className={cn("rounded-xl border bg-gradient-to-br to-transparent p-5", tone.ring, tone.bg)}>
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className={cn("flex size-11 shrink-0 items-center justify-center rounded-xl bg-ink-900/70 ring-1 ring-white/10", tone.text)}>
-              {st === "online" ? <CircleCheck className="size-5" /> : st === "late" ? <Clock className="size-5" /> : st === "offline" ? <WifiOff className="size-5" /> : st === "not_synced" ? <CloudOff className="size-5" /> : <CircleHelp className="size-5" />}
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={cn("text-xl font-bold", tone.text)}>{view.label}</span>
-                <span className="num text-xs text-slate-400">
-                  {sensor.datalogger_sn}#{sensor.address}
-                  {sensor.device_name ? ` · ${sensor.device_name}` : ""}
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-slate-300">{statusWhy(st, l, now, th)}</p>
-              {plantFlags.length > 0 && (
-                <div className="mt-2">
-                  <FlagList flags={plantFlags} />
-                </div>
-              )}
-              {(detailError || readingError) && <p className="mt-1 text-[11px] text-amber-300">Live request failed: {detailError ?? readingError}</p>}
-            </div>
-          </div>
-          <div className="grid w-full grid-cols-2 gap-x-6 gap-y-3 sm:w-auto sm:grid-cols-4">
-            <Stat label="Last upload" hint={l?.last_update_time ? fmtAge(minutesBetween(l.last_update_time, now)) : "Growatt"}>
-              {l?.last_update_time ? l.last_update_time.slice(11, 16) : "—"}
-            </Stat>
-            <Stat
-              label="Live check"
-              hint={countdown == null ? (detailError ? "retrying" : "…") : countdown ? `next in ${countdown} s` : "refreshing"}
-            >
-              {l?.checked_at ? `${hhmm(l.checked_at)}${l.stale ? " · stale" : ""}` : "—"}
-            </Stat>
-            <Stat label="Stored today" hint={`06:00–${until ?? "—"} · 5-min slots`}>
-              <span className={coverageTone(cov)}>{cov == null ? "—" : `${fmt(cov, 0)}%`}</span>
-              {cov != null && <Meter value={cov} max={100} tone={cov >= 90 ? "ok" : cov >= LOW_COVERAGE_PCT ? "warn" : "crit"} className="mt-1.5 w-24" />}
-            </Stat>
-            <Stat label="Newest stored" hint={sensor.last_reading_at ? fmtAge(minutesBetween(sensor.last_reading_at, now)) : "nothing yet"}>
-              {sensor.last_reading_at ? sensor.last_reading_at.slice(11, 16) : "—"}
-            </Stat>
-          </div>
-        </div>
-      </section>
-
-      {/* newest live reading */}
-      <div>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Sun className="size-4 text-solar-300" />
-            Newest reading
-          </h3>
-          {rd ? (
-            <Badge variant={rd.stale ? "warn" : "ok"} className="px-2 py-0.5 text-[11px] font-semibold" title={`Record ${rd.timestamp} · fetched ${hhmm(rd.fetched_at)}`}>
-              {rd.stale ? "LIVE (STALE)" : "LIVE"} · record {rd.timestamp.slice(11, 16)} · {fmtAge(minutesBetween(rd.timestamp, now))}
-            </Badge>
-          ) : detail || detailError ? (
-            <Badge variant="neutral" className="px-2 py-0.5 text-[11px] font-semibold">No live record</Badge>
-          ) : null}
-        </div>
-        {!detail && !detailError ? (
-          <LoadingState label="Asking Growatt for the newest reading…" />
-        ) : !rd ? (
-          <EmptyState icon={CloudOff} title="No live reading" description={readingError ?? detailError ?? "Growatt has no record for this sensor."} className="py-8" />
-        ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-            <KpiTile
-              label="POA irradiance"
-              icon={Sun}
-              tone={fitted("irradiance_wm2") && rd.irradiance_wm2 != null ? "solar" : "neutral"}
-              value={fitted("irradiance_wm2") ? fmt(rd.irradiance_wm2, 0) : <span className="text-slate-600">—</span>}
-              unit={fitted("irradiance_wm2") ? "W/m²" : undefined}
-              hint={
-                !fitted("irradiance_wm2") ? "Probe not fitted" : rd.irradiance_wm2 != null ? <Meter value={rd.irradiance_wm2} max={1100} tone="solar" className="mt-1" /> : undefined
-              }
-            />
-            {tile("module_temp_c", Gauge, "warn")}
-            {tile("ambient_temp_c", Gauge, "info")}
-            {tile("humidity_pct", Gauge, "info")}
-            {tile(
-              "wind_speed_ms",
-              Gauge,
-              "energy",
-              fitted("wind_dir_deg") && rd.wind_dir_deg != null ? `from ${compass(rd.wind_dir_deg)} · ${fmt(rd.wind_dir_deg, 0)}°` : undefined
-            )}
-          </div>
-        )}
-      </div>
-
-      <Panel
-        icon={Database}
-        title={day === today ? "Today" : "Day history"}
-        subtitle={`${day} · stored 5-min records${pts.length ? ` · ${fmtInt(pts.length)} records, ${pts[0].timestamp.slice(11, 16)}–${pts[pts.length - 1].timestamp.slice(11, 16)}` : ""}${
-          tailPts.length ? ` · + ${tailPts.length} live to ${tailPts[tailPts.length - 1].timestamp.slice(11, 16)} (not stored yet)` : ""
-        }`}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-ink-900/80 p-1">
-              <Button variant="ghost" size="icon-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
+      {/* stored day (Plant Overview's weather tile links here) */}
+      <Card id="weather-station" className="scroll-mt-4">
+        <CardHeader className="max-sm:grid-cols-1!">
+          <CardTitle>{isToday ? "Today" : dayLabel(day)}</CardTitle>
+          <CardDescription>
+            Stored 5-min records{windowed ? ` · ${timeFrom || "00:00"}–${timeTo || "24:00"} only` : ""}
+            {badWindow ? " · “From” is after “To”: whole day shown" : ""}
+            {pts.length ? ` · ${fmtInt(pts.length)} from ${pts[0].timestamp.slice(11, 16)} to ${pts[pts.length - 1].timestamp.slice(11, 16)}` : ""}
+            {tailPts.length ? ` · + ${tailPts.length} live to ${tailPts[tailPts.length - 1].timestamp.slice(11, 16)}, not stored yet` : ""}
+          </CardDescription>
+          <CardAction className="flex flex-wrap items-center justify-end gap-2 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:mt-2 max-sm:justify-self-start max-sm:justify-start">
+            <ButtonGroup>
+              <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
                 <ChevronLeft />
               </Button>
-              <Input
-                type="date"
-                className="h-7 w-auto border-0 bg-transparent"
-                value={day}
-                max={today}
-                onChange={(e) => e.target.value && setDay(e.target.value)}
-                aria-label="Day"
-              />
-              <Button variant="ghost" size="icon-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={day >= today} aria-label="Next day">
+              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="num min-w-36" aria-label="Day">
+                    {dayLabel(day)}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="single"
+                    selected={toDate(day)}
+                    defaultMonth={toDate(day)}
+                    disabled={{ after: toDate(today) }}
+                    onSelect={(d) => {
+                      if (!d) return;
+                      setDay(fromDate(d));
+                      setPickerOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={isToday} aria-label="Next day">
                 <ChevronRight />
               </Button>
-            </div>
-            {day !== today && (
-              <Button variant="ghost" size="sm" onClick={() => setDay(today)}>
-                Today
+            </ButtonGroup>
+            <Button variant="outline" size="sm" onClick={() => setDay(today)} disabled={isToday}>
+              Today
+            </Button>
+            <ButtonGroup aria-label="Time of day">
+              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeFrom} onChange={(e) => setUrl({ from: e.target.value })} aria-label="From time" />
+              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeTo} onChange={(e) => setUrl({ to: e.target.value })} aria-label="To time" />
+            </ButtonGroup>
+            {(timeFrom || timeTo) && (
+              <Button variant="ghost" size="sm" onClick={() => setUrl({ from: null, to: null })} title="Show the whole day">
+                <X data-icon="inline-start" />
+                Whole day
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={exportCsv} disabled={!pts.length} title="Download this day's stored 5-min records as CSV">
-              <Download /> CSV
+              <Download data-icon="inline-start" />
+              CSV
             </Button>
-            <Button asChild variant="ghost" size="sm">
-              <Link to={`${plantPath(sensor.plant_id, "generation")}#weather-station`}>Weather Station</Link>
-            </Button>
-          </div>
-        }
-      >
-        {dayStored && pts.length > 0 && (
-          <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-white/[0.06] bg-ink-850/60 p-3 sm:grid-cols-4 xl:grid-cols-8">
-            {(
-              [
-                ["Insolation", dayStored.kpis.insolation_kwh_m2, 2, "kWh/m²", "irradiance_wm2"],
-                ["Peak irradiance", dayStored.kpis.peak_irradiance_wm2, 0, "W/m²", "irradiance_wm2"],
-                ["Max module", dayStored.kpis.max_module_temp_c, 1, "°C", "module_temp_c"],
-                ["Avg module (day)", dayStored.kpis.avg_module_temp_daylight_c, 1, "°C", "module_temp_c"],
-                ["Max ambient", dayStored.kpis.max_ambient_temp_c, 1, "°C", "ambient_temp_c"],
-                ["Avg humidity", dayStored.kpis.avg_humidity_pct, 0, "%", "humidity_pct"],
-                ["Avg wind", dayStored.kpis.avg_wind_speed_ms, 1, "m/s", "wind_speed_ms"],
-                ["Max wind", dayStored.kpis.max_wind_speed_ms, 1, "m/s", "wind_speed_ms"],
-              ] as const
-            ).map(([label, v, d, unit, f]) => (
-              <Stat key={label} label={label}>
-                {dayMeasured.has(f) ? (
-                  <>
-                    {fmt(v, d)} <span className="text-[11px] font-normal text-slate-500">{unit}</span>
-                  </>
-                ) : (
-                  <span className="text-slate-600" title="Probe not fitted">—</span>
-                )}
-              </Stat>
-            ))}
-          </div>
-        )}
-        {daySpec ? (
-          <PanelChart spec={daySpec} height={120 + daySpec.panels.length * 110} />
-        ) : !dayStored && !storedError ? (
-          <LoadingState label="Loading stored readings…" />
-        ) : (
-          <EmptyState
-            icon={Sun}
-            title={day === today ? "No readings stored today" : `No readings stored for ${day}`}
-            description={
-              <>
-                {storedError ??
-                  (day === today ? "The worker stores this sensor's 5-min records every 30 min; nothing has arrived for today yet." : "Raw readings are kept for 90 days.")}
-                {!storedError && sensor.last_reading_at && sensor.last_reading_at.slice(0, 10) !== day && (
-                  <span className="mt-3 block">
-                    <Button variant="outline" size="sm" onClick={() => setDay(sensor.last_reading_at!.slice(0, 10))}>
-                      Show {sensor.last_reading_at.slice(0, 10)} · newest stored
-                    </Button>
-                  </span>
-                )}
-              </>
-            }
-            className="py-8"
-          />
-        )}
-      </Panel>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {dayStored && pts.length > 0 && dayKpis.length > 0 && (
+            // cells wrap instead of shrinking (10 tiles with the IEC PR one); each draws its own left and
+            // bottom rule, and the ones on the outer edge are clipped under the frame
+            <div className="flex flex-wrap overflow-hidden rounded-lg border border-white/[0.06]">
+              {dayKpis.map(([label, v, d, unit]) => (
+                <Stat key={label} label={label} className={KPI_CELL}>
+                  {fmt(v, d)} <span className="text-xs font-normal text-muted-foreground">{unit}</span>
+                </Stat>
+              ))}
+              {iecPr && (
+                <Stat
+                  label="IEC 61724 PR"
+                  className={KPI_CELL}
+                  hint={
+                    iecPr.pr_pct == null
+                      ? iecPr.reason ?? undefined
+                      : `Yf ${fmt(iecPr.final_yield_h, 2)} h ÷ Yr ${fmt(iecPr.reference_yield_h, 2)} h · ${fmt(iecPr.coverage_pct, 0)}% coverage`
+                  }
+                >
+                  <span className={iecPr.pr_pct == null ? "text-muted-foreground" : iecPr.pr_pct >= 80 ? "text-emerald-300" : "text-amber-300"}>{fmt(iecPr.pr_pct, 1)}</span>
+                  {iecPr.pr_pct != null && <span className="text-xs font-normal text-muted-foreground"> %</span>}
+                </Stat>
+              )}
+            </div>
+          )}
+          {daySpec ? (
+            <div className="flex flex-col gap-1.5">
+              <PanelChart spec={daySpec} height={120 + daySpec.panels.length * 110} legendToggle onBrush={zoomTo} />
+              <p className="text-[11px] text-muted-foreground max-sm:hidden">
+                Drag across the chart to zoom in to that time{windowed ? " (“Whole day” zooms out)" : ""} · click a legend item to hide or show it.
+              </p>
+            </div>
+          ) : !dayStored && !storedError ? (
+            <LoadingState label="Loading stored readings…" shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
+          ) : (
+            <Empty className="border border-dashed border-white/[0.08] py-10">
+              <EmptyHeader>
+                <EmptyTitle>
+                  {windowed ? "No readings stored in this time window" : isToday ? "No readings stored today" : `No readings stored for ${dayLabel(day)}`}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {storedError ?? (isToday ? "The worker stores this sensor's 5-min records every 30 min; nothing has arrived for today yet." : "Raw readings are kept for 90 days.")}
+                </EmptyDescription>
+              </EmptyHeader>
+              {!storedError && sensor.last_reading_at && sensor.last_reading_at.slice(0, 10) !== day && (
+                <EmptyContent>
+                  <Button variant="outline" size="sm" onClick={() => setDay(sensor.last_reading_at!.slice(0, 10))}>
+                    Show {dayLabel(sensor.last_reading_at.slice(0, 10))}, the newest stored day
+                  </Button>
+                </EmptyContent>
+              )}
+            </Empty>
+          )}
+        </CardContent>
+      </Card>
 
-      <Panel icon={Info} title="Device details" bodyClassName="pt-0">
-        <details>
-          <summary className="cursor-pointer py-2 text-xs text-slate-400 hover:text-white">
-            Datalogger, bus address, Growatt flags{raw ? ` and the raw record (${Object.keys(raw).length} fields, admin only)` : ""}
-          </summary>
-          <div className="grid gap-x-8 md:grid-cols-2">
+      {/* sensor: status, why, and its device table */}
+      <Card className="gap-0">
+        <CardHeader className="pb-4">
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            <span className="num">
+              {sensor.datalogger_sn}#{sensor.address}
+            </span>
+            <StatusBadge status={view.label} level={view.level} />
+          </CardTitle>
+          <CardDescription>
+            {[sensor.device_name, sensor.phase != null ? `Phase ${sensor.phase}` : null, "Growatt weather sensor"].filter(Boolean).join(" · ")}
+          </CardDescription>
+          <CardAction>
+            <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
+              {refreshing ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
+              Refresh
+            </Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {alertVariant ? (
+            <Alert variant={alertVariant}>
+              {st === "offline" ? <WifiOff /> : st === "late" ? <Clock /> : st === "not_synced" ? <CloudOff /> : <CircleHelp />}
+              <AlertTitle>{statusWhy(st, l, now, th)}</AlertTitle>
+              <AlertDescription>{statusAdvice(st, l)}</AlertDescription>
+            </Alert>
+          ) : (
+            <p className="text-sm text-slate-300">{statusWhy(st, l, now, th)}</p>
+          )}
+          {plantFlags.length > 0 && <FlagList flags={plantFlags} />}
+          {(detailError || readingError) && <p className="text-[11px] text-amber-300">Live request failed: {detailError ?? readingError}</p>}
+          <div className="grid gap-x-8 rounded-lg border border-white/[0.06] px-4 py-2 md:grid-cols-2">
             <div>
               <Row label="Datalogger SN">{sensor.datalogger_sn}</Row>
               <Row label="Bus address">{sensor.address}</Row>
@@ -1239,22 +1445,31 @@ const PlantSensorView: React.FC<{
             </div>
           </div>
           {raw && (
-            <div className="mt-3 grid gap-x-8 border-t border-white/[0.06] pt-2 sm:grid-cols-2 xl:grid-cols-3">
-              {Object.entries(raw)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([k, v]) => (
-                  <Row key={k} label={k}>
-                    {v == null ? "null" : String(v)}
-                  </Row>
-                ))}
-            </div>
+            <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="self-start">
+                  <ChevronDown data-icon="inline-start" className={cn("transition-transform", detailsOpen && "rotate-180")} />
+                  Raw record ({Object.keys(raw).length} fields, admin only)
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="grid gap-x-8 rounded-lg border border-white/[0.06] px-4 py-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {Object.entries(raw)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([k, v]) => (
+                      <Row key={k} label={k}>
+                        {v == null ? "null" : String(v)}
+                      </Row>
+                    ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           )}
-        </details>
-      </Panel>
+        </CardContent>
+      </Card>
 
-      <p className="text-[11px] text-slate-500">
-        Live values come from Growatt and are never stored here; the chart and coverage are the stored 5-min history. “—” = no value; probe not fitted = it read 0 in every
-        stored record of the last 7 days.
+      <p className="text-[11px] text-muted-foreground">
+        “—” = no value.
         {notes.length ? ` ${notes.join(" · ")}` : ""}
       </p>
     </div>

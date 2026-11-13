@@ -7,6 +7,8 @@ import React from "react";
 import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 type Tone = "solar" | "energy" | "ok" | "warn" | "crit" | "info" | "neutral";
@@ -112,25 +114,27 @@ export const KpiTile: React.FC<{
   tone?: Tone;
   /** coloured hairline along the top edge (default on) */
   accentBar?: boolean;
+  /** smaller padding and value text (dense KPI strips) */
+  compact?: boolean;
   className?: string;
-}> = ({ label, value, unit, hint, hintTone = "neutral", icon: Icon, tone = "neutral", accentBar = true, className = "" }) => (
-  <Card className={cn("gap-0 overflow-hidden p-4", className)}>
+}> = ({ label, value, unit, hint, hintTone = "neutral", icon: Icon, tone = "neutral", accentBar = true, compact = false, className = "" }) => (
+  <Card className={cn("gap-0 overflow-hidden", compact ? "p-3" : "p-4", className)}>
     {accentBar && <div className={`absolute inset-x-0 top-0 h-px ${TONE_BAR[tone]}`} />}
     <div className="flex items-start justify-between gap-2">
       <div className="eyebrow">{label}</div>
       {Icon && (
-        <div className={`rounded-lg p-1.5 ring-1 ${TONE_ICON_BG[tone]}`}>
-          <Icon className="h-3.5 w-3.5" />
+        <div className={`rounded-lg ring-1 ${compact ? "p-1" : "p-1.5"} ${TONE_ICON_BG[tone]}`}>
+          <Icon className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
         </div>
       )}
     </div>
-    <div className="mt-2 flex items-baseline gap-1.5">
-      <span className={`num text-2xl font-bold tracking-tight ${tone === "neutral" ? "text-white" : TONE_TEXT[tone]}`}>
+    <div className={`${compact ? "mt-1" : "mt-2"} flex items-baseline gap-1.5`}>
+      <span className={`num ${compact ? "text-lg" : "text-2xl"} font-bold tracking-tight ${tone === "neutral" ? "text-white" : TONE_TEXT[tone]}`}>
         {value}
       </span>
       {unit && <span className="text-xs font-medium text-slate-500">{unit}</span>}
     </div>
-    {hint && <div className={`mt-1.5 text-[11px] font-medium ${hintTone === "neutral" ? "text-slate-500" : TONE_TEXT[hintTone]}`}>{hint}</div>}
+    {hint && <div className={`${compact ? "mt-1" : "mt-1.5"} text-[11px] font-medium ${hintTone === "neutral" ? "text-slate-500" : TONE_TEXT[hintTone]}`}>{hint}</div>}
   </Card>
 );
 
@@ -165,10 +169,7 @@ export const StatusBadge: React.FC<{
   return (
     <Badge variant={lvl} className={className} aria-busy={loading || undefined}>
       {loading && (
-        <span
-          className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-slate-500 border-t-sky-300"
-          aria-hidden
-        />
+        <Spinner data-icon="inline-start" className="size-3" aria-hidden />
       )}
       {dot && !loading && <span className={`h-1.5 w-1.5 rounded-full ${lvl === "ok" ? "bg-emerald-400" : lvl === "warn" ? "bg-amber-400" : lvl === "crit" ? "bg-red-400" : lvl === "info" ? "bg-sky-400" : "bg-slate-500"}`} />}
       {String(status ?? "—")}
@@ -234,13 +235,67 @@ export const EmptyState: React.FC<{ icon?: LucideIcon; title: string; descriptio
   </div>
 );
 
-export const LoadingState: React.FC<{ label?: string }> = ({ label = "Connecting to plant telemetry…" }) => (
-  <Card className="flex-row items-center gap-3 p-6 text-sm text-slate-400">
-    <span className="relative flex h-2.5 w-2.5">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-solar-400 opacity-60" />
-      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-solar-400" />
-    </span>
-    {label}
+/** Placeholder rows for a table or list while it loads. */
+export const SkeletonRows: React.FC<{ rows?: number; className?: string }> = ({ rows = 6, className }) => (
+  <div className={cn("flex flex-col gap-2", className)} aria-hidden>
+    {Array.from({ length: rows }, (_, i) => (
+      <Skeleton key={i} className="h-7 w-full" />
+    ))}
+  </div>
+);
+
+/** Placeholder for a row of KPI tiles. */
+export const SkeletonKpis: React.FC<{ count?: number; className?: string }> = ({ count = 4, className }) => (
+  <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-4", className)} aria-hidden>
+    {Array.from({ length: count }, (_, i) => (
+      <div key={i} className="flex flex-col gap-2 rounded-xl border border-white/[0.07] p-4">
+        <Skeleton className="h-3 w-1/2" />
+        <Skeleton className="h-6 w-3/4" />
+        <Skeleton className="h-2.5 w-2/3" />
+      </div>
+    ))}
+  </div>
+);
+
+/** Placeholder for a chart area (fixed height, so the layout doesn't jump when it arrives). */
+export const SkeletonChart: React.FC<{ height?: number | string; className?: string }> = ({ height = 220, className }) => (
+  <Skeleton className={cn("w-full", className)} style={{ height }} aria-hidden />
+);
+
+export type LoadingShape = "none" | "lines" | "table" | "chart" | "kpis" | "page";
+
+/**
+ * Loading placeholder: a spinner with what is loading, and optionally a skeleton of the content
+ * that will replace it (`shape`), so the page keeps its layout while it waits.
+ */
+export const LoadingState: React.FC<{ label?: string; shape?: LoadingShape; rows?: number; className?: string }> = ({
+  label = "Connecting to plant telemetry…",
+  shape = "none",
+  rows,
+  className,
+}) => (
+  <Card className={cn("gap-4 p-6", className)} aria-busy>
+    <div className="flex items-center gap-3 text-sm text-slate-400">
+      <Spinner />
+      {label}
+    </div>
+    {shape === "lines" && (
+      <div className="flex flex-col gap-2" aria-hidden>
+        <Skeleton className="h-3.5 w-11/12" />
+        <Skeleton className="h-3.5 w-4/5" />
+        <Skeleton className="h-3.5 w-2/3" />
+      </div>
+    )}
+    {shape === "table" && <SkeletonRows rows={rows ?? 6} />}
+    {shape === "chart" && <SkeletonChart />}
+    {shape === "kpis" && <SkeletonKpis />}
+    {shape === "page" && (
+      <>
+        <SkeletonKpis />
+        <SkeletonChart height={240} />
+        <SkeletonRows rows={rows ?? 4} />
+      </>
+    )}
   </Card>
 );
 

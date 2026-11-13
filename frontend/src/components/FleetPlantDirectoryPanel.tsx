@@ -42,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface UnifiedPlantItem {
   uid: string;
@@ -915,7 +916,7 @@ export const FleetPlantDirectoryPanel: React.FC = () => {
                 size="sm"
                 title="Refresh Growatt Cloud Plants"
               >
-                <RefreshCw className={`h-3 w-3 ${loadingCloud ? "animate-spin text-sky-400" : ""}`} />
+                {loadingCloud ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
                 Sync
               </Button>
               <Link

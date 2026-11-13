@@ -74,7 +74,7 @@ export const InverterProfilePanel: React.FC<{
       }`}
     >
       {loading ? (
-        <LoadingState label="Loading 5-minute inverter time series…" />
+        <LoadingState label="Loading 5-minute inverter time series…" shape="chart" />
       ) : spec ? (
         <PanelChart spec={spec} height={380} />
       ) : (

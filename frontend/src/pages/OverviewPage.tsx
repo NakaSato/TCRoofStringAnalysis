@@ -33,6 +33,7 @@ import { OverviewTabSummaries } from "../components/OverviewTabSummaries";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
@@ -172,15 +173,14 @@ const WeatherSlotsTile: React.FC<{ plantId: number; day: string | null }> = ({ p
     : "modelled";
 
   return (
-    <Card className="gap-0 overflow-hidden p-4" title="Google Weather (modelled) — daytime rain status at 09:00, 12:00 and 17:00">
-      <div className={`absolute inset-x-0 top-0 h-px ${anyRain ? "bg-sky-400/60" : "bg-emerald-400/60"}`} />
+    <Card className="gap-0 overflow-hidden p-3" title="Google Weather (modelled) — daytime rain status at 09:00, 12:00 and 17:00">
       <div className="flex items-start justify-between gap-2">
         <div className="eyebrow">Weather 09·12·17</div>
-        <div className={`rounded-lg p-1.5 ring-1 ${anyRain ? "bg-sky-500/10 ring-sky-400/20" : "bg-emerald-500/10 ring-emerald-400/20"} ${tone}`}>
-          <CloudRain className="h-3.5 w-3.5" />
+        <div className={`rounded-lg p-1 ring-1 ${anyRain ? "bg-sky-500/10 ring-sky-400/20" : "bg-emerald-500/10 ring-emerald-400/20"} ${tone}`}>
+          <CloudRain className="h-3 w-3" />
         </div>
       </div>
-      <div className="mt-2 space-y-1">
+      <div className="mt-1 space-y-0.5">
         {RAIN_SLOTS.map((h) => {
           const slot = wx?.slots[h] ?? null;
           const cls = slot?.raining == null ? "text-slate-500" : slot.raining ? "text-sky-300" : "text-emerald-300";
@@ -239,18 +239,17 @@ const WeatherNowTile: React.FC<{ plantId: number }> = ({ plantId }) => {
 
   return (
     <Link
-      to={`${plantPath(plantId, "generation")}#weather-station`}
+      to={`${plantPath(plantId, "sensors")}#weather-station`}
       className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-solar-400/50"
     >
-      <Card className="h-full gap-0 overflow-hidden p-4 transition-colors hover:border-solar-400/30" title="Measured by the plant's Growatt weather sensor">
-        <div className="absolute inset-x-0 top-0 h-px bg-solar-400/60" />
+      <Card className="h-full gap-0 overflow-hidden p-3 transition-colors hover:border-solar-400/30" title="Measured by the plant's Growatt weather sensor">
         <div className="flex items-start justify-between gap-2">
           <div className="eyebrow">Weather sensor</div>
-          <div className="rounded-lg bg-solar-500/10 p-1.5 text-solar-400 ring-1 ring-solar-400/20">
-            <CloudSun className="h-3.5 w-3.5" />
+          <div className="rounded-lg bg-solar-500/10 p-1 text-solar-400 ring-1 ring-solar-400/20">
+            <CloudSun className="h-3 w-3" />
           </div>
         </div>
-        <div className="num mt-2 text-xl font-bold text-solar-400">
+        <div className="num mt-1 text-lg font-bold text-solar-400">
           {fmt(s?.irradiance_wm2, 0)} <span className="text-xs text-slate-500">W/m²</span>
         </div>
         {s?.irradiance_wm2 != null && <Meter value={s.irradiance_wm2} max={1100} tone="solar" className="mt-1.5" />}
@@ -314,7 +313,7 @@ export const OverviewPage: React.FC = () => {
           <SelectedPlantBanner />
 
           {plantOverviewLoading && !selectedPlantOverview ? (
-            <LoadingState label="Loading selected plant inverters, strings & 5-minute telemetry…" />
+            <LoadingState label="Loading selected plant inverters, strings & 5-minute telemetry…" shape="page" />
           ) : !selectedPlantOverview ? (
             <EmptyState
               icon={Building2}
@@ -324,8 +323,10 @@ export const OverviewPage: React.FC = () => {
           ) : (
             <>
               {/* Row 1: KPI strip */}
-              <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${hasSensor ? "xl:grid-cols-8" : "xl:grid-cols-7"}`}>
+              <div className={`grid grid-cols-2 gap-2 sm:grid-cols-4 ${hasSensor ? "xl:grid-cols-8" : "xl:grid-cols-7"}`}>
                 <KpiTile
+                  compact
+                  accentBar={false}
                   label={iecPr != null ? "Plant PR (IEC)" : "PR Index (peer)"}
                   icon={Gauge}
                   tone={shownPr == null ? "neutral" : shownPr >= targetPr ? "ok" : "warn"}
@@ -340,6 +341,8 @@ export const OverviewPage: React.FC = () => {
                   }
                 />
                 <KpiTile
+                  compact
+                  accentBar={false}
                   label="PV Power"
                   icon={Sun}
                   tone="solar"
@@ -354,6 +357,8 @@ export const OverviewPage: React.FC = () => {
                   }
                 />
                 <KpiTile
+                  compact
+                  accentBar={false}
                   label="Yield Today"
                   icon={Zap}
                   tone="energy"
@@ -362,12 +367,16 @@ export const OverviewPage: React.FC = () => {
                   hint={`${fmt(kpis?.specific_yield_kwh_per_kwp, 2)} kWh/kWp`}
                 />
                 <KpiTile
+                  compact
+                  accentBar={false}
                   label="Revenue Today"
                   icon={Coins}
                   value={kpis?.yield_today_kwh == null ? "—" : `฿${fmt(revenueToday, 0)}`}
                   hint={`Tariff ฿${fmt(kpis?.tariff_thb_per_kwh, 2)}/kWh`}
                 />
                 <KpiTile
+                  compact
+                  accentBar={false}
                   label="Inverters Online"
                   icon={Cpu}
                   tone="ok"
@@ -375,6 +384,8 @@ export const OverviewPage: React.FC = () => {
                   hint={`Avg temp ${fmt(kpis?.avg_temp_c, 1)}°C`}
                 />
                 <KpiTile
+                  compact
+                  accentBar={false}
                   label="String Health"
                   icon={HeartPulse}
                   tone={critical > 0 ? "crit" : warning > 0 ? "warn" : "ok"}
@@ -498,7 +509,7 @@ export const OverviewPage: React.FC = () => {
                   }
                 >
                   {plant?.latitude != null && plant?.longitude != null ? (
-                    <Suspense fallback={<div className="flex h-[56vh] min-h-[240px] items-center justify-center text-xs text-slate-500">Loading map…</div>}>
+                    <Suspense fallback={<Skeleton className="h-[56vh] min-h-[240px] w-full" aria-label="Loading map…" />}>
                       <PlantSatelliteMap
                         lat={plant.latitude}
                         lon={plant.longitude}

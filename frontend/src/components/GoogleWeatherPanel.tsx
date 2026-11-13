@@ -152,7 +152,7 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
       }
     >
       {loading && !wx ? (
-        <LoadingState label="Loading Google weather…" />
+        <LoadingState label="Loading Google weather…" shape="lines" />
       ) : error ? (
         <EmptyState icon={CloudSun} title="Google weather unavailable" description={error} />
       ) : !wx?.has_location ? (

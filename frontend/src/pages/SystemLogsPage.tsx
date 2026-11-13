@@ -21,6 +21,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Spinner } from "@/components/ui/spinner";
 
 /** New rows are polled this often while the newest page is shown and the tab is visible. */
 const POLL_MS = 15_000;
@@ -680,7 +681,7 @@ export const SystemLogsPage: React.FC = () => {
         </div>
 
         {loading && !items.length ? (
-          <LoadingState label="Loading log records…" />
+          <LoadingState label="Loading log records…" shape="table" />
         ) : error && !items.length ? (
           <EmptyState icon={ServerCrash} title="Logs unavailable" description={error} />
         ) : !items.length ? (
@@ -711,6 +712,7 @@ export const SystemLogsPage: React.FC = () => {
               </span>
               {nextBefore != null ? (
                 <Button variant="outline" size="xs" onClick={loadOlder} disabled={loadingOlder}>
+                  {loadingOlder && <Spinner data-icon="inline-start" className="size-3" />}
                   {loadingOlder ? "Loading…" : "Load older"}
                 </Button>
               ) : (

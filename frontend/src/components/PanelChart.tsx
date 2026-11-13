@@ -8,12 +8,20 @@
  * for more than three intervals.
  *
  * Hover: a crosshair through every panel and one tooltip listing each series at that x.
+ * Time charts can also shade x ranges across every panel (`bands`, `gaps`) and draw labelled
+ * vertical markers (`markers`, e.g. "now").
+ *
+ * Opt-in interaction: `legendToggle` makes legend items buttons that hide / show a series (a panel
+ * with every series hidden is dropped; the last visible series cannot be hidden), and `onBrush`
+ * (time / numeric axes) reports the x range dragged across with the mouse.
  */
 import React, { useMemo, useState } from "react";
 import * as d3 from "d3";
 import { fmt } from "./ui";
 import { C, TICK_FONT, TipRow, Tooltip, textWidth, useWidth } from "./chartKit";
 import type { TipState } from "./chartKit";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 export type XValue = string | number;
 
@@ -63,7 +71,26 @@ export interface ChartPanel {
   /** Include 0 in an automatic y range (default true). */
   zero?: boolean;
   tickSuffix?: string;
+  /** Fixed y tick values (default: automatic). */
+  ticks?: number[];
+  /** Y tick text (default: number + `tickSuffix`). */
+  tickFormat?: (t: number) => string;
   refLines?: RefLine[];
+}
+
+/** An x range shaded across every panel, named in the tooltip while hovered. */
+export interface XBand {
+  from: XValue;
+  to: XValue;
+  label: string;
+  kind?: "gap" | "live" | "muted";
+}
+
+/** A labelled vertical line across every panel. */
+export interface XMarker {
+  x: XValue;
+  label: string;
+  color?: string;
 }
 
 export interface LegendItem {
@@ -91,6 +118,15 @@ export interface PanelChartSpec {
   legendExtra?: LegendItem[];
   /** Extra tooltip rows for the point at index i of `x`. */
   tipExtra?: (i: number) => Array<{ label: string; value: string }>;
+  /** Time / numeric axes: the x range to show at least (data outside it still widens the axis). */
+  xDomain?: [XValue, XValue];
+  /** Time axes: the record interval in ms, when it is fixed (default: the median step of `x`, which a
+   * sparse range overestimates). Lines break, and `gaps` shade, beyond 3.5 intervals. */
+  xStep?: number;
+  /** Time axes: shade every record gap the lines break at, with this tooltip label (e.g. "No data"). */
+  gaps?: string;
+  bands?: XBand[];
+  markers?: XMarker[];
 }
 
 interface Layout {
@@ -110,7 +146,15 @@ interface Layout {
   bandLabels: string[];
   gapLimit: number;
   tickFmt: (p: ChartPanel) => (t: number) => string;
+  /** bands (given + record gaps) as numeric x ranges */
+  bands: Array<{ lo: number; hi: number; label: string; kind: NonNullable<XBand["kind"]> }>;
 }
+
+const BAND_FILL: Record<NonNullable<XBand["kind"]>, string> = {
+  gap: "url(#pc-hatch)",
+  live: "rgba(56,189,248,0.07)",
+  muted: "rgba(148,163,184,0.05)",
+};
 
 type Px = number;
 const parseTs = d3.timeParse("%Y-%m-%d %H:%M:%S");
@@ -155,14 +199,29 @@ const autoLegend = (panels: ChartPanel[]): LegendItem[] => {
   return out;
 };
 
-export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number; emptyLabel?: string }> = ({
-  spec,
-  height = 320,
-  emptyLabel = "No data for this chart.",
-}) => {
+export const PanelChart: React.FC<{
+  spec: PanelChartSpec | null;
+  height?: number;
+  emptyLabel?: string;
+  /** Legend items hide / show their series (by series name). */
+  legendToggle?: boolean;
+  /** Time / numeric axes: called with the x range dragged across (ms since epoch on a time axis). */
+  onBrush?: (lo: number, hi: number) => void;
+}> = ({ spec: fullSpec, height = 320, emptyLabel = "No data for this chart.", legendToggle = false, onBrush }) => {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<TipState | null>(null);
   const [hoverX, setHoverX] = useState<{ px: number; i: number | null } | null>(null);
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+  const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
+
+  // hidden series (and panels left empty) are dropped before layout, so y ranges fit what is shown
+  const spec = useMemo<PanelChartSpec | null>(() => {
+    if (!fullSpec || !hidden.size) return fullSpec;
+    const panels = fullSpec.panels
+      .map((p) => ({ ...p, series: p.series.filter((s) => s.noLegend || !hidden.has(s.name)) }))
+      .filter((p) => p.series.some((s) => !s.noLegend));
+    return panels.length ? { ...fullSpec, panels } : fullSpec;
+  }, [fullSpec, hidden]);
 
   const hasData = !!spec && spec.panels.some((p) => p.series.some((s) => s.y.some((v) => v != null)));
 
@@ -197,12 +256,13 @@ export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number
     /* ---- left margin from the widest y tick ---- */
     // one format per panel, so ticks never mix "5000" and "10k"
     const tickFmt = (p: ChartPanel) => {
+      if (p.tickFormat) return p.tickFormat;
       const k = panels.indexOf(p);
       const [lo, hi] = yDomains[k] ?? [0, 1];
       const short = Math.max(Math.abs(lo), Math.abs(hi)) >= 10000;
       return (t: number) => `${short ? d3.format("~s")(t) : d3.format("~r")(+t.toPrecision(4))}${p.tickSuffix ?? ""}`;
     };
-    const roughTicks = yDomains.map((d, k) => d3.scaleLinear().domain(d).nice().ticks(4).map(tickFmt(panels[k])));
+    const roughTicks = yDomains.map((d, k) => (panels[k].ticks ?? d3.scaleLinear().domain(d).nice().ticks(4)).map(tickFmt(panels[k])));
     const ml = Math.max(36, (d3.max(roughTicks.flat(), (s) => textWidth(s)) ?? 20) + 14);
     const mr = 14;
     const iw = Math.max(40, width - ml - mr);
@@ -223,7 +283,8 @@ export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number
     } else {
       const all: number[] = [];
       for (const p of panels) for (const s of p.series) seriesX(s).forEach((v) => all.push(xNum(v)));
-      let [lo, hi] = d3.extent(all) as [number, number];
+      spec.xDomain?.forEach((v) => all.push(xNum(v)));
+      let [lo, hi] = d3.extent(all.filter(Number.isFinite)) as [number, number];
       if (spec.xZero) lo = Math.min(0, lo);
       if (lo === hi) hi = lo + 1;
       xc = xKind === "time" ? d3.scaleTime().domain([lo, hi]).range([0, iw]) : d3.scaleLinear().domain([lo, hi]).nice().range([0, iw]);
@@ -252,28 +313,76 @@ export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number
 
     /* median record step, to break lines across data gaps */
     let gapLimit = Infinity;
+    const bands: Layout["bands"] = [];
     if (xKind === "time" && sharedX.length > 2) {
       const xs = sharedX.map(xNum);
-      const step = d3.median(d3.pairs(xs, (a, b) => b - a).filter((g) => g > 0)) ?? 0;
+      const step = spec.xStep ?? d3.median(d3.pairs(xs, (a, b) => b - a).filter((g) => g > 0)) ?? 0;
       if (step > 0) gapLimit = step * 3.5;
+      // a gap is shaded between the last record before it and the first after, as the line breaks
+      if (spec.gaps && step > 0)
+        d3.pairs(xs).forEach(([a, b]) => {
+          if (b - a > gapLimit) bands.push({ lo: a, hi: b, label: spec.gaps!, kind: "gap" });
+        });
     }
+    if (!xb) spec.bands?.forEach((b) => bands.push({ lo: xNum(b.from), hi: xNum(b.to), label: b.label, kind: b.kind ?? "muted" }));
 
-    return { ml, mr, iw, geo, plotBottom, xb, xc, xPos, xNum, seriesX, rotate, every, bandLabels, gapLimit, tickFmt, mb };
+    return { ml, mr, iw, geo, plotBottom, xb, xc, xPos, xNum, seriesX, rotate, every, bandLabels, gapLimit, tickFmt, mb, bands };
   }, [spec, hasData, width, height]);
 
   if (!spec || !hasData) {
     return (
       <div ref={ref} style={{ height }} className="flex w-full items-center justify-center text-xs text-slate-500">
-        {spec ? emptyLabel : "Loading chart…"}
+        {spec ? emptyLabel : <Skeleton className="h-full w-full" aria-label="Loading chart…" />}
       </div>
     );
   }
 
-  const legend = spec.legend ?? [...autoLegend(spec.panels), ...(spec.legendExtra ?? [])];
+  const legend = fullSpec!.legend ?? [...autoLegend(fullSpec!.panels), ...(fullSpec!.legendExtra ?? [])];
+  // only the automatic legend names series; a custom legend (status colours) is not a toggle
+  const canToggle = legendToggle && !fullSpec!.legend;
+  const seriesNames = new Set(autoLegend(fullSpec!.panels).map((l) => l.label));
+  const visibleCount = [...seriesNames].filter((n) => !hidden.has(n)).length;
+  const toggle = (name: string) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else if (visibleCount > 1) next.add(name);
+      return next;
+    });
+
+  /* ---- drag to pick an x range ---- */
+  const brushable = Boolean(onBrush && layout?.xc);
+  const plotPx = (e: React.MouseEvent) => {
+    const box = ref.current!.getBoundingClientRect();
+    return { px: e.clientX - box.left - layout!.ml, py: e.clientY - box.top };
+  };
+  const onDown = (e: React.MouseEvent) => {
+    if (!brushable || e.button !== 0) return;
+    const { px, py } = plotPx(e);
+    if (px < 0 || px > layout!.iw || py < layout!.geo[0].top || py > layout!.plotBottom) return;
+    e.preventDefault();
+    setDrag({ x0: px, x1: px });
+  };
+  const onUp = () => {
+    if (!drag || !layout?.xc) return;
+    const a = Math.max(0, Math.min(drag.x0, drag.x1));
+    const b = Math.min(layout.iw, Math.max(drag.x0, drag.x1));
+    setDrag(null);
+    if (b - a >= 8) {
+      setTip(null);
+      setHoverX(null);
+      onBrush!(+layout.xc.invert(a), +layout.xc.invert(b));
+    }
+  };
 
   /* ---- hover ---- */
   const onMove = (e: React.MouseEvent) => {
     if (!layout) return;
+    if (drag) {
+      const { px } = plotPx(e);
+      setTip(null);
+      return setDrag({ ...drag, x1: Math.max(0, Math.min(layout.iw, px)) });
+    }
     const box = ref.current!.getBoundingClientRect();
     const px = e.clientX - box.left - layout.ml;
     const py = e.clientY - box.top;
@@ -336,6 +445,9 @@ export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number
       }
     }
     const extra = i != null && spec.tipExtra ? spec.tipExtra(i) : [];
+    const xAt = xc ? +xc.invert(px) : null;
+    const inBands = xAt == null ? [] : layout.bands.filter((b) => xAt > b.lo && xAt < b.hi);
+    const bandFmt = (v: number) => (spec.xKind === "time" ? hhmm(new Date(v)) : fmt(v, 0));
     setHoverX({ px: snapPx, i });
     setTip({
       x: e.clientX - box.left,
@@ -343,6 +455,11 @@ export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number
       content: (
         <>
           <div className="mb-1 font-semibold text-white">{heading}</div>
+          {inBands.map((b) => (
+            <div key={`${b.lo}-${b.label}`} className="mb-1 text-[11px] text-slate-400">
+              {b.label} · {bandFmt(b.lo)}–{bandFmt(b.hi)}
+            </div>
+          ))}
           {rows}
           {extra.length > 0 && <div className="my-1 border-t border-white/10" />}
           {extra.map((r) => (
@@ -357,18 +474,55 @@ export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number
     <div className="w-full">
       {legend.length > 1 && (
         <div className="mb-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
-          {legend.map((l) => (
-            <span key={l.label} className="flex items-center gap-1.5">
-              <LegendSwatch item={l} />
-              {l.label}
-            </span>
-          ))}
+          {legend.map((l) =>
+            canToggle && seriesNames.has(l.label) ? (
+              <button
+                key={l.label}
+                type="button"
+                onClick={() => toggle(l.label)}
+                aria-pressed={!hidden.has(l.label)}
+                title={hidden.has(l.label) ? `Show ${l.label}` : visibleCount > 1 ? `Hide ${l.label}` : undefined}
+                className={cn("flex items-center gap-1.5 rounded transition hover:text-white", hidden.has(l.label) && "opacity-40 line-through")}
+              >
+                <LegendSwatch item={l} />
+                {l.label}
+              </button>
+            ) : (
+              <span key={l.label} className="flex items-center gap-1.5">
+                <LegendSwatch item={l} />
+                {l.label}
+              </span>
+            ),
+          )}
         </div>
       )}
-      <div ref={ref} className="relative w-full" onMouseMove={onMove} onMouseLeave={() => (setTip(null), setHoverX(null))}>
+      <div
+        ref={ref}
+        className={cn("relative w-full", brushable && "cursor-crosshair select-none")}
+        onMouseMove={onMove}
+        onMouseDown={onDown}
+        onMouseUp={onUp}
+        onMouseLeave={() => (setTip(null), setHoverX(null), setDrag(null))}
+      >
         {layout && (
           <svg width={width} height={height} className="block" role="img" aria-label={spec.panels.map((p) => p.title).join(", ")}>
+            <defs>
+              <pattern id="pc-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="6" height="6" fill="rgba(148,163,184,0.04)" />
+                <line y2="6" stroke="rgba(148,163,184,0.16)" strokeWidth="2" />
+              </pattern>
+            </defs>
             <g transform={`translate(${layout.ml},0)`}>
+              {/* shaded x ranges, under the series */}
+              {layout.xc &&
+                layout.bands.map((b) => {
+                  const x0 = Math.max(0, layout.xc!(b.lo));
+                  const x1 = Math.min(layout.iw, layout.xc!(b.hi));
+                  if (x1 - x0 < 0.5) return null;
+                  return layout.geo.map((g) => (
+                    <rect key={`${b.lo}-${b.label}-${g.panel.key}`} x={x0} width={x1 - x0} y={g.top} height={g.bottom - g.top} fill={BAND_FILL[b.kind]} pointerEvents="none" />
+                  ));
+                })}
               {layout.geo.map((g) => (
                 <PanelBody key={g.panel.key} g={g} layout={layout} spec={spec} hoverI={hoverX?.i ?? null} />
               ))}
@@ -399,6 +553,45 @@ export const PanelChart: React.FC<{ spec: PanelChartSpec | null; height?: number
                   />
                 ))}
 
+              {/* range being dragged */}
+              {drag && Math.abs(drag.x1 - drag.x0) > 1 && (
+                <rect
+                  x={Math.min(drag.x0, drag.x1)}
+                  width={Math.abs(drag.x1 - drag.x0)}
+                  y={layout.geo[0].top}
+                  height={layout.plotBottom - layout.geo[0].top}
+                  fill="rgba(56,189,248,0.12)"
+                  stroke="rgba(56,189,248,0.6)"
+                  pointerEvents="none"
+                />
+              )}
+
+              {/* vertical markers */}
+              {layout.xc &&
+                spec.markers?.map((m) => {
+                  const x = layout.xPos(m.x);
+                  if (!(x >= 0 && x <= layout.iw)) return null;
+                  const color = m.color ?? C.ref;
+                  return (
+                    <g key={m.label} pointerEvents="none">
+                      <line x1={x} x2={x} y1={layout.geo[0].top} y2={layout.plotBottom} stroke={color} strokeOpacity={0.55} strokeWidth={1} />
+                      <text
+                        x={x + (x > layout.iw - 40 ? -4 : 4)}
+                        y={layout.geo[0].top + 10}
+                        textAnchor={x > layout.iw - 40 ? "end" : "start"}
+                        fill={color}
+                        fontSize={11}
+                        fontWeight={600}
+                        paintOrder="stroke"
+                        stroke="#0a101c"
+                        strokeWidth={3}
+                      >
+                        {m.label}
+                      </text>
+                    </g>
+                  );
+                })}
+
               <XAxis layout={layout} spec={spec} />
             </g>
           </svg>
@@ -419,7 +612,7 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
 }) => {
   const { panel, y, top, bottom } = g;
   const { iw, xb, xPos, xNum, seriesX, gapLimit, tickFmt } = layout;
-  const ticks = y.ticks(Math.max(2, Math.round((bottom - top) / 42)));
+  const ticks = panel.ticks ?? y.ticks(Math.max(2, Math.round((bottom - top) / 42)));
   const f = tickFmt(panel);
   const base = y(Math.max(y.domain()[0], Math.min(0, y.domain()[1])));
   const bars = panel.series.filter((s) => s.type === "bar");

@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   TrendingUp,
   Wrench,
-  RefreshCw,
   Search,
   X,
   Rows3,
@@ -24,6 +23,8 @@ import { StatusBadge, fmt, LOADING_STATUS } from "./ui";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { StatusLevel } from "./ui";
+import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const SelectedPlantBanner: React.FC = () => {
   const {
@@ -122,14 +123,16 @@ export const SelectedPlantBanner: React.FC = () => {
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-bold text-white sm:text-base">
-                  {plant?.name || "Loading Plant…"}
-                </h2>
+                {plant?.name ? (
+                  <h2 className="text-sm font-bold text-white sm:text-base">{plant.name}</h2>
+                ) : (
+                  <Skeleton className="h-5 w-48" aria-label="Loading plant…" />
+                )}
                 <span title={statusTitle}>
                   <StatusBadge status={statusLabel} level={statusLevel} loading={statusLoading} dot />
                 </span>
                 {plantOverviewLoading && (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />
+                  <Spinner className="size-3.5" aria-label="Refreshing plant data…" />
                 )}
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
@@ -210,7 +213,9 @@ export const SelectedPlantBanner: React.FC = () => {
             </SelectTrigger>
             <SelectContent>
               {!plantListLoaded && (
-                <div className="px-2 py-1.5 text-xs text-slate-500">Loading plants…</div>
+                <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-500">
+                  <Spinner className="size-3" /> Loading plants…
+                </div>
               )}
               {filteredPlants.map((gp) => (
                 <SelectItem key={gp.plant_id} value={String(gp.plant_id)}>

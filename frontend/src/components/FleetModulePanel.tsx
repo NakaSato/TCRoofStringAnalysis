@@ -108,7 +108,7 @@ export const FleetModulePanel: React.FC<{
       }
     >
       {!module ? (
-        <LoadingState label="Loading fleet module…" />
+        <LoadingState label="Loading fleet module…" shape="lines" />
       ) : (
         <div className="space-y-4 text-xs">
           {msg && <div className={`callout-${msg.tone}`}>{msg.text}</div>}

@@ -13,7 +13,7 @@ export interface LegacyContextValue {
   legacyRun: AnalysisRun | null;
   legacyLoading: boolean;
   legacyError: string | null;
-  /** load the legacy tables if they aren't yet (e.g. the quick-parameters drawer opens) */
+  /** load the legacy tables if they aren't yet */
   ensureLegacy: () => void;
   /** (re)load, optionally for another legacy plant */
   reloadLegacy: (plantId?: number) => Promise<void>;

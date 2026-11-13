@@ -18,6 +18,8 @@ import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
 import { plantPath } from "../context/routes";
 import type { PlantPage } from "../context/routes";
+import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Card: React.FC<{
   to: string;
@@ -373,9 +375,17 @@ export const OverviewTabSummaries: React.FC<{
 
       <Card to={plantHref("sensors")} step={4} icon={Gauge} title="Sensors">
         {sensorRows == null ? (
-          <div className="text-xs text-slate-500">
-            {sensorError ? `Sensor data unavailable: ${sensorError}` : "Loading sensor data…"}
-          </div>
+          sensorError ? (
+            <div className="text-xs text-slate-500">Sensor data unavailable: {sensorError}</div>
+          ) : (
+            <div className="flex flex-col gap-2" aria-busy>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Spinner className="size-3" /> Loading sensor data…
+              </div>
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          )
         ) : !sensorRows.length ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-white/[0.08] px-4 py-8 text-center text-xs text-slate-500">
             No weather sensor at this plant, so irradiance and IEC PR are not measured here.

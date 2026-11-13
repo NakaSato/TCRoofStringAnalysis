@@ -212,7 +212,7 @@ export const StringAnalysisPage: React.FC = () => {
     return (
       <div className="space-y-6">
         <SelectedPlantBanner />
-        <LoadingState label="Analyzing string voltage, current & I-V / P-V curves for selected plant…" />
+        <LoadingState label="Analyzing string voltage, current & I-V / P-V curves for selected plant…" shape="page" />
       </div>
     );
   }
@@ -357,7 +357,7 @@ export const StringAnalysisPage: React.FC = () => {
             }
           >
             {detailLoading ? (
-              <LoadingState label={`Synthesizing I-V & P-V curves for ${activeString.string_id}…`} />
+              <LoadingState label={`Synthesizing I-V & P-V curves for ${activeString.string_id}…`} shape="chart" />
             ) : (
               <div className="space-y-3">
                 <PanelChart spec={ivPvSpec} height={360} />
@@ -400,7 +400,7 @@ export const StringAnalysisPage: React.FC = () => {
             subtitle={`Comparison against peer strings on inverter ${activeString.device_sn}`}
           >
             {detailLoading ? (
-              <LoadingState label="Loading 5-minute string time series…" />
+              <LoadingState label="Loading 5-minute string time series…" shape="chart" />
             ) : (
               <div className="space-y-3">
                 <PanelChart spec={stringTimeseriesSpec} height={360} />

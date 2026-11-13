@@ -25,6 +25,7 @@ const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
 const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
 const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAlarmPage");
+const PlantMapPage = page(() => import("./pages/PlantMapPage"), "PlantMapPage");
 const SensorsPage = page(() => import("./pages/SensorsPage"), "SensorsPage");
 const PlantSensorsPage = page(() => import("./pages/SensorsPage"), "PlantSensorsPage");
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
@@ -96,6 +97,7 @@ export const App: React.FC = () => {
           <Route path="/" element={<Layout />}>
             {/* fleet-wide pages */}
             <Route index element={<FleetHomePage />} />
+            <Route path="map" element={<PlantMapPage />} />
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
             <Route path="sensors" element={<SensorsPage />} />

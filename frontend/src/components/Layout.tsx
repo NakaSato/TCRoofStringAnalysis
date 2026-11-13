@@ -1,22 +1,13 @@
 import React, { Suspense, useState, useEffect, useMemo } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
-  TrendingUp,
-  Activity,
-  Wrench,
   ShieldAlert,
   Settings,
-  Save,
-  LayoutDashboard,
-  Cpu,
   Bell,
-  SlidersHorizontal,
   Menu,
-  X,
   Radio,
   Clock,
   LogOut,
-  MapPin,
   RefreshCw,
   AlertTriangle,
   Search,
@@ -24,27 +15,23 @@ import {
   ScrollText,
   BellRing,
   Building2,
-  Rows3,
   Gauge,
+  Map as MapIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
-import { canAccessPath, canAccessPlantPage, isAdmin } from "../auth/access";
-import { getLastPlantId, parsePlantPath, plantPath } from "../context/routes";
+import { canAccessPath, isAdmin } from "../auth/access";
+import { parsePlantPath } from "../context/routes";
 import type { PlantPage } from "../context/routes";
-import { api } from "../api/client";
-import { Led, LoadingState, fmt } from "./ui";
+import { Led, LoadingState, fmt, fmtInt } from "./ui";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
+import { Spinner } from "@/components/ui/spinner";
 
 interface NavItem {
-  /** fleet-wide page; plant pages use `page` instead (their URL carries the plant id) */
-  to?: string;
-  page?: PlantPage;
+  to: string;
   label: string;
   icon: LucideIcon;
   description?: string;
@@ -55,21 +42,14 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: "Monitoring",
     items: [
       { to: "/", label: "All Plants", icon: Building2, description: "Every plant you can see, with live status" },
-      { page: "", label: "Plant Overview", icon: LayoutDashboard },
-      { page: "generation", label: "Generation & PR", icon: TrendingUp, description: "Daily / monthly yield, PR & loss waterfall" },
-      { page: "inverters", label: "Inverters", icon: Cpu, description: "Inverter status, MPPT, 5-minute profile & fault log" },
-      { page: "sensors", label: "Plant Sensors", icon: Gauge, description: "This plant's weather sensors: live status & newest reading" },
-      { page: "strings", label: "String Diagnostics", icon: Activity, description: "String performance, heatmap & I-V / P-V curves" },
-      { page: "string-layout", label: "String Layout", icon: Rows3, description: "Modules per string for each inverter" },
+      { to: "/map", label: "Plant Map", icon: MapIcon, description: "Every plant on one map, coloured by live status" },
       { to: "/growatt", label: "Growatt Fleet", icon: Radio, description: "Live Growatt OpenAPI plants & inverter status" },
-      { to: "/sensors", label: "Weather Sensors", icon: Gauge, description: "Every weather sensor: status, last upload & newest reading" },
     ],
   },
   {
     title: "Operations",
     items: [
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
-      { page: "maintenance", label: "Maintenance & RCA", icon: Wrench, description: "PM schedule, CM work orders & root cause analysis" },
       { to: "/she", label: "Safety (SH&E)", icon: ShieldAlert, description: "Permit-to-work, LOTO & ISO 45001 compliance" },
     ],
   },
@@ -83,7 +63,25 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   },
 ];
 
-const ALL_NAV = NAV_GROUPS.flatMap((g) => g.items);
+/** Fleet pages not in the sidebar (reached by links, e.g. from Active Alarm or Weather Station).
+ * Listed here only for the header breadcrumb. */
+const HIDDEN_NAV: NavItem[] = [
+  { to: "/sensors", label: "Weather Sensors", icon: Gauge, description: "Every weather sensor: status, last upload & newest reading" },
+];
+
+const ALL_NAV = [...NAV_GROUPS.flatMap((g) => g.items), ...HIDDEN_NAV];
+
+/** Plant pages: reached from the plant's own tab bar (`SelectedPlantBanner`), not the sidebar.
+ * Listed here only for the header breadcrumb. */
+const PLANT_NAV: Record<PlantPage, { label: string; description?: string }> = {
+  "": { label: "Plant Overview" },
+  generation: { label: "Generation & PR", description: "Daily / monthly yield, PR & loss waterfall" },
+  inverters: { label: "Inverters", description: "Inverter status, MPPT, 5-minute profile & fault log" },
+  sensors: { label: "Plant Sensors", description: "This plant's weather sensors: live status & newest reading" },
+  strings: { label: "String Diagnostics", description: "String performance, heatmap & I-V / P-V curves" },
+  "string-layout": { label: "String Layout", description: "Modules per string for each inverter" },
+  maintenance: { label: "Maintenance & RCA", description: "PM schedule, CM work orders & root cause analysis" },
+};
 
 const useClock = () => {
   const [now, setNow] = useState(() => new Date());
@@ -99,26 +97,20 @@ export const Layout: React.FC = () => {
     user,
     logout,
     activePlant,
-    activeDataset,
+    growattPlants,
+    plantListLoaded,
+    livePlant,
+    growattLiveStatus,
     refreshAll,
     analysisRun,
     loading,
     error,
     selectedGrowattPlantId,
     selectedPlantOverview,
-    ensureLegacy,
   } = useAppContext();
   const location = useLocation();
   const now = useClock();
 
-  // Quick plant parameters (drawer)
-  const [modulesPerString, setModulesPerString] = useState<number>(18);
-  const [moduleWp, setModuleWp] = useState<number>(550);
-  const [targetPrPct, setTargetPrPct] = useState<number>(84.0);
-  const [tariffThb, setTariffThb] = useState<number>(4.2);
-  const [underperfThresh, setUnderperfThresh] = useState<number>(10.0);
-  const [savingConfig, setSavingConfig] = useState<boolean>(false);
-  const [specsOpen, setSpecsOpen] = useState<boolean>(false);
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
   const [cmdOpen, setCmdOpen] = useState<boolean>(false);
   const [alarmsOpen, setAlarmsOpen] = useState<boolean>(false);
@@ -135,90 +127,44 @@ export const Layout: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (activePlant) {
-      setModulesPerString(activePlant.modules_per_string);
-      setModuleWp(activePlant.module_wp);
-      setTargetPrPct(activePlant.target_pr_pct);
-      setTariffThb(activePlant.tariff_thb_per_kwh);
-      setUnderperfThresh(activePlant.underperformance_threshold_pct);
-    }
-  }, [activePlant]);
-
-  useEffect(() => {
     setMobileNavOpen(false);
   }, [location.pathname]);
 
-  // Plant pages link to the plant in the URL, else to the last plant opened (none: disabled).
-  const navPlantId = selectedGrowattPlantId ?? getLastPlantId();
-  const hrefOf = (n: NavItem): string | null =>
-    n.page != null ? (navPlantId != null ? plantPath(navPlantId, n.page) : null) : n.to ?? null;
-  const canSee = (n: NavItem) => (n.page != null ? canAccessPlantPage(user, n.page) : canAccessPath(user, n.to ?? "/"));
+  const canSee = (n: NavItem) => canAccessPath(user, n.to);
   const plantRoute = parsePlantPath(location.pathname);
   const current = plantRoute
-    ? ALL_NAV.find((n) => n.page != null && n.page === plantRoute.page)
-    : ALL_NAV.find((n) => n.to != null && (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)));
+    ? plantRoute.page != null ? PLANT_NAV[plantRoute.page] : undefined
+    : ALL_NAV.find((n) => (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)));
   // Name / place of the plant in the URL; on fleet pages the legacy analysis plant, if loaded.
   const shownPlantName =
     selectedPlantOverview?.plant.name ??
     (activePlant && activePlant.name !== "TC Roof Solar PV Plant" ? activePlant.name : null);
-  const shownPlantPlace = selectedPlantOverview
-    ? [selectedPlantOverview.plant.city, selectedPlantOverview.plant.country].filter(Boolean).join(", ") || null
-    : activePlant?.location ?? null;
-
   const kpis = analysisRun?.plant_kpis_json || {};
-  const criticalStrings = Number(kpis.critical_strings || 0);
-  const warningStrings = Number(kpis.warning_strings || 0);
   const alarmCount = useMemo(
     () => (analysisRun?.anomalies_json || []).filter((a) => String(a.severity) === "Critical").length,
     [analysisRun]
   );
-  const plantLevel = criticalStrings > 0 ? "crit" : warningStrings > 0 ? "warn" : "ok";
-  const plantStateLabel = criticalStrings > 0 ? "Fault Detected" : warningStrings > 0 ? "Degraded" : "Normal Operation";
-  // Strings can have different module counts / ratings. The plant-level values are defaults:
-  // a string still on the saved default follows the drawer's value, others keep their own.
-  const stringSpecs = activePlant?.string_specs ?? [];
-  const specCapacityKwp = (mods: number, wp: number): number | null =>
-    stringSpecs.length && activePlant
-      ? stringSpecs.reduce(
-          (sum, s) =>
-            sum +
-            (s.modules_per_string === activePlant.modules_per_string ? mods : s.modules_per_string) *
-              (s.module_wp === activePlant.module_wp ? wp : s.module_wp),
-          0
-        ) / 1000
-      : null;
-  const dcCapacityKwp: number | null =
-    Number(kpis.total_capacity_kwp) ||
-    (activePlant ? specCapacityKwp(activePlant.modules_per_string, activePlant.module_wp) : null);
-  const draftCapacityKwp = specCapacityKwp(modulesPerString, moduleWp);
-  const moduleCounts = stringSpecs.map((s) => s.modules_per_string);
-  const customStrings = activePlant
-    ? stringSpecs.filter(
-        (s) => s.modules_per_string !== activePlant.modules_per_string || s.module_wp !== activePlant.module_wp
-      ).length
-    : 0;
-  const sidebarStringCount = kpis.num_strings ?? activeDataset?.string_count ?? "—";
-
-  const handleApplySidebarSpecs = async () => {
-    if (!activePlant) return;
-    setSavingConfig(true);
-    try {
-      await api.updatePlant(activePlant.id, {
-        ...activePlant,
-        modules_per_string: modulesPerString,
-        module_wp: moduleWp,
-        target_pr_pct: targetPrPct,
-        tariff_thb_per_kwh: tariffThb,
-        underperformance_threshold_pct: underperfThresh,
-      });
-      await refreshAll();
-      setSpecsOpen(false);
-    } catch (err: any) {
-      alert(`Failed to update plant parameters: ${err.message}`);
-    } finally {
-      setSavingConfig(false);
-    }
-  };
+  // Fleet summary card: every plant the user may see. Status and power are live only (fleet poll);
+  // a plant with no live record yet counts as neither online nor offline.
+  const fleet = useMemo(() => {
+    const live = growattPlants.map((p) => livePlant(p.plant_id));
+    const known = live.filter((l) => l?.status != null);
+    const powers = live.map((l) => l?.current_power_w).filter((w): w is number => w != null);
+    const caps = growattPlants.map((p) => p.peak_power_kwp).filter((k): k is number => k != null);
+    return {
+      plants: growattPlants.length,
+      online: known.length ? known.filter((l) => l!.status === 1).length : null,
+      offline: known.length ? known.filter((l) => l!.status === 4).length : null,
+      acKw: powers.length ? powers.reduce((a, w) => a + w, 0) / 1000 : null,
+      dcKwp: caps.length ? caps.reduce((a, k) => a + k, 0) : null,
+    };
+  }, [growattPlants, livePlant]);
+  const fleetLiveLabel = growattLiveStatus.loading
+    ? "Loading…"
+    : !growattLiveStatus.fetchedAt
+    ? "Live unavailable"
+    : `${growattLiveStatus.stale ? "Last sync" : "Live"} · ${new Date(growattLiveStatus.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const fleetLevel = !growattLiveStatus.fetchedAt || growattLiveStatus.stale ? "warn" : fleet.offline ? "crit" : "ok";
 
   const initials = (user?.full_name || "Guest")
     .split(" ")
@@ -238,30 +184,31 @@ export const Layout: React.FC = () => {
         </div>
       </div>
 
-      {/* Plant status card */}
+      {/* Fleet summary card */}
       <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-ink-850/80 p-3">
         <div className="flex items-center justify-between">
-          <span className="eyebrow">Active Fleet</span>
+          <span className="eyebrow">Fleet</span>
           <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
-            <Led level={plantLevel} pulse />
-            {plantStateLabel}
+            <Led level={fleetLevel} pulse={!growattLiveStatus.stale && growattLiveStatus.fetchedAt != null} />
+            {fleetLiveLabel}
           </span>
         </div>
-        <div className="mt-1.5 truncate text-[13px] font-semibold text-slate-100">
-          {shownPlantName ?? "Solar Fleet Monitoring"}
+        <div className="mt-1.5 text-[13px] font-semibold text-slate-100">
+          {plantListLoaded ? `${fmtInt(fleet.plants)} plants` : "—"}
         </div>
-        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500">
-          <MapPin className="h-3 w-3" />
-          <span className="truncate">{shownPlantPlace ?? "—"}</span>
+        <div className="mt-0.5 text-[11px] text-slate-500">
+          Online <span className="num font-semibold text-emerald-300">{fmtInt(fleet.online)}</span>
+          {" · "}
+          Offline <span className="num font-semibold text-red-300">{fmtInt(fleet.offline)}</span>
         </div>
         <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-2.5 text-[11px]">
           <div>
-            <div className="text-slate-500">DC Capacity</div>
-            <div className="num font-semibold text-solar-400">{fmt(dcCapacityKwp, 1)} kWp</div>
+            <div className="text-slate-500">AC Power</div>
+            <div className="num font-semibold text-energy-300">{fmt(fleet.acKw, 1)} kW</div>
           </div>
           <div>
-            <div className="text-slate-500">Strings</div>
-            <div className="num font-semibold text-slate-200">{sidebarStringCount}</div>
+            <div className="text-slate-500">DC Capacity</div>
+            <div className="num font-semibold text-solar-400">{fmt(fleet.dcKwp, 1)} kWp</div>
           </div>
         </div>
       </div>
@@ -276,31 +223,11 @@ export const Layout: React.FC = () => {
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon;
-                // badges describe the open plant only
-                const badge =
-                  plantRoute && item.page === "" && alarmCount > 0
-                    ? { n: alarmCount, cls: "bg-red-500/15 text-red-300 border-red-400/30" }
-                    : plantRoute && item.page === "strings" && criticalStrings + warningStrings > 0
-                    ? { n: criticalStrings + warningStrings, cls: "bg-amber-500/15 text-amber-300 border-amber-400/30" }
-                    : null;
-                const href = hrefOf(item);
-                if (href == null) {
-                  return (
-                    <div
-                      key={item.label}
-                      title="Open a plant from All Plants first"
-                      className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-slate-600"
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="flex-1 truncate">{item.label}</span>
-                    </div>
-                  );
-                }
                 return (
                   <NavLink
                     key={item.label}
-                    to={href}
-                    end={item.to === "/" || item.page === ""}
+                    to={item.to}
+                    end={item.to === "/"}
                     className={({ isActive }) =>
                       `group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition ${
                         isActive
@@ -314,9 +241,6 @@ export const Layout: React.FC = () => {
                         {isActive && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-solar-400 shadow-[0_0_10px_rgba(245,180,42,0.8)]" />}
                         <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-solar-400" : "text-slate-500 group-hover:text-slate-300"}`} />
                         <span className="flex-1 truncate">{item.label}</span>
-                        {badge && (
-                          <span className={`num rounded-full border px-1.5 py-px text-[11px] font-bold ${badge.cls}`}>{badge.n}</span>
-                        )}
                       </>
                     )}
                   </NavLink>
@@ -417,30 +341,12 @@ export const Layout: React.FC = () => {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" onClick={() => refreshAll()} aria-label="Refresh plant data">
-                  <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+                  {loading ? <Spinner /> : <RefreshCw className="size-4" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Refresh plant data</TooltipContent>
             </Tooltip>
 
-            {isAdmin(user) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      ensureLegacy(); // the drawer edits the legacy analysis plant: load it now
-                      setSpecsOpen(true);
-                    }}
-                    aria-label="Quick plant parameters"
-                  >
-                    <SlidersHorizontal className="size-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Quick plant parameters</TooltipContent>
-              </Tooltip>
-            )}
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -485,93 +391,12 @@ export const Layout: React.FC = () => {
 
         <main className="flex-1 px-4 py-6 sm:px-6">
           <div className="mx-auto max-w-[1600px]">
-            <Suspense fallback={<LoadingState label="Loading page…" />}>
+            <Suspense fallback={<LoadingState label="Loading page…" shape="page" />}>
               <Outlet />
             </Suspense>
           </div>
         </main>
       </div>
-
-      {/* Quick plant parameters drawer */}
-      {specsOpen && isAdmin(user) && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSpecsOpen(false)} />
-          <div className="relative flex h-full w-full max-w-sm flex-col border-l border-white/[0.08] bg-ink-900 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <SlidersHorizontal className="h-4 w-4 text-solar-400" />
-                  Quick Plant Parameters
-                </div>
-                <div className="mt-0.5 text-[11px] text-slate-500">Changes trigger a full PR & loss recalculation</div>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => setSpecsOpen(false)} aria-label="Close">
-                <X className="size-4" />
-              </Button>
-            </div>
-            <div className="flex-1 space-y-4 overflow-y-auto p-5">
-              <div className="rounded-xl border border-solar-400/20 bg-solar-500/[0.06] p-4">
-                <div className="eyebrow text-solar-400/80">Calculated DC Capacity</div>
-                <div className="num mt-1 text-2xl font-bold text-solar-400">
-                  {fmt(draftCapacityKwp, 1)} <span className="text-sm text-slate-500">kWp</span>
-                </div>
-                <div className="mt-0.5 text-[11px] text-slate-500">Sum of {stringSpecs.length} string specs</div>
-              </div>
-              {customStrings > 0 && (
-                <div className="callout-warn text-[11px] leading-relaxed">
-                  Strings have different sizes ({Math.min(...moduleCounts)}–{Math.max(...moduleCounts)} modules).
-                  The values below are the plant defaults: they apply to the {stringSpecs.length - customStrings}{" "}
-                  strings on the default; the {customStrings} strings set individually keep their own values. Edit
-                  those under{" "}
-                  <NavLink to="/settings" className="font-semibold text-solar-400 underline" onClick={() => setSpecsOpen(false)}>
-                    Global Settings → Legacy analysis plant
-                  </NavLink>
-                  .
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">{customStrings > 0 ? "Default Modules / String" : "Modules / String"}</Label>
-                  <Input type="number" value={modulesPerString} onChange={(e) => setModulesPerString(Number(e.target.value))} />
-                </div>
-                <div>
-                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">{customStrings > 0 ? "Default Module Wp" : "Module Rating (Wp)"}</Label>
-                  <Input type="number" value={moduleWp} onChange={(e) => setModuleWp(Number(e.target.value))} />
-                </div>
-                <div>
-                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">Target PR (%)</Label>
-                  <Input type="number" step="0.5" value={targetPrPct} onChange={(e) => setTargetPrPct(Number(e.target.value))} />
-                </div>
-                <div>
-                  <Label className="mb-1 block text-[11px] font-medium text-slate-400">Tariff (THB/kWh)</Label>
-                  <Input type="number" step="0.1" value={tariffThb} onChange={(e) => setTariffThb(Number(e.target.value))} />
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex justify-between text-[11px]">
-                  <span className="text-slate-400">Underperformance Alert Threshold</span>
-                  <span className="num font-semibold text-solar-400">{underperfThresh}%</span>
-                </div>
-                <input
-                  type="range"
-                  min={5}
-                  max={25}
-                  step={1}
-                  value={underperfThresh}
-                  onChange={(e) => setUnderperfThresh(Number(e.target.value))}
-                  className="w-full"
-                />
-              </div>
-            </div>
-            <div className="border-t border-white/[0.06] p-5">
-              <Button variant="default" onClick={handleApplySidebarSpecs} disabled={savingConfig} className="h-auto w-full py-2.5">
-                <Save className="size-4" />
-                {savingConfig ? "Recalculating…" : "Apply & Recalculate"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Global Slide-Over Drawers & Command Palette */}
       <StringInspectorDrawer />
@@ -579,10 +404,6 @@ export const Layout: React.FC = () => {
       <CommandPaletteModal
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
-        onOpenSpecs={() => {
-          ensureLegacy();
-          setSpecsOpen(true);
-        }}
         onOpenAlarms={() => setAlarmsOpen(true)}
         onSignOut={logout}
       />

@@ -266,7 +266,7 @@ export const StringInspectorDrawer: React.FC = () => {
               )}
             </div>
             {loadingCurve ? (
-              <LoadingState label="Reconstructing I-V & P-V curves…" />
+              <LoadingState label="Reconstructing I-V & P-V curves…" shape="chart" />
             ) : ivPvSpec ? (
               <PanelChart spec={ivPvSpec} height={300} />
             ) : null}

@@ -8,6 +8,7 @@ import type { StatusLevel } from "../components/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Spinner } from "@/components/ui/spinner";
 
 const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
   1: { label: "Normal", level: "ok" },
@@ -122,7 +123,7 @@ export const GrowattFleetPage: React.FC = () => {
         description={`Plant registry and history from the app database; power and status overlaid live from Growatt (memory cache, not stored). ${liveLabel(growattLiveStatus)}`}
         actions={
           <Button variant="ghost" size="sm" onClick={() => loadPlants()} disabled={loading}>
-            <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            {loading ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />} Refresh
           </Button>
         }
       />
@@ -133,7 +134,7 @@ export const GrowattFleetPage: React.FC = () => {
         </Panel>
       )}
 
-      {!plants && !error && <LoadingState label="Loading plants…" />}
+      {!plants && !error && <LoadingState label="Loading plants…" shape="table" />}
 
       {plants && (
         <>
@@ -210,13 +211,13 @@ export const GrowattFleetPage: React.FC = () => {
               actions={
                 selected && (
                   <Button variant="ghost" size="icon-sm" onClick={() => loadInverters(selected.plant_id)} disabled={invLoading} aria-label="Refresh inverters">
-                    <RefreshCw className={`size-3.5 ${invLoading ? "animate-spin" : ""}`} />
+                    {invLoading ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}
                   </Button>
                 )
               }
             >
               {!selected && <EmptyState icon={Cpu} title="No plant selected" description="Click a plant to list its inverters." />}
-              {selected && invLoading && !inverters && <div className="p-4"><LoadingState label="Fetching inverters…" /></div>}
+              {selected && invLoading && !inverters && <div className="p-4"><LoadingState label="Fetching inverters…" shape="table" /></div>}
               {selected && invError && <EmptyState icon={AlertTriangle} title="Could not load inverters" description={invError} />}
               {selected && inverters && (
                 <Table containerClassName="scroll-x-hint max-h-[640px] overflow-auto">

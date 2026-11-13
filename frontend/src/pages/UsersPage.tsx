@@ -91,7 +91,7 @@ export const UsersPage: React.FC = () => {
 
       <Panel icon={Users} title="Accounts" subtitle="Accounts are disabled, never deleted" bodyClassName="">
         {!users ? (
-          <LoadingState label="Loading users…" />
+          <LoadingState label="Loading users…" shape="table" />
         ) : (
           <Table containerClassName="table-wrap">
               <TableHeader>

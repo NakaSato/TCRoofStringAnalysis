@@ -210,7 +210,7 @@ export const StringLayoutPage: React.FC = () => {
       <SelectedPlantBanner />
 
       {loading || (!layout && !msg) ? (
-        <LoadingState label="Loading string layout…" />
+        <LoadingState label="Loading string layout…" shape="chart" />
       ) : !layout ? (
         msg && <div className="callout-crit">{msg.text}</div>
       ) : (

@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Eye, EyeOff, Loader2, LogIn } from "lucide-react";
+import { Eye, EyeOff, LogIn } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 
 /** Full-screen sign-in, shown whenever there is no valid session. Username + password only. */
 export const LoginPage: React.FC = () => {
@@ -32,11 +33,10 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10 text-slate-200">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-3">
-          <img src="/favicon.svg" alt="TC Renewable" className="h-12 w-12 shrink-0 rounded-xl ring-1 ring-white/10" />
+        <div className="mb-8 flex items-center justify-center text-center">
           <div>
-            <div className="text-lg font-extrabold tracking-tight text-white">GenZ Monitoring</div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
+            <div className="text-2xl font-extrabold tracking-tight text-white">GenZ Monitoring</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
           </div>
         </div>
 
@@ -103,7 +103,7 @@ export const LoginPage: React.FC = () => {
             className="w-full justify-center"
             disabled={submitting || !username.trim() || !password}
           >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
+            {submitting ? <Spinner data-icon="inline-start" className="text-current" /> : <LogIn data-icon="inline-start" className="h-4 w-4" />}
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
         </form>

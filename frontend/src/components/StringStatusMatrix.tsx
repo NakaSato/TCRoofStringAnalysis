@@ -3,6 +3,7 @@ import { Grid3x3 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { Panel, Led, Meter, statusLevel, fmt } from "./ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 
 /**
  * Selected plant's string tiles, grouped by inverter and laid out by MPPT (string n sits on
@@ -188,10 +189,7 @@ export const StringStatusMatrix: React.FC = () => {
               <section key={inv.device_sn} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                   {inv.status == null && !inv.lost ? (
-                    <span
-                      className="h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-slate-500 border-t-sky-300"
-                      title="Loading live status…"
-                    />
+                    <Spinner className="size-3" aria-label="Loading live status…" />
                   ) : (
                     <Led level={lvl} />
                   )}

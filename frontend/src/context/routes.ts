@@ -48,9 +48,9 @@ export const routeData = (pathname: string, admin: boolean): RouteData => {
     // an admin-only page redirects non-admins away: load nothing for it
     const ok = Number.isFinite(plant.plantId) && plant.page != null && (admin || plant.page !== "maintenance");
     return {
-      fleetList: false, // the plant switcher loads it when opened
-      // plant status in the banner is the fleet poll's per-plant status
-      fleetLive: ok,
+      // sidebar fleet card; the banner's plant status is the fleet poll's per-plant status too
+      fleetList: true,
+      fleetLive: true,
       plantId: ok ? plant.plantId : null,
       plantLive: ok && LIVE_PLANT_PAGES.has(plant.page!),
       legacy: admin && plant.page === "maintenance",
@@ -58,8 +58,10 @@ export const routeData = (pathname: string, admin: boolean): RouteData => {
   }
   const top = pathname.replace(/\/+$/, "") || "/";
   return {
-    fleetList: top === "/" || top === "/growatt" || top === "/users",
-    fleetLive: top === "/" || top === "/growatt",
+    // the sidebar's fleet card shows the fleet on every page (list once per session; the live poll
+    // reads the backend's shared memory cache, so it adds no Growatt calls)
+    fleetList: true,
+    fleetLive: true,
     plantId: null,
     plantLive: false,
     legacy: admin && (top === "/she" || top === "/settings"),
