@@ -121,10 +121,22 @@ def _day_bounds(day: date) -> Tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
+def newest_inverter_ts(db: Session, sns: Sequence[str]) -> Optional[datetime]:
+    """Newest stored inverter record of these inverters, or None: one primary-key-ordered lookup
+    per inverter. `max(timestamp) WHERE device_sn IN (…)` lets Postgres walk ix_growatt_inv_ts
+    backwards instead, which reads most of the table for an inverter without recent records."""
+    best: Optional[datetime] = None
+    for sn in dict.fromkeys(sns):
+        ts = db.scalar(
+            select(R.timestamp).where(R.device_sn == sn).order_by(R.device_sn.desc(), R.timestamp.desc()).limit(1)
+        )
+        if ts is not None and (best is None or ts > best):
+            best = ts
+    return best
+
+
 def _latest_reading(db: Session, sns: Sequence[str]) -> Optional[datetime]:
-    if not sns:
-        return None
-    return db.scalar(select(func.max(R.timestamp)).where(R.device_sn.in_(sns)))
+    return newest_inverter_ts(db, sns)
 
 
 class GrowattNotFound(LookupError):
@@ -246,7 +258,7 @@ def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> Li
         return (
             select(col)
             .where(R.device_sn == inv.device_sn, col.is_not(None), *where)
-            .order_by(R.timestamp.desc())
+            .order_by(R.device_sn.desc(), R.timestamp.desc())  # primary-key order, not ix_growatt_inv_ts
             .limit(1)
             .correlate(inv)
             .scalar_subquery()
@@ -1212,7 +1224,7 @@ def build_inverter_timeseries(
         raise GrowattNotFound(f"Inverter {device_sn} not found on plant {plant_id}")
 
     if day is None:
-        latest = db.scalar(select(func.max(R.timestamp)).where(R.device_sn == device_sn))
+        latest = newest_inverter_ts(db, [device_sn])
         day = latest.date() if latest else None
 
     # Capacity share for the modelled envelope: the inverter's own strings when every one
@@ -1317,7 +1329,7 @@ def build_inverter_daily(
         raise GrowattNotFound(f"Inverter {device_sn} not found on plant {plant_id}")
     days = max(1, min(int(days), MAX_TREND_DAYS))
     if end is None:
-        latest = db.scalar(select(func.max(R.timestamp)).where(R.device_sn == device_sn))
+        latest = newest_inverter_ts(db, [device_sn])
         end = latest.date() if latest else date.today()
 
     out: List[Dict[str, Any]] = []

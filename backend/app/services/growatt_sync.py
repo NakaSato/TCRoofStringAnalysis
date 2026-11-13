@@ -418,7 +418,11 @@ def sync_inverter_history(
         n_inv += len(inv_rows)
         n_str += len(str_rows)
     latest = db.scalar(
-        select(func.max(GrowattInverterReading.timestamp)).where(GrowattInverterReading.device_sn == inverter.device_sn)
+        # primary-key order, so Postgres does not walk ix_growatt_inv_ts for an idle inverter
+        select(GrowattInverterReading.timestamp)
+        .where(GrowattInverterReading.device_sn == inverter.device_sn)
+        .order_by(GrowattInverterReading.device_sn.desc(), GrowattInverterReading.timestamp.desc())
+        .limit(1)
     )
     inverter.history_synced_until = latest
     db.commit()
