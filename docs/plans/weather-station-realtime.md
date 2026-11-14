@@ -125,7 +125,8 @@ _Code done 2026-11-13; trial and prod switch-on open. The worker runs jobs one a
 - [x] 3 × 10012 ends an account's sweep; run `partial`
 - [x] Settings keys from §5.5 in `config.py` and `.env.example`
 - [x] Tests: job upserts env rows idempotently alongside `history`; window respected; disabled at 0; `history` start covers it; oldest-first + 10012 stop (`uv run pytest -q`: 214)
-- [ ] Dev trial for one day: compare 10012 counts for `env_data` and inverter `max_data` with the job on vs off
+- [ ] Trial for one day, run on prod instead of dev (a dev worker with the prod tokens would read every sensor a second time and inflate 10012s): `ENV_INTERVAL_MIN=15` in `deploy/gcp.config`, set on the VM 2026-11-14 20:41 Bangkok, so the first full day is 15 Nov 05:00–20:00. Compare 10012 counts for `env_data` and inverter `max_data` (`app_logs` messages containing `10012`) with the job on vs off
+  - Baseline, job off, 14 Nov 00:00–17:30 Bangkok: 8 × 10012, all in `history` (5 `env_data` on 2 sensors, 3 `max_data` on 2 inverters), each retried
 - [ ] Decide interval (10 or 15 min) from the trial, then enable in prod
 
 ### Phase 4: docs & deploy
