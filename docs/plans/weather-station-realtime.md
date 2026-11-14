@@ -133,7 +133,7 @@ _Code done 2026-11-13; trial and prod switch-on open. The worker runs jobs one a
 - [x] `backend/CLAUDE.md`: Worker table (`env_history`) (Weather sensors section: live `interval_s`, `stored_until` done in Phase 2)
 - [x] `frontend/CLAUDE.md`: Weather Station live tail and Overview tile under "Growatt data in the UI"
 - [x] `CLAUDE.md`: data-flow diagram (env history every 10 min, daytime) and Config keys
-- [ ] Deploy backend + worker (VM) and frontend
+- [x] Deploy backend + worker (VM) and frontend (2026-11-14, `deploy/gcp.sh all`, revision `tcroof-api-00024-pl7`)
 - [ ] Verify on prod: open a plant with a sensor at midday; a new point appears on the chart within 6 min; badge shows the sensor time; DB series catches up within 15 min
 
 ## 8. Acceptance criteria
