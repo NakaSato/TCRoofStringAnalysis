@@ -353,6 +353,7 @@ def fleet_ranking(args: FleetRankingIn, ctx: ToolContext, db: Session) -> Dict[s
     yields = _plant_day_yields(db, day, set(plants) if ctx.allowed is not None else None)
     ranked: List[Dict[str, Any]] = []
     no_data: List[Dict[str, Any]] = []
+    zero: List[Dict[str, Any]] = []
     for pid, p in plants.items():
         kwh = yields.get(pid)
         kwp = p.get("peak_power_kwp")
@@ -360,6 +361,10 @@ def fleet_ranking(args: FleetRankingIn, ctx: ToolContext, db: Session) -> Dict[s
             no_data.append({"plant_id": pid, "name": p.get("name")})
             continue
         sy = kwh / kwp if kwp else None
+        if kwh <= 0:
+            # reported 0 kWh all day: offline, switched off or a stuck counter, not a low performer
+            zero.append({"plant_id": pid, "name": p.get("name")})
+            continue
         ranked.append({
             "plant_id": pid,
             "name": p.get("name"),
@@ -388,6 +393,9 @@ def fleet_ranking(args: FleetRankingIn, ctx: ToolContext, db: Session) -> Dict[s
         # no stored yield that day: offline, not synced yet, or no data; never ranked as zero
         "plants_without_data": len(no_data),
         "plants_without_data_sample": no_data[:15],
+        # reported 0 kWh that day (offline, switched off, stuck counter): not ranked; check alarms
+        "plants_zero_yield": len(zero),
+        "plants_zero_yield_sample": zero[:15],
     }
 
 
@@ -670,7 +678,8 @@ _TOOLS: Dict[str, Tuple[type[_In], ToolFn, str]] = {
         fleet_ranking,
         "Rank plants by daily yield (kWh) or specific yield (kWh/kWp) for one stored day (default: the "
         "newest stored day). Values and ranks are computed by the server: quote them, don't recompute. "
-        "Also counts plants with no stored yield that day (never ranked as zero).",
+        "Plants with no stored yield and plants that reported 0 kWh (offline / not producing) are listed "
+        "apart, not ranked; mention them separately.",
     ),
     "inverter_daily": (
         InverterDailyIn,

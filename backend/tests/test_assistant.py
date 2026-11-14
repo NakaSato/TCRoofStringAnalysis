@@ -162,6 +162,19 @@ def test_fleet_ranking_computes_specific_yield_and_keeps_no_data_plants_unranked
     assert r["data_until"] == "2026-11-11 10:59"
 
 
+def test_fleet_ranking_lists_zero_yield_plants_apart(env):
+    from app.db.models import GrowattInverterReading
+
+    with env.Session() as s:
+        s.add(GrowattInverter(device_sn="INVZ", plant_id=OTHER))
+        s.add(GrowattInverterReading(device_sn="INVZ", timestamp=datetime(2026, 11, 11, 12), pac_w=0, ppv_w=0, eac_today_kwh=0.0))
+        s.commit()
+    r = _run(env.Session, "fleet_ranking", {"day": "2026-11-11"})
+    assert [x["plant_id"] for x in r["ranking"]] == [PLANT]  # the 0 kWh plant is not ranked lowest
+    assert r["plants_zero_yield"] == 1 and r["plants_zero_yield_sample"][0]["plant_id"] == OTHER
+    assert r["plants_without_data"] == 0
+
+
 def test_tools_hide_plants_outside_the_scope(env):
     scoped = _ctx(env.Session, allowed={OTHER})
     text, err = run_tool("plant_overview", {"plant_id": PLANT}, scoped)
