@@ -401,6 +401,29 @@ def get_growatt_plant_overview(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/plants/{plant_id}/power")
+def get_growatt_plant_power(
+    plant_id: int,
+    day: date = Query(..., description="Plant-local first day (YYYY-MM-DD)"),
+    end_day: Optional[date] = Query(None, description="Last day of a day range starting at `day` (inclusive, at most 31 days)"),
+    start: Optional[time] = Query(None, description="Plant-local start time (HH:MM, inclusive) on every day"),
+    end: Optional[time] = Query(None, description="Plant-local end time (HH:MM, inclusive) on every day"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """The plant's stored 5-minute AC / DC curve over a day or day range (DB only)."""
+    if start is not None and end is not None and start > end:
+        raise HTTPException(status_code=422, detail="start must not be after end")
+    if end_day is not None and end_day < day:
+        raise HTTPException(status_code=422, detail="end_day must not be before day")
+    try:
+        return ov.build_plant_power(db, plant_id, day, end_day=end_day, start_time=start, end_time=end)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/plants/{plant_id}/inverters/{device_sn}/timeseries")
 def get_growatt_inverter_timeseries(
     plant_id: int,

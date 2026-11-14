@@ -202,6 +202,7 @@ export const StringDetailPage: React.FC = () => {
               shownEndDay={detail?.meta.end_day ?? null}
               today={today}
               loading={loading}
+              hint="Or drag across the 5-min profile chart."
             />
             <Tooltip>
               <TooltipTrigger asChild>

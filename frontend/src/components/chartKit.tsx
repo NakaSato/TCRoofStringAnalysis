@@ -1,5 +1,5 @@
 /** Building blocks shared by every D3 chart: colours, sizing, tooltip. */
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SERIES } from "./chartTheme";
 
 /* -------------------------------------------------------------------------- */
@@ -18,17 +18,33 @@ export const C = {
 export const TICK_FONT = 12;
 
 /** Width of the container, kept in sync with ResizeObserver. */
-export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
-  const ref = useRef<T | null>(null);
+/** A ref that is both a callback (so the hook sees the element change) and has `.current`. */
+export type ElementRef<T> = ((node: T | null) => void) & { current: T | null };
+
+/**
+ * Width of the element the returned ref is attached to, kept current with a ResizeObserver. The ref
+ * is a callback ref: a component that renders a different element (e.g. a loading placeholder,
+ * then the chart) gets the new one observed; an object ref + mount-only effect would keep
+ * watching the detached placeholder and report width 0, so the chart drew nothing.
+ */
+export function useWidth<T extends HTMLElement>(): [ElementRef<T>, number] {
+  const [el, setEl] = useState<T | null>(null);
   const [width, setWidth] = useState(0);
+  const ref = useMemo(() => {
+    const f = ((node: T | null) => {
+      f.current = node;
+      setEl(node);
+    }) as ElementRef<T>;
+    f.current = null;
+    return f;
+  }, []);
   useLayoutEffect(() => {
-    const el = ref.current;
     if (!el) return;
     setWidth(el.clientWidth);
     const ro = new ResizeObserver(([e]) => setWidth(Math.floor(e.contentRect.width)));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [el]);
   return [ref, width];
 }
 

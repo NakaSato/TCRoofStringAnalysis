@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import statistics
 import threading
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import date, datetime, time, timedelta
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ from app.db.models import (
 
 from app.services.growatt_common import GrowattNotFound, INACTIVE_MAX_A, MAX_DC_AC_RATIO, MAX_GAP_H, R, S, SAMPLE_H, _bucket, _day_bounds, _expected_kw, _fmt_ts, _get_plant, _integrate_kwh, _latest_reading, _max, _mean, _round, capacity_check, inverter_out, newest_inverter_ts, plant_coords, plant_phase, plant_rated_ac_w, plausible_capacity_kwp  # noqa: F401 (re-export)
 from app.services.growatt_layout import LAYOUT_SEEN_LOOKBACK, Layout, WIRED_CACHE_S, WIRED_LOOKBACK, _wired_cache, get_string_layout, load_layout, newest_string_ts, put_string_layout, wired_inputs  # noqa: F401 (re-export)
-from app.services.growatt_strings import DEAD_LOOKBACK, DEAD_PEER_MIN_A, _classify_strings, _split_inactive, _synthesize_iv_pv_curve, build_string_detail  # noqa: F401 (re-export)
+from app.services.growatt_strings import MAX_RANGE_DAYS, DEAD_LOOKBACK, DEAD_PEER_MIN_A, _classify_strings, _split_inactive, _synthesize_iv_pv_curve, build_string_detail  # noqa: F401 (re-export)
 from app.services.growatt_inverter_history import MAX_TREND_DAYS, build_inverter_daily, build_inverter_timeseries  # noqa: F401 (re-export)
 
 
@@ -157,6 +157,69 @@ def list_inverters(db: Session, plant_id: int) -> List[Dict[str, Any]]:
     return [inverter_out(inv) for inv in invs]
 
 
+def _plant_curve(raw: Sequence[Any], cap_kwp: Optional[float]) -> List[Dict[str, Any]]:
+    """The plant's 5-minute curve from stored records `(sn, ts, pac_w, ppv_w, temp, fac, eac)`,
+    ordered by inverter then time (any number of days)."""
+    out: List[Dict[str, Any]] = []
+    # 5-minute plant curve, bucketed in Python (portable across SQLite / PostgreSQL).
+    # Each inverter's samples are averaged within the slot first, then summed across
+    # inverters, so 1-minute reporters are not counted five times.
+    per_inv: Dict[Tuple[datetime, str], Dict[str, List[float]]] = {}
+    for sn, ts, pac, ppv, temp, fac, _eac in raw:
+        b = per_inv.setdefault((_bucket(ts), sn), {"pac": [], "ppv": [], "temp": [], "fac": []})
+        b["pac"].append(pac or 0.0)
+        b["ppv"].append(ppv or 0.0)
+        if temp is not None and temp > 0:
+            b["temp"].append(temp)
+        if fac is not None and fac > 40:
+            b["fac"].append(fac)
+    buckets: Dict[datetime, Dict[str, List[float]]] = {}
+    for (ts, _sn), b in per_inv.items():
+        slot = buckets.setdefault(ts, {"pac": [], "ppv": [], "temp": [], "fac": [], "held": []})
+        slot["pac"].append(statistics.mean(b["pac"]))
+        slot["ppv"].append(statistics.mean(b["ppv"]))
+        slot["temp"].extend(b["temp"])
+        slot["fac"].extend(b["fac"])
+    # Inverters report every 4-5 min, so a record often drifts past a slot edge and the slot
+    # misses that inverter, making the plant sum dip. A missing inverter keeps its own last
+    # slot value for up to MAX_GAP_H (as energy integration credits a reading), in slots that
+    # exist anyway; never longer, never another inverter's value. `held` counts these.
+    hold = timedelta(hours=MAX_GAP_H)
+    last: Dict[str, Tuple[datetime, float, float]] = {}
+    by_slot: Dict[datetime, Set[str]] = {}
+    for t, sn in per_inv:
+        by_slot.setdefault(t, set()).add(sn)
+    for ts in sorted(buckets):
+        for sn in by_slot[ts]:
+            b = per_inv[(ts, sn)]
+            last[sn] = (ts, statistics.mean(b["pac"]), statistics.mean(b["ppv"]))
+        for sn, (t, pac, ppv) in last.items():
+            if sn not in by_slot[ts] and ts - t <= hold:
+                buckets[ts]["pac"].append(pac)
+                buckets[ts]["ppv"].append(ppv)
+                buckets[ts]["held"].append(1.0)
+    for ts in sorted(buckets):
+        b = buckets[ts]
+        hr = ts.hour + ts.minute / 60.0
+        expected_kw = _expected_kw(cap_kwp, hr)
+        pac_kw = round(sum(b["pac"]) / 1000.0, 2)
+        ppv_kw = round(sum(b["ppv"]) / 1000.0, 2)
+        out.append(
+            {
+                "timestamp": _fmt_ts(ts),
+                "pac_kw": pac_kw,
+                "ppv_kw": ppv_kw,
+                "expected_kw": expected_kw,
+                "temp_c": _round(_mean(b["temp"]), 1),
+                "freq_hz": _round(_mean(b["fac"]), 2),
+                # inverters in the sum (measured + held); a sum over fewer than the plant has is low
+                "inverters": len(b["pac"]),
+                "held": len(b["held"]),
+            }
+        )
+    return out
+
+
 def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None) -> Dict[str, Any]:
     """Single-plant overview for one day (default: latest day with data)."""
     """Single-plant overview for one day from persisted max_data history.
@@ -240,62 +303,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         ):
             latest_mppt[sn] = {"latest_pac_kw": _round((pac or 0.0) / 1000.0, 2), "mppt_json": mppt or []}
 
-        # 5-minute plant curve, bucketed in Python (portable across SQLite / PostgreSQL).
-        # Each inverter's samples are averaged within the slot first, then summed across
-        # inverters, so 1-minute reporters are not counted five times.
-        per_inv: Dict[Tuple[datetime, str], Dict[str, List[float]]] = {}
-        for sn, ts, pac, ppv, temp, fac, _eac in raw:
-            b = per_inv.setdefault((_bucket(ts), sn), {"pac": [], "ppv": [], "temp": [], "fac": []})
-            b["pac"].append(pac or 0.0)
-            b["ppv"].append(ppv or 0.0)
-            if temp is not None and temp > 0:
-                b["temp"].append(temp)
-            if fac is not None and fac > 40:
-                b["fac"].append(fac)
-        buckets: Dict[datetime, Dict[str, List[float]]] = {}
-        for (ts, _sn), b in per_inv.items():
-            slot = buckets.setdefault(ts, {"pac": [], "ppv": [], "temp": [], "fac": [], "held": []})
-            slot["pac"].append(statistics.mean(b["pac"]))
-            slot["ppv"].append(statistics.mean(b["ppv"]))
-            slot["temp"].extend(b["temp"])
-            slot["fac"].extend(b["fac"])
-        # Inverters report every 4-5 min, so a record often drifts past a slot edge and the slot
-        # misses that inverter, making the plant sum dip. A missing inverter keeps its own last
-        # slot value for up to MAX_GAP_H (as energy integration credits a reading), in slots that
-        # exist anyway; never longer, never another inverter's value. `held` counts these.
-        hold = timedelta(hours=MAX_GAP_H)
-        last: Dict[str, Tuple[datetime, float, float]] = {}
-        by_slot: Dict[datetime, Set[str]] = {}
-        for t, sn in per_inv:
-            by_slot.setdefault(t, set()).add(sn)
-        for ts in sorted(buckets):
-            for sn in by_slot[ts]:
-                b = per_inv[(ts, sn)]
-                last[sn] = (ts, statistics.mean(b["pac"]), statistics.mean(b["ppv"]))
-            for sn, (t, pac, ppv) in last.items():
-                if sn not in by_slot[ts] and ts - t <= hold:
-                    buckets[ts]["pac"].append(pac)
-                    buckets[ts]["ppv"].append(ppv)
-                    buckets[ts]["held"].append(1.0)
-        for ts in sorted(buckets):
-            b = buckets[ts]
-            hr = ts.hour + ts.minute / 60.0
-            expected_kw = _expected_kw(cap_kwp, hr)
-            pac_kw = round(sum(b["pac"]) / 1000.0, 2)
-            ppv_kw = round(sum(b["ppv"]) / 1000.0, 2)
-            timeseries.append(
-                {
-                    "timestamp": _fmt_ts(ts),
-                    "pac_kw": pac_kw,
-                    "ppv_kw": ppv_kw,
-                    "expected_kw": expected_kw,
-                    "temp_c": _round(_mean(b["temp"]), 1),
-                    "freq_hz": _round(_mean(b["fac"]), 2),
-                    # inverters in the sum (measured + held); a sum over fewer than the plant has is low
-                    "inverters": len(b["pac"]),
-                    "held": len(b["held"]),
-                }
-            )
+        timeseries = _plant_curve(raw, cap_kwp)
 
         # 2. Per-string aggregates
         mppt_max: Dict[str, int] = {}
@@ -516,4 +524,62 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         # `strings` so KPIs and diagnostics only cover connected strings.
         "inactive_strings": inactive_strings,
         "anomalies": anomalies[:40],
+    }
+
+
+def build_plant_power(
+    db: Session,
+    plant_id: int,
+    day: date,
+    end_day: Optional[date] = None,
+    start_time: Optional[time] = None,
+    end_time: Optional[time] = None,
+) -> Dict[str, Any]:
+    """The plant's stored 5-minute AC / DC curve for `day`..`end_day` (both inclusive, at most
+    MAX_RANGE_DAYS), optionally narrowed to a plant-local time-of-day window on every day. DB only.
+    `daily` = each day's AC energy integrated from the records (null for a day with none)."""
+    plant = _get_plant(db, plant_id)
+    last_day = end_day if end_day is not None and end_day > day else day
+    if (last_day - day).days + 1 > MAX_RANGE_DAYS:
+        raise ValueError(f"A day range covers at most {MAX_RANGE_DAYS} days")
+    sns = list(db.scalars(select(GrowattInverter.device_sn).where(GrowattInverter.plant_id == plant_id)))
+    cap_kwp, _ = capacity_check(db, plant)
+    rated_w = plant_rated_ac_w(db, [plant_id]).get(plant_id)
+    raw: List[Any] = []
+    if sns:
+        start, _ = _day_bounds(day)
+        _, end = _day_bounds(last_day)
+        raw = list(
+            db.execute(
+                select(R.device_sn, R.timestamp, R.pac_w, R.ppv_w, R.temperature_c, R.fac_hz, R.eac_today_kwh)
+                .where(R.device_sn.in_(sns), R.timestamp >= start, R.timestamp < end)
+                .order_by(R.device_sn, R.timestamp)
+            ).all()
+        )
+    if start_time is not None or end_time is not None:
+        lo = start_time or time.min
+        hi = end_time or time.max
+        # inclusive 5-min slots: a record at 10:04 belongs to the 10:00 slot
+        raw = [r for r in raw if lo <= _bucket(r[1]).time() <= hi]
+    per_day: Dict[date, Dict[str, List[Tuple[datetime, Any]]]] = {}
+    for r in raw:
+        per_day.setdefault(r[1].date(), {}).setdefault(r[0], []).append((r[1], r[2]))
+    daily = []
+    d = day
+    while d <= last_day:
+        inv = per_day.get(d)
+        daily.append({"day": d.isoformat(), "energy_kwh": round(sum(_integrate_kwh(v) for v in inv.values()), 2) if inv else None})
+        d += timedelta(days=1)
+    return {
+        "meta": {
+            "source": "db",
+            "day": day.isoformat(),
+            "end_day": last_day.isoformat(),
+            "window": [start_time.strftime("%H:%M") if start_time else None, end_time.strftime("%H:%M") if end_time else None],
+        },
+        "plant_id": plant_id,
+        "inverter_count": len(sns),
+        "rated_ac_kw": _round(rated_w / 1000.0, 1) if rated_w else None,
+        "timeseries": _plant_curve(raw, cap_kwp),
+        "daily": daily,
     }
