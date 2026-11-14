@@ -130,7 +130,8 @@ const ALL = "all";
 
 /**
  * Growatt alarm log of every plant the user can see, for one plant-local day. One DB read
- * (`/growatt/alarms`): the worker syncs each inverter's log into SQL every 30 min in the daytime.
+ * (`/growatt/alarms`): the worker syncs inverters' logs into SQL in the daytime by tier (open
+ * alarm or fault every 10 min, alarms today 30 min, none today 60 min).
  * Repeated reports are grouped into events (see `EVENT_GAP_MIN`).
  */
 export const ActiveAlarmPage: React.FC = () => {
@@ -303,8 +304,14 @@ export const ActiveAlarmPage: React.FC = () => {
   };
 
 
-  /** today's log not re-read for over an hour: the worker is behind (it syncs every 30 min) */
-  const stale = isToday && result?.syncedAt != null && Date.now() - Date.parse(result.syncedAt) > 60 * 60000;
+  /** today's next sync is 20 min overdue (the worker is busy or down); without the schedule (an
+   * older API), the newest read is over an hour old */
+  const STALE_MS = 20 * 60000;
+  const stale =
+    isToday &&
+    (result?.nextRunAt != null
+      ? Date.now() - Date.parse(result.nextRunAt) > STALE_MS
+      : result?.syncedAt != null && Date.now() - Date.parse(result.syncedAt) > 60 * 60000);
   const syncVariant = error && !result ? "crit" : !result ? "neutral" : stale || unsynced.length || partly.length ? "warn" : "ok";
   const notSynced = unsynced.length + partly.length;
   const historyBehind = isToday ? sensorAlarms.sensors.filter((x) => x.allFlags.some((f) => f.code === "stale_history")).length : 0;
@@ -333,7 +340,8 @@ export const ActiveAlarmPage: React.FC = () => {
                   <p>
                     {fmtInt(syncedCount)} of {fmtInt(plants.length)} plants read for {day}
                   </p>
-                  {stale && <p>Last sync over an hour ago: open alarms are as of then</p>}
+                  {stale && <p>The worker's alarm sync is behind: open alarms are as of {syncText}</p>}
+                  {isToday && <p>Open alarms and faults re-read every 10 min, other inverters hourly</p>}
                   {historyBehind > 0 && <p>{historyBehind} weather sensors' stored history is behind</p>}
                   {unsynced.length > 0 && <p>{unsynced.length} not read yet</p>}
                   {partly.length > 0 && <p>{partly.length} partly read</p>}

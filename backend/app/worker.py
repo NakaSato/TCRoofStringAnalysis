@@ -20,8 +20,10 @@ Schedule (plant-local time, Asia/Bangkok):
     retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
     google_weather     18:15   Google Maps Weather: today's 06–17 h hourly (13 h lookback), one call per
                                plant cell; then re-publishes yesterday's daily docs
-    alarms             every WORKER_ALARMS_INTERVAL_MIN (30) min, WORKER_ALARMS_START_H..END_H (05–21)
-                               today's alarm_data per inverter → SQL (Active Alarm page)
+    alarms             every WORKER_ALARMS_TICK_MIN (10) min, WORKER_ALARMS_START_H..END_H (05–20),
+                               not 09:20–09:31 / 13:20–13:31 / 17:20–17:31 (PWA history + publish):
+                               today's alarm_data → SQL (Active Alarm page) for the inverters due
+                               by tier: hot 10 min, warm 30 min, cold 60 min (growatt_alarms.Tiers)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
     env_history        every WORKER_ENV_INTERVAL_MIN (10) min, WORKER_ENV_START_H..END_H (05–20)
                                weather-sensor env_data only (0 = off); a `history` start counts as
@@ -63,6 +65,7 @@ UNTAGGED_RETRY = timedelta(hours=6)  # bounded: a plant no account lists stays u
 # abandoned): its plants keep a stale registry and no weather sensors until fleet succeeds
 FLEET_RETRY = timedelta(hours=6)
 PWA_HISTORY_LEAD_MIN = 5  # history pull this many minutes before each check's publish
+ALARMS_PWA_GAP_MIN = 5  # no `alarms` start this many minutes before a PWA history pull
 
 
 @dataclass(frozen=True)
@@ -74,14 +77,18 @@ class Schedule:
     between: Optional[Tuple[int, int]] = None
     # `every` jobs only: other jobs whose start also counts as a run of this one (they do its work too)
     covered_by: Tuple[str, ...] = ()
+    # `every` jobs only: plant-local [from, to) windows the job does not start in
+    skip: Tuple[Tuple[dtime, dtime], ...] = ()
 
     def is_due(self, now: datetime, last: Optional[datetime]) -> bool:
         """`now` and `last` are timezone-aware."""
         if self.every is not None:
-            if self.between is not None:
-                h = now.astimezone(jobs.PLANT_TZ).hour
-                if not (self.between[0] <= h < self.between[1]):
-                    return False
+            local = now.astimezone(jobs.PLANT_TZ)
+            if self.between is not None and not (self.between[0] <= local.hour < self.between[1]):
+                return False
+            t = local.time()
+            if any(a <= t < b for a, b in self.skip):
+                return False
             return last is None or now - last >= self.every
         assert self.at is not None
         local = now.astimezone(jobs.PLANT_TZ)
@@ -107,8 +114,13 @@ def default_schedule() -> List[Schedule]:
         Schedule("google_weather", at=dtime(18, 15)),
         Schedule(
             "alarms",
-            every=timedelta(minutes=settings.worker_alarms_interval_min),
+            every=timedelta(minutes=settings.worker_alarms_tick_min),
             between=(settings.worker_alarms_start_h, settings.worker_alarms_end_h),
+            # keep the worker free for each PWA check's history pull (hh:25) and publish (hh:30)
+            skip=tuple(
+                (dtime(h, PWA_PUBLISH_MIN - PWA_HISTORY_LEAD_MIN - ALARMS_PWA_GAP_MIN), dtime(h, PWA_PUBLISH_MIN + 1))
+                for h in PWA_CHECK_HOURS
+            ),
         ),
         Schedule("alarms_yesterday", at=dtime(0, 30)),
         *(

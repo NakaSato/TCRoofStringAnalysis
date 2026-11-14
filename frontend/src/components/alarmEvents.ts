@@ -53,7 +53,9 @@ export interface AlarmEvent {
   minutes: number | null;
 }
 
-export function toEvents(rows: AlarmRow[], openSince: Map<number, number>): AlarmEvent[] {
+/** `openSince(row)`: epoch ms (plant-local) from which a last report counts as still present;
+ * undefined = the row's alarm can only be open when Growatt gave no end time. */
+export function toEvents(rows: AlarmRow[], openSince: (a: AlarmRow) => number | undefined): AlarmEvent[] {
   const sorted = [...rows].sort(
     (a, b) =>
       a.plant_id - b.plant_id ||
@@ -63,12 +65,11 @@ export function toEvents(rows: AlarmRow[], openSince: Map<number, number>): Alar
       (a.start_time ?? "").localeCompare(b.start_time ?? "")
   );
   const out: AlarmEvent[] = [];
-  let cur: (AlarmEvent & { noEnd: boolean; group: string }) | null = null;
+  let cur: (AlarmEvent & { noEnd: boolean; group: string; since: number | undefined }) | null = null;
   const flush = () => {
     if (!cur) return;
     const span = ms(cur.last) - ms(cur.start);
-    const since = openSince.get(cur.plant_id);
-    const { noEnd, group: _g, ...e } = cur;
+    const { noEnd, group: _g, since, ...e } = cur;
     out.push({
       ...e,
       open: noEnd || (since != null && ms(cur.last) >= since),
@@ -83,6 +84,7 @@ export function toEvents(rows: AlarmRow[], openSince: Map<number, number>): Alar
       cur.reports++;
       if (end && end > (cur.last ?? "")) cur.last = end;
       cur.noEnd ||= !a.end_time;
+      cur.since = openSince(a) ?? cur.since;
       continue;
     }
     flush();
@@ -101,6 +103,7 @@ export function toEvents(rows: AlarmRow[], openSince: Map<number, number>): Alar
       last: end,
       reports: 1,
       noEnd: !a.end_time,
+      since: openSince(a),
       open: false,
       minutes: null,
     };
@@ -110,13 +113,17 @@ export function toEvents(rows: AlarmRow[], openSince: Map<number, number>): Alar
 }
 
 /** The day's inverter alarm events; today, an event still reported within EVENT_GAP_MIN of its
- * plant's last read is open. */
+ * inverter's last read is open. Per inverter, not per plant: the worker re-reads inverters on
+ * different tiers (10 / 30 / 60 min), so a plant's oldest read says nothing about another inverter. */
 export function inverterEvents(result: AlarmLogResult | null, isToday: boolean): AlarmEvent[] {
   if (!result) return [];
-  const openSince = new Map<number, number>();
-  if (isToday)
-    for (const p of result.plants) if (p.synced_at) openSince.set(p.plant_id, ms(toPlantLocal(p.synced_at)) - EVENT_GAP_MIN * 60000);
-  return toEvents(result.rows, openSince);
+  // older API without per-row read_at: fall back to the plant's oldest read
+  const plantRead = new Map(result.plants.map((p) => [p.plant_id, p.synced_at] as const));
+  return toEvents(result.rows, (a) => {
+    if (!isToday) return undefined;
+    const at = a.read_at ?? plantRead.get(a.plant_id);
+    return at ? ms(toPlantLocal(at)) - EVENT_GAP_MIN * 60000 : undefined;
+  });
 }
 
 /** Event starts per plant-local hour, stacked by level; null when no event has a start time. */

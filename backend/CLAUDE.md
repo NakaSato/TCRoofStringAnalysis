@@ -138,7 +138,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 | `publish_today` | 19:30 |
 | `retention` | 03:00: deletes raw inverter, string and weather readings (Growatt and Google) older than `HISTORY_RETENTION_DAYS` (90), and `app_logs` older than `LOG_RETENTION_DAYS` (14) or beyond `LOG_MAX_ROWS` (`detail.log_rows`) |
 | `google_weather` | 18:15: Google Maps Weather, today's daytime hours (13 h) per plant cell, then re-publishes yesterday |
-| `alarms` | every `WORKER_ALARMS_INTERVAL_MIN` (30) min, 05:00–21:00 (`WORKER_ALARMS_START_H`/`_END_H`): today's `alarm_data` per inverter → SQL |
+| `alarms` | every `WORKER_ALARMS_TICK_MIN` (10) min, 05:00–20:00 (`WORKER_ALARMS_START_H`/`_END_H`), not 09/13/17:20–:31 (PWA checks): today's `alarm_data` → SQL for the inverters due by tier (`growatt_alarms.Tiers`): hot = open alarm or newest `max_data` status 3 (10 min), warm = alarms today (30 min), cold = none today (60 min, at most 1.5× their share per tick) |
 | `alarms_yesterday` | 00:30: yesterday's alarm log once more (evening alarms, late closings) |
 | `env_history` | every `WORKER_ENV_INTERVAL_MIN` (10) min, 05:00–20:00 (`WORKER_ENV_START_H`/`_END_H`; 0 = off): weather-sensor `env_data` only, so the stored day lags the sensor by ≤ ~15 min. A `history` start counts as a run (`Schedule.covered_by`; `history` syncs the sensors too). Sensors go never-synced / oldest-stored first, no retries; 3 consecutive 10012s end that account's sweep (run `partial`) |
 

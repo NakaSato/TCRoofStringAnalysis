@@ -173,12 +173,25 @@ def job_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
     )
 
 
-def _alarms(db: Session, day: date) -> Tuple[str, Dict[str, Any]]:
+def alarm_tiers() -> Any:
+    from app.services.growatt_alarms import Tiers
+
+    return Tiers(
+        hot=timedelta(minutes=settings.worker_alarms_hot_min),
+        warm=timedelta(minutes=settings.worker_alarms_warm_min),
+        cold=timedelta(minutes=settings.worker_alarms_cold_min),
+        tick=timedelta(minutes=settings.worker_alarms_tick_min),
+    )
+
+
+def _alarms(db: Session, day: date, tiered: bool = False) -> Tuple[str, Dict[str, Any]]:
     from app.services.growatt_alarms import sync_alarms
     from app.services.growatt_sync import _inverters_query
 
+    tiers = alarm_tiers() if tiered else None
+
     def one(db: Session, c: GrowattClient, phase: int, untagged: bool) -> Dict[str, Any]:
-        return sync_alarms(db, c, day, list(db.scalars(_inverters_query(phase, untagged))))
+        return sync_alarms(db, c, day, list(db.scalars(_inverters_query(phase, untagged))), tiers=tiers)
 
     status, detail = _per_phase(db, one)
     detail["day"] = day.isoformat()
@@ -186,8 +199,9 @@ def _alarms(db: Session, day: date) -> Tuple[str, Dict[str, Any]]:
 
 
 def job_alarms(db: Session) -> Tuple[str, Dict[str, Any]]:
-    """Today's Growatt alarm log of every inverter → SQL (replaces each inverter-day)."""
-    return _alarms(db, _today())
+    """Today's Growatt alarm log → SQL (replaces each inverter-day), only the inverters due by
+    tier: hot (open alarm / fault status) often, cold (no alarms today) rarely."""
+    return _alarms(db, _today(), tiered=True)
 
 
 def job_alarms_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:

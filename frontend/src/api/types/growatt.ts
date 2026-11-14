@@ -80,9 +80,17 @@ export interface FleetAlarmPlant {
 /** /growatt/alarms — stored alarm log of every visible plant for one plant-local day (DB only). */
 export interface FleetAlarmDay {
   day: string;
-  alarms: Array<GrowattAlarm & { plant_id: number; plant_name: string }>;
+  /** `read_at`: when this inverter's log was last read (UTC ISO), the reference for "still open" */
+  alarms: Array<GrowattAlarm & { plant_id: number; plant_name: string; read_at?: string | null }>;
   plants: FleetAlarmPlant[];
-  meta: { source: "db"; synced_at: string | null };
+  meta: {
+    source: "db";
+    synced_at: string | null;
+    /** when the worker's `alarms` job last started (UTC ISO) */
+    last_run_at?: string | null;
+    /** when it will next start (UTC ISO); today only */
+    next_run_at?: string | null;
+  };
 }
 
 export interface GrowattLivePlant {

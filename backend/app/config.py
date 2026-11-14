@@ -70,11 +70,16 @@ class Settings(BaseSettings):
     publish_sink: str = "json"  # json (data/firestore_export) | firestore
     worker_history_interval_min: int = 30
     # Growatt alarm log (`alarm_data`, one call per inverter) → SQL, so the Active Alarm page
-    # reads the whole fleet from the DB. Today is re-read on this interval between
-    # WORKER_ALARMS_START_H and _END_H (plant-local); `alarms_yesterday` closes the day at 00:30.
-    worker_alarms_interval_min: int = 30
+    # reads the whole fleet from the DB. The `alarms` job runs every WORKER_ALARMS_TICK_MIN between
+    # WORKER_ALARMS_START_H and _END_H (plant-local) and reads only the inverters due by tier:
+    # hot (open alarm today / fault status) every _HOT_MIN, warm (alarms today, all closed) every
+    # _WARM_MIN, cold (no alarms today) every _COLD_MIN. `alarms_yesterday` closes the day at 00:30.
+    worker_alarms_tick_min: int = 10
+    worker_alarms_hot_min: int = 10
+    worker_alarms_warm_min: int = 30
+    worker_alarms_cold_min: int = 60
     worker_alarms_start_h: int = 5
-    worker_alarms_end_h: int = 21
+    worker_alarms_end_h: int = 20
     # Weather-sensor history only (`env_history`), every WORKER_ENV_INTERVAL_MIN between
     # WORKER_ENV_START_H and _END_H (plant-local; irradiance is 0 at night, `history` still
     # covers env every 30 min). 0 disables the job.
