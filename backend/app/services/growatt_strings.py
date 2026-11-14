@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
@@ -17,6 +17,11 @@ from sqlalchemy.orm import Session
 
 from app.services.growatt_common import GrowattNotFound, S, SAMPLE_H, _bucket, _day_bounds, _fmt_ts, _get_plant, _integrate_kwh, _mean, _round
 from app.services.growatt_layout import Layout, load_layout, newest_string_ts
+
+
+MAX_RANGE_DAYS = 31
+# measured points sent for the I-V / P-V chart (a whole day of 5-min records fits: ≈ 150)
+SCATTER_MAX_POINTS = 200
 
 
 def _synthesize_iv_pv_curve(
@@ -262,10 +267,22 @@ def _split_inactive(
 
 
 def build_string_detail(
-    db: Session, plant_id: int, device_sn: str, string_no: int, day: Optional[date] = None
+    db: Session,
+    plant_id: int,
+    device_sn: str,
+    string_no: int,
+    day: Optional[date] = None,
+    start_time: Optional[time] = None,
+    end_time: Optional[time] = None,
+    end_day: Optional[date] = None,
 ) -> Dict[str, Any]:
-    """Stored telemetry for one string on one day, plus modelled I-V / P-V curves."""
-    """Stored telemetry for one string on one day, plus modelled I-V / P-V curves."""
+    """Stored telemetry for one string on one day, plus modelled I-V / P-V curves.
+
+    `end_day` (with `day`) makes it a day range, both inclusive, at most `MAX_RANGE_DAYS`: the
+    series, curves, MPP and energy cover every day of it, and `daily` holds each day's energy.
+    `start_time` / `end_time` (plant-local, both inclusive, matched on the 5-minute slot) narrow
+    everything (series, curves, MPP, energy, PR) to that time-of-day window (`meta.window`), on
+    every day of a range."""
     plant = _get_plant(db, plant_id)
 
     if day is None:
@@ -273,7 +290,11 @@ def build_string_detail(
         day = latest.date() if latest else None
     if day is None:
         raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no}")
-    start, end = _day_bounds(day)
+    last_day = end_day if end_day is not None and end_day > day else day
+    if (last_day - day).days + 1 > MAX_RANGE_DAYS:
+        raise ValueError(f"A day range covers at most {MAX_RANGE_DAYS} days")
+    start, _ = _day_bounds(day)
+    _, end = _day_bounds(last_day)
     in_day = (S.device_sn == device_sn, S.timestamp >= start, S.timestamp < end)
 
     rows = db.execute(
@@ -281,8 +302,17 @@ def build_string_detail(
         .where(*in_day, S.string_no == string_no)
         .order_by(S.timestamp)
     ).all()
+    windowed = start_time is not None or end_time is not None
+    lo, hi = start_time or time.min, end_time or time.max
+
+    def in_window(ts: datetime) -> bool:
+        return not windowed or lo <= _bucket(ts).time() <= hi
+
+    rows = [r for r in rows if in_window(r[0])]
     if not rows:
-        raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no} on {day}")
+        where = f" between {lo:%H:%M} and {hi:%H:%M}" if windowed else ""
+        when = f"{day} to {last_day}" if last_day != day else f"{day}"
+        raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no} on {when}{where}")
 
     # Peer (other strings, same inverter) mean per 5-minute slot. With every module count known,
     # peer voltage / power are scaled to this string's size (current is not: series string).
@@ -291,6 +321,7 @@ def build_string_detail(
             *in_day, S.string_no != string_no, S.current_a > 0.1
         )
     ).all()
+    peer_rows = [r for r in peer_rows if in_window(r[0])]
     layout = load_layout(db, [device_sn])
     own = layout.get((device_sn, string_no))
     peer_nos = {int(r[1]) for r in peer_rows}
@@ -374,22 +405,48 @@ def build_string_detail(
         nominal_curve = _synthesize_iv_pv_curve(v_oc_nom, i_sc_nom, v_mpp_nom, i_mpp_nom)
         mpp_nominal = {"v": v_mpp_nom, "i": i_mpp_nom, "p": round(v_mpp_nom * i_mpp_nom, 1)}
 
+    # Measured operating points for the I-V / P-V chart: at most SCATTER_MAX_POINTS producing records,
+    # thinned evenly (a range, 1-min inverters), always keeping the peak-power record (the measured MPP).
     active_pts = [pt for pt in timeseries if pt["voltage_v"] > 100 and pt["current_a"] > 0.1]
-    step = max(1, len(active_pts) // 60)
+    step = max(1, math.ceil(len(active_pts) / SCATTER_MAX_POINTS))
+    picked = active_pts[::step]
+    if active_pts and best_row not in picked and best_row in active_pts:
+        picked = sorted([*picked, best_row], key=lambda pt: pt["timestamp"])
     scatter_pts = [
         {"v": pt["voltage_v"], "i": pt["current_a"], "p": pt["power_w"], "timestamp": pt["timestamp"]}
-        for pt in active_pts[::step]
+        for pt in picked
     ]
 
     energy_kwh = round(_integrate_kwh((r[0], r[4]) for r in rows), 2)
     # Mean peer power per 5-minute slot × slot length ≈ energy of an average peer string.
     peer_energy_kwh = round(sum(v[2] for v in peer_map.values()) * SAMPLE_H / 1000.0, 2) if peer_map else None
-    pr_pct = (
-        round(min(96.5, max(0.0, 88.5 * min(1.08, energy_kwh / peer_energy_kwh))), 1) if peer_energy_kwh else None
-    )
+
+    def _pr(e: float, peer_e: Optional[float]) -> Optional[float]:
+        return round(min(96.5, max(0.0, 88.5 * min(1.08, e / peer_e))), 1) if peer_e else None
+
+    pr_pct = _pr(energy_kwh, peer_energy_kwh)
+
+    # Each day of the range (one entry for a single day): energy vs. the average peer string.
+    daily: List[Dict[str, Any]] = []
+    d = day
+    while d <= last_day:
+        d_rows = [(r[0], r[4]) for r in rows if r[0].date() == d]
+        d_peer = [v[2] for ts, v in peer_map.items() if ts.date() == d]
+        e = round(_integrate_kwh(d_rows), 2) if d_rows else None
+        pe = round(sum(d_peer) * SAMPLE_H / 1000.0, 2) if d_peer else None
+        daily.append({"day": d.isoformat(), "energy_kwh": e, "peer_energy_kwh": pe, "pr_pct": _pr(e, pe) if e is not None else None})
+        d += timedelta(days=1)
 
     return {
-        "meta": {"source": "db", "day": day.isoformat()},
+        "meta": {
+            "source": "db",
+            "day": day.isoformat(),
+            # last day of a range (None = one day)
+            "end_day": last_day.isoformat() if last_day != day else None,
+            "window": {"start": start_time.strftime("%H:%M") if start_time else None, "end": end_time.strftime("%H:%M") if end_time else None}
+            if windowed
+            else None,
+        },
         "plant_id": plant.plant_id,
         "plant_name": plant.name,
         "device_sn": device_sn,
@@ -415,6 +472,7 @@ def build_string_detail(
             "pr_pct": pr_pct,
         },
         "timeseries": timeseries,
+        "daily": daily,
         "iv_pv_curve": {
             "nominal_points": nominal_curve,
             "actual_points": actual_curve,

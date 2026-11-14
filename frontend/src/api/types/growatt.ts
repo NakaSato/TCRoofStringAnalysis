@@ -511,7 +511,12 @@ export interface GrowattStringLayout {
 }
 
 export interface GrowattStringDetail {
-  meta: GrowattDbMeta;
+  meta: GrowattDbMeta & {
+    /** plant-local time-of-day window (HH:MM, inclusive) everything covers; null = whole day */
+    window?: { start: string | null; end: string | null } | null;
+    /** last day of a day range starting at `day`; null = one day */
+    end_day?: string | null;
+  };
   plant_id: number;
   plant_name: string;
   device_sn: string;
@@ -545,6 +550,8 @@ export interface GrowattStringDetail {
     peer_current_a: number | null;
     peer_power_w: number | null;
   }>;
+  /** each day of the range (one entry for a single day); null = no records that day */
+  daily?: Array<{ day: string; energy_kwh: number | null; peer_energy_kwh: number | null; pr_pct: number | null }>;
   iv_pv_curve: {
     nominal_points: Array<{ v: number; i: number; p: number }>;
     actual_points: Array<{ v: number; i: number; p: number }>;

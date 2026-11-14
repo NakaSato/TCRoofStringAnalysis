@@ -51,6 +51,8 @@ export interface ChartSeries {
   unit?: string;
   noTip?: boolean;
   noLegend?: boolean;
+  /** Per-point text added after the tooltip value (e.g. the record time of a scatter point). */
+  tipNotes?: Array<string | null>;
 }
 
 export interface RefLine {
@@ -439,7 +441,11 @@ export const PanelChart: React.FC<{
             color={color}
             dash={s.type === "line" && !!s.dash}
             label={s.name}
-            value={v == null ? "—" : s.format ? s.format(v) : `${fmt(v, 1)}${s.unit ? ` ${s.unit}` : ""}`}
+            value={
+              v == null
+                ? "—"
+                : `${s.format ? s.format(v) : `${fmt(v, 1)}${s.unit ? ` ${s.unit}` : ""}`}${k != null && s.tipNotes?.[k] ? ` · ${s.tipNotes[k]}` : ""}`
+            }
           />,
         );
       }

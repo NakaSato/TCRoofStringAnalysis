@@ -171,10 +171,22 @@ export const api = {
     apiFetch<GrowattInverterDaily>(
       `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/daily?days=${days}${day ? `&day=${day}` : ""}`
     ),
-  getGrowattStringDetail: (plantId: number, deviceSn: string, stringNo: number, day?: string) =>
-    apiFetch<GrowattStringDetail>(
-      `/growatt/plants/${plantId}/strings/${encodeURIComponent(deviceSn)}/${stringNo}${day ? `?day=${day}` : ""}`
-    ),
+  getGrowattStringDetail: (
+    plantId: number,
+    deviceSn: string,
+    stringNo: number,
+    /** `day` (default: newest stored), `endDay` = last day of a range (≤ 31 days), `start`/`end` =
+     * plant-local time-of-day window "HH:MM", both inclusive */
+    opts: { day?: string; endDay?: string; start?: string; end?: string } = {}
+  ) => {
+    const q = new URLSearchParams();
+    if (opts.day) q.set("day", opts.day);
+    if (opts.day && opts.endDay && opts.endDay !== opts.day) q.set("end_day", opts.endDay);
+    if (opts.start) q.set("start", opts.start);
+    if (opts.end) q.set("end", opts.end);
+    const qs = q.toString();
+    return apiFetch<GrowattStringDetail>(`/growatt/plants/${plantId}/strings/${encodeURIComponent(deviceSn)}/${stringNo}${qs ? `?${qs}` : ""}`);
+  },
 
   getFleetModule: () => apiFetch<FleetModuleOut>("/growatt/fleet-module"),
   putFleetModule: (m: FleetModule) =>

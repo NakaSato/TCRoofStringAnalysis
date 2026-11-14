@@ -84,6 +84,7 @@ const PLANT_NAV: Record<PlantPage, { label: string; description?: string }> = {
   inverters: { label: "Inverters", description: "Inverter status, MPPT, 5-minute profile & fault log" },
   sensors: { label: "Plant Sensors", description: "This plant's weather sensors: live status & newest reading" },
   strings: { label: "String Diagnostics", description: "String performance, heatmap & I-V / P-V curves" },
+  string: { label: "String Analysis", description: "One string in depth: I-V / P-V, profile, mismatch by hour, daily energy" },
   "string-layout": { label: "String Layout", description: "Modules per string for each inverter" },
   maintenance: { label: "Maintenance & RCA", description: "PM schedule, CM work orders & root cause analysis" },
 };
@@ -430,6 +431,9 @@ export const Layout: React.FC = () => {
             {/* Clock */}
             <div className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-ink-900/80 px-3 py-1 text-[11px] text-slate-300 sm:flex">
               <Clock className="h-3.5 w-3.5 text-slate-500" />
+              <span className="num text-slate-400">
+                {now.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Bangkok" })}
+              </span>
               <span className="num">
                 {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok" })}
               </span>

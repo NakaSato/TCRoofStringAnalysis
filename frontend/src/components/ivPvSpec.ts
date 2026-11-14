@@ -1,6 +1,7 @@
 /**
  * I-V curve above P-V curve on a shared voltage axis, for String Diagnostics and the string
- * drawer. The curves are modelled (single-diode fit to this string); the dots are measured.
+ * inspector. The curves are modelled (single-diode fit to this string); the dots are measured
+ * stored records, on both panels, with their record time in the tooltip.
  * A curve or MPP the backend could not model (nothing measured) is left out, never filled in;
  * with nothing to draw at all the spec is null (the chart shows its empty state).
  */
@@ -37,16 +38,34 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
     power.push({ key: "act-p", name: "Actual P-V (modelled)", type: "line", color: SERIES.dc, x, y: actual_points.map((p) => p.p), format: watts });
   }
   if (measured_scatter.length > 0) {
+    // every point carries its record time (and the other quantity) in the tooltip
+    const mx = measured_scatter.map((p) => p.v);
+    // a range spans days: "11-14 10:05", else "10:05"
+    const range = new Set(measured_scatter.map((p) => p.timestamp.slice(0, 10))).size > 1;
+    const at = (ts: string) => ts.replace("T", " ").slice(range ? 5 : 11, 16);
     current.push({
-      key: "meas",
-      name: "Measured operating points",
+      key: "meas-i",
+      name: "Measured",
       type: "points",
-      size: 6,
-      opacity: 0.7,
+      size: 5,
+      opacity: 0.75,
       color: SERIES.ambient,
-      x: measured_scatter.map((p) => p.v),
+      x: mx,
       y: measured_scatter.map((p) => p.i),
-      noTip: true,
+      format: amps,
+      tipNotes: measured_scatter.map((p) => `${watts(p.p)} · ${at(p.timestamp)}`),
+    });
+    power.push({
+      key: "meas-p",
+      name: "Measured",
+      type: "points",
+      size: 5,
+      opacity: 0.75,
+      color: SERIES.ambient,
+      x: mx,
+      y: measured_scatter.map((p) => p.p),
+      format: watts,
+      tipNotes: measured_scatter.map((p) => `${amps(p.i)} · ${at(p.timestamp)}`),
     });
   }
   if (mpp_nominal) {
@@ -120,6 +139,44 @@ export function stringProfileSpecFrom(detail: GrowattStringDetail): PanelChartSp
         title: "MPPT voltage (V)",
         zero: false,
         series: [{ key: "v", name: "MPPT voltage", type: "line", color: SERIES.dc, y: ts.map((r) => r.voltage_v), format: (v) => `${fmt(v, 0)} V` }],
+      },
+    ],
+  };
+}
+
+/** Day range: each day's string energy (bars) vs. the average peer string, and the peer-relative PR. */
+export function stringDailySpecFrom(detail: GrowattStringDetail): PanelChartSpec | null {
+  const days = detail.daily ?? [];
+  if (days.length < 2) return null;
+  const label = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return {
+    xKind: "band",
+    x: days.map((d) => d.day),
+    xTickLabel: (d) => label(String(d)),
+    xTipLabel: (d) => label(String(d)),
+    panels: [
+      {
+        key: "e",
+        title: "Energy (kWh)",
+        weight: 1.5,
+        series: [
+          { key: "e", name: "String energy", type: "bar", color: SERIES.dc, y: days.map((d) => d.energy_kwh), format: (v) => `${fmt(v, 2)} kWh` },
+          {
+            key: "peer",
+            name: "Peer average",
+            type: "line",
+            dash: "dot",
+            width: 1.5,
+            color: SERIES.reference,
+            y: days.map((d) => d.peer_energy_kwh),
+            format: (v) => `${fmt(v, 2)} kWh`,
+          },
+        ],
+      },
+      {
+        key: "pr",
+        title: "Peer-relative PR (%) · modelled",
+        series: [{ key: "pr", name: "String PR", type: "line", color: SERIES.ac, y: days.map((d) => d.pr_pct), format: (v) => `${fmt(v, 1)}%` }],
       },
     ],
   };
