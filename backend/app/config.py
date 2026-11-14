@@ -115,6 +115,24 @@ class Settings(BaseSettings):
     # current conditions are only fetched inside it (night: last value, no Google call).
     google_weather_day_start_h: int = 6
     google_weather_day_end_h: int = 18
+    # AI Assistant (docs/plans/ai-assistant.md): Messages-API chat with read-only DB tools.
+    # Qwen Cloud Model Studio (Singapore) through its Anthropic-compatible endpoint; an empty
+    # base URL means Anthropic itself. Empty key = assistant off. Backend only (Secret Manager
+    # `tcroof-ai-api-key` in prod). Nothing the assistant reads or writes is stored, only usage.
+    ai_api_key: str = ""
+    ai_base_url: str = "https://ap-southeast-1.maas.qwencloudapi.com/apps/anthropic"
+    ai_model: str = "qwen3.7-plus"
+    ai_thinking: bool = False  # Qwen thinks by default: answers take 30-90 s, so it is sent disabled
+    ai_max_tokens: int = 4000
+    ai_max_tool_rounds: int = 8
+    ai_turn_timeout_s: float = 120.0
+    ai_monthly_budget_usd: float = 15.0  # hard cap; 429 until the 1st once spent
+    ai_user_daily_questions: int = 40  # per user per Bangkok day; admins exempt
+    ai_enabled_roles: str = "admin,engineer"
+    # USD per 1M tokens of AI_MODEL (qwen3.7-plus list price), for ai_usage.cost_usd
+    ai_price_in_per_m: float = 0.40
+    ai_price_cached_per_m: float = 0.08
+    ai_price_out_per_m: float = 1.60
 
     model_config = SettingsConfigDict(
         env_file=".env",

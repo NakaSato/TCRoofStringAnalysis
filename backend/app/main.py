@@ -11,6 +11,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.routes import (
     analysis,
+    assistant,
     auth,
     datasets,
     growatt,
@@ -70,6 +71,8 @@ def create_app() -> FastAPI:
     # Every data route needs a signed-in user. Growatt routes scope engineers to their assigned
     # plants per route (app.auth.require_plant_*); fleet settings and jobs are admin only.
     api_router.include_router(growatt.router, dependencies=[Depends(get_current_user)])
+    # AI Assistant: tools apply the user's plant scope like the Growatt routes; /usage is admin only
+    api_router.include_router(assistant.router, dependencies=[Depends(get_current_user)])
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
     # Growatt plants an engineer is assigned, so they are admin only.
     admin_only = [Depends(require_admin)]
