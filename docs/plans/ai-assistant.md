@@ -1,6 +1,6 @@
 # Plan & Spec: AI Assistant (Qwen Cloud, Anthropic-compatible API)
 
-Status: **Phases 1–3 merged 2026-11-15; phase 4 deploy wiring + AI Usage page built 2026-11-15** on branch `feat/ai-assistant`; production deploy waits on the open questions (§9) · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–4 merged 2026-11-15 (PR #16); live on prod for admins** since 2026-11-15 02:30 Bangkok (revision `tcroof-api-00027-dxz`, secret `tcroof-ai-api-key` version 1, `qwen3.7-plus`, $5 cap). Engineers wait on the open questions (§9) and the first-week review · Created 2026-11-15 · Owner: Chanthawat
 
 Add an **AI Assistant** that answers questions about the fleet in Thai or English ("Which plants lost the most yield yesterday?", "Why is string 3 on inverter XYZ low?", "Summarise today's alarms for my plants"). It reads the data through the same services and access rules the UI uses.
 
