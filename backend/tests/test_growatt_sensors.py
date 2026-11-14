@@ -523,6 +523,19 @@ def test_stale_history_flag_rules():
     assert gs.stale_history_flag("online", None, synced) is None
 
 
+def test_stale_history_flag_daylight_only():
+    dusk = TODAY.replace(hour=18, minute=0)  # sensor stops recording at dusk
+    # night: the datalogger still uploads, the sensor records nothing -> not "behind"
+    assert gs.stale_history_flag("online", "2026-11-13 23:40:00", dusk) is None
+    assert gs.stale_history_flag("online", "2026-11-14 04:30:00", dusk) is None
+    # next morning the gap counts from 06:00, not from last night
+    assert gs.stale_history_flag("online", "2026-11-14 07:30:00", dusk) is None
+    flag = gs.stale_history_flag("online", "2026-11-14 08:10:00", dusk)
+    assert flag and "2 h 10 min behind" in flag["reason"]
+    # late afternoon still judged on its own history
+    assert gs.stale_history_flag("online", "2026-11-13 18:59:00", TODAY.replace(hour=16, minute=30)) is not None
+
+
 # --- past day (Active Alarm) ----------------------------------------------------------------
 
 TOMORROW = TODAY + timedelta(days=1)
