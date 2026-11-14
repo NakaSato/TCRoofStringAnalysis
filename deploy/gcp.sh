@@ -18,6 +18,7 @@
 #   deploy/gcp.sh monitoring # email alerts: API down, worker not syncing, disk > 85 %; Ops Agent on the VM
 #   deploy/gcp.sh backend    # build image, update VM (Postgres + worker), deploy Cloud Run API
 #   deploy/gcp.sh frontend   # build UI, deploy Firebase Hosting
+#   deploy/gcp.sh ai         # AI Assistant key: AI_API_KEY from .env -> secret tcroof-ai-api-key (add / rotate), then: backend
 #   deploy/gcp.sh all        # backend + frontend
 #
 # Requires: gcloud (logged in), bun, the project on the Blaze plan (billing enabled),
@@ -88,6 +89,8 @@ phase_token_env() {  # phase -> token from .env (may be empty)
   printf '%s' "$v"
 }
 google_weather_secret() { secret_exists tcroof-google-weather-key && echo tcroof-google-weather-key; return 0; }
+# AI Assistant (Qwen Cloud): no secret = assistant off (the API answers 503 and the UI hides the button)
+ai_secret() { secret_exists tcroof-ai-api-key && echo tcroof-ai-api-key; return 0; }
 # PWA Report sheet (Apps Script) -> GET /api/report/pwa/{day} with this shared key; the API reads
 # the day's docs from Firestore as its own service account (roles/datastore.viewer). Idempotent.
 report_access() {
@@ -180,7 +183,7 @@ EOF
   log "Cloud Run service account"
   g iam service-accounts describe "${API_SA}@${PROJECT}.iam.gserviceaccount.com" >/dev/null 2>&1 || \
     g iam service-accounts create "$API_SA" --display-name "TC Roof API (Cloud Run)"
-  for s in $(phase_secrets | sed 's/^/tcroof-growatt-token-phase/') $(google_weather_secret) tcroof-jwt-secret tcroof-database-url tcroof-admin-password; do
+  for s in $(phase_secrets | sed 's/^/tcroof-growatt-token-phase/') $(google_weather_secret) $(ai_secret) tcroof-jwt-secret tcroof-database-url tcroof-admin-password; do
     g secrets add-iam-policy-binding "$s" --member "serviceAccount:${API_SA}@${PROJECT}.iam.gserviceaccount.com" \
       --role roles/secretmanager.secretAccessor >/dev/null
   done
@@ -444,6 +447,7 @@ EOF
   local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest,REPORT_API_KEY=tcroof-report-key:latest,REDIS_URL=tcroof-redis-url:latest" p
   for p in $(phase_secrets); do secrets+=",GROWATT_TOKEN_PHASE$p=tcroof-growatt-token-phase$p:latest"; done
   [ -z "$(google_weather_secret)" ] || secrets+=",GOOGLE_WEATHER_API_KEY=tcroof-google-weather-key:latest"
+  [ -z "$(ai_secret)" ] || secrets+=",AI_API_KEY=tcroof-ai-api-key:latest"
 
   log "Deploying Cloud Run $SERVICE"
   g run deploy "$SERVICE" --region "$REGION" --image "$image" \
@@ -453,7 +457,20 @@ EOF
     --network default --subnet default --vpc-egress private-ranges-only \
     --allow-unauthenticated \
     --set-secrets "$secrets" \
-    --set-env-vars "^@^CORS_ORIGINS=[\"https://${PROJECT}.web.app\",\"https://${PROJECT}.firebaseapp.com\"]@PUBLISH_SINK=json@APP_ENV=prod@FIREBASE_PROJECT_ID=${PROJECT}@HISTORY_RETENTION_DAYS=${RETENTION_DAYS}"
+    --set-env-vars "^@^CORS_ORIGINS=[\"https://${PROJECT}.web.app\",\"https://${PROJECT}.firebaseapp.com\"]@PUBLISH_SINK=json@APP_ENV=prod@FIREBASE_PROJECT_ID=${PROJECT}@HISTORY_RETENTION_DAYS=${RETENTION_DAYS}@AI_MODEL=${AI_MODEL}@AI_ENABLED_ROLES=${AI_ENABLED_ROLES}@AI_MONTHLY_BUDGET_USD=${AI_MONTHLY_BUDGET_USD}@AI_USER_DAILY_QUESTIONS=${AI_USER_DAILY_QUESTIONS}@AI_TURN_TIMEOUT_S=${AI_TURN_TIMEOUT_S}"
+}
+
+# AI Assistant key (docs/plans/ai-assistant.md §6): AI_API_KEY from .env -> Secret Manager, readable by
+# the API's service account only. Run again after rotating the key; `backend` then picks it up.
+cmd_ai() {
+  local key; key="$(env_value AI_API_KEY)"
+  [ -n "$key" ] || { echo "AI_API_KEY is empty in .env"; exit 1; }
+  log "Secret tcroof-ai-api-key"
+  secret_put tcroof-ai-api-key "$key"
+  g secrets add-iam-policy-binding tcroof-ai-api-key \
+    --member "serviceAccount:${API_SA}@${PROJECT}.iam.gserviceaccount.com" \
+    --role roles/secretmanager.secretAccessor >/dev/null
+  echo "Done. Deploy the API to use it: deploy/gcp.sh backend"
 }
 
 cmd_frontend() {
@@ -473,6 +490,7 @@ case "${1:-}" in
   monitoring) cmd_monitoring ;;
   backend) cmd_backend ;;
   frontend) cmd_frontend ;;
+  ai) cmd_ai ;;
   all) cmd_backend; cmd_frontend ;;
-  *) sed -n '2,23p' "$0"; exit 1 ;;
+  *) sed -n '2,24p' "$0"; exit 1 ;;
 esac

@@ -20,7 +20,7 @@ import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, Growa
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
-import type { AssistantStatus } from "./types/assistant";
+import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -355,6 +355,7 @@ export const api = {
 
   // AI Assistant (the chat itself streams: see api/assistant.ts)
   getAssistantStatus: () => apiFetch<AssistantStatus>("/assistant/status"),
+  getAssistantUsage: () => apiFetch<AssistantUsage>("/assistant/usage"),
 
   // File URLs (need the session token: download with downloadApiFile)
   sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,

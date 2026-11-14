@@ -1,6 +1,6 @@
 # Plan & Spec: AI Assistant (Qwen Cloud, Anthropic-compatible API)
 
-Status: **Phases 1–2 merged 2026-11-15; phase 3 (more tools) built 2026-11-15** on branch `feat/ai-assistant`; deploy next · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–3 merged 2026-11-15; phase 4 deploy wiring + AI Usage page built 2026-11-15** on branch `feat/ai-assistant`; production deploy waits on the open questions (§9) · Created 2026-11-15 · Owner: Chanthawat
 
 Add an **AI Assistant** that answers questions about the fleet in Thai or English ("Which plants lost the most yield yesterday?", "Why is string 3 on inverter XYZ low?", "Summarise today's alarms for my plants"). It reads the data through the same services and access rules the UI uses.
 
@@ -227,11 +227,15 @@ Measure real `ai_usage` in the first week. Ways to keep cost down:
 
 ## 6. Deploy
 
-- `deploy/gcp.sh setup`: if `AI_API_KEY` is set in `.env`, `secret_put tcroof-ai-api-key`. Add an `ai_secret()` helper like `google_weather_secret()`.
-- `deploy/gcp.sh backend`: grant the API service account access to the secret and add `AI_API_KEY=tcroof-ai-api-key:latest` to `--set-secrets` when the secret exists. Pass `AI_BASE_URL`, `AI_MODEL` and the other `AI_*` settings from `deploy/gcp.config`.
+Built 2026-11-15 (not run yet):
+- `deploy/gcp.sh ai`: `AI_API_KEY` from `.env` → secret `tcroof-ai-api-key`, readable by the API service account. Run it again after rotating the key. `setup` also grants access when the secret exists (`ai_secret()`).
+- `deploy/gcp.sh backend`: adds `AI_API_KEY=tcroof-ai-api-key:latest` to `--set-secrets` when the secret exists, and passes `AI_MODEL`, `AI_ENABLED_ROLES` (`admin` for the first week), `AI_MONTHLY_BUDGET_USD` (5), `AI_USER_DAILY_QUESTIONS` (15) and `AI_TURN_TIMEOUT_S` from `deploy/gcp.config`. `AI_BASE_URL` keeps its code default (Singapore).
+- **Firebase Hosting ends `/api/**` rewrites to Cloud Run after 60 s**, so production uses `AI_TURN_TIMEOUT_S=55`. Hosting may also buffer the SSE stream; the answer then arrives whole at the end. Check this after the first deploy and, if it buffers, consider calling the Cloud Run URL directly for `/assistant/chat` only.
 - Cloud Run (us-central1) calls Singapore, which adds about 200 ms per round trip. That is small next to the model time.
 - The worker doesn't need the key in v1.
-- Update `CLAUDE.md` (data-flow diagram, config keys), `backend/CLAUDE.md` (routes table) and `.env.example`.
+- Admin page System → **AI Usage** (`/ai-usage`): spend against the cap, questions, not answered, per user.
+
+Before the first deploy: rotate the Qwen key (it appeared in a chat transcript), set a spending limit in the Model Studio console, and confirm that sending plant data to Alibaba Cloud (Singapore) is acceptable under the client agreements.
 
 ## 7. Tests
 

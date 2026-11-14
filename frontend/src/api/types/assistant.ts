@@ -48,3 +48,28 @@ export type AssistantEvent =
   | { event: "tool"; data: { name: string; status: "running" | "done" | "error" } }
   | { event: "error"; data: { code: AssistantErrorCode; message: string } }
   | { event: "done"; data: AssistantDone };
+
+/** `GET /assistant/usage` (admin): this Bangkok month's spend against the cap. */
+export interface AssistantUsage {
+  /** YYYY-MM */
+  month: string;
+  model: string;
+  budget_usd: number;
+  user_daily_questions: number;
+  enabled_roles: string[];
+  /** YYYY-MM-DD: the cap resets on this day */
+  resets_on: string;
+  spent_usd: number;
+  questions: number;
+  /** ok | refused | error | timeout | cancelled */
+  by_status: Record<string, number>;
+  users: Array<{
+    user_id: number;
+    username: string | null;
+    questions: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    cached_tokens: number;
+  }>;
+}
