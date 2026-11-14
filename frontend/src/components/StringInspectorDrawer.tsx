@@ -197,7 +197,7 @@ export const StringInspectorDrawer: React.FC = () => {
         role="dialog"
         aria-modal="true"
         aria-label={`String inspector ${row.string_id}`}
-        className="relative flex h-full w-full max-w-2xl flex-col border-l border-white/10 bg-ink-900 shadow-2xl outline-none"
+        className="relative flex h-full w-full lg:w-1/2 flex-col border-l border-white/10 bg-ink-900 shadow-2xl outline-none"
       >
         {/* Header */}
         <div className="border-b border-white/[0.07] bg-ink-950/60 px-5 py-4">
