@@ -1,10 +1,15 @@
 /**
  * Streaming client of `POST /assistant/chat` (server-sent events). EventSource can't POST or send
  * the JWT header, so this reads the `fetch` body stream. Abort with the signal to stop an answer.
+ *
+ * In production the chat goes straight to Cloud Run (`VITE_ASSISTANT_API_BASE_URL`, set by
+ * `deploy/gcp.sh frontend`): Firebase Hosting's `/api` rewrite holds the stream until it ends and
+ * cuts requests at 60 s. Cloud Run allows the app's origin (CORS_ORIGINS). Empty = same as the API.
  */
 import { API_BASE, ApiError, AUTH_EXPIRED_EVENT, clearAuthSession, getStoredToken } from "./client";
 import type { AssistantChatRequest, AssistantEvent } from "./types/assistant";
 
+const CHAT_BASE = import.meta.env.VITE_ASSISTANT_API_BASE_URL || API_BASE;
 const EVENTS = new Set(["text", "tool", "error", "done"]);
 
 function parseBlock(block: string): AssistantEvent | null {
@@ -30,7 +35,7 @@ export async function streamAssistantChat(
   signal?: AbortSignal
 ): Promise<void> {
   const token = getStoredToken();
-  const res = await fetch(`${API_BASE}/assistant/chat`, {
+  const res = await fetch(`${CHAT_BASE}/assistant/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

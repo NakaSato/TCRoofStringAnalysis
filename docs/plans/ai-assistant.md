@@ -230,7 +230,7 @@ Measure real `ai_usage` in the first week. Ways to keep cost down:
 Built 2026-11-15 (not run yet):
 - `deploy/gcp.sh ai`: `AI_API_KEY` from `.env` → secret `tcroof-ai-api-key`, readable by the API service account. Run it again after rotating the key. `setup` also grants access when the secret exists (`ai_secret()`).
 - `deploy/gcp.sh backend`: adds `AI_API_KEY=tcroof-ai-api-key:latest` to `--set-secrets` when the secret exists, and passes `AI_MODEL`, `AI_ENABLED_ROLES` (`admin` for the first week), `AI_MONTHLY_BUDGET_USD` (5), `AI_USER_DAILY_QUESTIONS` (15) and `AI_TURN_TIMEOUT_S` from `deploy/gcp.config`. `AI_BASE_URL` keeps its code default (Singapore).
-- **Firebase Hosting ends `/api/**` rewrites to Cloud Run after 60 s**, so production uses `AI_TURN_TIMEOUT_S=55`. Hosting may also buffer the SSE stream; the answer then arrives whole at the end. Check this after the first deploy and, if it buffers, consider calling the Cloud Run URL directly for `/assistant/chat` only.
+- **Firebase Hosting buffers the SSE stream** (measured after the first deploy: the first event arrived with `done`, 8.6 s) and ends `/api/**` rewrites after 60 s. So `deploy/gcp.sh frontend` builds the chat to call the Cloud Run URL directly (`VITE_ASSISTANT_API_BASE_URL`; CORS already allows the app's origins). Direct, text arrives spread over the answer. Only `/assistant/chat` bypasses Hosting; `AI_TURN_TIMEOUT_S` is 110 (Cloud Run timeout 300 s).
 - Cloud Run (us-central1) calls Singapore, which adds about 200 ms per round trip. That is small next to the model time.
 - The worker doesn't need the key in v1.
 - Admin page System → **AI Usage** (`/ai-usage`): spend against the cap, questions, not answered, per user.

@@ -475,7 +475,12 @@ cmd_ai() {
 
 cmd_frontend() {
   log "Building frontend"
-  (cd frontend && bun install --frozen-lockfile && VITE_API_BASE_URL=/api bun run build)
+  # The AI Assistant's chat streams straight from Cloud Run: Hosting's /api rewrite buffers SSE and
+  # cuts requests at 60 s. Everything else keeps going through /api on Hosting.
+  local run_url; run_url="$(g run services describe "$SERVICE" --region "$REGION" --format='value(status.url)' 2>/dev/null || true)"
+  [ -n "$run_url" ] || echo "Cloud Run URL not found: the assistant chat will go through Hosting (no streaming)"
+  (cd frontend && bun install --frozen-lockfile && \
+    VITE_API_BASE_URL=/api VITE_ASSISTANT_API_BASE_URL="${run_url:+${run_url}/api}" bun run build)
   log "Deploying Firebase Hosting"
   bunx firebase-tools deploy --only hosting --project "$PROJECT"
   echo; echo "Live at https://${PROJECT}.web.app"
