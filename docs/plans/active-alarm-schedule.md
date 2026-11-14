@@ -75,6 +75,9 @@ reads only the inverters that are due:
    - 1 run was cut short by 10012 (rate limit).
    - On 2026-11-13, runs averaged 1,306 s and the longest took 3,703 s.
 
+**Deployed 2026-11-15 01:27 Bangkok:** worker image `backend:2d24824-202611150125` on the VM,
+API revision `tcroof-api-00025-bs4`, frontend on Hosting. The first full day on tiers is 2026-11-15.
+
 **Decision:** keep `_COLD_MIN` = 60. After the deploy, compare one day of `sync_runs`
 (`alarm_due`, `alarm_hot` / `_warm` / `_cold`, `failed`) with the 2026-11-14 figures above.
 
