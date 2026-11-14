@@ -186,8 +186,10 @@ The function listens to `tcroof-budget` and acts on `costAmount` against the bud
 3. **Cost guard first**, before anything costs more, then a dry run with a test Pub/Sub message at 96 % against a scratch project.
 4. **Maintenance window** (21:30–23:00): `upsize`, then `deploy/gcp.sh backend`. Check the worker log, `sync_runs`, and the UI.
 5. `deploy/gcp.sh monitoring`: uptime checks, Ops Agent and alert policies. Trigger one test alert.
+   _Done. Checked 2026-11-15: 3 policies (API down, Disk almost full, Data sync failing) on one email channel, uptime checks every 300 s, Ops Agent reporting. Test: a temporary policy (VM CPU > 0) opened an incident at 02:58 Bangkok, about 3½ min after it was created, then was deleted._
 6. Domain: DNS, Firebase Hosting custom domain, CORS.
 7. After 7 days, delete the old pd-standard disk. After the first month, compare the bill with §1 per item.
+   _Old disk: gone (2026-11-15: no unattached disks; only `tcroof-db-balanced-202611131332`, 9 % used). Bill comparison: open, after 2026-12-01 (spend on 2026-11-15: ฿63, 2.1 %)._
 
 ## 6. Open questions
 - Company domain name, and who manages its DNS?
