@@ -338,26 +338,41 @@ def build_string_detail(
             }
         )
 
-    # Operating point at peak measured power; I-V curves below are modelled from it.
+    v_max = max(voltages) if voltages else None
+    i_max = max(currents) if currents else None
+
+    # Operating point at peak measured power; the I-V curves below are modelled from it. Without a
+    # record carrying both voltage and current there is no operating point: no curve, MPP null.
     best_row = max(timeseries, key=lambda x: x["power_w"])
-    v_mpp_actual = max(250.0, float(best_row["voltage_v"] or 620.0))
-    i_mpp_actual = max(0.5, float(best_row["current_a"] or 9.5))
-    p_max_w = round(v_mpp_actual * i_mpp_actual, 1)
+    v_mpp_actual: Optional[float] = None
+    i_mpp_actual: Optional[float] = None
+    p_max_w: Optional[float] = None
+    v_oc_actual: Optional[float] = None
+    i_sc_actual: Optional[float] = None
+    actual_curve: List[Dict[str, float]] = []
+    if best_row["voltage_v"] > 0 and best_row["current_a"] > 0:
+        v_mpp_actual = float(best_row["voltage_v"])
+        i_mpp_actual = float(best_row["current_a"])
+        p_max_w = round(v_mpp_actual * i_mpp_actual, 1)
+        v_oc_actual = round(max((v_max or 0.0) * 1.08, v_mpp_actual * 1.18), 1)
+        i_sc_actual = round(max((i_max or 0.0) * 1.07, i_mpp_actual * 1.08), 2)
+        actual_curve = _synthesize_iv_pv_curve(v_oc_actual, i_sc_actual, v_mpp_actual, i_mpp_actual)
 
-    v_max = max(voltages) if voltages else v_mpp_actual * 1.16
-    v_oc_actual = round(max(v_max * 1.08, v_mpp_actual * 1.18), 1)
-    i_sc_actual = round(max(max(currents, default=i_mpp_actual) * 1.07, i_mpp_actual * 1.08), 2)
-
+    # Reference: the best of this string and its peers (peer values scaled as above).
     peer_v_list = [v[0] for v in peer_map.values() if v[0] > 100]
     peer_i_list = [v[1] for v in peer_map.values() if v[1] > 0.2]
+    v_nom_src = [x for x in (v_mpp_actual, max(peer_v_list) * 0.98 if peer_v_list else None) if x]
+    i_nom_src = [x for x in (i_mpp_actual, max(peer_i_list) if peer_i_list else None) if x]
 
-    v_mpp_nom = round(max(v_mpp_actual, max(peer_v_list, default=v_mpp_actual) * 0.98), 1)
-    i_mpp_nom = round(max(i_mpp_actual, max(peer_i_list, default=i_mpp_actual)), 2)
-    v_oc_nom = round(max(v_oc_actual, v_mpp_nom * 1.19), 1)
-    i_sc_nom = round(max(i_sc_actual, i_mpp_nom * 1.08), 2)
-
-    nominal_curve = _synthesize_iv_pv_curve(v_oc_nom, i_sc_nom, v_mpp_nom, i_mpp_nom)
-    actual_curve = _synthesize_iv_pv_curve(v_oc_actual, i_sc_actual, v_mpp_actual, i_mpp_actual)
+    mpp_nominal: Optional[Dict[str, float]] = None
+    nominal_curve: List[Dict[str, float]] = []
+    if v_nom_src and i_nom_src:
+        v_mpp_nom = round(max(v_nom_src), 1)
+        i_mpp_nom = round(max(i_nom_src), 2)
+        v_oc_nom = round(max(v_oc_actual or 0.0, v_mpp_nom * 1.19), 1)
+        i_sc_nom = round(max(i_sc_actual or 0.0, i_mpp_nom * 1.08), 2)
+        nominal_curve = _synthesize_iv_pv_curve(v_oc_nom, i_sc_nom, v_mpp_nom, i_mpp_nom)
+        mpp_nominal = {"v": v_mpp_nom, "i": i_mpp_nom, "p": round(v_mpp_nom * i_mpp_nom, 1)}
 
     active_pts = [pt for pt in timeseries if pt["voltage_v"] > 100 and pt["current_a"] > 0.1]
     step = max(1, len(active_pts) // 60)
@@ -387,12 +402,12 @@ def build_string_detail(
         "peer_basis": peer_basis,
         "summary": {
             "v_avg": _round(_mean(voltages), 1),
-            "v_max": round(v_max, 1),
-            "v_mpp": round(v_mpp_actual, 1),
+            "v_max": _round(v_max, 1),
+            "v_mpp": _round(v_mpp_actual, 1),
             "v_oc_est": v_oc_actual,
             "i_avg": _round(_mean(currents), 2),
-            "i_max": round(max(currents, default=0.0), 2),
-            "i_mpp": round(i_mpp_actual, 2),
+            "i_max": _round(i_max, 2),
+            "i_mpp": _round(i_mpp_actual, 2),
             "i_sc_est": i_sc_actual,
             "p_max_w": p_max_w,
             "energy_kwh": energy_kwh,
@@ -404,7 +419,11 @@ def build_string_detail(
             "nominal_points": nominal_curve,
             "actual_points": actual_curve,
             "measured_scatter": scatter_pts,
-            "mpp_nominal": {"v": v_mpp_nom, "i": i_mpp_nom, "p": round(v_mpp_nom * i_mpp_nom, 1)},
-            "mpp_actual": {"v": round(v_mpp_actual, 1), "i": round(i_mpp_actual, 2), "p": p_max_w},
+            "mpp_nominal": mpp_nominal,
+            "mpp_actual": (
+                {"v": round(v_mpp_actual, 1), "i": round(i_mpp_actual, 2), "p": p_max_w}
+                if v_mpp_actual is not None and i_mpp_actual is not None and p_max_w is not None
+                else None
+            ),
         },
     }

@@ -723,3 +723,41 @@ def test_plant_curve_holds_a_missing_inverter_for_at_most_10_min(tmp_path):
     # 15 min after B's last slot: no longer held, the sum is A alone and says so
     for t in ("10:30", "10:55"):
         assert (slot[t]["pac_kw"], slot[t]["inverters"], slot[t]["held"]) == (6.0, 1, 0)
+
+
+def test_string_detail_mpp_is_measured_or_null(tmp_path):
+    """The MPP and the actual I-V curve come from a measured record, never from a default."""
+    from app.services.growatt_overview import build_string_detail
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'mpp.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    day = datetime(2026, 11, 11)
+    with Session() as s:
+        s.add(GrowattPlant(plant_id=PLANT, name="P", peak_power_kwp=20.0))
+        s.flush()
+        s.add(GrowattInverter(device_sn=SN_A, plant_id=PLANT))
+        s.flush()
+        for m in range(0, 60, 5):
+            ts = day + timedelta(hours=10, minutes=m)
+            for no, volt, cur in ((1, 180.0, 2.0), (2, 600.0, 5.0), (3, 600.0, 0.0)):
+                s.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=no, mppt_no=1 + (no - 1) // 2,
+                                           voltage_v=volt, current_a=cur, power_w=volt * cur))
+        s.commit()
+
+        # Low but real readings are kept as measured (no 250 V / 0.5 A floor).
+        low = build_string_detail(s, PLANT, SN_A, 1, day.date())
+        assert low["iv_pv_curve"]["mpp_actual"] == {"v": 180.0, "i": 2.0, "p": 360.0}
+        assert low["summary"]["v_mpp"] == 180.0 and low["summary"]["p_max_w"] == 360.0
+        assert low["iv_pv_curve"]["actual_points"]
+
+        # No current all day: no operating point, so no actual curve and no MPP (not 620 V x 9.5 A).
+        dead = build_string_detail(s, PLANT, SN_A, 3, day.date())
+        curve, summary = dead["iv_pv_curve"], dead["summary"]
+        assert curve["mpp_actual"] is None and curve["actual_points"] == []
+        assert curve["measured_scatter"] == []
+        for key in ("v_mpp", "v_oc_est", "i_mpp", "i_sc_est", "p_max_w", "i_max"):
+            assert summary[key] is None, key
+        # The peer reference is still modelled from the peers (slot mean of strings 1 and 2).
+        assert curve["mpp_nominal"] is not None and curve["mpp_nominal"]["i"] == 3.5
+        assert curve["nominal_points"]
