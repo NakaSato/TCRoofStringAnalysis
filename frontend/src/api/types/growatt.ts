@@ -588,3 +588,15 @@ export interface GrowattInverter {
   inner_version?: string | null;
   settings?: GrowattInverterSettings;
 }
+
+/** /growatt/plants/{id}/power — the plant's stored 5-min AC / DC curve over a day or day range (DB only). */
+export interface GrowattPlantPower {
+  meta: { source: "db"; day: string; end_day: string; window: [string | null, string | null] };
+  plant_id: number;
+  inverter_count: number;
+  /** sum of the inverters' nameplate AC; null unless every inverter has one */
+  rated_ac_kw: number | null;
+  timeseries: Omit<GrowattPlantOverview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c">[];
+  /** AC energy per day integrated from the records (in the time window); null = no records */
+  daily: Array<{ day: string; energy_kwh: number | null }>;
+}

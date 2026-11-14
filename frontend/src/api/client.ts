@@ -16,7 +16,7 @@ export type * from "./types/systemLogs";
 export type * from "./types/assistant";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
-import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
+import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
@@ -165,6 +165,10 @@ export const api = {
   listGrowattInverters: (plantId: number) => apiFetch<GrowattInverter[]>(`/growatt/plants/${plantId}/inverters`),
   getGrowattPlantOverview: (plantId: number, day?: string) =>
     apiFetch<GrowattPlantOverview>(`/growatt/plants/${plantId}/overview${day ? `?day=${day}` : ""}`),
+  getGrowattPlantPower: (plantId: number, q: { day: string; end_day?: string | null; start?: string; end?: string }) =>
+    apiFetch<GrowattPlantPower>(
+      `/growatt/plants/${plantId}/power?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`
+    ),
   getGrowattInverterTimeseries: (plantId: number, deviceSn: string, day?: string) =>
     apiFetch<GrowattInverterTimeseries>(
       `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/timeseries${day ? `?day=${day}` : ""}`

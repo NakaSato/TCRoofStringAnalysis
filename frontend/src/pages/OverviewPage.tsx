@@ -1,14 +1,11 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   ArrowRight,
   BatteryCharging,
   Building2,
   Coins,
-  Cpu,
   ExternalLink,
   Gauge,
-  HeartPulse,
   Leaf,
   MapPin,
   PanelsTopLeft,
@@ -23,19 +20,23 @@ import { useLivePoll } from "../context/useLivePoll";
 import { EmptyState, KpiTile, LoadingState, fmt } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { GrowattAlarmLogPanel } from "../components/GrowattAlarmLogPanel";
-import { PanelChart } from "../components/PanelChart";
 import { dayLabel } from "@/lib/day";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { hhmm, invName, sumOrNull } from "./inverters/shared";
 import type { LiveInverter } from "./inverters/shared";
-import { powerSpec, prTone } from "./generation/charts";
+import { prTone } from "./generation/charts";
+import { usePowerPeriod } from "./overview/usePowerPeriod";
+import { StringPeriodPicker } from "../components/stringDetail/StringPeriodPicker";
+import { slotTime } from "../components/stringDetail/period";
+import { FillChart } from "./overview/FillChart";
+import { Spinner } from "@/components/ui/spinner";
+import { Link } from "react-router-dom";
 import { WeatherCard } from "./overview/WeatherCard";
 import { SensorTodayCard } from "./overview/SensorTodayCard";
-import { InvertersSummary, StringsSummary } from "./overview/SummaryCards";
+import { InvertersOnlineTile, StringHealthTile } from "./overview/SummaryCards";
 import { IconStat, IconStats } from "./overview/IconStat";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
@@ -116,7 +117,8 @@ export const OverviewPage: React.FC = () => {
 
   const recs: LiveInverter[] = useMemo(() => plantLive?.data?.inverters ?? [], [plantLive]);
   const liveAt = recs.reduce<string | null>((a, r) => (r.timestamp && (a == null || r.timestamp > a) ? r.timestamp : a), null);
-  const power = useMemo(() => (ov ? powerSpec(ov, liveAt) : null), [ov, liveAt]);
+  // the top card's period (stored data): the overview's day, or a picked day / range / time window
+  const pp = usePowerPeriod(ov, liveAt);
 
   if (plantOverviewLoading && !ov) {
     return (
@@ -147,43 +149,29 @@ export const OverviewPage: React.FC = () => {
   const behind = day != null && liveDay != null && day < liveDay;
 
   // Now: summed over the inverters' newest live records
-  const liveStale = Boolean(plantLive?.stale) || recs.some((r) => r.stale);
   const acW = sumOrNull(recs.map((r) => r.pac_w));
   const dcW = sumOrNull(recs.map((r) => r.ppv_w));
   const etaNow = acW != null && dcW != null && dcW > 500 ? Math.min(100, (acW / dcW) * 100) : null;
   const ofKwp = acW != null && k.capacity_kwp ? (acW / 1000 / k.capacity_kwp) * 100 : null;
   const wx = liveWx?.data.sensors[0] ?? null;
 
-  // Stored day
-  const iec = k.iec_pr_pct ?? null;
-  const pr = iec ?? k.plant_pr_pct;
+  // The top card's period: the stored day by default, or what the picker chose
+  const f = pp.figures;
+  const pr = f?.prPct ?? null;
   const target = k.target_pr_pct ?? null;
-  const revenue = k.yield_today_kwh != null ? k.yield_today_kwh * k.tariff_thb_per_kwh : null;
-  const co2t = k.yield_today_kwh != null ? (k.yield_today_kwh * GRID_EF_KG_PER_KWH) / 1000 : null;
-  const peak = ov.timeseries.reduce<(typeof ov.timeseries)[number] | null>((m, r) => (m == null || r.pac_kw > m.pac_kw ? r : m), null);
+  const energy = f?.energyKwh ?? null;
+  const revenue = energy != null ? energy * k.tariff_thb_per_kwh : null;
+  const co2t = energy != null ? (energy * GRID_EF_KG_PER_KWH) / 1000 : null;
   const hasLocation = plant.latitude != null && plant.longitude != null;
 
   const night = isNight(liveAt);
-  const dayShort = day ? (behind ? dayText : "Today") : "Today";
+  // the overview's own day keeps "Today"; a picked period is named as picked
+  const periodCap = pp.mode === "own" ? (day ? (behind ? dayText : "Today") : "Today") : pp.label;
+  const peakAt = f?.peakAt ? (pp.multi ? `${dayLabel(f.peakAt.slice(0, 10))} ${hhmm(f.peakAt)}` : hhmm(f.peakAt)) : null;
 
-  const freshness = liveAt ? (
-    <Badge
-      variant={liveStale ? "warn" : "ok"}
-      className="num"
-      title={liveStale ? "Growatt refused the last call; showing the previous record" : undefined}
-    >
-      {liveStale ? "Stale" : "Live"} · {hhmm(liveAt)}
-    </Badge>
-  ) : untilText ? (
-    <Badge variant="neutral" className="num" title="Newest stored 5-minute record (the worker syncs every 30 min)">
-      Last sync · {untilText}
-    </Badge>
-  ) : null;
 
   // KPI strip: inverters online = reporting in the live answer (status not 0); string health of the stored day
   const online = plantLive?.data ? recs.filter((r) => r.status !== 0).length : null;
-  const critical = k.critical_strings ?? 0;
-  const warning = k.warning_strings ?? 0;
   const dayCap = behind ? dayText : "Today";
   // Yield / revenue today from the live records (each inverter's own `eac_today` of today), so the
   // strip is current even when the stored day lags; only inverters with a record today are summed
@@ -228,35 +216,43 @@ export const OverviewPage: React.FC = () => {
           value={yieldRevenue == null ? "—" : `฿${fmt(yieldRevenue, 0)}`}
           hint={`Tariff ฿${fmt(k.tariff_thb_per_kwh, 2)}/kWh`}
         />
-        <KpiTile
-          label="Inverters Online"
-          icon={Cpu}
-          tone="ok"
-          accentBar={false}
-          value={`${online ?? "—"} / ${k.inverter_count ?? "—"}`}
-          hint={`Avg temp ${fmt(k.avg_temp_c, 1)}°C`}
-        />
-        <KpiTile
-          label="String Health"
-          icon={HeartPulse}
-          tone={critical > 0 ? "crit" : warning > 0 ? "warn" : "ok"}
-          accentBar={false}
-          value={fmt(k.avg_health_score, 1)}
-          unit="/ 100"
-          hint={`${critical} critical · ${warning} warning`}
-          hintTone={critical > 0 ? "crit" : warning > 0 ? "warn" : "neutral"}
-        />
+        <InvertersOnlineTile ov={ov} href={plantHref("inverters")} recs={recs} liveLoading={plantLiveLoading} online={online} />
+        <StringHealthTile ov={ov} href={plantHref("strings")} />
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-3">
+      {/* columns stretch to the row: the production card grows (its chart takes the room) to the bottom of Site + Weather */}
+      <div className="grid gap-4 xl:grid-cols-3">
         <div className="flex flex-col gap-4 xl:col-span-2">
-          {/* Three headline numbers and the day's power curve */}
-          <Card className="gap-5">
-            <CardContent className="flex flex-col gap-5">
+          {/* Three headline numbers and the period's power curve */}
+          <Card className="flex-1 gap-5">
+            <CardContent className="flex flex-1 flex-col gap-5">
+              {/* the period every stored figure below follows ("Power now" stays live) */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <CardTitle>Production</CardTitle>
+                  {pp.mode === "own" && untilText && <span className="num text-xs text-muted-foreground">{dayText} · {untilText}</span>}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {pp.loading && <Spinner className="size-3" />}
+                  <StringPeriodPicker
+                    period={pp.period}
+                    onChange={pp.setPeriod}
+                    shownDay={pp.ovDay}
+                    today={pp.today}
+                    loading={pp.loading}
+                    time={false}
+                    align="end"
+                  />
+                  <Button asChild variant="ghost" size="icon-sm" aria-label="Generation details" title="Generation details">
+                    <Link to={plantHref("generation")}>
+                      <ArrowRight />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <Headline
                   label="Power now"
-                  badge={freshness}
                   value={night && (acW ?? 0) === 0 ? "0" : kw(acW)}
                   unit="kW"
                   tone="text-solar-300"
@@ -265,35 +261,34 @@ export const OverviewPage: React.FC = () => {
                   sub={night ? "night" : liveAt ? undefined : "no live record"}
                 />
                 <Headline
-                  label={`Energy · ${dayShort}`}
-                  value={fmt(k.yield_today_kwh, 0)}
+                  label={`Energy · ${periodCap}`}
+                  value={pp.loading && !f ? "…" : fmt(energy, energy != null && energy < 100 ? 1 : 0)}
                   unit="kWh"
                   tone="text-energy-300"
                   sub={revenue != null ? `≈ ฿${fmt(revenue, 0)}` : undefined}
                 />
                 <Headline
-                  label={`PR · ${dayShort}`}
-                  value={fmt(pr, 1)}
+                  label={`PR · ${periodCap}`}
+                  value={pp.loading && !f ? "…" : fmt(pr, 1)}
                   unit="%"
                   tone={target != null ? prTone(pr, target) : "text-foreground"}
-                  sub={target != null ? `target ${fmt(target, 0)}%${iec != null ? "" : " · peer"}` : undefined}
+                  sub={
+                    pp.mode === "curve"
+                      ? "whole single day only"
+                      : target != null
+                        ? `target ${fmt(target, 0)}%${f?.prIec ? "" : " · peer"}`
+                        : undefined
+                  }
                 />
               </div>
 
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="num text-xs text-muted-foreground">
-                    {dayText}
-                    {untilText ? ` · ${untilText}` : ""}
-                  </span>
-                  <Button asChild variant="ghost" size="icon-sm" aria-label="Generation details" title="Generation details">
-                    <Link to={plantHref("generation")}>
-                      <ArrowRight />
-                    </Link>
-                  </Button>
-                </div>
-                <PanelChart spec={power} height={240} legendToggle emptyLabel="No stored records for this day" />
-              </div>
+              <FillChart
+                spec={pp.spec}
+                minHeight={240}
+                legendToggle
+                emptyLabel={pp.error ? `Could not load: ${pp.error}` : `No stored records for ${pp.label}${pp.day === pp.today ? " yet (the worker stores them every 30 min)" : ""}`}
+                onBrush={pp.multi || !pp.day ? undefined : (lo, hi) => pp.setPeriod({ ...pp.period, day: pp.day, start: slotTime(lo, pp.day!, false), end: slotTime(hi, pp.day!, true) })}
+              />
 
               <IconStats cols={hasSensor ? "grid-cols-2 sm:grid-cols-5" : "grid-cols-2 sm:grid-cols-4"}>
                 <IconStat
@@ -309,19 +304,15 @@ export const OverviewPage: React.FC = () => {
                 <IconStat
                   icon={TrendingUp}
                   label="Peak power"
-                  value={fmt(k.peak_power_kw, 1)}
+                  value={fmt(f?.peakKw, 1)}
                   unit="kW"
-                  hint={peak ? `at ${hhmm(peak.timestamp)} · ${dayText}` : dayText}
+                  hint={peakAt ? `at ${peakAt} · ${periodCap}` : periodCap}
                 />
-                <IconStat icon={Gauge} label="Specific yield" value={fmt(k.specific_yield_kwh_per_kwp, 2)} unit="kWh/kWp" hint={dayText} />
-                <IconStat icon={Leaf} label="CO₂ avoided" value={fmt(co2t, 2)} unit="t" hint={`${dayText} · TGO grid factor`} />
+                <IconStat icon={Gauge} label="Specific yield" value={fmt(f?.specificKwhKwp, 2)} unit="kWh/kWp" hint={periodCap} />
+                <IconStat icon={Leaf} label="CO₂ avoided" value={fmt(co2t, 2)} unit="t" hint={`${periodCap} · TGO grid factor`} />
               </IconStats>
             </CardContent>
           </Card>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <InvertersSummary ov={ov} href={plantHref("inverters")} recs={recs} liveLoading={plantLiveLoading} />
-            <StringsSummary ov={ov} href={plantHref("strings")} />
-          </div>
         </div>
         {/* Site + weather */}
         <div className="flex flex-col gap-4">

@@ -129,6 +129,9 @@ export interface PanelChartSpec {
   gaps?: string;
   bands?: XBand[];
   markers?: XMarker[];
+  /** With no value to draw, keep the axes (x from `xDomain`) and write `emptyLabel` over the plot,
+   * so the chart does not jump between a period with data and one without. */
+  frame?: boolean;
 }
 
 interface Layout {
@@ -162,6 +165,16 @@ type Px = number;
 const parseTs = d3.timeParse("%Y-%m-%d %H:%M:%S");
 const parseTsT = d3.timeParse("%Y-%m-%dT%H:%M:%S");
 const hhmm = d3.timeFormat("%H:%M");
+const dayHhmm = d3.timeFormat("%-d %b %H:%M");
+const dayOnly = d3.timeFormat("%-d %b");
+/** a time x axis over more than a day: the tooltip names the day, ticks at midnight show the date */
+const spansDays = (xc: Layout["xc"]) => {
+  if (!xc) return false;
+  const [a, b] = xc.domain();
+  return +b - +a > 26 * 3_600_000;
+};
+const tipTime = (d: Date, multi: boolean) => (multi ? dayHhmm(d) : hhmm(d));
+const tickTime = (d: Date, multi: boolean) => (multi && d.getHours() === 0 && d.getMinutes() === 0 ? dayOnly(d) : hhmm(d));
 const toDate = (v: XValue): Date => {
   if (typeof v === "number") return new Date(v);
   const s = v.slice(0, 19);
@@ -228,7 +241,7 @@ export const PanelChart: React.FC<{
   const hasData = !!spec && spec.panels.some((p) => p.series.some((s) => s.y.some((v) => v != null)));
 
   const layout = useMemo<Layout | null>(() => {
-    if (!spec || !hasData || width <= 0) return null;
+    if (!spec || (!hasData && !spec.frame) || width <= 0) return null;
     const { xKind, panels } = spec;
 
     /* ---- x values ---- */
@@ -331,7 +344,7 @@ export const PanelChart: React.FC<{
     return { ml, mr, iw, geo, plotBottom, xb, xc, xPos, xNum, seriesX, rotate, every, bandLabels, gapLimit, tickFmt, mb, bands };
   }, [spec, hasData, width, height]);
 
-  if (!spec || !hasData) {
+  if (!spec || (!hasData && !spec.frame)) {
     return (
       <div ref={ref} style={{ height }} className="flex w-full items-center justify-center text-xs text-slate-500">
         {spec ? emptyLabel : <Skeleton className="h-full w-full" aria-label="Loading chart…" />}
@@ -409,7 +422,7 @@ export const PanelChart: React.FC<{
       }
       if (spec.xKind === "time" && i != null) {
         snapPx = xPos(spec.x[i]);
-        heading = spec.xTipLabel ? spec.xTipLabel(spec.x[i]) : hhmm(toDate(spec.x[i]));
+        heading = spec.xTipLabel ? spec.xTipLabel(spec.x[i]) : tipTime(toDate(spec.x[i]), spansDays(xc));
       } else {
         heading = spec.xTipNumber ? spec.xTipNumber(xv) : fmt(xv, 0);
       }
@@ -453,7 +466,7 @@ export const PanelChart: React.FC<{
     const extra = i != null && spec.tipExtra ? spec.tipExtra(i) : [];
     const xAt = xc ? +xc.invert(px) : null;
     const inBands = xAt == null ? [] : layout.bands.filter((b) => xAt > b.lo && xAt < b.hi);
-    const bandFmt = (v: number) => (spec.xKind === "time" ? hhmm(new Date(v)) : fmt(v, 0));
+    const bandFmt = (v: number) => (spec.xKind === "time" ? tipTime(new Date(v), spansDays(xc)) : fmt(v, 0));
     setHoverX({ px: snapPx, i });
     setTip({
       x: e.clientX - box.left,
@@ -510,6 +523,11 @@ export const PanelChart: React.FC<{
         onMouseUp={onUp}
         onMouseLeave={() => (setTip(null), setHoverX(null), setDrag(null))}
       >
+        {!hasData && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-slate-400">
+            {emptyLabel}
+          </div>
+        )}
         {layout && (
           <svg width={width} height={height} className="block" role="img" aria-label={spec.panels.map((p) => p.title).join(", ")}>
             <defs>
@@ -817,7 +835,7 @@ const XAxis: React.FC<{ layout: Layout; spec: PanelChartSpec }> = ({ layout, spe
           })
         : (xc as d3.ScaleLinear<number, number>).ticks(Math.max(2, Math.floor(iw / 80))).map((t) => {
             const x = (xc as d3.ScaleLinear<number, number>)(t);
-            const label = spec.xKind === "time" ? hhmm(new Date(+t)) : d3.format("~s")(+t);
+            const label = spec.xKind === "time" ? tickTime(new Date(+t), spansDays(xc)) : d3.format("~s")(+t);
             return (
               <g key={+t} transform={`translate(${x},${plotBottom})`}>
                 <line y2={5} stroke={C.axis} />

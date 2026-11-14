@@ -800,3 +800,28 @@ def test_string_detail_day_range(client):
     assert client.get(url, params={"day": "2026-11-11", "end_day": "2026-11-10"}).status_code == 422
     assert client.get(url, params={"end_day": "2026-11-10"}).status_code == 422
     assert client.get(url, params={"day": "2026-11-01", "end_day": "2026-11-05"}).status_code == 404
+
+
+def test_plant_power_day_range_and_window(client):
+    url = f"/api/growatt/plants/{PLANT}/power"
+    one = client.get(url, params={"day": "2026-11-11"}).json()
+    assert one["meta"]["source"] == "db" and one["meta"]["end_day"] == "2026-11-11"
+    # same curve as the overview's
+    ov = client.get(f"/api/growatt/plants/{PLANT}/overview", params={"day": "2026-11-11"}).json()
+    assert [r["pac_kw"] for r in one["timeseries"]] == [r["pac_kw"] for r in ov["timeseries"]]
+    assert one["inverter_count"] == 3
+    assert one["rated_ac_kw"] is None  # no nameplate stored
+    assert one["daily"][0]["energy_kwh"] == pytest.approx(10.0, abs=0.6)
+
+    rng = client.get(url, params={"day": "2026-11-10", "end_day": "2026-11-12"}).json()
+    assert [d["day"] for d in rng["daily"]] == ["2026-11-10", "2026-11-11", "2026-11-12"]
+    assert rng["daily"][0]["energy_kwh"] is None and rng["daily"][2]["energy_kwh"] is None
+    assert len(rng["timeseries"]) == len(one["timeseries"])
+
+    win = client.get(url, params={"day": "2026-11-11", "start": "10:20", "end": "10:30"}).json()
+    assert {r["timestamp"][11:16] for r in win["timeseries"]} == {"10:20", "10:25", "10:30"}
+    assert win["meta"]["window"] == ["10:20", "10:30"]
+
+    assert client.get(url, params={"day": "2026-11-11", "start": "12:00", "end": "10:00"}).status_code == 422
+    assert client.get(url, params={"day": "2026-11-11", "end_day": "2026-11-10"}).status_code == 422
+    assert client.get(url, params={"day": "2026-10-01", "end_day": "2026-11-11"}).status_code == 422

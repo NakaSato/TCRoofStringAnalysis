@@ -1,5 +1,5 @@
 /** Generation page: chart specs, built from the stored-day plant overview (DB only). */
-import type { PanelChartSpec, XMarker } from "../../components/PanelChart";
+import type { PanelChartSpec, RefLine, XBand, XMarker } from "../../components/PanelChart";
 import { SERIES, STATUS } from "../../components/chartTheme";
 import { fmt } from "../../components/ui";
 import type { GrowattPlantOverview } from "../../api/client";
@@ -19,27 +19,99 @@ export const prTone = (v: number | null, target: number) =>
 /**
  * Plant power on the stored day: AC and DC (measured, summed over the inverters) and the
  * clear-sky envelope (modelled). Slots summed over fewer inverters than the plant has are dotted
- * amber, so a dip from a missing record is not read as a production dip.
+ * amber, so a dip from a missing record is not read as a production dip. Also: the plant's rated AC
+ * (sum of the inverters' nameplate, only when every inverter has one) to show clipping, the day's AC
+ * peak as a point, the rest of today shaded, and per slot AC as % of clear-sky and DC → AC in the tooltip.
+ *
+ * `extra`: grid frequency in the tooltip. No load or consumption: the plants have no meter, so nothing measures it.
  */
-export const powerSpec = (ov: Overview, now: string | null): PanelChartSpec | null => {
-  const ts = ov.timeseries;
-  const day = ov.meta.day;
-  if (ts.length === 0 || !day) return null;
-  const total = ov.inverters.length;
-  const partial = ts.map((r) => (r.inverters != null && total && r.inverters < total && r.pac_kw > 0 ? r.pac_kw : null));
+export const powerSpec = (ov: Overview, now: string | null, o: { extra?: boolean } = {}): PanelChartSpec | null => {
+  if (!ov.meta.day) return null;
+  // rated AC: only a full sum, a partial one would draw the limit too low
+  const rated = ov.inverters.map((i) => i.nominal_power_kw ?? null);
+  const ratedKw = rated.length && rated.every((v) => v != null && v > 0) ? rated.reduce<number>((a, v) => a + (v ?? 0), 0) : null;
+  return powerCurveSpec({ ts: ov.timeseries, day: ov.meta.day, inverters: ov.inverters.length, ratedKw }, now, o);
+};
+
+/** A stored plant curve over one day or a day range, optionally a time-of-day window on every day. */
+export interface PowerCurve {
+  ts: Array<Omit<Overview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c">>;
+  day: string;
+  /** last day of a range (null / same = one day) */
+  endDay?: string | null;
+  /** "HH:MM" window ("" = open end) */
+  start?: string;
+  end?: string;
+  inverters: number;
+  ratedKw: number | null;
+}
+
+/** `powerSpec` for any stored period: the x axis spans the window (default 05:00–19:00) of the first to the last day. */
+export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: boolean } = {}): PanelChartSpec | null => {
+  const { day, ratedKw } = c;
+  const last = c.endDay && c.endDay > day ? c.endDay : day;
+  const multi = last !== day;
+  const total = c.inverters;
+  const lo = c.start || (c.end && c.end <= "05:00" ? "00:00" : "05:00");
+  const hi = c.end || (lo >= "19:00" ? "23:59" : "19:00");
+  const begin = `${day} ${lo}:00`;
+  const end = `${last} ${hi}:00`;
+  // only the shown range: the stored day starts at 00:00 with night zeros, which would widen the axis
+  const inRange = c.ts.filter((r) => r.timestamp >= begin && r.timestamp <= end);
+  const ts = inRange;
   const markers: XMarker[] = [];
-  if (now && now.slice(0, 10) === day) markers.push({ x: now, label: `Now ${now.slice(11, 16)}` });
+  const bands: XBand[] = [];
+  if (now && now.slice(0, 10) >= day && now.slice(0, 10) <= last) {
+    markers.push({ x: now, label: `Now ${now.slice(11, 16)}` });
+    if (now < end) bands.push({ from: now, to: end, label: "Later today", kind: "muted" });
+  }
+  const refLines: RefLine[] = ratedKw ? [{ y: ratedKw, label: `Rated AC ${fmt(ratedKw, 0)} kW`, color: SERIES.reference }] : [];
+  // nothing stored in the range: still the frame (axes, rated AC), so the card keeps its shape
+  if (!ts.length)
+    return {
+      xKind: "time",
+      x: [begin, end],
+      xDomain: [begin, end],
+      frame: true,
+      markers,
+      bands,
+      // the same legend as with data, so the chart keeps its height
+      panels: [
+        {
+          key: "p",
+          title: "Power (kW)",
+          yMin: 0,
+          refLines,
+          series: [
+            { key: "ref", name: "Clear-sky envelope (modelled)", type: "line", dash: "dot", color: SERIES.reference, y: [null, null], unit: "kW" },
+            { key: "dc", name: "DC input", type: "line", color: SERIES.dc, y: [null, null], unit: "kW" },
+            { key: "ac", name: "AC output", type: "line", color: SERIES.ac, y: [null, null], unit: "kW" },
+          ],
+        },
+      ],
+    };
+  const partial = ts.map((r) => (r.inverters != null && total && r.inverters < total && r.pac_kw > 0 ? r.pac_kw : null));
+  let pk = -1;
+  ts.forEach((r, i) => {
+    if (r.pac_kw > 0 && (pk < 0 || r.pac_kw > ts[pk].pac_kw)) pk = i;
+  });
+  const peak = ts.map((r, i) => (i === pk ? r.pac_kw : null));
+  const pct = (a: number, b: number) => `${fmt((a / b) * 100, 0)} %`;
+  const at = (t: string) => (pk < 0 ? "" : multi ? `${Number(t.slice(8, 10))}/${Number(t.slice(5, 7))} ${t.slice(11, 16)}` : t.slice(11, 16));
   return {
     xKind: "time",
     x: ts.map((r) => r.timestamp),
-    xDomain: [`${day} 05:00:00`, `${day} 19:00:00`],
+    xDomain: [begin, end],
     xStep: 5 * 60_000,
-    gaps: "No data",
+    // over several days the nights (or the hours outside the window) are not missing data
+    gaps: multi ? undefined : "No data",
     markers,
+    bands,
     panels: [
       {
         key: "p",
         title: "Power (kW)",
+        refLines,
         series: [
           {
             key: "ref",
@@ -66,13 +138,33 @@ export const powerSpec = (ov: Overview, now: string | null): PanelChartSpec | nu
                 },
               ]
             : []),
+          ...(pk >= 0
+            ? [
+                {
+                  key: "peak",
+                  name: `Peak ${fmt(ts[pk].pac_kw, 1)} kW · ${at(ts[pk].timestamp)}`,
+                  type: "points" as const,
+                  symbol: "diamond" as const,
+                  size: 8,
+                  color: SERIES.ac,
+                  y: peak,
+                  noTip: true,
+                },
+              ]
+            : []),
         ],
       },
     ],
     tipExtra: (i) => {
       const r = ts[i];
-      if (r.inverters == null || !total || (r.inverters >= total && !r.held)) return [];
-      return [{ label: "Inverters in sum", value: `${r.inverters} of ${total}${r.held ? ` · ${r.held} held ≤ 10 min` : ""}` }];
+      const rows: Array<{ label: string; value: string }> = [];
+      if (r.expected_kw != null && r.expected_kw > 0 && r.pac_kw > 0) rows.push({ label: "AC of clear-sky (modelled)", value: pct(r.pac_kw, r.expected_kw) });
+      // DC → AC only with real input: near dawn / dusk the ratio is noise
+      if (r.ppv_kw > 0 && r.pac_kw > 0 && (!ratedKw || r.ppv_kw >= ratedKw * 0.05)) rows.push({ label: "DC → AC", value: pct(r.pac_kw, r.ppv_kw) });
+      if (o.extra && r.freq_hz != null) rows.push({ label: "Grid frequency", value: `${fmt(r.freq_hz, 2)} Hz` });
+      if (r.inverters != null && total && (r.inverters < total || r.held))
+        rows.push({ label: "Inverters in sum", value: `${r.inverters} of ${total}${r.held ? ` · ${r.held} held ≤ 10 min` : ""}` });
+      return rows;
     },
   };
 };

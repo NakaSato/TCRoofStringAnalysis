@@ -333,6 +333,7 @@ export const StringInspectorDrawer: React.FC = () => {
               shownEndDay={stringDetail?.meta.end_day ?? null}
               today={today}
               loading={loadingDetail}
+              hint="Or drag across the 5-min profile chart."
               onPopoverOpenChange={setPopoverOpen}
             />
           </div>
