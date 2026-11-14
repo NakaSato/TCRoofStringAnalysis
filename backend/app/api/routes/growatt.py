@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -292,9 +292,18 @@ def fleet_alarms(
 ) -> Dict[str, Any]:
     """Stored Growatt alarm log of every plant the user may see for one plant-local day (DB only;
     the worker's `alarms` jobs fill it). `plants[]` tells, per plant, how many inverters have been
-    read for the day and when (`synced_at`, UTC, the oldest read): unread is not "no alarms"."""
-    d = day or datetime.now(jobs.PLANT_TZ).date()
-    return growatt_alarms.alarm_day(db, d, allowed_plant_ids(db, user))
+    read for the day and when (`synced_at`, UTC, the oldest read): unread is not "no alarms".
+    `meta.last_run_at` / `next_run_at` (UTC; next only for today) let the page re-read right
+    after the worker's next `alarms` run instead of polling blindly."""
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(jobs.PLANT_TZ).date()
+    d = day or today
+    out = growatt_alarms.alarm_day(db, d, allowed_plant_ids(db, user))
+    last = jobs.last_started(db, "alarms")
+    nxt = growatt_alarms.next_run_at(now, last) if d == today else None
+    out["meta"]["last_run_at"] = last.isoformat() if last else None
+    out["meta"]["next_run_at"] = nxt.isoformat() if nxt else None
+    return out
 
 
 @router.get("/live/plants/{plant_id}/weather")

@@ -9,12 +9,19 @@ import type { StatusLevel } from "../components/ui";
  * last answer is kept in this tab's memory so a revisit shows it at once (never localStorage).
  *
  * - A re-read happens in the background: the last result stays on screen until the new one arrives.
- * - Today is re-read every `TODAY_REFRESH_S`, past days every `PAST_REFRESH_S` (yesterday is
- *   completed by the worker after midnight), only while the page is open and visible.
+ * - Today is re-read just after the worker's next `alarms` run (`meta.next_run_at` + `AFTER_RUN_S`,
+ *   every 10 min in the daytime), within `TODAY_MIN_S`..`TODAY_MAX_S`; past days every
+ *   `PAST_REFRESH_S` (yesterday is completed by the worker after midnight). Only while the page
+ *   is open and visible.
  */
 
-/** The worker syncs today every 30 min; a cheap DB read catches each sync soon after. */
-const TODAY_REFRESH_S = 120;
+/** A tiered run takes seconds; the first run of the day (whole fleet) about 2 min. */
+const AFTER_RUN_S = 45;
+/** The next run is overdue (worker busy or down) or unknown: re-read on this fallback. */
+const TODAY_FALLBACK_S = 120;
+const TODAY_MIN_S = 60;
+/** Upper bound, so a "next run tomorrow 05:00" still notices a manual sync or the day rolling over. */
+const TODAY_MAX_S = 900;
 const PAST_REFRESH_S = 1800;
 /** Days kept in memory; the oldest idle one is dropped beyond this. */
 const MAX_DAYS = 7;
@@ -22,6 +29,8 @@ const MAX_DAYS = 7;
 export interface AlarmRow extends GrowattAlarm {
   plant_id: number;
   plant_name: string;
+  /** when this inverter's log was last read (UTC ISO); absent from the live endpoint */
+  read_at?: string | null;
   level: StatusLevel;
   open: boolean;
 }
@@ -32,6 +41,10 @@ export interface AlarmLogResult {
   plants: FleetAlarmPlant[];
   /** newest worker read among the plants (UTC ISO), null when nothing is synced for the day */
   syncedAt: string | null;
+  /** when the worker's `alarms` job last started (UTC ISO; any day) */
+  lastRunAt: string | null;
+  /** when it will next start (UTC ISO; today only, null for a past day) */
+  nextRunAt: string | null;
   fetchedAt: Date;
 }
 
@@ -82,7 +95,15 @@ function evict() {
   for (const [k] of idle.slice(0, entries.size - MAX_DAYS)) entries.delete(k);
 }
 
-const refreshMs = (day: string) => (day === plantToday() ? TODAY_REFRESH_S : PAST_REFRESH_S) * 1000;
+/** ms until the next background re-read of `day` (`nextRunAt` from the answer just received). */
+function refreshMs(day: string, nextRunAt: string | null | undefined): number {
+  if (day !== plantToday()) return PAST_REFRESH_S * 1000;
+  const next = nextRunAt ? Date.parse(nextRunAt) : NaN;
+  if (!Number.isFinite(next)) return TODAY_FALLBACK_S * 1000;
+  const s = (next - Date.now()) / 1000 + AFTER_RUN_S;
+  if (s < TODAY_MIN_S) return TODAY_FALLBACK_S * 1000;
+  return Math.min(TODAY_MAX_S, s) * 1000;
+}
 
 /** Start a read of `day` unless one is running or the last answer is still current (`force` skips that check). */
 function read(day: string, force: boolean) {
@@ -102,7 +123,8 @@ function read(day: string, force: boolean) {
   const done = (patch: Partial<AlarmLogView>) => {
     const e = entries.get(day);
     if (!e || e.run !== run) return; // superseded or cleared
-    e.view = { ...e.view, running: false, dueAt: Date.now() + refreshMs(day), ...patch };
+    const next = patch.result?.nextRunAt ?? e.view.result?.nextRunAt;
+    e.view = { ...e.view, running: false, dueAt: Date.now() + refreshMs(day, next), ...patch };
     emit();
   };
 
@@ -114,6 +136,8 @@ function read(day: string, force: boolean) {
           rows: r.alarms.map((a) => ({ ...a, level: alarmLevel(a.fault_type), open: !a.end_time })),
           plants: r.plants,
           syncedAt: r.meta.synced_at,
+          lastRunAt: r.meta.last_run_at ?? null,
+          nextRunAt: r.meta.next_run_at ?? null,
           fetchedAt: new Date(),
         },
       })

@@ -90,9 +90,8 @@ export const GrowattAlarmLogPanel: React.FC<{
       .map((a) => ({ ...a, plant_id: plantId, plant_name: plantName ?? "", level: alarmLevel(a.fault_type), open: false }));
     // the log is read live: an event of today still reported within EVENT_GAP_MIN of now is open
     const nowLocal = toPlantLocal(new Date().toISOString());
-    const openSince = new Map<number, number>();
-    if (res.data.to === nowLocal.slice(0, 10)) openSince.set(plantId, ms(nowLocal) - EVENT_GAP_MIN * 60000);
-    return toEvents(rows, openSince)
+    const since = res.data.to === nowLocal.slice(0, 10) ? ms(nowLocal) - EVENT_GAP_MIN * 60000 : undefined;
+    return toEvents(rows, () => since)
       .sort((x, y) => Number(y.open) - Number(x.open) || (y.start ?? "").localeCompare(x.start ?? ""))
       .map((e) => ({ e, lvl: e.level }));
   }, [res, deviceSn, plantId, plantName]);
