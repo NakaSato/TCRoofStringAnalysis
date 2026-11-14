@@ -1,6 +1,6 @@
 # Plan & Spec: AI Assistant (Qwen Cloud, Anthropic-compatible API)
 
-Status: **Phase 1 (backend) merged 2026-11-15; phase 2 (UI drawer) built 2026-11-15** on branch `feat/ai-assistant`; more tools next · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–2 merged 2026-11-15; phase 3 (more tools) built 2026-11-15** on branch `feat/ai-assistant`; deploy next · Created 2026-11-15 · Owner: Chanthawat
 
 Add an **AI Assistant** that answers questions about the fleet in Thai or English ("Which plants lost the most yield yesterday?", "Why is string 3 on inverter XYZ low?", "Summarise today's alarms for my plants"). It reads the data through the same services and access rules the UI uses.
 
@@ -57,8 +57,8 @@ Privacy: when the assistant is used, plant names, serial numbers and measurement
 | `AI_THINKING` | `false` | Sends `thinking={"type": "disabled"}`. Thinking is on by default at Qwen and makes answers 30–90 s (§5.1). |
 | `AI_PRICE_IN_PER_M` / `AI_PRICE_CACHED_PER_M` / `AI_PRICE_OUT_PER_M` | `0.40` / `0.08` / `1.60` | USD per 1M tokens for `AI_MODEL` (the `qwen3.7-plus` list price, so the budget check errs on the safe side), used to compute `cost_usd`. Update them when the model changes (§5). |
 | `AI_MAX_TOOL_ROUNDS` | `8` | Stops a runaway loop. |
-| `AI_MONTHLY_BUDGET_USD` | `15` | Hard cap. When spend this month reaches it, the endpoint returns 429 "budget used up" until the 1st. About 2× the expected `qwen3.7-plus` spend (§5). |
-| `AI_USER_DAILY_QUESTIONS` | `40` | Per user per day (Bangkok time); admins are exempt. |
+| `AI_MONTHLY_BUDGET_USD` | `5` | Hard cap (set by the owner 2026-11-15). When spend this month reaches it, the endpoint returns 429 "budget used up" until the 1st. Measured on `qwen3.7-plus` with implicit caching: ≈ $0.003 per typical question, ≈ $0.008 for a 5-lookup diagnosis, so $5 ≈ 600–1,500 questions a month. |
+| `AI_USER_DAILY_QUESTIONS` | `15` | Per user per day (Bangkok time); admins are exempt. Keeps one user from using the whole $5 month (40 heavy questions a day ≈ $7 a month). |
 | `AI_ENABLED_ROLES` | `admin,engineer` | Turn it on for admins first if needed. |
 
 Add `anthropic` to **both** `pyproject.toml` and `backend/pyproject.toml` (anthropic 1.x).
@@ -111,6 +111,12 @@ Each tool has a JSON schema with `required` and `additionalProperties: false`, a
 | `weather_sensors(day?, plant_id?)` | `growatt_sensors.list_sensors` (DB part only) | Coverage %, health flags, newest stored reading. No live online status. |
 | `plant_weather(plant_id, day)` | `growatt_weather` + `google_weather` (DB) | Insolation and peaks from the sensor, and Google rain slots **labelled modelled**. |
 | `fleet_ranking(day, metric, order, limit≤20)` | built on `list_plants_summary` / overview batch | Top or bottom plants by yield, specific yield or PR. This tool keeps fleet questions to one call instead of 234. |
+
+Lessons from the live phase 3 run (2026-11-15), now built into the tools and prompt:
+- Per-inverter `capacity_kwp` / `specific_yield` in the overview are the plant kWp split equally (modelled). The tool leaves them out and gives `strings_connected`, `yield_per_string_kwh` and `clipping_likely` (peak AC ≥ 98 % of rated) instead; otherwise the model blamed "equal panels" or the wrong cause.
+- "Not Active" strings (no current that day nor in the 7 days before) are almost always inputs with nothing wired. The tools call them `unused_inputs` with a note, and `inverter_day_profile` lists inputs without current apart from the string mean; otherwise the model reported them as faults.
+- Counts come from count fields, not from the model counting list items. A date without a year is the most recent one (the model picked 2025 once). Answers stay in Thai or English (Qwen once slipped in a Chinese word).
+- `device_sn` accepts the alias ("INVERTER 3"); an unknown one returns the plant's inverter list.
 
 Handler rules:
 - Open a fresh DB session per tool call; it is read-only.
@@ -217,7 +223,7 @@ Measure real `ai_usage` in the first week. Ways to keep cost down:
 3. The `flash` tier for simple lookups.
 4. Prompt caching, if the endpoint discounts it.
 
-`AI_MONTHLY_BUDGET_USD` (default $15) is the app-side cap. Also set a spending alert or limit in the Model Studio console as the backstop.
+`AI_MONTHLY_BUDGET_USD` (default $5) is the app-side cap. Also set a spending alert or limit in the Model Studio console as the backstop.
 
 ## 6. Deploy
 

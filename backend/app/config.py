@@ -126,8 +126,8 @@ class Settings(BaseSettings):
     ai_max_tokens: int = 4000
     ai_max_tool_rounds: int = 8
     ai_turn_timeout_s: float = 120.0
-    ai_monthly_budget_usd: float = 15.0  # hard cap; 429 until the 1st once spent
-    ai_user_daily_questions: int = 40  # per user per Bangkok day; admins exempt
+    ai_monthly_budget_usd: float = 5.0  # hard cap; 429 until the 1st once spent
+    ai_user_daily_questions: int = 15  # per user per Bangkok day; admins exempt
     ai_enabled_roles: str = "admin,engineer"
     # USD per 1M tokens of AI_MODEL (qwen3.7-plus list price), for ai_usage.cost_usd
     ai_price_in_per_m: float = 0.40

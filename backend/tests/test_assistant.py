@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
-from app.db.models import AiUsage, GrowattPlant, User, UserPlantAssignment
+from app.db.models import AiUsage, GrowattInverter, GrowattPlant, User, UserPlantAssignment
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db, get_session_factory
 from app.logging_db import redact
@@ -25,7 +25,7 @@ from app.services.assistant import client as ai_client
 from app.services.assistant.loop import ChatMessage, trim_history
 from app.services.assistant.tools import ToolContext, run_tool, tool_definitions
 
-from tests.test_growatt_routes import PLANT, _seed_growatt
+from tests.test_growatt_routes import PLANT, SN_A, SN_B, _seed_growatt
 
 TODAY = date(2026, 11, 12)
 OTHER = 222  # a second plant with no readings at all
@@ -196,6 +196,67 @@ def test_plant_overview_summary_keeps_nulls(env):
 
 # ---------------------------------------------------------------------------------------------
 # Chat route
+
+
+def _run(Session, name: str, args: Dict[str, Any], allowed=None) -> Dict[str, Any]:
+    text, is_error = run_tool(name, args, _ctx(Session, allowed))
+    assert not is_error, text
+    return json.loads(text)
+
+
+def test_inverter_daily_resolves_alias_and_compares_with_plant(env):
+    with env.Session() as s:
+        s.get(GrowattInverter, SN_A).alias = "INVERTER 1"
+        s.commit()
+    out = _run(env.Session, "inverter_daily", {"plant_id": PLANT, "device_sn": "inverter 1", "days": 2, "end_day": "2026-11-11"})
+    assert out["device_sn"] == SN_A
+    d10, d11 = out["daily"]
+    assert d10["yield_kwh"] is None  # no records = no data, never 0
+    # 5.9 kWh vs. the plant's per-inverter mean (5.9 + 4.0) / 2 = 4.95 -> 119.2 %
+    assert d11["yield_kwh"] == 5.9 and d11["plant_avg_yield_kwh"] == 4.95 and d11["vs_plant_pct"] == 119.2
+    assert out["summary"] == {"days_with_data": 1, "days_without_data": 1, "total_yield_kwh": 5.9, "mean_vs_plant_pct": 119.2, "min_vs_plant_pct": 119.2}
+
+    text, is_error = run_tool("inverter_daily", {"plant_id": PLANT, "device_sn": "INVERTER 9"}, _ctx(env.Session))
+    assert is_error and SN_B in text  # the error lists the plant's inverters
+
+
+def test_plant_overview_counts_strings_and_hides_equal_share_capacity(env):
+    out = _run(env.Session, "plant_overview", {"plant_id": PLANT, "day": "2026-11-11"})
+    inv = {i["device_sn"]: i for i in out["inverters"]}
+    assert inv[SN_A]["strings_connected"] == 2 and inv[SN_A]["unused_inputs"] == 0
+    assert inv[SN_A]["yield_per_string_kwh"] is not None
+    assert inv[SN_B]["yield_per_string_kwh"] is None  # no string data: unknown, not 0
+    assert all("specific_yield" not in i and "capacity_kwp" not in i for i in out["inverters"])
+    assert "unused_inputs_note" in out
+
+
+def test_inverter_day_profile_is_hourly(env):
+    out = _run(env.Session, "inverter_day_profile", {"plant_id": PLANT, "device_sn": SN_A, "day": "2026-11-11"})
+    h10 = next(h for h in out["hourly"] if h["hour"] == "10:00")
+    assert h10["ac_kw_mean"] == 6.0 and h10["string_current_a_mean"] == 5.0
+    assert [(x["string_no"], x["current_a_mean"], x["vs_strings_mean_pct"]) for x in out["strings_daylight_mean"]] == [(1, 5.0, 0.0), (2, 5.0, 0.0)]
+    assert "timeseries" not in out  # never the raw 5-min series
+
+
+def test_string_detail_measured_mismatch(env):
+    out = _run(env.Session, "string_detail", {"plant_id": PLANT, "device_sn": SN_A, "string_no": 1, "day": "2026-11-11"})
+    mm = out["mismatch_measured"]
+    assert mm["judged_slots"] > 0 and mm["slots_at_or_below_warn"] == 0 and mm["mean_current_dev_pct"] == 0.0
+    assert out["summary"]["energy_kwh"] is not None
+
+    text, is_error = run_tool("string_detail", {"plant_id": PLANT, "device_sn": SN_A, "string_no": 1, "day": "2026-11-11", "end_day": "2026-11-10"}, _ctx(env.Session))
+    assert is_error and "end_day" in text
+    text, is_error = run_tool("string_detail", {"plant_id": PLANT, "device_sn": SN_A, "string_no": 1}, _ctx(env.Session, allowed={OTHER}))
+    assert is_error and "not found" in text
+
+
+def test_weather_tools_without_sensor_say_so(env, monkeypatch):
+    monkeypatch.setattr(settings, "google_weather_api_key", "")
+    out = _run(env.Session, "plant_weather", {"plant_id": PLANT, "day": "2026-11-11"})
+    assert out["sensor"]["has_sensor"] is False
+    assert out["google_weather_modelled"]["available"] is False
+    sensors = _run(env.Session, "weather_sensors", {"day": "2026-11-11"})
+    assert sensors["sensors_total"] == 0 and "online" in sensors["note"]
 
 
 def test_chat_runs_tools_streams_answer_and_meters_usage(env):

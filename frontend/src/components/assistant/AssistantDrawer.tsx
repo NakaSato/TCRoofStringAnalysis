@@ -21,6 +21,11 @@ const TOOL_LABEL: Record<string, string> = {
   plant_overview: "Reading plant day",
   alarms: "Reading alarm log",
   fleet_ranking: "Ranking the fleet",
+  inverter_daily: "Reading inverter trend",
+  inverter_day_profile: "Reading inverter day",
+  string_detail: "Analysing string",
+  weather_sensors: "Checking weather sensors",
+  plant_weather: "Reading plant weather",
 };
 
 const PAGE_NAME: Record<string, string> = {
