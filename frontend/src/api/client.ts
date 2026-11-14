@@ -2,7 +2,7 @@
  * Typed REST API client for the TC Roof Solar PV String & O&M Engineering Backend.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 const TOKEN_KEY = "tc_solar_jwt_token";
 const USER_KEY = "tc_solar_user";
 
@@ -13,12 +13,14 @@ export type * from "./types/growatt";
 export type * from "./types/weather";
 export type * from "./types/sensors";
 export type * from "./types/systemLogs";
+export type * from "./types/assistant";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
+import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -350,6 +352,10 @@ export const api = {
   },
   getSystemLogSummary: (since?: string) =>
     apiFetch<SystemLogSummary>(`/system/logs/summary${since ? `?since=${encodeURIComponent(since)}` : ""}`),
+
+  // AI Assistant (the chat itself streams: see api/assistant.ts)
+  getAssistantStatus: () => apiFetch<AssistantStatus>("/assistant/status"),
+  getAssistantUsage: () => apiFetch<AssistantUsage>("/assistant/usage"),
 
   // File URLs (need the session token: download with downloadApiFile)
   sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,

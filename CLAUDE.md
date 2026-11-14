@@ -49,13 +49,14 @@ Rules for every layer:
 
 ## Deploy (GCP, test month at ≤ ฿3,000/month)
 
-`deploy/gcp.sh setup | backend | frontend | all | upsize | ip | snapshots | costguard | monitoring` (see header of the script). **Production settings live in `deploy/gcp.config`**; sizing, costs and the cost cap are in `docs/plans/gcp-production.md`.
+`deploy/gcp.sh setup | backend | frontend | all | upsize | ip | snapshots | costguard | monitoring | ai` (see header of the script). **Production settings live in `deploy/gcp.config`**; sizing, costs and the cost cap are in `docs/plans/gcp-production.md`.
 - **Frontend:** Firebase Hosting. `firebase.json` rewrites `/api/**` to Cloud Run.
 - **API:** Cloud Run service `tcroof-api` in us-central1. It runs min 0 / max 1 instance (scales to zero; a cold start of a few seconds after idle) and gets its secrets from Secret Manager.
 - **Postgres + `growatt-worker` + Redis:** VM `tcroof-db` (`e2-standard-2`, 8 GB) running `deploy/vm/compose.yml` from `/opt/tcroof`. It has a static internal IP and a static external IP (`tcroof-db-ext`, the worker's outbound address); ports 5432 and 6379 are reachable only inside the VPC (firewall rules `tcroof-allow-postgres-internal` / `-redis-internal`), both with a password. Redis (256 MB, no persistence) mirrors the API's live cache at no extra cost; its password and URL are the secrets `tcroof-redis-password` / `tcroof-redis-url`. The disk is 100 GB `pd-balanced` to hold 90 days of raw readings for 629 inverters; the `retention` job deletes older readings. Postgres memory settings are written to the VM's `.env` by `deploy/gcp.sh backend` for the VM's machine type.
 - **Backups:** weekly disk snapshots only (policy `tcroof-db-weekly`, Sunday 02:00 Bangkok, kept 28 days); restore steps are above `cmd_snapshots`.
 - **Cost cap:** budget `tcroof-monthly` (฿3,000; planned spend ≈ ฿2,566) emails at 50/90/100 %; the `tcroof-cost-guard` function (`deploy/costguard/`) **disables billing on the project at 96 % (฿2,880)**, which stops everything until an admin re-links billing (disks and snapshots are kept).
 - **Alerts:** email when `/api/health` or `/api/health/worker` (no finished `history` run in 2 h) fails, or the VM disk is over 85 % (Ops Agent).
+- **AI Assistant:** `deploy/gcp.sh ai` puts `AI_API_KEY` from `.env` into secret `tcroof-ai-api-key` (run again after rotating the key), then `backend` passes it to Cloud Run with `AI_*` settings from `gcp.config` (model, enabled roles, $5 cap, 15/day, 110 s turn timeout). No secret = assistant off. `frontend` builds the chat to call the Cloud Run URL directly (`VITE_ASSISTANT_API_BASE_URL`), because Hosting's `/api` rewrite buffers the SSE stream and cuts requests at 60 s; every other call still goes through `/api` on Hosting.
 - **Production login:** `APP_ENV=prod` seeds only the admin from secret `tcroof-admin-password` (created by `setup`, or from `ADMIN_PASSWORD` in `.env`). There are no demo accounts.
 - **Why not Cloud SQL:** a comparable instance (2 vCPU / 8 GB) costs well over the whole ฿3,000 budget, and history grows by about 0.5 GB/day (629 inverters), which rules out the free Postgres tiers.
 
@@ -78,5 +79,6 @@ Rules for every layer:
 - `WORKER_ENV_INTERVAL_MIN` (10, 0 = off), `WORKER_ENV_START_H` / `_END_H` (5 / 20): `env_history`, weather-sensor history between `history` runs
 - `APP_ENV` (`dev` | `prod`), `ADMIN_USERNAME`, `ADMIN_PASSWORD`
 - `GOOGLE_WEATHER_API_KEY` (Secret Manager `tcroof-google-weather-key`), `GOOGLE_WEATHER_MONTHLY_BUDGET` (10000): Google Maps Weather uses its whole free tier; each day gets what is left of the month ÷ days left. `GOOGLE_WEATHER_DAY_START_H` / `_END_H` (6 / 18): daytime-only hours stored and fetched live
+- `AI_API_KEY` (Secret Manager `tcroof-ai-api-key`; empty = off), `AI_BASE_URL` (Qwen Cloud Singapore, Anthropic-compatible), `AI_MODEL` (`qwen3.7-plus`), `AI_THINKING` (false; Qwen thinks by default and takes 30–90 s), `AI_MONTHLY_BUDGET_USD` (5), `AI_USER_DAILY_QUESTIONS` (15), `AI_ENABLED_ROLES`, `AI_PRICE_*`: AI Assistant (`/assistant/*`, docs/plans/ai-assistant.md). Conversations stay in the browser; only token counts and cost go to SQL `ai_usage`
 
 Firebase CLI config is in `firebase.json`, `.firebaserc` and `firestore.rules`. The rules deny all browser access; the backend writes through the Admin SDK. Use `bunx firebase-tools`.

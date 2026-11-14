@@ -634,3 +634,28 @@ class AppLog(Base):
     job: Mapped[Optional[str]] = mapped_column(String(32))
     request_id: Mapped[Optional[str]] = mapped_column(String(32))
     extra_json: Mapped[Optional[Any]] = mapped_column(JSON)
+
+
+class AiUsage(Base):
+    """Token use and cost of one AI Assistant turn (one user question), for the monthly budget and
+    the per-user daily limit.
+
+    Bookkeeping only: no prompt, answer or tool result is stored (the conversation lives in the
+    browser), so no measurement ever lands here. `ts` is UTC.
+    """
+
+    __tablename__ = "ai_usage"
+    __table_args__ = (Index("ix_ai_usage_ts", "ts"), Index("ix_ai_usage_user_ts", "user_id", "ts"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    rounds: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    tools: Mapped[Optional[Any]] = mapped_column(JSON)  # tool names only, in call order
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # ok | refused | error | timeout
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
