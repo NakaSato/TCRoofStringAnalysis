@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { api, UserProfile, getStoredToken, getStoredUser, clearAuthSession, AUTH_EXPIRED_EVENT } from "../api/client";
 import { clearAlarmLogs } from "./alarmLogStore";
 import { clearPlantCache } from "./plantCache";
+import { clearAssistantThreads } from "../components/assistant/useAssistantChat";
 
 export interface AuthContextValue {
   user: UserProfile | null;
@@ -42,7 +43,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Any 401 from the API (expired token, disabled account) signs out.
   useEffect(() => {
-    const onExpired = () => setUser(null);
+    const onExpired = () => {
+      clearAssistantThreads();
+      setUser(null);
+    };
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
   }, []);
@@ -57,6 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // the next user may see other plants
     clearAlarmLogs();
     clearPlantCache();
+    clearAssistantThreads();
     setUser(null);
   }, []);
 

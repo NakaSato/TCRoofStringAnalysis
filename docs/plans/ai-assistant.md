@@ -1,6 +1,6 @@
 # Plan & Spec: AI Assistant (Qwen Cloud, Anthropic-compatible API)
 
-Status: **Phase 1 (backend) built 2026-11-15** on branch `feat/ai-assistant`; UI next · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phase 1 (backend) merged 2026-11-15; phase 2 (UI drawer) built 2026-11-15** on branch `feat/ai-assistant`; more tools next · Created 2026-11-15 · Owner: Chanthawat
 
 Add an **AI Assistant** that answers questions about the fleet in Thai or English ("Which plants lost the most yield yesterday?", "Why is string 3 on inverter XYZ low?", "Summarise today's alarms for my plants"). It reads the data through the same services and access rules the UI uses.
 

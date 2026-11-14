@@ -19,10 +19,13 @@ import {
   Building2,
   Gauge,
   Map as MapIcon,
+  Sparkles,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { canAccessPath, isAdmin } from "../auth/access";
+import { api, type AssistantStatus } from "../api/client";
+import { AssistantDrawer } from "./assistant/AssistantDrawer";
 import { parsePlantPath } from "../context/routes";
 import type { PlantPage } from "../context/routes";
 import { Led, LoadingState, fmt, fmtInt } from "./ui";
@@ -137,6 +140,34 @@ export const Layout: React.FC = () => {
     });
   const [cmdOpen, setCmdOpen] = useState<boolean>(false);
   const [alarmsOpen, setAlarmsOpen] = useState<boolean>(false);
+  // AI Assistant: shown only when the backend has a key and the user's role is enabled
+  const [assistant, setAssistant] = useState<AssistantStatus | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState<boolean>(false);
+  const assistantEnabled = !!assistant?.enabled;
+  useEffect(() => {
+    setAssistant(null);
+    setAssistantOpen(false);
+    if (!user) return;
+    let alive = true;
+    api
+      .getAssistantStatus()
+      .then((s) => alive && setAssistant(s))
+      .catch(() => alive && setAssistant(null));
+    return () => {
+      alive = false;
+    };
+  }, [user?.id]);
+  useEffect(() => {
+    if (!assistantEnabled) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setAssistantOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [assistantEnabled]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -454,6 +485,24 @@ export const Layout: React.FC = () => {
               </kbd>
             </button>
 
+            {assistantEnabled && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setAssistantOpen((o) => !o)}
+                    aria-label="AI Assistant"
+                    aria-pressed={assistantOpen}
+                    className={assistantOpen ? "text-solar-300" : undefined}
+                  >
+                    <Sparkles className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>AI Assistant (Ctrl/⌘ J)</TooltipContent>
+              </Tooltip>
+            )}
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" onClick={() => refreshAll()} aria-label="Refresh plant data">
@@ -517,6 +566,15 @@ export const Layout: React.FC = () => {
       {/* Global Slide-Over Drawers & Command Palette */}
       <StringInspectorDrawer />
       <AlarmCenterDrawer open={alarmsOpen} onClose={() => setAlarmsOpen(false)} />
+      {assistantEnabled && user && (
+        <AssistantDrawer
+          key={user.id}
+          open={assistantOpen}
+          onClose={() => setAssistantOpen(false)}
+          userId={user.id}
+          model={assistant?.model}
+        />
+      )}
       <CommandPaletteModal
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
