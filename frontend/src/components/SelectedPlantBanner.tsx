@@ -99,7 +99,8 @@ export const SelectedPlantBanner: React.FC = () => {
             ...t,
             step: String(i + 1),
             to: plantPath(selectedGrowattPlantId, t.page),
-            active: currentPage === t.page,
+            // one string's page belongs to String Diagnostics
+            active: currentPage === t.page || (currentPage === "string" && t.page === "strings"),
           }));
 
   return (

@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 /**
  * Selected plant's string tiles, grouped by inverter and laid out by MPPT (string n sits on
  * MPPT ⌈n/2⌉), including inputs that carry no current today ("Not active"). Inverters with
- * no string rows stay listed. Click a tile to open its I-V curve in the inspector drawer.
+ * no string rows stay listed. Click a tile to open its I-V curve in the String Inspector modal.
  */
 export const StringStatusMatrix: React.FC = () => {
   const { selectedGrowattPlantId, selectedPlantOverview, setInspectedStringId, plantLiveLoading } = useAppContext();
@@ -188,7 +188,9 @@ export const StringStatusMatrix: React.FC = () => {
             return (
               <section key={inv.device_sn} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                  {inv.status == null && !inv.lost ? (
+                  {/* spinner only while the live request runs; an inverter missing from the live answer
+                      (no record yet today: asleep, offline) says so instead of loading forever */}
+                  {inv.status == null && !inv.lost && plantLiveLoading ? (
                     <Spinner className="size-3" aria-label="Loading live status…" />
                   ) : (
                     <Led level={lvl} />
@@ -202,6 +204,11 @@ export const StringStatusMatrix: React.FC = () => {
                     {inv.device_sn}
                   </button>
                   <span className="num text-slate-500">{inv.model}</span>
+                  {inv.status == null && !inv.lost && !plantLiveLoading && (
+                    <span className="text-slate-500" title="The live answer has no record of this inverter today (asleep, offline or not reporting yet)">
+                      No live record
+                    </span>
+                  )}
                   <span className="num text-sky-300">{active} active</span>
                   {inactive > 0 && <span className="num text-slate-500">{inactive} not active</span>}
                   {crit > 0 && <span className="num text-red-300">{crit} critical</span>}

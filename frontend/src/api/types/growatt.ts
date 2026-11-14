@@ -511,7 +511,12 @@ export interface GrowattStringLayout {
 }
 
 export interface GrowattStringDetail {
-  meta: GrowattDbMeta;
+  meta: GrowattDbMeta & {
+    /** plant-local time-of-day window (HH:MM, inclusive) everything covers; null = whole day */
+    window?: { start: string | null; end: string | null } | null;
+    /** last day of a day range starting at `day`; null = one day */
+    end_day?: string | null;
+  };
   plant_id: number;
   plant_name: string;
   device_sn: string;
@@ -524,14 +529,14 @@ export interface GrowattStringDetail {
   peer_basis?: GrowattPeerBasis;
   summary: {
     v_avg: number | null;
-    v_max: number;
-    v_mpp: number;
-    v_oc_est: number;
+    v_max: number | null;
+    v_mpp: number | null;
+    v_oc_est: number | null;
     i_avg: number | null;
-    i_max: number;
-    i_mpp: number;
-    i_sc_est: number;
-    p_max_w: number;
+    i_max: number | null;
+    i_mpp: number | null;
+    i_sc_est: number | null;
+    p_max_w: number | null;
     energy_kwh: number;
     peer_energy_kwh: number | null;
     pr_pct: number | null;
@@ -545,12 +550,15 @@ export interface GrowattStringDetail {
     peer_current_a: number | null;
     peer_power_w: number | null;
   }>;
+  /** each day of the range (one entry for a single day); null = no records that day */
+  daily?: Array<{ day: string; energy_kwh: number | null; peer_energy_kwh: number | null; pr_pct: number | null }>;
   iv_pv_curve: {
     nominal_points: Array<{ v: number; i: number; p: number }>;
     actual_points: Array<{ v: number; i: number; p: number }>;
     measured_scatter: Array<{ v: number; i: number; p: number; timestamp: string }>;
-    mpp_nominal: { v: number; i: number; p: number };
-    mpp_actual: { v: number; i: number; p: number };
+    /** null (and an empty curve) when there is nothing measured to model it from */
+    mpp_nominal: { v: number; i: number; p: number } | null;
+    mpp_actual: { v: number; i: number; p: number } | null;
   };
 }
 

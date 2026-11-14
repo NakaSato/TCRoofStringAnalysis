@@ -131,7 +131,7 @@ def test_overview_day_filter_energy_integration_and_nulls(client):
 
 def test_string_detail_day_and_peer(client):
     d = client.get(f"/api/growatt/plants/{PLANT}/strings/{SN_A}/1").json()
-    assert d["meta"] == {"source": "db", "day": "2026-11-11"}
+    assert d["meta"] == {"source": "db", "day": "2026-11-11", "end_day": None, "window": None}
     assert d["summary"]["energy_kwh"] == pytest.approx(3.0, abs=0.2)
     assert d["timeseries"][0]["peer_current_a"] == pytest.approx(5.0)
     assert client.get(f"/api/growatt/plants/{PLANT}/strings/{SN_A}/1", params={"day": "2026-11-01"}).status_code == 404
@@ -723,3 +723,80 @@ def test_plant_curve_holds_a_missing_inverter_for_at_most_10_min(tmp_path):
     # 15 min after B's last slot: no longer held, the sum is A alone and says so
     for t in ("10:30", "10:55"):
         assert (slot[t]["pac_kw"], slot[t]["inverters"], slot[t]["held"]) == (6.0, 1, 0)
+
+
+def test_string_detail_mpp_is_measured_or_null(tmp_path):
+    """The MPP and the actual I-V curve come from a measured record, never from a default."""
+    from app.services.growatt_overview import build_string_detail
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'mpp.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    day = datetime(2026, 11, 11)
+    with Session() as s:
+        s.add(GrowattPlant(plant_id=PLANT, name="P", peak_power_kwp=20.0))
+        s.flush()
+        s.add(GrowattInverter(device_sn=SN_A, plant_id=PLANT))
+        s.flush()
+        for m in range(0, 60, 5):
+            ts = day + timedelta(hours=10, minutes=m)
+            for no, volt, cur in ((1, 180.0, 2.0), (2, 600.0, 5.0), (3, 600.0, 0.0)):
+                s.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=no, mppt_no=1 + (no - 1) // 2,
+                                           voltage_v=volt, current_a=cur, power_w=volt * cur))
+        s.commit()
+
+        # Low but real readings are kept as measured (no 250 V / 0.5 A floor).
+        low = build_string_detail(s, PLANT, SN_A, 1, day.date())
+        assert low["iv_pv_curve"]["mpp_actual"] == {"v": 180.0, "i": 2.0, "p": 360.0}
+        assert low["summary"]["v_mpp"] == 180.0 and low["summary"]["p_max_w"] == 360.0
+        assert low["iv_pv_curve"]["actual_points"]
+
+        # No current all day: no operating point, so no actual curve and no MPP (not 620 V x 9.5 A).
+        dead = build_string_detail(s, PLANT, SN_A, 3, day.date())
+        curve, summary = dead["iv_pv_curve"], dead["summary"]
+        assert curve["mpp_actual"] is None and curve["actual_points"] == []
+        assert curve["measured_scatter"] == []
+        for key in ("v_mpp", "v_oc_est", "i_mpp", "i_sc_est", "p_max_w", "i_max"):
+            assert summary[key] is None, key
+        # The peer reference is still modelled from the peers (slot mean of strings 1 and 2).
+        assert curve["mpp_nominal"] is not None and curve["mpp_nominal"]["i"] == 3.5
+        assert curve["nominal_points"]
+
+
+def test_string_detail_time_window(client):
+    """`start` / `end` narrow series, energy and the curves to a time-of-day window."""
+    url = f"/api/growatt/plants/{PLANT}/strings/{SN_A}/1"
+    full = client.get(url).json()
+    assert full["meta"]["window"] is None
+    assert len(full["timeseries"]) == 60  # 10:00-10:59, 1-minute records
+
+    part = client.get(url, params={"start": "10:10", "end": "10:29"}).json()
+    assert part["meta"]["window"] == {"start": "10:10", "end": "10:29"}
+    # slots 10:10, 10:15, 10:20, 10:25 -> records 10:10 .. 10:29
+    assert len(part["timeseries"]) == 20
+    assert part["timeseries"][0]["timestamp"].endswith("10:10:00")
+    assert part["summary"]["energy_kwh"] < full["summary"]["energy_kwh"]
+    assert part["iv_pv_curve"]["mpp_actual"] is not None
+
+    assert client.get(url, params={"start": "05:00", "end": "06:00"}).status_code == 404
+    assert client.get(url, params={"start": "12:00", "end": "11:00"}).status_code == 422
+
+
+def test_string_detail_day_range(client):
+    """`end_day` makes a range: totals over it, one `daily` entry per day (null = no records)."""
+    url = f"/api/growatt/plants/{PLANT}/strings/{SN_A}/1"
+    one = client.get(url, params={"day": "2026-11-11"}).json()
+    assert one["meta"]["end_day"] is None and len(one["daily"]) == 1
+    assert one["daily"][0]["energy_kwh"] == one["summary"]["energy_kwh"]
+
+    rng = client.get(url, params={"day": "2026-11-10", "end_day": "2026-11-11"}).json()
+    assert rng["meta"]["day"] == "2026-11-10" and rng["meta"]["end_day"] == "2026-11-11"
+    assert [d["day"] for d in rng["daily"]] == ["2026-11-10", "2026-11-11"]
+    assert rng["daily"][0]["energy_kwh"] is None  # no records that day: null, not 0
+    assert rng["daily"][1]["energy_kwh"] == pytest.approx(one["summary"]["energy_kwh"])
+    assert rng["summary"]["energy_kwh"] == pytest.approx(one["summary"]["energy_kwh"])
+
+    assert client.get(url, params={"day": "2026-10-01", "end_day": "2026-11-11"}).status_code == 422  # > 31 days
+    assert client.get(url, params={"day": "2026-11-11", "end_day": "2026-11-10"}).status_code == 422
+    assert client.get(url, params={"end_day": "2026-11-10"}).status_code == 422
+    assert client.get(url, params={"day": "2026-11-01", "end_day": "2026-11-05"}).status_code == 404

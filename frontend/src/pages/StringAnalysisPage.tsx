@@ -9,6 +9,9 @@ import {
   Zap,
   SlidersHorizontal,
   ArrowUpRight,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
 } from "lucide-react";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { useAppContext } from "../context/AppContext";
@@ -17,7 +20,7 @@ import type { GrowattStringDetail } from "../api/client";
 import { PanelChart } from "../components/PanelChart";
 import type { PanelChartSpec } from "../components/PanelChart";
 import { SERIES, STATUS } from "../components/chartTheme";
-import { ivPvSpecFrom } from "../components/ivPvSpec";
+import { ivPvSpecFrom, stringProfileSpecFrom } from "../components/ivPvSpec";
 import {
   Panel,
   KpiTile,
@@ -36,8 +39,26 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TablePager, pageBounds } from "../components/TablePager";
 
 const STATUS_FILTERS = ["ALL", "Healthy", "Warning", "Critical"] as const;
+const PAGE_SIZES = [25, 50, 100] as const;
+
+type StringRow = NonNullable<ReturnType<typeof useAppContext>["selectedPlantOverview"]>["strings"][number];
+const STATUS_RANK: Record<StringRow["status"], number> = { Healthy: 0, Warning: 1, Critical: 2 };
+const byText = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+const byPosition = (a: StringRow, b: StringRow) => byText(a.device_sn, b.device_sn) || a.string_no - b.string_no;
+
+/** Sortable table columns (`?sort=&desc=`); ties fall back to inverter + string order. */
+const TABLE_SORTS = [
+  // first click: worst first
+  { key: "status", label: "Status", firstDesc: true, cmp: (a: StringRow, b: StringRow) => STATUS_RANK[a.status] - STATUS_RANK[b.status] },
+  { key: "string", label: "String ID", firstDesc: false, cmp: (a: StringRow, b: StringRow) => a.string_no - b.string_no },
+  { key: "inverter", label: "Inverter SN", firstDesc: false, cmp: (a: StringRow, b: StringRow) => byText(a.device_sn, b.device_sn) },
+  { key: "mppt", label: "MPPT", firstDesc: false, cmp: (a: StringRow, b: StringRow) => a.mppt_no - b.mppt_no },
+] as const;
+type TableSortKey = (typeof TABLE_SORTS)[number]["key"];
+const TABLE_SORT_KEYS = TABLE_SORTS.map((c) => c.key);
 
 export const StringAnalysisPage: React.FC = () => {
   const {
@@ -77,6 +98,29 @@ export const StringAnalysisPage: React.FC = () => {
       return true;
     });
   }, [strings, selectedInverterSn, statusFilter, searchQuery]);
+
+  // Table order only (charts and the string picker keep the backend order)
+  const sortParam = query.get("sort");
+  const tableSort: TableSortKey | null = sortParam ? pick(sortParam, TABLE_SORT_KEYS, "status") : null;
+  const tableDesc = query.get("desc") === "1";
+  const toggleTableSort = (k: TableSortKey) => {
+    // first click: the column's natural direction; second flips it; third back to the default order
+    const firstDesc = TABLE_SORTS.find((c) => c.key === k)!.firstDesc;
+    if (tableSort !== k) setQuery({ sort: k, desc: firstDesc ? "1" : null });
+    else if (tableDesc === firstDesc) setQuery({ desc: tableDesc ? null : "1" });
+    else setQuery({ sort: null, desc: null });
+  };
+  const tableStrings = useMemo(() => {
+    const col = TABLE_SORTS.find((c) => c.key === tableSort);
+    if (!col) return filteredStrings;
+    return [...filteredStrings].sort((a, b) => (tableDesc ? -col.cmp(a, b) : col.cmp(a, b)) || byPosition(a, b));
+  }, [filteredStrings, tableSort, tableDesc]);
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
+  // back to the first page when the filters, the sort or the page size change
+  useEffect(() => setPage(0), [selectedInverterSn, statusFilter, searchQuery, tableSort, tableDesc, pageSize]);
+  const { pageNo } = pageBounds(tableStrings.length, pageSize, page);
+  const pageStrings = tableStrings.slice(pageNo * pageSize, (pageNo + 1) * pageSize);
 
   // Default active string for the I-V / P-V Curve Analyzer (pick an anomaly or first string)
   const activeString = useMemo(() => {
@@ -127,40 +171,10 @@ export const StringAnalysisPage: React.FC = () => {
   }, [stringDetail]);
 
   // 2. 5-minute string current (vs peer average) above MPPT voltage
-  const stringTimeseriesSpec = useMemo<PanelChartSpec | null>(() => {
-    if (!stringDetail || stringDetail.timeseries.length === 0) return null;
-    const ts = stringDetail.timeseries;
-    return {
-      xKind: "time",
-      x: ts.map((r) => r.timestamp),
-      panels: [
-        {
-          key: "i",
-          title: "DC current (A)",
-          weight: 1.3,
-          series: [
-            {
-              key: "peer",
-              name: "Peer average",
-              type: "line",
-              dash: "dot",
-              width: 1.5,
-              color: SERIES.reference,
-              y: ts.map((r) => r.peer_current_a),
-              format: (v) => `${fmt(v, 2)} A`,
-            },
-            { key: "i", name: "String current", type: "line", color: SERIES.ac, y: ts.map((r) => r.current_a), format: (v) => `${fmt(v, 2)} A` },
-          ],
-        },
-        {
-          key: "v",
-          title: "MPPT voltage (V)",
-          zero: false,
-          series: [{ key: "v", name: "MPPT voltage", type: "line", color: SERIES.dc, y: ts.map((r) => r.voltage_v), format: (v) => `${fmt(v, 0)} V` }],
-        },
-      ],
-    };
-  }, [stringDetail]);
+  const stringTimeseriesSpec = useMemo<PanelChartSpec | null>(
+    () => (stringDetail ? stringProfileSpecFrom(stringDetail) : null),
+    [stringDetail]
+  );
 
   // 3. Peer-relative string PR (status-coloured) above peak current
   const peerBarSpec = useMemo<PanelChartSpec | null>(() => {
@@ -438,10 +452,27 @@ export const StringAnalysisPage: React.FC = () => {
         <Table containerClassName="scroll-x-hint">
             <TableHeader>
               <TableRow>
-                <TableHead>Status</TableHead>
-                <TableHead>String ID</TableHead>
-                <TableHead>Inverter SN</TableHead>
-                <TableHead>MPPT</TableHead>
+                {TABLE_SORTS.map((c) => {
+                  const active = tableSort === c.key;
+                  const Arrow = tableDesc ? ArrowDown : ArrowUp;
+                  return (
+                    <TableHead
+                      key={c.key}
+                      className="whitespace-nowrap"
+                      aria-sort={active ? (tableDesc ? "descending" : "ascending") : undefined}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleTableSort(c.key)}
+                        title={`Sort by ${c.label}`}
+                        className={`inline-flex items-center gap-1 hover:text-slate-100 ${active ? "text-slate-100" : ""}`}
+                      >
+                        {c.label}
+                        {active ? <Arrow className="size-3" /> : <ArrowUpDown className="size-3 opacity-40" />}
+                      </button>
+                    </TableHead>
+                  );
+                })}
                 <TableHead className="text-right" title="Newest Growatt record (live, not stored)">Now V / I</TableHead>
                 <TableHead className="text-right">Avg V (V)</TableHead>
                 <TableHead className="text-right">Max V (V)</TableHead>
@@ -456,7 +487,7 @@ export const StringAnalysisPage: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredStrings.slice(0, 120).map((s) => {
+              {pageStrings.map((s) => {
                 const isSelected = activeString?.string_id === s.string_id;
                 const lvl = statusLevel(s.status);
                 return (
@@ -526,6 +557,27 @@ export const StringAnalysisPage: React.FC = () => {
               })}
             </TableBody>
         </Table>
+        <TablePager
+          className="border-t border-white/[0.06] px-4 py-2.5"
+          rows={tableStrings.length}
+          pageSize={pageSize}
+          pageNo={pageNo}
+          onPage={setPage}
+          extra={
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger size="sm" className="w-28 text-[11px]" aria-label="Rows per page">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZES.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n} per page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+        />
       </Panel>
     </div>
   );

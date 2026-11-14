@@ -297,7 +297,7 @@ def test_api_filters_and_validation(env):
     f, _ = env
     _seed(f, [_log(1, "WARNING", minutes_ago=1, message="warn"), _log(2, "INFO", minutes_ago=1, source="api")])
     c = _client(f, "admin")
-    body = c.get("/api/system/logs", params={"level": "WARNING"}).json()
+    body = c.get("/api/system/logs", params={"level": "WARNING", "since": "2026-11-13T05:00:00Z"}).json()  # seeded rows use the fixed NOW
     assert [x["message"] for x in body["items"]] == ["warn"] and body["items"][0]["ts"].endswith("Z")
     assert c.get("/api/system/logs", params={"level": "nope"}).status_code == 422
     assert c.get("/api/system/logs", params={"source": "browser"}).status_code == 422

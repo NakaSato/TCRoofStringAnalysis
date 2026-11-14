@@ -28,6 +28,28 @@ Total spend must stay **under ฿3,000/month** (planned ≈ ฿2,566 ≈ $75.5).
 All prices are us-central1 list prices, converted at the rate the table uses (≈ 34 THB/USD).
 **E2 machines get no sustained-use discount**, so the VM is billed at the full on-demand price for every hour it runs.
 
+### 1.1 BOQ (bill of quantities)
+
+Quantity × unit rate per item, for one month (730 h). Rates are us-central1 list prices in USD; ฿ at 34 THB/USD. Amounts match §1.
+
+| No. | Item | Spec | Qty | Unit | Unit rate (USD) | USD/month | ฿/month |
+|---:|---|---|---:|---|---:|---:|---:|
+| 1 | Compute VM `tcroof-db` | e2-standard-2 (2 vCPU ≈ $0.02181/h each + 8 GB ≈ $0.00292/GB-h), on demand | 730 | VM-hour | 0.06701 | 48.92 | 1,663 |
+| 2 | Boot disk | pd-balanced, us-central1-a | 100 | GB-month | 0.100 | 10.00 | 340 |
+| 3 | Disk snapshots | weekly, 4 kept, incremental (ceiling) | 61 | GB-month | 0.050 | 3.05 | 104 |
+| 4 | Static external IPv4 | `tcroof-db-ext`, attached to a running VM | 730 | IP-hour | 0.005 | 3.65 | 124 |
+| 5 | Cloud Run `tcroof-api` | 1 vCPU / 1 GiB, min 0 / max 1; 10 users × 8 h × 22 days, after the free tier | 1 | lot (usage) | 1.76 | 1.76 | 60 |
+| 6 | Internet egress | Firebase Hosting + Cloud Run, gzipped | 12 | GB | ≈ 0.1575 (blended) | 1.89 | 64 |
+| 7 | Monitoring and alerts | uptime checks, alert policies, Ops Agent (ceiling) | 1 | lot (max) | 5.00 | 5.00 | 170 |
+| 8 | Secret Manager + Artifact Registry | ~10 secrets, 3 newest images kept | 1 | lot | 0.22 | 0.22 | 7 |
+| 9 | Company domain | ≈ $12/year, Firebase Hosting, free HTTPS | 1 | month | 1.00 | 1.00 | 34 |
+| 10 | Free services | Firestore, Google Weather, Sheets, Cloud Build, Logging, Redis (on the VM), cost-guard function | 1 | lot | 0.00 | 0.00 | 0 |
+| | **Total** | | | | | **75.49** | **2,566** |
+
+- **Fixed** (items 1–4, 8, 9): $66.84 ≈ ฿2,272. **Usage / ceiling** (items 5–7): $8.65 ≈ ฿294.
+- "lot" lines are estimates, not metered quantities: item 5 depends on how long the instance is busy serving requests, item 7 is the alerting upper bound (§3.5).
+- Per year: ≈ $906 ≈ ฿30,797.
+
 ## 2. Current state (2026-11-13)
 
 | | Now | Target |

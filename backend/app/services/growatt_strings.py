@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import statistics
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
@@ -17,6 +17,11 @@ from sqlalchemy.orm import Session
 
 from app.services.growatt_common import GrowattNotFound, S, SAMPLE_H, _bucket, _day_bounds, _fmt_ts, _get_plant, _integrate_kwh, _mean, _round
 from app.services.growatt_layout import Layout, load_layout, newest_string_ts
+
+
+MAX_RANGE_DAYS = 31
+# measured points sent for the I-V / P-V chart (a whole day of 5-min records fits: ≈ 150)
+SCATTER_MAX_POINTS = 200
 
 
 def _synthesize_iv_pv_curve(
@@ -262,10 +267,22 @@ def _split_inactive(
 
 
 def build_string_detail(
-    db: Session, plant_id: int, device_sn: str, string_no: int, day: Optional[date] = None
+    db: Session,
+    plant_id: int,
+    device_sn: str,
+    string_no: int,
+    day: Optional[date] = None,
+    start_time: Optional[time] = None,
+    end_time: Optional[time] = None,
+    end_day: Optional[date] = None,
 ) -> Dict[str, Any]:
-    """Stored telemetry for one string on one day, plus modelled I-V / P-V curves."""
-    """Stored telemetry for one string on one day, plus modelled I-V / P-V curves."""
+    """Stored telemetry for one string on one day, plus modelled I-V / P-V curves.
+
+    `end_day` (with `day`) makes it a day range, both inclusive, at most `MAX_RANGE_DAYS`: the
+    series, curves, MPP and energy cover every day of it, and `daily` holds each day's energy.
+    `start_time` / `end_time` (plant-local, both inclusive, matched on the 5-minute slot) narrow
+    everything (series, curves, MPP, energy, PR) to that time-of-day window (`meta.window`), on
+    every day of a range."""
     plant = _get_plant(db, plant_id)
 
     if day is None:
@@ -273,7 +290,11 @@ def build_string_detail(
         day = latest.date() if latest else None
     if day is None:
         raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no}")
-    start, end = _day_bounds(day)
+    last_day = end_day if end_day is not None and end_day > day else day
+    if (last_day - day).days + 1 > MAX_RANGE_DAYS:
+        raise ValueError(f"A day range covers at most {MAX_RANGE_DAYS} days")
+    start, _ = _day_bounds(day)
+    _, end = _day_bounds(last_day)
     in_day = (S.device_sn == device_sn, S.timestamp >= start, S.timestamp < end)
 
     rows = db.execute(
@@ -281,8 +302,17 @@ def build_string_detail(
         .where(*in_day, S.string_no == string_no)
         .order_by(S.timestamp)
     ).all()
+    windowed = start_time is not None or end_time is not None
+    lo, hi = start_time or time.min, end_time or time.max
+
+    def in_window(ts: datetime) -> bool:
+        return not windowed or lo <= _bucket(ts).time() <= hi
+
+    rows = [r for r in rows if in_window(r[0])]
     if not rows:
-        raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no} on {day}")
+        where = f" between {lo:%H:%M} and {hi:%H:%M}" if windowed else ""
+        when = f"{day} to {last_day}" if last_day != day else f"{day}"
+        raise GrowattNotFound(f"No telemetry found for {device_sn} string {string_no} on {when}{where}")
 
     # Peer (other strings, same inverter) mean per 5-minute slot. With every module count known,
     # peer voltage / power are scaled to this string's size (current is not: series string).
@@ -291,6 +321,7 @@ def build_string_detail(
             *in_day, S.string_no != string_no, S.current_a > 0.1
         )
     ).all()
+    peer_rows = [r for r in peer_rows if in_window(r[0])]
     layout = load_layout(db, [device_sn])
     own = layout.get((device_sn, string_no))
     peer_nos = {int(r[1]) for r in peer_rows}
@@ -338,43 +369,84 @@ def build_string_detail(
             }
         )
 
-    # Operating point at peak measured power; I-V curves below are modelled from it.
+    v_max = max(voltages) if voltages else None
+    i_max = max(currents) if currents else None
+
+    # Operating point at peak measured power; the I-V curves below are modelled from it. Without a
+    # record carrying both voltage and current there is no operating point: no curve, MPP null.
     best_row = max(timeseries, key=lambda x: x["power_w"])
-    v_mpp_actual = max(250.0, float(best_row["voltage_v"] or 620.0))
-    i_mpp_actual = max(0.5, float(best_row["current_a"] or 9.5))
-    p_max_w = round(v_mpp_actual * i_mpp_actual, 1)
+    v_mpp_actual: Optional[float] = None
+    i_mpp_actual: Optional[float] = None
+    p_max_w: Optional[float] = None
+    v_oc_actual: Optional[float] = None
+    i_sc_actual: Optional[float] = None
+    actual_curve: List[Dict[str, float]] = []
+    if best_row["voltage_v"] > 0 and best_row["current_a"] > 0:
+        v_mpp_actual = float(best_row["voltage_v"])
+        i_mpp_actual = float(best_row["current_a"])
+        p_max_w = round(v_mpp_actual * i_mpp_actual, 1)
+        v_oc_actual = round(max((v_max or 0.0) * 1.08, v_mpp_actual * 1.18), 1)
+        i_sc_actual = round(max((i_max or 0.0) * 1.07, i_mpp_actual * 1.08), 2)
+        actual_curve = _synthesize_iv_pv_curve(v_oc_actual, i_sc_actual, v_mpp_actual, i_mpp_actual)
 
-    v_max = max(voltages) if voltages else v_mpp_actual * 1.16
-    v_oc_actual = round(max(v_max * 1.08, v_mpp_actual * 1.18), 1)
-    i_sc_actual = round(max(max(currents, default=i_mpp_actual) * 1.07, i_mpp_actual * 1.08), 2)
-
+    # Reference: the best of this string and its peers (peer values scaled as above).
     peer_v_list = [v[0] for v in peer_map.values() if v[0] > 100]
     peer_i_list = [v[1] for v in peer_map.values() if v[1] > 0.2]
+    v_nom_src = [x for x in (v_mpp_actual, max(peer_v_list) * 0.98 if peer_v_list else None) if x]
+    i_nom_src = [x for x in (i_mpp_actual, max(peer_i_list) if peer_i_list else None) if x]
 
-    v_mpp_nom = round(max(v_mpp_actual, max(peer_v_list, default=v_mpp_actual) * 0.98), 1)
-    i_mpp_nom = round(max(i_mpp_actual, max(peer_i_list, default=i_mpp_actual)), 2)
-    v_oc_nom = round(max(v_oc_actual, v_mpp_nom * 1.19), 1)
-    i_sc_nom = round(max(i_sc_actual, i_mpp_nom * 1.08), 2)
+    mpp_nominal: Optional[Dict[str, float]] = None
+    nominal_curve: List[Dict[str, float]] = []
+    if v_nom_src and i_nom_src:
+        v_mpp_nom = round(max(v_nom_src), 1)
+        i_mpp_nom = round(max(i_nom_src), 2)
+        v_oc_nom = round(max(v_oc_actual or 0.0, v_mpp_nom * 1.19), 1)
+        i_sc_nom = round(max(i_sc_actual or 0.0, i_mpp_nom * 1.08), 2)
+        nominal_curve = _synthesize_iv_pv_curve(v_oc_nom, i_sc_nom, v_mpp_nom, i_mpp_nom)
+        mpp_nominal = {"v": v_mpp_nom, "i": i_mpp_nom, "p": round(v_mpp_nom * i_mpp_nom, 1)}
 
-    nominal_curve = _synthesize_iv_pv_curve(v_oc_nom, i_sc_nom, v_mpp_nom, i_mpp_nom)
-    actual_curve = _synthesize_iv_pv_curve(v_oc_actual, i_sc_actual, v_mpp_actual, i_mpp_actual)
-
+    # Measured operating points for the I-V / P-V chart: at most SCATTER_MAX_POINTS producing records,
+    # thinned evenly (a range, 1-min inverters), always keeping the peak-power record (the measured MPP).
     active_pts = [pt for pt in timeseries if pt["voltage_v"] > 100 and pt["current_a"] > 0.1]
-    step = max(1, len(active_pts) // 60)
+    step = max(1, math.ceil(len(active_pts) / SCATTER_MAX_POINTS))
+    picked = active_pts[::step]
+    if active_pts and best_row not in picked and best_row in active_pts:
+        picked = sorted([*picked, best_row], key=lambda pt: pt["timestamp"])
     scatter_pts = [
         {"v": pt["voltage_v"], "i": pt["current_a"], "p": pt["power_w"], "timestamp": pt["timestamp"]}
-        for pt in active_pts[::step]
+        for pt in picked
     ]
 
     energy_kwh = round(_integrate_kwh((r[0], r[4]) for r in rows), 2)
     # Mean peer power per 5-minute slot × slot length ≈ energy of an average peer string.
     peer_energy_kwh = round(sum(v[2] for v in peer_map.values()) * SAMPLE_H / 1000.0, 2) if peer_map else None
-    pr_pct = (
-        round(min(96.5, max(0.0, 88.5 * min(1.08, energy_kwh / peer_energy_kwh))), 1) if peer_energy_kwh else None
-    )
+
+    def _pr(e: float, peer_e: Optional[float]) -> Optional[float]:
+        return round(min(96.5, max(0.0, 88.5 * min(1.08, e / peer_e))), 1) if peer_e else None
+
+    pr_pct = _pr(energy_kwh, peer_energy_kwh)
+
+    # Each day of the range (one entry for a single day): energy vs. the average peer string.
+    daily: List[Dict[str, Any]] = []
+    d = day
+    while d <= last_day:
+        d_rows = [(r[0], r[4]) for r in rows if r[0].date() == d]
+        d_peer = [v[2] for ts, v in peer_map.items() if ts.date() == d]
+        e = round(_integrate_kwh(d_rows), 2) if d_rows else None
+        pe = round(sum(d_peer) * SAMPLE_H / 1000.0, 2) if d_peer else None
+        daily.append({"day": d.isoformat(), "energy_kwh": e, "peer_energy_kwh": pe, "pr_pct": _pr(e, pe) if e is not None else None})
+        d += timedelta(days=1)
 
     return {
-        "meta": {"source": "db", "day": day.isoformat()},
+        "meta": {
+            "source": "db",
+            "day": day.isoformat(),
+            # last day of a range (None = one day)
+            "end_day": last_day.isoformat() if last_day != day else None,
+            "window": {"start": start_time.strftime("%H:%M") if start_time else None, "end": end_time.strftime("%H:%M") if end_time else None}
+            if windowed
+            else None,
+        },
         "plant_id": plant.plant_id,
         "plant_name": plant.name,
         "device_sn": device_sn,
@@ -387,12 +459,12 @@ def build_string_detail(
         "peer_basis": peer_basis,
         "summary": {
             "v_avg": _round(_mean(voltages), 1),
-            "v_max": round(v_max, 1),
-            "v_mpp": round(v_mpp_actual, 1),
+            "v_max": _round(v_max, 1),
+            "v_mpp": _round(v_mpp_actual, 1),
             "v_oc_est": v_oc_actual,
             "i_avg": _round(_mean(currents), 2),
-            "i_max": round(max(currents, default=0.0), 2),
-            "i_mpp": round(i_mpp_actual, 2),
+            "i_max": _round(i_max, 2),
+            "i_mpp": _round(i_mpp_actual, 2),
             "i_sc_est": i_sc_actual,
             "p_max_w": p_max_w,
             "energy_kwh": energy_kwh,
@@ -400,11 +472,16 @@ def build_string_detail(
             "pr_pct": pr_pct,
         },
         "timeseries": timeseries,
+        "daily": daily,
         "iv_pv_curve": {
             "nominal_points": nominal_curve,
             "actual_points": actual_curve,
             "measured_scatter": scatter_pts,
-            "mpp_nominal": {"v": v_mpp_nom, "i": i_mpp_nom, "p": round(v_mpp_nom * i_mpp_nom, 1)},
-            "mpp_actual": {"v": round(v_mpp_actual, 1), "i": round(i_mpp_actual, 2), "p": p_max_w},
+            "mpp_nominal": mpp_nominal,
+            "mpp_actual": (
+                {"v": round(v_mpp_actual, 1), "i": round(i_mpp_actual, 2), "p": p_max_w}
+                if v_mpp_actual is not None and i_mpp_actual is not None and p_max_w is not None
+                else None
+            ),
         },
     }

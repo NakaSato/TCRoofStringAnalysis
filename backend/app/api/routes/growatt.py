@@ -479,14 +479,25 @@ def get_growatt_string_detail(
     device_sn: str,
     string_no: int,
     day: Optional[date] = DAY_QUERY,
+    start: Optional[time] = Query(None, description="Plant-local start time (HH:MM, inclusive); default = start of day"),
+    end: Optional[time] = Query(None, description="Plant-local end time (HH:MM, inclusive); default = end of day"),
+    end_day: Optional[date] = Query(None, description="Last day of a day range starting at `day` (inclusive, at most 31 days)"),
     db: Session = Depends(get_db),
     _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
-    """Stored telemetry for one string on one day, plus modelled I-V / P-V curves."""
+    """Stored telemetry for one string on one day (or `day`..`end_day`), plus modelled I-V / P-V
+    curves and per-day energy (`daily`). `start` / `end` narrow everything to a time-of-day window
+    (`meta.window`), on every day of a range."""
+    if start is not None and end is not None and start > end:
+        raise HTTPException(status_code=422, detail="start must not be after end")
+    if end_day is not None and (day is None or end_day < day):
+        raise HTTPException(status_code=422, detail="end_day needs day and must not be before it")
     try:
-        return ov.build_string_detail(db, plant_id, device_sn, string_no, day)
+        return ov.build_string_detail(db, plant_id, device_sn, string_no, day, start_time=start, end_time=end, end_day=end_day)
     except ov.GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/fleet-module")

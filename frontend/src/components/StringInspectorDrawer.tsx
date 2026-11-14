@@ -1,96 +1,240 @@
-import React, { useEffect, useMemo, useState } from "react";
+/**
+ * String I-V & Telemetry Inspector: modal for one string of the open plant (from the string
+ * tiles, tables, alarm centre and command palette). Stored data from the DB string detail
+ * (`useStringDetail`).
+ * Period (`StringPeriodPicker`): any stored day (default: the string's newest) or a day range, and
+ * a time-of-day window (also by dragging across the 5-min profile).
+ * On the overview's day, whole day, the figures use the overview's string row (diagnosis, health,
+ * peer median); for any other period they come from its own records (vs. the peer mean; no
+ * diagnosis or health score, which the overview computes for its own whole day only).
+ * I-V / P-V curves are modelled and labelled so; everything else is measured, missing = "—".
+ * Keys: Esc closes, ← / → step through the strings of the same inverter.
+ */
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   X,
-  Cpu,
   Activity,
-  Zap,
   AlertTriangle,
   Wrench,
   CheckCircle2,
   ArrowUpRight,
   Sliders,
+  ChevronLeft,
+  ChevronRight,
+  Info,
+  Sparkles,
   Gauge,
+  Copy,
+  Check,
+  CalendarRange,
 } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
 import { api } from "../api/client";
-import type { GrowattStringDetail } from "../api/client";
 import { PanelChart } from "./PanelChart";
-import type { PanelChartSpec } from "./PanelChart";
-import { ivPvSpecFrom } from "./ivPvSpec";
-import { StatusBadge, Led, Meter, LoadingState, statusLevel, fmt } from "./ui";
+import { ivPvSpecFrom, stringDailySpecFrom, stringProfileSpecFrom } from "./ivPvSpec";
+import { StatusBadge, Led, Meter, LoadingState, EmptyState, statusLevel, fmt } from "./ui";
+import { plantToday } from "../context/alarmLogStore";
+import { StringPeriodPicker } from "./stringDetail/StringPeriodPicker";
+import { useStringDetail } from "./stringDetail/useStringDetail";
+import { NEWEST, daysBetween, isWindowed, periodDayText, periodToQuery, slotTime, windowText } from "./stringDetail/period";
+import type { StringPeriod } from "./stringDetail/period";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+/** measured values only: the first finite one, else null ("—"), never a typical-looking stand-in */
+const num = (...vals: unknown[]): number | null => {
+  for (const v of vals) {
+    if (v == null || v === "") continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+};
+const str = (v: unknown): string | null => (v == null || v === "" ? null : String(v));
+/** below this peer current (A) a slot says little about mismatch (dawn, dusk, heavy cloud) */
+const MISMATCH_MIN_PEER_A = 1;
+/** an energy gap below this is "none" (rounding noise of the 5-min integration) */
+const GAP_NOISE_KWH = 0.05;
+
+/** One figure of the summary card: label, value + unit, small foot line. */
+const Stat: React.FC<{ label: string; title?: string; value: React.ReactNode; unit?: string; foot?: React.ReactNode }> = ({ label, title, value, unit, foot }) => (
+  <div className="px-4 py-3" title={title}>
+    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{label}</div>
+    <div className="num mt-1 text-xl font-bold leading-none">
+      {value}
+      {unit && <span className="ml-0.5 text-xs font-medium text-slate-500">{unit}</span>}
+    </div>
+    {foot != null && <div className="num mt-1.5 text-[11px] text-slate-400">{foot}</div>}
+  </div>
+);
+
+/** Labelled value pair with a meter under it (operating point). */
+const MeterRow: React.FC<{ label: string; hint: string; value: string; of: string; children?: React.ReactNode }> = ({ label, hint, value, of, children }) => (
+  <div>
+    <div className="mb-1 flex items-baseline justify-between gap-2 text-[11px]">
+      <span className="min-w-0 text-slate-400">
+        {label} <span className="text-slate-500">· {hint}</span>
+      </span>
+      <span className="num shrink-0 text-slate-200">
+        <strong>{value}</strong> / {of}
+      </span>
+    </div>
+    {children}
+  </div>
+);
+
+const TONE_TEXT = { ok: "text-emerald-400", warn: "text-amber-400", crit: "text-red-400" } as const;
+
+const Fact: React.FC<{ label: React.ReactNode; title?: string; children: React.ReactNode }> = ({ label, title, children }) => (
+  <div title={title}>
+    <div className="text-[10px] text-slate-500">{label}</div>
+    <div className="num font-semibold text-slate-100">{children}</div>
+  </div>
+);
 
 export const StringInspectorDrawer: React.FC = () => {
-  const {
-    inspectedStringId,
-    setInspectedStringId,
-    analysisRun,
-    activePlant,
-    selectedGrowattPlantId,
-  } = useAppContext();
+  const { inspectedStringId, setInspectedStringId, analysisRun, activePlant, selectedGrowattPlantId, selectedPlantOverview } = useAppContext();
   const navigate = useNavigate();
   const plantHref = usePlantHref();
   const [dispatching, setDispatching] = useState(false);
   const [dispatchedMsg, setDispatchedMsg] = useState<string | null>(null);
-  const [stringDetail, setStringDetail] = useState<GrowattStringDetail | null>(null);
-  const [loadingCurve, setLoadingCurve] = useState(false);
+  const [chartTab, setChartTab] = useState<"iv" | "profile" | "daily">("iv");
+  /** the period shown; kept while stepping through strings, reset on close / another plant */
+  const [period, setPeriod] = useState<StringPeriod>(NEWEST);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const windowed = isWindowed(period);
+  const panelRef = useRef<HTMLElement>(null);
 
   const allStrings = analysisRun?.string_summary_json || [];
   const row = allStrings.find((s) => String(s.string_id) === inspectedStringId) || null;
+  const deviceSn = str(row?.device_sn);
+  const stringNo = num(row?.string_no);
 
-  useEffect(() => {
-    if (!inspectedStringId || !row || !selectedGrowattPlantId || !row.device_sn || !row.string_no) {
-      setStringDetail(null);
-      return;
-    }
-    let cancelled = false;
-    setLoadingCurve(true);
-    api
-      .getGrowattStringDetail(selectedGrowattPlantId, String(row.device_sn), Number(row.string_no))
-      .then((res) => {
-        if (!cancelled) setStringDetail(res);
-      })
-      .catch(() => {
-        if (!cancelled) setStringDetail(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingCurve(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [inspectedStringId, row?.device_sn, row?.string_no, selectedGrowattPlantId]);
+  const peerStrings = row ? allStrings.filter((s) => s.inverter_id === row.inverter_id) : [];
+  const peerIds = peerStrings.map((s) => String(s.string_id));
 
-  const ivPvSpec = useMemo<PanelChartSpec | null>(
-    () => (stringDetail ? ivPvSpecFrom(stringDetail.iv_pv_curve) : null),
-    [stringDetail],
-  );
-
-  if (!inspectedStringId || !analysisRun || !row) return null;
-
-  // Peer strings on the same inverter for quick switching
-  const peerStrings = allStrings.filter((s) => s.inverter_id === row.inverter_id);
-  const tariff = activePlant?.tariff_thb_per_kwh ?? analysisRun.tariff_thb_per_kwh ?? 4.2;
-
-  const lvl = statusLevel(row.status);
-  // measured values only: a missing one stays null and shows "—" (no typical-looking stand-ins)
-  const num = (...vals: unknown[]): number | null => {
-    for (const v of vals) {
-      if (v == null || v === "") continue;
-      const n = Number(v);
-      if (Number.isFinite(n)) return n;
-    }
-    return null;
+  const close = () => {
+    setDispatchedMsg(null);
+    setPeriod(NEWEST);
+    setInspectedStringId(null);
   };
-  const peerGap = num(row.current_mismatch_pct, row.peer_gap_pct);
-  const lossKwh = num(row.energy_loss_kwh, row.estimated_loss_kwh);
-  const lossThb = lossKwh == null ? null : lossKwh * tariff;
-  const vAvg = num(row.v_avg, row.avg_vmp_v);
-  const vMax = num(row.v_max);
-  const iAvg = num(row.i_avg, row.avg_imp_a);
-  const iMax = num(row.i_max);
-  const pMaxKw = num(row.p_max_w);
+  // another plant: back to the newest stored day
+  useEffect(() => setPeriod(NEWEST), [selectedGrowattPlantId]);
+  const copySn = () => {
+    if (!deviceSn) return;
+    void navigator.clipboard?.writeText(deviceSn).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  const show = (id: string) => {
+    setDispatchedMsg(null);
+    setInspectedStringId(id);
+  };
+
+  const {
+    detail: stringDetail,
+    error: detailError,
+    loading: loadingDetail,
+  } = useStringDetail(inspectedStringId ? selectedGrowattPlantId : null, deviceSn, stringNo, period);
+
+  // Esc closes, ← / → move through the inverter's strings; focus the panel on open
+  const open = Boolean(inspectedStringId && analysisRun && row);
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (popoverOpen) return; // the period popovers use the arrow keys and Esc themselves
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && peerIds.length > 1) {
+        const i = peerIds.indexOf(String(inspectedStringId));
+        if (i < 0) return;
+        e.preventDefault();
+        show(peerIds[(i + (e.key === "ArrowRight" ? 1 : peerIds.length - 1)) % peerIds.length]);
+      }
+    };
+    window.addEventListener("keydown", onKey, true); // capture: before the popover's own Esc handling
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open, inspectedStringId, peerIds.join("|"), popoverOpen]);
+
+  const ivPvSpec = useMemo(() => (stringDetail ? ivPvSpecFrom(stringDetail.iv_pv_curve) : null), [stringDetail]);
+  const profileSpec = useMemo(() => (stringDetail ? stringProfileSpecFrom(stringDetail) : null), [stringDetail]);
+  const dailySpec = useMemo(() => (stringDetail ? stringDailySpecFrom(stringDetail) : null), [stringDetail]);
+
+  if (!open || !row || !analysisRun) return null;
+
+  const tariff = num(activePlant?.tariff_thb_per_kwh, analysisRun.tariff_thb_per_kwh);
+  const s = stringDetail?.summary;
+  const today = plantToday();
+  const ovDay = selectedPlantOverview?.meta.day ?? null;
+  // the day(s) on screen: what the backend answered, else what was asked for
+  const day = stringDetail?.meta.day ?? period.day;
+  const endDay = stringDetail ? (stringDetail.meta.end_day ?? null) : period.endDay;
+  const ranged = Boolean(endDay && endDay !== day);
+  const periodText = day ? periodDayText(day, endDay, today) : null;
+  /** a day other than the overview's: figures from that day's own records */
+  const otherDay = ranged || (day != null && ovDay != null && day !== ovDay);
+  /** figures from the detail (the period shown) instead of the overview's whole-day row */
+  const ownFigures = otherDay || windowed;
+  const winText = windowText(period);
+  // the Daily tab exists only for a range
+  const tab = chartTab === "daily" && !ranged ? "iv" : chartTab;
+
+  // current vs. the peer mean over the day's slots with enough light (measured)
+  const dayCurrentGap = (() => {
+    if (!stringDetail) return null;
+    let own = 0;
+    let peer = 0;
+    for (const r of stringDetail.timeseries) {
+      if (r.peer_current_a == null || r.peer_current_a < MISMATCH_MIN_PEER_A) continue;
+      own += r.current_a;
+      peer += r.peer_current_a;
+    }
+    return peer > 0 ? ((own - peer) / peer) * 100 : null;
+  })();
+
+  const lvl = ownFigures ? "neutral" : statusLevel(row.status);
+  const tone = lvl === "crit" ? "crit" : lvl === "warn" ? "warn" : "ok";
+  const health = ownFigures ? null : num(row.health_score);
+  const pr = ownFigures ? (s?.pr_pct ?? null) : num(row.pr_pct);
+  const peerGap = ownFigures ? dayCurrentGap : num(row.current_mismatch_pct, row.peer_gap_pct);
+  const energy = ownFigures ? (s?.energy_kwh ?? null) : num(row.actual_energy_kwh);
+  const peerEnergy = ownFigures ? (s?.peer_energy_kwh ?? null) : num(row.expected_energy_kwh);
+  const lossKwh = ownFigures
+    ? energy != null && peerEnergy != null
+      ? Math.max(0, peerEnergy - energy)
+      : null
+    : num(row.energy_loss_kwh, row.estimated_loss_kwh);
+  const lossThb = lossKwh == null || tariff == null ? null : lossKwh * tariff;
+  const vAvg = ownFigures ? (s?.v_avg ?? null) : num(row.v_avg, row.avg_vmp_v);
+  const vMax = ownFigures ? (s?.v_max ?? null) : num(row.v_max);
+  const iAvg = ownFigures ? (s?.i_avg ?? null) : num(row.i_avg, row.avg_imp_a);
+  const iMax = ownFigures ? (s?.i_max ?? null) : num(row.i_max);
+  const pMaxW = ownFigures ? (s?.p_max_w ?? null) : num(row.p_max_w);
+  const peerRef = ownFigures ? "peer mean" : "peer median";
+
+  const noGap = lossKwh != null && lossKwh < GAP_NOISE_KWH;
+  const peerIndex = Math.max(0, peerIds.indexOf(String(inspectedStringId)));
+  const step = (d: 1 | -1) => show(peerIds[(peerIndex + d + peerIds.length) % peerIds.length]);
+  const basis = ownFigures ? stringDetail?.peer_basis : row.peer_basis;
+  const basisNote =
+    basis === "per_module" ? "scaled per module" : basis === "per_kwp" ? "scaled per kWp" : basis === "raw" ? "raw: module count not set for every string" : null;
+  // the string's own analysis page, same period
+  const pageQuery = new URLSearchParams({ sn: deviceSn ?? "", no: String(stringNo ?? "") });
+  for (const [k, v] of Object.entries(periodToQuery(period))) if (v) pageQuery.set(k, v);
+  const stringPageHref = `${plantHref("string")}?${pageQuery}`;
 
   const handleDispatchCm = async () => {
     setDispatching(true);
@@ -98,273 +242,381 @@ export const StringInspectorDrawer: React.FC = () => {
     try {
       await api.regenerateCmWorkOrders(analysisRun.id);
       setDispatchedMsg(`Synced CM work order queue for ${inspectedStringId}.`);
-    } catch (err: any) {
-      setDispatchedMsg(`Failed: ${err.message}`);
+    } catch (err: unknown) {
+      setDispatchedMsg(`Failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setDispatching(false);
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div
-        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-        onClick={() => {
-          setDispatchedMsg(null);
-          setInspectedStringId(null);
-        }}
+  // drag on the 5-min profile → time-of-day window (one day only: on a range it would be ambiguous)
+  const zoomTo = (lo: number, hi: number) => {
+    if (!day || ranged) return;
+    setPeriod((p) => ({ ...p, start: slotTime(lo, day, false), end: slotTime(hi, day, true) }));
+  };
+  const chartBody = (spec: ReturnType<typeof ivPvSpecFrom>, empty: string, onBrush?: (lo: number, hi: number) => void) =>
+    loadingDetail ? (
+      <LoadingState label={`Loading ${periodText ?? "the newest stored day"}${winText ? ` ${winText}` : ""}…`} shape="chart" />
+    ) : detailError ? (
+      <EmptyState
+        icon={AlertTriangle}
+        title={winText ? `No stored data ${winText}` : period.day ? `No stored data on ${periodText}` : "Stored day not available"}
+        description={
+          winText
+            ? "This string has no stored records in that time window. Widen it, or pick All day."
+            : period.day
+              ? "This string has no stored records then. Pick another day, or Latest."
+              : detailError
+        }
+        className="py-8"
       />
-      <aside className="relative flex h-full w-full max-w-xl flex-col border-l border-white/10 bg-ink-900 shadow-2xl">
-        {/* Top Header */}
-        <div className="border-b border-white/[0.07] bg-ink-950/60 px-5 py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="eyebrow">String I-V & Telemetry Inspector</span>
-                <span className="num inline-flex items-center gap-1 rounded border border-energy-400/25 bg-energy-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-energy-300">
-                  <Cpu className="h-3 w-3" />
-                  {row.inverter_id} / {row.mppt_id}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center gap-2.5">
-                <h3 className="num text-xl font-extrabold tracking-tight text-white">
-                  {row.string_id}
+    ) : spec ? (
+      <PanelChart spec={spec} height={300} onBrush={onBrush} />
+    ) : (
+      <EmptyState icon={Activity} title="Nothing to draw" description={empty} className="py-8" />
+    );
+
+  const gapTone = noGap ? "ok" : lossKwh == null ? null : tone === "ok" ? "warn" : tone;
+  const accent = lvl === "crit" ? "bg-red-500" : lvl === "warn" ? "bg-amber-400" : lvl === "ok" ? "bg-emerald-400" : "bg-sky-400";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center sm:px-4">
+      <div className="absolute inset-0 bg-black/65 backdrop-blur-sm animate-in fade-in-0 duration-150" onClick={close} aria-hidden />
+      <aside
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`String inspector ${row.string_id}`}
+        className="relative flex h-full w-full flex-col overflow-hidden bg-ink-900 shadow-2xl outline-none animate-in fade-in-0 zoom-in-95 duration-150 sm:h-[86vh] sm:max-w-[74rem] sm:rounded-xl sm:border sm:border-white/10"
+      >
+        {/* ── Header: SN · MPPT · string + day + actions, live line, strings ──── */}
+        <header className="space-y-2.5 border-b border-white/[0.07] bg-ink-950/70 px-5 pb-3 pt-3">
+          {/* SN (copies) · MPPT · STR + status, the day shown (any stored day; default = newest), AI Analysis, close */}
+          <div className="flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="flex min-w-0 items-center gap-2" title={`Inverter ${String(row.inverter_id)}`}>
+                <h3 className="num flex min-w-0 items-center gap-2 text-lg font-extrabold tracking-tight text-white">
+                  {deviceSn ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={copySn}
+                          aria-label={`Copy inverter SN ${deviceSn}`}
+                          className="group inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 -mx-1 hover:bg-white/[0.06] focus-visible:outline-1 focus-visible:outline-ring"
+                        >
+                          <span className="truncate">{deviceSn}</span>
+                          {copied ? (
+                            <Check className="h-4 w-4 shrink-0 text-emerald-400" />
+                          ) : (
+                            <Copy className="h-4 w-4 shrink-0 text-slate-500 opacity-60 group-hover:opacity-100" />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">{copied ? "Copied" : "Click to copy the inverter SN"}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span className="truncate">{String(row.inverter_id)}</span>
+                  )}
+                  <span className="shrink-0 text-slate-500">·</span>
+                  <span className="shrink-0">{String(row.mppt_id)}</span>
+                  <span className="shrink-0 text-slate-500">·</span>
+                  <span className="shrink-0 text-solar-300">{String(row.short_label || row.string_id).replace(/^.*·\s*/, "")}</span>
                 </h3>
-                <StatusBadge status={row.status} />
+                {!otherDay && <StatusBadge status={row.status} />}
               </div>
-            </div>
-            <Button
-              onClick={() => {
-                setDispatchedMsg(null);
-                setInspectedStringId(null);
-              }}
-              variant="ghost"
-              size="icon"
-              aria-label="Close string inspector"
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <StringPeriodPicker
+              period={period}
+              onChange={setPeriod}
+              shownDay={stringDetail?.meta.day ?? null}
+              shownEndDay={stringDetail?.meta.end_day ?? null}
+              today={today}
+              loading={loadingDetail}
+              onPopoverOpenChange={setPopoverOpen}
+            />
           </div>
-
-          {/* Quick String Switcher Pills (Inverter Peers) */}
-          <div className="mt-3 flex flex-wrap gap-1">
-            {peerStrings.map((s) => {
-              const id = String(s.string_id);
-              const label = String(s.short_label || s.string_id);
-              const active = id === inspectedStringId;
-              const sLvl = statusLevel(s.status);
-              return (
-                <button
-                  key={id}
-                  onClick={() => {
-                    setDispatchedMsg(null);
-                    setInspectedStringId(id);
-                  }}
-                  className={`num inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${
-                    active
-                      ? "border-solar-400/60 bg-solar-500/20 text-solar-300 shadow-[0_0_12px_-4px_rgba(245,180,42,0.7)]"
-                      : "border-white/[0.07] bg-ink-850 text-slate-400 hover:border-white/20 hover:text-slate-200"
-                  }`}
-                >
-                  <Led level={sLvl === "info" || sLvl === "neutral" ? "ok" : sLvl} />
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Scrollable Body */}
-        <div className="flex-1 space-y-5 overflow-y-auto p-5 text-xs">
-          {/* Primary Diagnosis Banner */}
-          <div
-            className={
-              lvl === "crit" ? "callout-crit" : lvl === "warn" ? "callout-warn" : "callout-ok"
-            }
-          >
-            <div className="flex items-start gap-2.5">
-              {lvl === "ok" ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-              ) : (
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              )}
-              <div className="space-y-1">
-                <div className="font-bold text-slate-100">
-                  {row.diagnosis || row.primary_diagnosis || "String Operating Diagnostics"}
-                </div>
-                <div className="text-[11px] opacity-90">
-                  {row.recommended_action ||
-                    "Inspect string I-V curve, MPPT balance, and connector terminations."}
-                </div>
-              </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {/* span: a disabled button gets no pointer events, so the tooltip needs a wrapper */}
+                  <span tabIndex={0} aria-label="AI Analysis (coming soon)">
+                    <Button variant="outline" size="icon-sm" disabled className="pointer-events-none border-violet-400/40 disabled:opacity-80">
+                      <Sparkles className="h-4 w-4 text-violet-300" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">AI Analysis · coming soon: a written diagnosis of this string&apos;s day</TooltipContent>
+              </Tooltip>
+              <Button onClick={close} variant="ghost" size="icon" aria-label="Close string inspector" title="Close (Esc)">
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           </div>
 
-          {/* 4 Key KPI Tiles */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-xl border border-white/[0.07] bg-ink-850/80 p-3">
-              <div className="eyebrow">Health Score</div>
-              <div className="num mt-1 text-xl font-bold text-white">
-                {fmt(row.health_score, 1)}
-                <span className="text-xs text-slate-500">/100</span>
+          {/* Strings of the same inverter: one scrollable line, ← / → */}
+          {peerIds.length > 1 && (
+            <div className="flex items-center gap-1">
+              <Button onClick={() => step(-1)} variant="ghost" size="icon-sm" aria-label="Previous string" title="Previous string (←)">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="scroll-x-hint flex min-w-0 flex-1 gap-1 overflow-x-auto py-0.5">
+                {peerStrings.map((p) => {
+                  const id = String(p.string_id);
+                  const active = id === inspectedStringId;
+                  const pLvl = statusLevel(p.status);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => show(id)}
+                      aria-current={active ? "true" : undefined}
+                      title={`${id} · ${String(p.status ?? "")}`}
+                      className={`num inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${
+                        active
+                          ? "border-solar-400/60 bg-solar-500/20 text-solar-300"
+                          : "border-white/[0.07] bg-ink-850 text-slate-400 hover:border-white/20 hover:text-slate-200"
+                      }`}
+                    >
+                      <Led level={pLvl === "info" || pLvl === "neutral" ? "ok" : pLvl} />
+                      {String(p.short_label || p.string_id).replace(/^.*·\s*/, "")}
+                    </button>
+                  );
+                })}
               </div>
-              <Meter
-                value={Number(row.health_score || 0)}
-                tone={lvl === "crit" ? "crit" : lvl === "warn" ? "warn" : "ok"}
-                className="mt-2"
-              />
-            </div>
-
-            <div className="rounded-xl border border-white/[0.07] bg-ink-850/80 p-3">
-              <div className="eyebrow">String PR</div>
-              <div className="num mt-1 text-xl font-bold text-solar-400">
-                {fmt(row.pr_pct, 1)}
-                <span className="text-xs text-slate-500">%</span>
-              </div>
-              <div className="num mt-1 text-[11px] text-slate-400">
-                Energy: {fmt(row.actual_energy_kwh, 1)} kWh
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-white/[0.07] bg-ink-850/80 p-3">
-              <div className="eyebrow">Peer Deviation</div>
-              <div
-                className={`num mt-1 text-xl font-bold ${
-                  peerGap == null ? "text-slate-400" : peerGap < -10 ? "text-red-400" : peerGap < -4 ? "text-amber-400" : "text-emerald-400"
-                }`}
-              >
-                {peerGap != null && peerGap >= 0 ? "+" : ""}
-                {fmt(peerGap, 1)}%
-              </div>
-              <div className="num mt-1 text-[11px] text-slate-400">
-                Peak: {fmt(pMaxKw == null ? null : pMaxKw / 1000, 2)} kW
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-white/[0.07] bg-ink-850/80 p-3">
-              <div className="eyebrow">Mismatch Loss</div>
-              <div className="num mt-1 text-xl font-bold text-red-400">
-                {fmt(lossKwh, 1)} <span className="text-xs text-slate-500">kWh</span>
-              </div>
-              <div className="num mt-1 text-[11px] text-amber-300">
-                {lossThb == null ? "—" : `≈ ฿${Math.round(lossThb).toLocaleString()}`}
-              </div>
-            </div>
-          </div>
-
-          {/* Embedded Live I-V & P-V Curve */}
-          <div className="rounded-xl border border-white/[0.07] bg-ink-850/70 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 font-semibold text-slate-100">
-                <Gauge className="h-3.5 w-3.5 text-sky-400" />
-                Reconstructed I-V & P-V Characteristic Curves
-              </div>
-              {stringDetail && (
-                <span className="num text-[11px] text-emerald-400">
-                  MPP: {fmt(stringDetail.summary.p_max_w, 0)} W @ {fmt(stringDetail.summary.v_mpp, 0)} V
-                </span>
-              )}
-            </div>
-            {loadingCurve ? (
-              <LoadingState label="Reconstructing I-V & P-V curves…" shape="chart" />
-            ) : ivPvSpec ? (
-              <PanelChart spec={ivPvSpec} height={300} />
-            ) : null}
-          </div>
-
-          {/* Operating Electrical Telemetry */}
-          <div className="rounded-xl border border-white/[0.07] bg-ink-850/60 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 font-semibold text-slate-100">
-                <Sliders className="h-3.5 w-3.5 text-solar-400" />
-                Electrical Operating Point ({row.mppt_id})
-              </div>
-              <span className="num text-[11px] text-slate-400">
-                {row.modules != null && <>{row.modules} modules{row.module_wp ? ` × ${fmt(row.module_wp, 0)} Wp` : ""} · </>}
-                Capacity: {fmt(row.capacity_kwp, 2)} kWp
+              <Button onClick={() => step(1)} variant="ghost" size="icon-sm" aria-label="Next string" title="Next string (→)">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <span className="num w-10 shrink-0 text-right text-[11px] text-slate-500">
+                {peerIndex + 1}/{peerIds.length}
               </span>
             </div>
+          )}
 
-            <div className="space-y-2.5">
-              <div>
-                <div className="mb-1 flex justify-between text-[11px]">
-                  <span className="text-slate-400">Operating Voltage (Avg / Max)</span>
-                  <span className="num text-slate-200">
-                    <strong>{fmt(vAvg, 1)} V</strong> / {fmt(vMax, 1)} V Peak
-                  </span>
-                </div>
-                {vAvg != null && <Meter value={vAvg} max={Math.max(800, (vMax ?? vAvg) * 1.1)} tone="solar" />}
-              </div>
+        </header>
 
-              <div>
-                <div className="mb-1 flex justify-between text-[11px]">
-                  <span className="text-slate-400">Operating Current (Avg / Peak)</span>
-                  <span className="num text-slate-200">
-                    <strong>{fmt(iAvg, 2)} A</strong> / {fmt(iMax, 2)} A Peak
-                  </span>
+        {/* ── Body ──────────────────────────────────────────────────────────── */}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 text-xs">
+          {/* Summary: diagnosis + the day's four figures in one card */}
+          <section className="relative overflow-hidden rounded-xl border border-white/[0.07] bg-ink-850/70">
+            <span className={`absolute inset-y-0 left-0 w-1 ${accent}`} aria-hidden />
+            <div className="flex items-start gap-2.5 border-b border-white/[0.06] px-4 py-3 pl-5">
+              {ownFigures ? (
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+              ) : lvl === "ok" ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+              ) : (
+                <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${lvl === "crit" ? "text-red-400" : "text-amber-400"}`} />
+              )}
+              {ownFigures ? (
+                <div className="text-slate-300">
+                  Measured {ranged ? "over" : "on"} <span className="num font-semibold text-white">{periodText}</span>
+                  {ranged && day && endDay && <span className="num"> ({daysBetween(day, endDay) + 1} days)</span>}
+                  {winText && (
+                    <>
+                      , <span className="num font-semibold text-white">{winText}</span> only
+                    </>
+                  )}
+                  , compared with the mean of the other strings. Diagnosis, status and health are computed for the whole of{" "}
+                  <button
+                    type="button"
+                    className="num font-semibold text-sky-300 hover:underline"
+                    onClick={() => setPeriod({ ...NEWEST, day: ovDay })}
+                  >
+                    {ovDay}
+                  </button>{" "}
+                  only.
                 </div>
-                {iAvg != null && <Meter value={iAvg} max={Math.max(15, (iMax ?? iAvg) * 1.15)} tone="energy" />}
-              </div>
-
-              <div>
-                <div className="mb-1 flex justify-between text-[11px]">
-                  <span className="text-slate-400">
-                    String Energy vs. Peer Median
-                    {row.peer_basis === "raw" && " (raw — module count not set for every string)"}
-                    {row.peer_basis === "per_module" && " (scaled per module)"}
-                    {row.peer_basis === "per_kwp" && " (scaled per kWp)"}
-                  </span>
-                  <span className="num text-slate-200">
-                    <strong>{fmt(row.actual_energy_kwh, 2)} kWh</strong> /{" "}
-                    {fmt(row.expected_energy_kwh, 2)} kWh Peer
-                  </span>
+              ) : (
+                <div className="space-y-0.5">
+                  <div className="font-semibold text-slate-100">{String(row.diagnosis || row.primary_diagnosis || "String operating diagnostics")}</div>
+                  {str(row.recommended_action) && <div className="text-[11px] text-slate-400">{String(row.recommended_action)}</div>}
                 </div>
-                <Meter
-                  value={Number(row.actual_energy_kwh || 0)}
-                  max={Math.max(1, Number(row.expected_energy_kwh || 1))}
-                  tone="ok"
-                />
-              </div>
+              )}
             </div>
-          </div>
+            <div className="grid grid-cols-2 divide-white/[0.06] sm:grid-cols-4 sm:divide-x">
+              <Stat
+                label="Health"
+                title={ownFigures ? `Computed by the plant overview for ${ovDay} only` : "String health score of the overview's day"}
+                value={<span className="text-white">{fmt(health, 0)}</span>}
+                unit="/100"
+                foot={ownFigures ? `whole ${ovDay} only` : health != null ? <Meter value={health} tone={tone} /> : null}
+              />
+              <Stat
+                label="String PR"
+                title="Peer-relative PR (modelled): energy vs. the inverter's other strings, not IEC 61724"
+                value={<span className={ownFigures ? "text-solar-400" : TONE_TEXT[tone]}>{fmt(pr, 1)}</span>}
+                unit="%"
+                foot={`${fmt(energy, 2)} kWh`}
+              />
+              <Stat
+                label="Current vs peers"
+                title={
+                  ownFigures
+                    ? `Day's string current vs. the mean of the other strings, over slots where they carry ≥ ${MISMATCH_MIN_PEER_A} A`
+                    : "Current mismatch against the inverter's other strings"
+                }
+                value={
+                  <span className={peerGap == null ? "text-slate-400" : peerGap < -10 ? "text-red-400" : peerGap < -4 ? "text-amber-400" : "text-emerald-400"}>
+                    {peerGap != null && peerGap >= 0 ? "+" : ""}
+                    {fmt(peerGap, 1)}
+                  </span>
+                }
+                unit="%"
+                foot={`Peak ${fmt(pMaxW == null ? null : pMaxW / 1000, 2)} kW`}
+              />
+              <Stat
+                label="Energy gap"
+                title={`Energy below the expected (${peerRef}) energy of the day${tariff == null ? "; no plant tariff set" : `, at the plant tariff ฿${fmt(tariff, 2)}/kWh`}`}
+                value={noGap ? <span className="text-emerald-400">None</span> : <span className={gapTone ? TONE_TEXT[gapTone] : "text-slate-400"}>{fmt(lossKwh, 1)}</span>}
+                unit={noGap ? undefined : "kWh"}
+                foot={noGap ? "at or above peers" : lossThb == null ? "—" : `≈ ฿${Math.round(lossThb).toLocaleString()} lost`}
+              />
+            </div>
+          </section>
+
+          {/* Charts of the day shown */}
+          <section className="rounded-xl border border-white/[0.07] bg-ink-850/70 p-4">
+            <Tabs value={tab} onValueChange={(v) => setChartTab(v as "iv" | "profile" | "daily")} className="gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <TabsList variant="line">
+                  <TabsTrigger value="iv">
+                    <Gauge data-icon="inline-start" className="h-3.5 w-3.5" />
+                    I-V & P-V
+                  </TabsTrigger>
+                  <TabsTrigger value="profile">
+                    <Activity data-icon="inline-start" className="h-3.5 w-3.5" />
+                    5-min profile
+                  </TabsTrigger>
+                  {ranged && (
+                    <TabsTrigger value="daily">
+                      <CalendarRange data-icon="inline-start" className="h-3.5 w-3.5" />
+                      Daily
+                    </TabsTrigger>
+                  )}
+                </TabsList>
+                <span className="text-[11px] text-slate-500">
+                  {tab === "iv"
+                    ? `Curves modelled${ranged ? " from the range's peak" : ""} · dots measured`
+                    : tab === "daily"
+                      ? "Measured energy · PR modelled"
+                      : "Measured · peer = mean of the other strings"}
+                </span>
+              </div>
+              <TabsContent value="iv" className="space-y-3">
+                {chartBody(ivPvSpec, `No record on ${periodText ?? "the day"} has both voltage and current, so no curve can be modelled.`)}
+                {s && !loadingDetail && (
+                  <div className="grid grid-cols-2 gap-3 rounded-lg bg-ink-950/60 p-3 text-center sm:grid-cols-4">
+                    <Fact
+                      label={
+                        <>
+                          V<sub>mpp</sub> / V<sub>oc</sub> est.
+                        </>
+                      }
+                      title="V at the day's peak-power record / open-circuit voltage estimated from the day's highest voltage (modelled)"
+                    >
+                      {fmt(s.v_mpp, 0)} / {fmt(s.v_oc_est, 0)} V
+                    </Fact>
+                    <Fact
+                      label={
+                        <>
+                          I<sub>mpp</sub> / I<sub>sc</sub> est.
+                        </>
+                      }
+                      title="I at the day's peak-power record / short-circuit current estimated from the day's highest current (modelled)"
+                    >
+                      {fmt(s.i_mpp, 2)} / {fmt(s.i_sc_est, 2)} A
+                    </Fact>
+                    <Fact label="Peak power" title="The record with the day's highest power (measured)">
+                      {fmt(s.p_max_w, 0)} W
+                    </Fact>
+                    <Fact label="Energy / peer mean" title="This string's energy vs. the mean of the inverter's other strings, per 5-min slot (measured)">
+                      {fmt(s.energy_kwh, 2)} / {fmt(s.peer_energy_kwh, 2)} kWh
+                    </Fact>
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="profile" className="space-y-2">
+                {chartBody(profileSpec, `No stored records on ${periodText ?? "the day"}${winText ? ` between ${winText}` : ""}.`, ranged ? undefined : zoomTo)}
+                {!ranged && (
+                  <p className="text-[11px] text-slate-500 max-sm:hidden">
+                    Drag across the chart to look at that time only{windowed ? " (the clock button → All day zooms out)" : ""}.
+                  </p>
+                )}
+              </TabsContent>
+              {ranged && <TabsContent value="daily">{chartBody(dailySpec, "No day of the range has stored records.")}</TabsContent>}
+            </Tabs>
+          </section>
+
+          {/* Operating point of the day shown */}
+          <section className="rounded-xl border border-white/[0.07] bg-ink-850/70 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 font-semibold text-slate-100">
+                <Sliders className="h-3.5 w-3.5 text-solar-400" />
+                Operating point
+              </div>
+              <span className="num text-[11px] text-slate-400">
+                {row.modules != null && (
+                  <>
+                    {String(row.modules)} modules{row.module_wp ? ` × ${fmt(row.module_wp, 0)} Wp` : ""} ·{" "}
+                  </>
+                )}
+                {fmt(row.capacity_kwp, 2)} kWp
+              </span>
+            </div>
+            <div className="space-y-3">
+              <MeterRow label="MPPT voltage" hint="avg / max" value={`${fmt(vAvg, 1)} V`} of={`${fmt(vMax, 1)} V`}>
+                {vAvg != null && vMax != null && vMax > 0 && <Meter value={vAvg} max={vMax} tone="solar" />}
+              </MeterRow>
+              <MeterRow label="String current" hint="avg / peak" value={`${fmt(iAvg, 2)} A`} of={`${fmt(iMax, 2)} A`}>
+                {iAvg != null && iMax != null && iMax > 0 && <Meter value={iAvg} max={iMax} tone="energy" />}
+              </MeterRow>
+              <MeterRow label="Energy" hint={`vs. expected (${peerRef})${basisNote ? ` · ${basisNote}` : ""}`} value={`${fmt(energy, 2)} kWh`} of={`${fmt(peerEnergy, 2)} kWh`}>
+                {energy != null && peerEnergy != null && peerEnergy > 0 && <Meter value={energy} max={peerEnergy} tone={ownFigures ? "solar" : tone} />}
+              </MeterRow>
+            </div>
+          </section>
 
           {dispatchedMsg && (
             <div className="callout-ok flex items-center justify-between">
               <span>{dispatchedMsg}</span>
               <Button
                 onClick={() => {
-                  setInspectedStringId(null);
+                  close();
                   navigate(plantHref("maintenance"));
                 }}
                 size="sm"
               >
-                View CM Queue <ArrowUpRight className="h-3 w-3" />
+                View CM queue <ArrowUpRight data-icon="inline-end" className="h-3 w-3" />
               </Button>
             </div>
           )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-ink-950/70 px-5 py-3.5">
-          <Button
-            onClick={() => {
-              setInspectedStringId(null);
-              navigate(plantHref("strings"));
-            }}
-          >
-            <Activity className="h-3.5 w-3.5 text-energy-400" />
-            Full String I-V Page
-          </Button>
-          <Button
-            onClick={handleDispatchCm}
-            disabled={dispatching || !analysisRun.id}
-            title={analysisRun.id ? undefined : "CM work orders come from the legacy analysis run (admin)"}
-            variant="default"
-          >
-            <Wrench className="h-3.5 w-3.5" />
-            {dispatching ? "Syncing CM Queue…" : "Dispatch CM Work Order"}
-          </Button>
-        </div>
+        {/* ── Footer ────────────────────────────────────────────────────────── */}
+        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-ink-950/70 px-5 py-3">
+          <span className="hidden text-[11px] text-slate-500 sm:inline">Esc close · ← / → string</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {analysisRun.id ? (
+              <Button onClick={handleDispatchCm} disabled={dispatching} variant="outline" size="sm">
+                <Wrench data-icon="inline-start" className="h-3.5 w-3.5" />
+                {dispatching ? "Syncing CM queue…" : "Dispatch CM work order"}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              onClick={() => {
+                close();
+                navigate(stringPageHref);
+              }}
+              disabled={!deviceSn || stringNo == null}
+              title="This string in depth: curves, profile, mismatch by hour, daily energy, records"
+            >
+              Open full analysis
+              <ArrowUpRight data-icon="inline-end" className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </footer>
       </aside>
     </div>
   );

@@ -20,18 +20,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TablePager, pageBounds } from "../components/TablePager";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
@@ -95,16 +87,6 @@ function sensorEvents(rows: ViewRow[], isToday: boolean, now: string): AlarmEven
   return out;
 }
 
-/** Page numbers to show: first, last and the current one ± 1, with gaps as null. */
-const pageList = (page: number, count: number): Array<number | null> => {
-  const keep = new Set([0, count - 1, page - 1, page, page + 1].filter((p) => p >= 0 && p < count));
-  const out: Array<number | null> = [];
-  [...keep].sort((a, b) => a - b).forEach((p, i, all) => {
-    if (i > 0 && p - all[i - 1] > 1) out.push(null);
-    out.push(p);
-  });
-  return out;
-};
 /** px kept free under the table card for the pager and the page's bottom padding */
 const PAGER_H = 52;
 const BOTTOM_GAP = 24;
@@ -249,8 +231,7 @@ export const ActiveAlarmPage: React.FC = () => {
   }, [rows.length > 0, firstRead]);
   // back to the first page when the day or a filter changes
   useEffect(() => setPage(0), [day, query, levelFilter, openOnly, plantFilter, codeFilter, sourceFilter]);
-  const pageCount = Math.max(1, Math.ceil(rows.length / fit.pageSize));
-  const pageNo = Math.min(page, pageCount - 1);
+  const { pageNo } = pageBounds(rows.length, fit.pageSize, page);
   const pageRows = rows.slice(pageNo * fit.pageSize, (pageNo + 1) * fit.pageSize);
 
   const stats = useMemo(() => {
@@ -589,59 +570,8 @@ export const ActiveAlarmPage: React.FC = () => {
             </Table>
           )}
         </CardContent>
-        <CardContent className="flex items-center justify-between gap-3 border-t py-2.5">
-          <span className="num text-muted-foreground">
-            {rows.length ? `${fmtInt(pageNo * fit.pageSize + 1)}–${fmtInt(Math.min(rows.length, (pageNo + 1) * fit.pageSize))} of ${fmtInt(rows.length)}` : "0 rows"}
-          </span>
-          {pageCount > 1 && (
-            <Pagination className="mx-0 w-auto">
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    href="#"
-                    aria-disabled={pageNo === 0}
-                    className={cn(pageNo === 0 && "pointer-events-none opacity-50")}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setPage(Math.max(0, pageNo - 1));
-                    }}
-                  />
-                </PaginationItem>
-                {pageList(pageNo, pageCount).map((p, i) =>
-                  p == null ? (
-                    <PaginationItem key={`gap-${i}`}>
-                      <PaginationEllipsis />
-                    </PaginationItem>
-                  ) : (
-                    <PaginationItem key={p}>
-                      <PaginationLink
-                        href="#"
-                        isActive={p === pageNo}
-                        className="num"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setPage(p);
-                        }}
-                      >
-                        {p + 1}
-                      </PaginationLink>
-                    </PaginationItem>
-                  )
-                )}
-                <PaginationItem>
-                  <PaginationNext
-                    href="#"
-                    aria-disabled={pageNo >= pageCount - 1}
-                    className={cn(pageNo >= pageCount - 1 && "pointer-events-none opacity-50")}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setPage(Math.min(pageCount - 1, pageNo + 1));
-                    }}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          )}
+        <CardContent className="border-t py-2.5">
+          <TablePager rows={rows.length} pageSize={fit.pageSize} pageNo={pageNo} onPage={setPage} />
         </CardContent>
       </Card>
 

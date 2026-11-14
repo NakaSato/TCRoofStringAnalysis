@@ -11,7 +11,7 @@ stored data to support it:
 - `irradiance_zero_daylight` (DB): irradiance 0 for >= 1 h between 10:00 and 15:00 while the
   plant's inverters produced power.
 - `stale_history` (live overlay): the sensor is online but stored history is > 2 h behind its
-  last upload (a sync problem, not a sensor fault).
+  last upload (a sync problem, not a sensor fault). Daylight uploads only (06:00–19:00).
 """
 
 from __future__ import annotations
@@ -47,6 +47,10 @@ PROBE_MIN_SLOTS = 24  # ... in at least this many 5-min slots (2 h)
 ZERO_IRR_H = (10, 15)
 ZERO_IRR_MIN_SLOTS = 12  # 1 h of 5-min slots
 STALE_HISTORY = timedelta(hours=2)
+# `stale_history` is judged only on uploads in this part of the day (plant-local, end exclusive),
+# and from its start at the earliest: many sensors record nothing between dusk and dawn while
+# their datalogger keeps uploading, so "behind" at night is not a sync problem
+STALE_DAY_START_H, STALE_DAY_END_H = 6, 19
 FIELD_LABEL = {
     "irradiance_wm2": "Irradiance",
     "module_temp_c": "Module temperature",
@@ -185,14 +189,20 @@ def stale_history_flag(
     status: str, last_update: Optional[str], synced_until: Optional[datetime]
 ) -> Optional[Dict[str, Any]]:
     """`stale_history` when the sensor is online but its stored history ends more than 2 h
-    before its last upload to Growatt. Nothing stored yet = no flag (status says `not_synced`)."""
+    before its last upload to Growatt. Daylight only: an upload outside STALE_DAY_START_H to
+    STALE_DAY_END_H raises nothing, and the gap is counted from that day's start at the earliest
+    (history ending at dusk yesterday is not behind at 07:00). Nothing stored yet = no flag
+    (status says `not_synced`)."""
     if status != "online" or synced_until is None:
         return None
     try:
         at = datetime.strptime(last_update or "", "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
-    behind = at - synced_until
+    if not STALE_DAY_START_H <= at.hour < STALE_DAY_END_H:
+        return None
+    # nothing is expected before today's daylight start
+    behind = at - max(synced_until, at.replace(hour=STALE_DAY_START_H, minute=0, second=0, microsecond=0))
     if behind <= STALE_HISTORY:
         return None
     return {

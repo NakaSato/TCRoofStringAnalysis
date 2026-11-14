@@ -1,6 +1,6 @@
 # Plan & Spec: System → Logs page
 
-Status: **Built 2026-11-13** (deploy pending) · Created 2026-11-13 · Owner: Chanthawat
+Status: **Deployed 2026-11-14** (revision `tcroof-api-00024-pl7`) · Created 2026-11-13 · Owner: Chanthawat
 
 Collect the backend's log records (API and `growatt-worker`) in one place and show them to admins on a new **Logs** page in the sidebar's **System** group.
 
@@ -209,8 +209,9 @@ _Built 2026-11-13, phases 1–3 together. Decisions on §8: admins only, 14 days
 - [x] `backend/CLAUDE.md`: logging section (handler, redaction, context, retention), `/system/logs` row, `retention` job text
 - [x] `frontend/CLAUDE.md`: routes list and Logs page notes
 - [x] `.env.example`: new keys
-- [ ] Deploy backend (`deploy/gcp.sh backend`) and worker on the VM; frontend (`deploy/gcp.sh frontend`)
-- [ ] Verify on prod: worker run appears with its `run_id`; a forced 5xx shows with traceback; search for any token/key fragment in `app_logs` returns nothing
+- [x] Deploy backend (`deploy/gcp.sh backend`) and worker on the VM; frontend (`deploy/gcp.sh frontend`) (2026-11-14, `deploy/gcp.sh all`)
+- [x] Verify on prod: worker run appears with its `run_id`; a forced 5xx shows with traceback; search for any token/key fragment in `app_logs` returns nothing
+  - 2026-11-14: 1,013 rows (worker 1,005, 904 with `run_id`, 89 runs; api 8: a slow `/growatt/live/plants`, a failed login, six Google Weather 503s), 512 kB. First 10 chars of each Growatt token, the Postgres / Redis passwords and the Google Weather key: 0 matches. No 5xx since logging began, and none forced on prod; the traceback path is covered by the tests. Normal 2xx requests are not logged by design, so the api source stays quiet when nothing is slow or failing
 - [ ] After 1 week: check `app_logs` rows/day and table size against §4.5
 
 ## 7. Acceptance criteria
