@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-export const MaintenanceRcaPage: React.FC = () => {
+/** Legacy O&M modules (admin only, local `plants` table); `top` = the site log, shown first. */
+export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top }) => {
   const { activePlant, analysisRun, selectedPlantOverview, setInspectedStringId } = useAppContext();
   const [pmTasks, setPmTasks] = useState<PMTask[]>([]);
   const [cmOrders, setCmOrders] = useState<CMWorkOrder[]>([]);
@@ -165,6 +166,7 @@ export const MaintenanceRcaPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <SelectedPlantBanner />
+      {top}
 
       {/* Live Plant String & Inverter Fault Alarms */}
       {plantAnomalies.length > 0 && (

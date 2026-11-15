@@ -746,6 +746,34 @@ class GrowattIssue(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 
+class SiteEvent(Base):
+    """Work done on a Growatt plant, entered by an engineer or admin (docs/plans/decision-rules.md
+    §6, `services/site_events.py`): cleaning, repair, module or inverter replaced, IR flight,
+    curtailment. Optional inverter / string. `day` (to `end_day` when it took several days) is
+    the plant-local date of the work. `cost_thb` is what was paid, null when not entered.
+    `issue_id` links the decision-rule issue the work answered. Kept indefinitely: the cleaning
+    steps and the soiling rate are measured from these dates.
+    """
+
+    __tablename__ = "site_events"
+    __table_args__ = (Index("ix_site_events_plant_day", "plant_id", "day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    end_day: Mapped[Optional[date]] = mapped_column(Date)
+    device_sn: Mapped[Optional[str]] = mapped_column(String(64))
+    string_no: Mapped[Optional[int]] = mapped_column(Integer)
+    cost_thb: Mapped[Optional[float]] = mapped_column(Float)
+    issue_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[Optional[str]] = mapped_column(String(64))
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
 class UserPlantAssignment(Base):
     """Growatt plants an admin assigned to an engineer.
 

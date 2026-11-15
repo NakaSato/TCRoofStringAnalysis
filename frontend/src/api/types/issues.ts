@@ -62,6 +62,8 @@ export interface IssueQuery {
   rule?: string;
   /** admin only: true = shadow issues */
   shadow?: boolean;
+  /** admin only: live and shadow issues together */
+  include_shadow?: boolean;
 }
 
 export interface IssueActionBody {

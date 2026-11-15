@@ -1,6 +1,6 @@
 # Plan: Decision rules and the Issues queue
 
-Status: **Phases 1–2 implemented (branch `feat/decision-rules-phase1`), every rule in shadow mode; Phases 3–4 not started** · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–2 implemented (branch `feat/decision-rules-phase1`), every rule in shadow mode; Phase 3 mostly built (EPI, R10); Phase 4: site log built (§6.1), soiling analysis not started** · Created 2026-11-15 · Owner: Chanthawat
 Source: the research report `docs/plans/Data-Driven Decisions for the TC Roof Solar Dashboard_ KPIs, Thresholds and Decision Rules for Thai Commercial and Industrial Rooftop PV.md` (rule numbers R1–R18 below are its §8 master table).
 
 Turn the data the platform already stores into **issues ranked by baht lost per day**. Each issue has an owner, a tier and evidence, and engineers can acknowledge and close it. Today the platform shows statuses (string Healthy / Warning / Critical, inverter fault codes, PR), but nothing says what to fix first or what a fault costs.
@@ -180,6 +180,13 @@ The dry season starts now (November to April), so **start recording cleanings im
   The report's "skip if 10 mm of rain is forecast" gate needs a forecast. The platform stores only Google Weather history (`precip_mm` per hour) and current conditions, so this gate waits until a forecast call is budgeted (it would come out of the 10,000-call monthly Google budget).
 - **R13 Incomplete recovery**: less than 50 % recovery after a day with 10 mm or more of rain (stored `precip_mm`) → suggest a manual cleaning.
 - RdTools SRR / CODS: evaluate after one dry season of `growatt_plant_daily` data. It would run in the worker only.
+
+### 6.1 As built (2026-11-15): the site log
+
+- `site_events` table (`services/site_events.py`, migration `b7c8d9e0f1a2`), SQL only, kept indefinitely. Types: cleaning, repair, module_replaced, inverter_replaced, ir_flight, curtailment, other; `day` … `end_day` (plant-local, never in the future), optional inverter / string, `cost_thb` (null = not entered), note, `issue_id` (+ `close_issue` resolves it as confirmed, its note naming the event).
+- Routes: `GET/POST /growatt/plants/{id}/events`, `PATCH/DELETE /growatt/plants/{id}/events/{event_id}`, fleet `GET /growatt/events`. Engineers record on their assigned plants; delete = admin or whoever recorded it.
+- UI: the plant Maintenance tab is now open to engineers and starts with the **Site log** card; the legacy PM / CM / RCA modules stay admin only below it.
+- Still to build: the cleaning step (EPI before / after), the soiling wallet (R12, needs §9 Q5 cleaning costs; `cost_thb` on cleanings gives a per-plant figure once entered), R13.
 
 ## 7. Later (not planned yet)
 
