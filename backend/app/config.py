@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     google_weather_api_key: str = ""
     google_weather_base_url: str = "https://weather.googleapis.com/v1/"
     google_weather_cell_deg: float = 0.01  # ~1 km; 234 plants -> ~227 lookup points
-    google_weather_monthly_budget: int = 10000  # = the free tier; lower it if the key is used elsewhere too
+    google_weather_monthly_budget: int = 30000  # PWA checks (687/day) + history (229/day) ≈ 28.4k; over the 10k free tier
     # Google's own per-day quota "History Hours Usage per day" counts hours returned, not calls: it
     # refused calls after 174 cells x 24 h = 4,176 h. Kept a little below it.
     google_weather_history_hours_per_day: int = 4000
@@ -114,6 +114,11 @@ class Settings(BaseSettings):
     # Sheets API. Empty = off. Share the sheet as Editor with the service account's client_email.
     pwa_sheet_id: str = ""  # from the sheet URL: /spreadsheets/d/<id>/edit
     pwa_sheet_credentials_file: str = ""  # service-account JSON; empty = FIREBASE_CREDENTIALS_FILE
+    # PWA report checks 09 / 13 / 17 are snapshots taken this many minutes before hh:00 (08:50 /
+    # 12:50 / 16:50), published then, so the sheet has them by hh:00 (services/check_slots.py).
+    check_offset_min: int = 10
+    # `history` pull this many minutes before each check's snapshot / publish (08:47 at 10 + 3)
+    pwa_history_lead_min: int = 3
     google_weather_live_ttl_s: int = 1800  # current conditions are cached 30 min per cell (memory only)
     # Daytime window (plant-local hours, end exclusive): only these hours are stored, and live
     # current conditions are only fetched inside it (night: last value, no Google call).

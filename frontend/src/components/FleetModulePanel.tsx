@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type NumKey = Exclude<keyof FleetModule, "manufacturer" | "model" | "datasheet_url">;
+type NumKey = Exclude<keyof FleetModule, "manufacturer" | "model" | "datasheet_url" | "cell_technology">;
+
+const CELL_TECH = ["perc", "topcon", "hjt", "ibc"] as const;
 
 const NUM_FIELDS: Array<{ key: NumKey; label: string; step: string }> = [
   { key: "wp", label: "Pmax (Wp)", step: "1" },
@@ -21,7 +23,14 @@ const NUM_FIELDS: Array<{ key: NumKey; label: string; step: string }> = [
   { key: "temp_coeff_voc_pct", label: "β Voc (%/°C)", step: "0.001" },
   { key: "temp_coeff_isc_pct", label: "α Isc (%/°C)", step: "0.001" },
   { key: "bifacial_factor_pct", label: "Bifacial factor (%)", step: "1" },
+  // I-V analysis (IEC 60891 Procedure 2); empty = the assumed typical values are used
+  { key: "p2_b1", label: "I-V: B1 (measured)", step: "0.001" },
+  { key: "p2_b2", label: "I-V: B2 (measured)", step: "0.001" },
+  { key: "kappa_ohm_per_k", label: "I-V: κ (Ω/K per module)", step: "0.0001" },
 ];
+
+// Not on this form: sent back as loaded, so a save does not reset them.
+const KEPT_FIELDS: NumKey[] = ["rs_ohm", "first_year_lid_pct", "annual_degradation_pct"];
 
 /**
  * PV module used across the whole fleet (global data). Saved in the backend DB and mirrored
@@ -43,6 +52,7 @@ export const FleetModulePanel: React.FC<{
       manufacturer: module.manufacturer,
       model: module.model,
       datasheet_url: module.datasheet_url ?? "",
+      cell_technology: module.cell_technology ?? "",
     };
     for (const f of NUM_FIELDS) d[f.key] = module[f.key] != null ? String(module[f.key]) : "";
     setDraft(d);
@@ -69,8 +79,13 @@ export const FleetModulePanel: React.FC<{
       temp_coeff_voc_pct: num(draft.temp_coeff_voc_pct),
       temp_coeff_isc_pct: num(draft.temp_coeff_isc_pct),
       bifacial_factor_pct: num(draft.bifacial_factor_pct),
+      p2_b1: num(draft.p2_b1),
+      p2_b2: num(draft.p2_b2),
+      kappa_ohm_per_k: num(draft.kappa_ohm_per_k),
+      cell_technology: CELL_TECH.find((t) => t === draft.cell_technology) ?? null,
       datasheet_url: draft.datasheet_url?.trim() || null,
     };
+    for (const k of KEPT_FIELDS) if (module?.[k] != null) body[k] = module[k];
     setSaving(true);
     setMsg(null);
     try {
@@ -162,6 +177,21 @@ export const FleetModulePanel: React.FC<{
                 />
               </div>
             ))}
+            <div>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">I-V: cell technology</Label>
+              <select
+                value={draft.cell_technology ?? ""}
+                disabled={!canEdit}
+                onChange={(e) => setDraft((d) => ({ ...d, cell_technology: e.target.value }))}
+                className="h-8 w-full rounded-md border border-white/10 bg-ink-900 px-2 text-xs text-white focus:outline-none disabled:opacity-50"
+              >
+                <option value="">Unknown</option>
+                <option value="perc">PERC</option>
+                <option value="topcon">TOPCon</option>
+                <option value="hjt">HJT</option>
+                <option value="ibc">IBC</option>
+              </select>
+            </div>
           </div>
           {canEdit && (
             <Button type="button" variant="default" onClick={save} disabled={saving}>

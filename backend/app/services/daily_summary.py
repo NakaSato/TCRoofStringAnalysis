@@ -44,8 +44,7 @@ from sqlalchemy.orm import Session
 from app.config import DATA_DIR, settings
 from app.logging_db import setup_logging
 from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PublishedDoc, PublishWriteCount
-from app.services import google_weather
-from app.services.daily_checks import build_checks
+from app.services import check_slots, google_weather
 from app.services.fleet_settings import config_docs
 from app.services.growatt_overview import build_plant_overview, plant_rated_ac_w, plausible_capacity_kwp
 
@@ -75,17 +74,25 @@ def _hourly_kw(timeseries: List[Dict[str, Any]]) -> List[Optional[float]]:
     return [round(sum(acc[h]) / len(acc[h]), 2) if acc.get(h) else None for h in range(24)]
 
 
-def build_day_docs(db: Session, day: date) -> List[Doc]:
-    """All daily documents for one plant-local day. Plants/inverters without data that day are skipped."""
+def build_day_docs(db: Session, day: date, now: Optional[datetime] = None, freeze: bool = True) -> List[Doc]:
+    """All daily documents for one plant-local day. Plants/inverters without data that day are
+    skipped, except a plant with inverters once a PWA check slot is ready (it is offline then).
+
+    PWA check slots (`checks`, `weather.slots`) come from check_slots.day_slots: the slots ready
+    at `now` (naive plant-local; default the current time), frozen at their first build unless
+    `freeze` is False (dry run). The fleet doc `daily/{day}` lists them in `checks_ready`; it is
+    the last document of the list, so a publish makes it visible after every plant doc."""
     ds = day.isoformat()
     docs: List[Doc] = []
     fleet: Dict[str, Dict[str, Any]] = {}
+    ready = check_slots.ready_hours(db, day, now or check_slots.now_local())
 
     for plant in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)):
         ov = build_plant_overview(db, plant.plant_id, day)
         k = ov["kpis"]
         has_data = bool(ov["timeseries"])
         pid = str(plant.plant_id)
+        slots = check_slots.day_slots(db, plant, day, ready, freeze=freeze) if check_slots.has_inverters(db, plant.plant_id) else {}
         fleet[pid] = {
             "name": plant.name,
             "phase": plant.phase,
@@ -100,7 +107,7 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
             "warning_strings": k["warning_strings"],
             "has_data": has_data,
         }
-        if not has_data:
+        if not has_data and not slots:
             continue
 
         docs.append(
@@ -112,6 +119,7 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                     "plant_id": plant.plant_id,
                     "phase": plant.phase,
                     "name": plant.name,
+                    "has_data": has_data,
                     "capacity_kwp": _round2(k["capacity_kwp"]),
                     "yield_kwh": k["yield_today_kwh"],
                     "specific_yield": k["specific_yield_kwh_per_kwp"],
@@ -127,8 +135,16 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                         "avg_module_temp_c": k["avg_module_temp_c"],
                         "avg_ambient_temp_c": k["avg_ambient_temp_c"],
                         "pr_coverage_pct": ov["weather"]["iec_pr"]["coverage_pct"],
-                        # measured irradiance at the 09/13/17 checks; null = sensor silent then
-                        "slots": ov["weather"]["check_slots"],
+                        # measured irradiance at the 09/13/17 checks (snapshot at hh:00 − offset,
+                        # check_slots); null = sensor silent then, or the check not built yet
+                        "slots": {
+                            check_slots.hh(h): (
+                                {"at": c["sensor_at"], "irradiance_wm2": c["irradiance_wm2"], "module_temp_c": c["module_temp_c"]}
+                                if (c := slots.get(check_slots.hh(h))) and c["irradiance_wm2"] is not None
+                                else None
+                            )
+                            for h in check_slots.CHECK_HOURS
+                        },
                     },
                     # Google Maps Weather for the plant's grid cell: modelled, not measured
                     "google_weather": google_weather.day_summary(db, plant, day),
@@ -143,8 +159,9 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                     "critical_strings": k["critical_strings"],
                     "avg_health_score": k["avg_health_score"],
                     "hourly_kw": _hourly_kw(ov["timeseries"]),
-                    # inverters offline / in fault / with open alarms at the 09/13/17 checks
-                    "checks": build_checks(db, plant.plant_id, day),
+                    # the PWA checks 09/13/17 (check_slots): inverters offline / in fault / with open
+                    # alarms, kW, irradiance and Google weather at hh:00 − offset; only built slots
+                    "checks": slots or None,
                     "anomalies": [
                         {key: a[key] for key in ("string_id", "severity", "category", "pr_pct", "energy_loss_kwh")}
                         for a in ov["anomalies"][:TOP_ANOMALIES]
@@ -201,6 +218,9 @@ def build_day_docs(db: Session, day: date) -> List[Doc]:
                 "day": ds,
                 "plant_count": len(fleet),
                 "plants_with_data": len(with_data),
+                # PWA checks built (and frozen) for every plant; written last, so a reader that sees
+                # an hour here sees every plant doc of that publish
+                "checks_ready": [check_slots.hh(h) for h in ready],
                 "capacity_kwp": round(sum(p["capacity_kwp"] or 0.0 for p in fleet.values()), 2),
                 "yield_kwh": round(sum(p["yield_kwh"] or 0.0 for p in with_data), 2),
                 "plants": fleet,
@@ -433,7 +453,7 @@ def run(
 ) -> PublishReport:
     docs: List[Doc] = build_registry_docs(db) if include_registry else []
     for d in days:
-        docs.extend(build_day_docs(db, d))
+        docs.extend(build_day_docs(db, d, freeze=not dry_run))
     return publish(db, sink, docs, budget if budget is not None else settings.publish_daily_write_budget, dry_run)
 
 

@@ -306,6 +306,9 @@ def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     detail = prune_history(db, _today(), settings.history_retention_days)
     detail["google_weather_rows"] = google_weather.prune(db, _today(), settings.history_retention_days)
     detail["alarm_rows"] = prune_alarms(db, _today(), settings.history_retention_days)
+    from app.services import check_slots
+
+    detail["pwa_check_slots"] = check_slots.prune(db, _today(), settings.history_retention_days)
     detail["growatt_power_rows"] = prune_plant_power(db, _today(), settings.history_retention_days)
     detail["log_rows"] = prune_logs(db, datetime.now(timezone.utc), settings.log_retention_days, settings.log_max_rows)
     return "ok", detail

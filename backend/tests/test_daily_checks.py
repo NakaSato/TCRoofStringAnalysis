@@ -1,4 +1,4 @@
-"""Inverter state at the 09/13/17 report checks (offline / fault / open alarms)."""
+"""Inverter state at the 09/13/17 report checks (snapshots at 08:50 / 12:50 / 16:50)."""
 
 from __future__ import annotations
 
@@ -35,8 +35,13 @@ def db(tmp_path):
         def rd(sn, hh, mm, status=1):
             s.add(GrowattInverterReading(device_sn=sn, timestamp=datetime(2026, 11, 12, hh, mm), status=status, pac_w=1000))
 
-        # 09:00 — A and B report, C silent; 13:00 — all report, C in fault; 17:00 — only A, 12 min late (too far)
-        rd("A", 9, 4), rd("B", 8, 55), rd("A", 13, 0), rd("B", 13, 5), rd("C", 12, 58, status=3), rd("C", 13, 20), rd("A", 17, 12)
+        # checks are snapshots at 08:50 / 12:50 / 16:50: each inverter's latest reading in the 15 min before
+        # 08:50 — A and B report (B's 08:55 record is after the snapshot), C silent
+        rd("A", 8, 45), rd("B", 8, 40), rd("B", 8, 55, status=3)
+        # 12:50 — all report, C in fault (its 12:51 recovery is after the snapshot)
+        rd("A", 12, 50), rd("B", 12, 36), rd("C", 12, 40, status=3), rd("C", 12, 51)
+        # 16:50 — A only at 16:30, before the window: everyone offline
+        rd("A", 16, 30)
         s.add_all(
             [
                 GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=datetime(2026, 11, 12, 8, 0),
@@ -60,9 +65,11 @@ def test_inverter_label_normalises_growatt_aliases():
 def test_checks_offline_fault_and_open_alarms(db):
     c = build_checks(db, PLANT, DAY)
     assert set(c) == {"09", "13", "17"}
-    assert c["09"] == {"inverters": 3, "offline": ["INV3"], "fault": [], "alarms": ["INV2 Relay fault"]}
-    assert c["13"] == {"inverters": 3, "offline": [], "fault": ["INV3"], "alarms": ["INV3 PV Isolation Low"]}
-    assert c["17"]["offline"] == ["INV1", "INV2", "INV3"] and c["17"]["alarms"] == ["INV3 PV Isolation Low"]
+    pick = lambda hh: {k: c[hh][k] for k in ("at", "inverters", "offline", "fault", "alarms", "kw")}
+    assert pick("09") == {"at": "08:50", "inverters": 3, "offline": ["INV3"], "fault": [], "alarms": ["INV2 Relay fault"], "kw": 2.0}
+    assert pick("13") == {"at": "12:50", "inverters": 3, "offline": [], "fault": ["INV3"], "alarms": ["INV3 PV Isolation Low"], "kw": 3.0}
+    assert c["17"]["offline"] == ["INV1", "INV2", "INV3"] and c["17"]["kw"] is None
+    assert c["17"]["alarms"] == ["INV3 PV Isolation Low"]
     assert build_checks(db, 8, DAY) is None
 
 

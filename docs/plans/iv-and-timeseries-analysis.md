@@ -4,7 +4,7 @@ Status: **Implemented (Option B — Pure NumPy in `solar_core/`, no `scipy` or `
 
 This document describes the architecture, mathematical models, database schema, API endpoints, decision rules, and UI components for the two analytical capabilities implemented in the **TC Roof Solar** platform:
 
-1. **I–V Curve Analysis (String & Module Level)** — measurement condition gating, IEC 60891 Procedure 1 STC translation, parameter extraction, single-diode fitting (`rectify_iv_curve`, `fit_sandia_simple`, `fit_desoto`), 8-signature fault classification, $\pm 3\text{–}5\%$ dead band, and two-source warranty claim verification.
+1. **I–V Curve Analysis (String & Module Level)** — measurement condition gating, IEC 60891 Procedure 1 STC translation, parameter extraction, single-diode fitting (`rectify_iv_curve`, `fit_sandia_simple`, `fit_desoto`), 8-signature fault classification, $\pm 5\%$ dead band, and two-source module-test candidates.
 2. **Time-Series Performance Analysis (Plant, Inverter & String Level)** — pre-KPI data filtering ($\text{POA } 200\text{–}1,200\text{ W/m}^2$, stale-value, clipping, and curtailment masks), temperature-corrected $\text{PR}'$, Energy Performance Index ($\text{EPI}$, Rule R10), inverter/BOS loss ($Y_a - Y_f$, Rule R11), same-orientation/tilt/module-count string peer ratio ($R_i$), low-variability irradiance gating, and string fault rules (`R1`, `R2`, `R4` with per-string voltage sensing check, `R5`, `R6`).
 
 ---
@@ -33,12 +33,20 @@ An I–V curve cannot be interpreted without its measurement conditions. Every s
 - `swept_at`: ISO-8601 timestamp of the sweep.
 - $\Delta G$ (`irradiance_change_pct`, optional): Irradiance variation during the sweep ($\%$).
 
-**Quality Gate**:
-- $G_1 \ge 700\text{ W/m}^2$ (`MIN_SWEEP_IRRADIANCE_WM2 = 700.0`)
-- $|\Delta G| \le 2.0\%$ during the sweep (`MAX_IRRADIANCE_CHANGE_PCT = 2.0`)
-- $0\,^\circ\text{C} \le T_1 \le 95\,^\circ\text{C}$
+**Quality Gate** (`validate_sweep_conditions`):
 
-Sweeps that fail the quality gate are stored with `quality_gate_passed = False` and explicit `gate_reasons`, and **never** recommend tickets or warranty claims (`ticket_recommended = False`, `warranty_claim_ready = False`).
+| Condition | Result | Basis |
+|---|---|---|
+| $G_1 < 400\text{ W/m}^2$ | No diagnosis: `quality_gate_passed = False`, `shape_gate_passed = False` | IEC 62446-1 minimum |
+| $400 \le G_1 < 700\text{ W/m}^2$ | Shape only: `quality_gate_passed = False`, `shape_gate_passed = True` | IEC 61829 minimum for STC translation |
+| $700 \le G_1 < 800\text{ W/m}^2$ | Passes with a `gate_warnings` entry | IEA PVPS T13-24 best practice |
+| $|\Delta G| > 2\%$ during the sweep | Both gates fail | Engineering practice |
+| $1\% < |\Delta G| \le 2\%$ | Passes with a `gate_warnings` entry | IEA PVPS T13-24 best practice |
+
+- Sweeps that fail `quality_gate_passed` are stored with explicit `gate_reasons`. Their STC power is never judged: no module-test candidate, and no ticket except for steps.
+- A sweep with `shape_gate_passed` can still raise a `steps_in_curve` ticket, because steps are read from the measured curve.
+- `gate_warnings` and `shape_gate_passed` are stored inside `classification`.
+- Not gated yet (no input fields): module temperature stability before the sweep, and sweep time for high-capacitance (TOPCon / HJT) modules.
 
 ### 2.2 Data Cleaning (`rectify_iv_curve`)
 
@@ -46,6 +54,7 @@ Before parameter extraction or STC translation, `rectify_iv_curve(voltage, curre
 1. Drops `NaN`/`Inf` pairs and points in quadrants with $V < 0$ or $I < 0$.
 2. Sorts points by ascending voltage $V$ and merges duplicate voltages by median current.
 3. Anchors $(0, I_{\text{sc}})$ by linear extrapolation of the low-voltage segment and $(V_{\text{oc}}, 0)$ by linear interpolation/extrapolation of the high-voltage drop-off.
+4. A sweep that runs past $V_{\text{oc}}$ ends in several points at $I = 0$. Only the first of them is kept, so $V_{\text{oc}}$ is read where the current first reaches zero, not at the end of the sweep.
 
 ### 2.3 Translation to STC — IEC 60891 Procedure 1 (`translate_iec60891_proc1`)
 
@@ -70,7 +79,7 @@ Extracted on both the measured curve and the STC-translated curve:
 - $\text{FF}$ (`fill_factor`): Fill factor $\text{FF} = \frac{P_{\text{max}}}{I_{\text{sc}} \cdot V_{\text{oc}}}$.
 - `slope_voc_ohm`: Inverse slope $-\left(\frac{dV}{dI}\right)_{V \to V_{\text{oc}}}$ over $[0.85\,V_{\text{oc}}, V_{\text{oc}}]$ — direct indicator of series resistance $R_s$.
 - `slope_isc_ohm`: Inverse slope $-\left(\frac{dV}{dI}\right)_{V \to 0}$ over $[0, 0.25\,V_{\text{oc}}]$ — direct indicator of shunt resistance $R_{\text{sh}}$.
-- `steps_count`: Number of local steps/notches or inflection regions in $\frac{dI}{dV}$ across $[0.08\,V_{\text{oc}}, 0.92\,V_{\text{oc}}]$ caused by bypass diode activation under partial shading or cell mismatch.
+- `steps_count` (the classifier uses the **measured** curve's count, because translating a stepped curve can distort it): Number of local steps/notches or inflection regions in $\frac{dI}{dV}$ across $[0.08\,V_{\text{oc}}, 0.92\,V_{\text{oc}}]$ caused by bypass diode activation under partial shading or cell mismatch.
 
 ### 2.5 Single-Diode Model Fitting (`fit_sandia_simple`, `fit_desoto`)
 
@@ -83,25 +92,130 @@ After translating to STC, $P_{\text{max,STC}}$ is compared against the age-adjus
 
 $$P_{\text{expected,STC}} = P_{\text{nameplate}} \times \left(1 - \text{LID}_1 - \text{years} \times d_{\text{warranty}}\right)$$
 
-- **Dead Band**: Field I–V uncertainty of $\pm 3\text{–}5\%$ (default `dead_band_pct = 4.0`). Any deviation within the dead band without curve distortion is not a finding (`is_finding = False`, `ticket_recommended = False`).
+- **Dead Band**: The expanded uncertainty of field STC $P_{\text{max}}$ is $\pm 3.5\text{–}5\%$ (IEA PVPS T13-24), so the default is `dead_band_pct = 5.0`. Use $3\%$ only with a primary-calibrated reference cell and equivalent cell temperature. Any deviation within the dead band without curve distortion is not a finding (`is_finding = False`, `ticket_recommended = False`).
 - **8 Fault Signatures**:
 
 | Signature ID | Observation (after STC correction) | Detection Criteria | Likely Cause |
 |---|---|---|---|
 | `steps_in_curve` | Steps or notches in the curve | `steps_count >= 1` | Partial shading, cell mismatch, or cracked cells forcing a bypass diode on |
-| `miswiring_or_module_count` | $V_{\text{oc}}$ low by about one full module | $\Delta V_{\text{oc}} \approx -1.0 \times V_{\text{oc,mod}}$ ($\pm 35\%$), normal $I_{\text{sc}}$ | Miswiring or wrong module count |
-| `bypass_diode_shorted` | $V_{\text{oc}}$ low by about $\frac{1}{3}$ of one module's $V_{\text{oc}}$ | $\Delta V_{\text{oc}} \approx -\frac{1}{3}\,V_{\text{oc,mod}}$ (or integer multiple of substrings), normal $I_{\text{sc}}$ | Shorted bypass diode, one substring bypassed |
-| `pid` | $V_{\text{oc}}$ and $\text{FF}$ down, worse at low irradiance / near negative pole | $V_{\text{oc}}$ drop $> 3\%$, $\text{FF}$ drop $> 4\%$, and ($R_{\text{sh}} < 0.55\,R_{\text{sh,nom}}$ or `near_negative_pole` or `low_irradiance_worse`) | Potential Induced Degradation (PID) |
-| `low_shunt_resistance` | Steeper slope near $I_{\text{sc}}$ ($R_{\text{sh}}$ down), $\text{FF}$ down | $R_{\text{sh}} < 0.50\,R_{\text{sh,nom}}$ and $\text{FF}$ drop $> 3.5\%$ | Shunting, PID, or cell cracks |
-| `high_series_resistance` | Shallower slope near $V_{\text{oc}}$ ($R_s$ up), $\text{FF}$ down | $R_s > 1.45\,R_{s,\text{nom}}$ and $\text{FF}$ drop $> 3.5\%$ | Solder-bond or ribbon corrosion, bad connector, or cable problem |
+| `miswiring_or_module_count` | $V_{\text{oc}}$ low by about one full module | $\Delta V_{\text{oc}} \approx -1.0 \times V_{\text{oc,mod}}$ ($\pm 35\%$), normal $I_{\text{sc}}$, normal slope near $I_{\text{sc}}$ ($R_{\text{sh}} \ge 0.55\,R_{\text{sh,nom}}$) | Miswiring or wrong module count |
+| `bypass_diode_shorted` | $V_{\text{oc}}$ low by about $\frac{1}{3}$ of one module's $V_{\text{oc}}$ | $\Delta V_{\text{oc}} \approx -\frac{1}{3}\,V_{\text{oc,mod}}$ (or integer multiple of substrings), normal $I_{\text{sc}}$, normal slope near $I_{\text{sc}}$ | Shorted bypass diode, one substring bypassed |
+| `pid` | $V_{\text{oc}}$ and $\text{FF}$ down, worse at low irradiance / near negative pole | $V_{\text{oc}}$ drop $> 3\%$, $\text{FF}$ drop $> 4\%$, and ($R_{\text{sh}} < 0.45\,R_{\text{sh,nom}}$ or `near_negative_pole` or `low_irradiance_worse`) | Potential Induced Degradation (PID) |
+| `low_shunt_resistance` | Steeper slope near $I_{\text{sc}}$ ($R_{\text{sh}}$ down), $\text{FF}$ down | $R_{\text{sh}} < 0.55\,R_{\text{sh,nom}}$ and $\text{FF}$ drop $> 3.5\%$ | Shunting, PID, or cell cracks |
+| `high_series_resistance` | Shallower slope near $V_{\text{oc}}$ ($R_s$ up), $\text{FF}$ down | $R_s > 1.30\,R_{s,\text{nom}}$ and $\text{FF}$ drop $> 3.5\%$ | Solder-bond or ribbon corrosion, bad connector, or cable problem |
 | `isc_low_normal_shape` | $I_{\text{sc}}$ low, curve shape normal | $I_{\text{sc}}$ drop outside dead band, $|\Delta V_{\text{oc}}| \le \text{dead band}$, $|\Delta \text{FF}| \le 3.5\%$ | Uniform soiling, optical degradation, or irradiance sensor error (check sensor first) |
 | `normal_degradation` | All parameters down a little, uniformly | Outside dead band with uniform reductions in $I_{\text{sc}}, V_{\text{oc}}, \text{FF}$ | Normal degradation; compare drop against warranty slope |
 
-- **Two-Source Warranty Rule**:
-  `warranty_claim_ready` is `True` **only** when:
+- **Voc drop with a collapsed shunt**: low $R_{\text{sh}}$ lowers $V_{\text{oc}}$ too (a synthetic string with $R_{\text{sh}} = 55\,\Omega$ reads about 2.5% low, close to one substring). A missing module or a shorted bypass diode leaves the slope near $I_{\text{sc}}$ normal, so the two structural signatures apply only while that slope is at least $0.55\,R_{\text{sh,nom}}$; otherwise the curve goes on to the PID and low-shunt checks.
+
+- **Module-Test Candidate (two sources)**:
+  A string sweep gives the average of its modules, and manufacturers require STC power per module from an accredited laboratory or flasher. So a sweep never makes a warranty claim "ready"; it selects strings whose modules should be tested one by one.
+  `module_test_candidate` is `True` **only** when:
   1. `quality_gate_passed` is `True`,
-  2. $P_{\text{max,STC}} < P_{\text{expected,STC}} \times (1 - \text{dead\_band})$, and
-  3. A second independent source confirms the finding: either **IR thermography** (`ir_confirmed = True`) or **an active time-series performance issue** on the same string (`timeseries_trend_confirmed = True`, auto-linked from open `R1`/`R4`/`R5`/`R6` issues).
+  2. the curve has no steps (the STC power of a stepped curve is for comparison only; `stc_comparison_valid = False`),
+  3. $P_{\text{max,STC}} < P_{\text{expected,STC}} \times (1 - \text{dead\_band})$, and
+  4. A second independent source confirms the finding: either **IR thermography** (`ir_confirmed = True`) or **an active time-series performance issue** on the same string (`timeseries_trend_confirmed = True`, auto-linked from open `R1`/`R4`/`R5`/`R6` issues).
+
+  The SQL column keeps its old name `warranty_claim_ready`; the API field is `module_test_candidate`.
+
+### 2.7 Peer and Baseline Comparison (`growatt_iv._with_comparison`)
+
+Field STC power carries $\pm 3.5\text{–}5\%$ uncertainty, most of it from the irradiance and temperature readings. Strings swept together share those errors, so a ratio against same-time peers shows faults that the absolute comparison hides. Every sweep returned by the API carries `comparison`, **computed on read** from the stored sweeps (the peers of a sweep are often uploaded after it); nothing is stored.
+
+- **Peers** (`comparison.peer`): the other strings of the same inverter, same `source`, swept within `PEER_WINDOW_MIN` (30 min), that passed the quality gate and have no steps; the nearest sweep per string. At least `PEER_MIN` (2) are needed, otherwise `ratios` is `null` with a `reason`. Ratios are this string's STC value over the peers' median: $P_{\text{max}}$ and $V_{\text{oc}}$ per module (strings differ in length), $I_{\text{sc}}$ and FF as they are.
+- **Setup check** (`setup_error_suspected`): when at least 3 strings were swept together and $I_{\text{sc}}$ is below the datasheet value by more than the dead band on **every** one, the irradiance reading or the setup is the likely cause, not the strings.
+- **Baseline** (`comparison.baseline`): the string's first earlier sweep that passed the gate, has no steps, and has the same `source` and module count. Ratios of STC $P_{\text{max}}$, FF, and the slopes near $V_{\text{oc}}$ / $I_{\text{sc}}$.
+
+| Flag | Level | Status |
+|---|---|---|
+| `pmax_below_peers` | ratio $< 0.97$ | Proposed, needs site calibration |
+| `isc_below_peers` | ratio $< 0.98$ | Proposed, needs site calibration |
+| `ff_below_peers` | ratio $< 0.97$ | Proposed, needs site calibration |
+| `pmax_below_baseline` | ratio $< 0.97$ | Proposed, needs site calibration |
+| `series_resistance_up` | slope near $V_{\text{oc}}$ $> 1.20 \times$ baseline | Proposed, needs site calibration |
+| `shunt_resistance_down` | slope near $I_{\text{sc}}$ $< 0.50 \times$ baseline | Proposed, needs site calibration |
+
+These flags mark a sweep in the UI and **never open a ticket**. To calibrate: 10 repeat sweeps on 3–5 healthy strings, then set each level at 2–3 standard deviations of the observed ratios.
+
+### 2.8 Inverter Scans, Procedure 2 Cross-Check and Site Reference
+
+- **Inverter scan** (`source = "inverter_scan"`): irradiance and temperature come from a plant sensor, not a reference cell at the string. The signatures that rest on absolute current or power (`isc_low_normal_shape`, `normal_degradation`) raise no ticket, the sweep is never a module-test candidate, and `stc_comparison_valid = False`. Scans are compared only with other scans (peers and baseline).
+- **Procedure 2 cross-check** (`iec60891.procedure_2`): STC $P_{\text{max}}$ by IEC 60891:2021 Procedure 2 with **assumed** irradiance factors $B_1 = 0.045$, $B_2 = 0$ (typical c-Si, not measured for the fleet module). A difference above $1\%$ from Procedure 1 adds a gate warning. Procedure 1 stays the judged result. The Procedure 2 formulas come from the literature (Li et al., 2024) and were not checked against the standard's text.
+- **Site reference** (`iec60891.site_reference`): the curve's parameters at $1000\text{ W/m}^2$, $55\,^\circ\text{C}$ (`SITE_REFERENCE_TEMP_C`), closer to operating temperature than STC, so the error from the temperature coefficients is smaller. For trending; shown, not judged.
+
+### 2.9 Optional Conditions, More Cross-Checks and the Uncertainty Estimate
+
+Four optional upload fields (stored on `growatt_iv_sweeps`; `null` = not recorded, never filled in):
+
+| Field | Rule | Result |
+|:---|:---|:---|
+| `temp_change_k_per_min` | $> 1\text{ K}$ over the minute before the sweep (IEA PVPS T13-24) | gate warning, flag `unstable_T`; no reject level (none is published) |
+| `sweep_time_ms` + `cell_technology` (`perc`, `topcon`, `hjt`, `ibc`) | $< 100\text{ ms}$ on TOPCon / HJT / IBC | **fails the quality gate** (power unreliable, curve shape still judged), flag `capacitance_suspect` |
+| | $< 100\text{ ms}$, technology not given | gate warning, flag `capacitance_suspect` |
+| `irradiance_uncertainty_pct` | sensor calibration uncertainty, $k = 2$ | replaces the assumed $2.5\%$ in the estimate below |
+
+`cell_technology` falls back to the fleet module setting's `cell_technology` key when it has one. `classification.quality_flags` also carries `low_G` and `unstable_G`.
+
+**More cross-checks** (`iec60891.procedure_4`, `iec60891.procedure_dynamic`; Procedure 1 stays the judged result):
+- **Procedure 4**: needs no $R_s$ / $\kappa$ / $\beta$ coefficients; uses $\alpha$, the cells in series ($N \times 72$) and the default $\varepsilon = 1.232\text{ V}$. $R_s$ is the Sandia fit of the measured curve.
+- **Dynamic procedure** (Li et al., 2024): Procedure 2 applied to the curve without its shunt current, $I' = I_1 + V_1 / R_{sh}$, which is put back afterwards, $I_2 = I' - V_2 / R_{sh}$. $R_s$ and $R_{sh}$ come from the Sandia fit of the measured curve; $R_{sh}$ above $100\ \Omega$ per module is neglected (`shunt_neglected`), and the result then equals Procedure 2. A difference above $1\%$ from Procedure 2 adds a gate warning.
+- Procedures 2, 4 and dynamic follow the open-source reference implementation of Li et al. ([DuraMAT/IVcorrection](https://github.com/DuraMAT/IVcorrection)). None was checked against the text of IEC 60891.
+
+**Uncertainty estimate** (`classification.uncertainty`, `estimate_stc_pmax_uncertainty`): expanded uncertainty ($k = 2$) of the judged STC $P_{\text{max}}$, a root sum of squares of:
+
+| Component | Value | Source |
+|:---|:---|:---|
+| Irradiance sensor | `irradiance_uncertainty_pct`, else $2.5\%$ | input, else assumed (factory-calibrated cell) |
+| Irradiance change during the sweep | `irradiance_change_pct` | input (left out when not given) |
+| Module temperature | $\sqrt{3^2 + \Delta T^2}\text{ K} \times |\gamma|$ | assumed $\pm 3\text{ K}$, plus the given change per minute |
+| Temperature coefficient | $10\% \times |\gamma| \times |25 - T_1|$ | assumed |
+| Translation | $1\%$, or the largest difference of Procedure 2 / dynamic from Procedure 1 when larger | assumed, or `procedure_spread` |
+
+It is a **lower bound**: tracer voltage/current accuracy, repeatability, spectral mismatch and sensor alignment are not included (`not_included`). It does not change the verdict: the dead band stays the uploaded value. When the estimate is larger than the dead band, a gate warning says so. Inverter scans get `null`.
+
+### 2.10 Fleet-Level I-V Settings, Sweep Direction, Sensor Alignment and Cell Temperature from Voc
+
+**Fleet module setting** (`/growatt/fleet-module`, form on the Settings page), three optional keys:
+- `cell_technology` (`perc`, `topcon`, `hjt`, `ibc`): used for every sweep that does not give its own, so the sweep-time gate of §2.9 applies fleet-wide.
+- `p2_b1`, `p2_b2`: measured Procedure 2 irradiance factors of the module. When `p2_b1` is set, Procedure 2 and the dynamic procedure use them and report `coefficients = "fleet_setting"` instead of `"assumed"`. The app does not fit them from sweeps; enter values determined per IEC 60891 from curves at several irradiances.
+
+Two more optional upload fields (stored on `growatt_iv_sweeps`):
+
+| Field | Rule | Result |
+|:---|:---|:---|
+| `reverse_pmax_w` (measured $P_{\text{max}}$ of the opposite-direction sweep) | differs from this sweep's measured $P_{\text{max}}$ by $> 1\%$ (proposed level) | gate warning, flag `capacitance_suspect`, `classification.forward_reverse`; no rejection |
+| `sensor_misalignment_deg` (irradiance sensor vs array plane) | $> 2^\circ$ (IEC 60904-1) | gate warning, flag `sensor_misaligned` |
+| | $1$–$2^\circ$ (best practice $1^\circ$) | gate warning |
+
+**Cell temperature from $V_{oc}$** (`classification.equivalent_cell_temp`, modelled): the Procedure 2 open-circuit model solved for temperature,
+
+$$T_{\text{ECT}} = 25 + \frac{V_{oc,1} / (N \cdot V_{oc,\text{STC}}) - 1/f(G_1)}{\beta_{rel} \cdot f(G_1)}$$
+
+with datasheet $V_{oc,\text{STC}}$ and the $B_1$ / $B_2$ in use. It is shown next to the measured back-of-module temperature (`diff_vs_measured_k`) and **never used to translate**: on a string with a $V_{oc}$ fault it reads too hot, and translating with it would hide the fault. It is left out (`null`) for stepped curves, bypass-diode, module-count and PID signatures, and below the shape gate. It is not the IEC 60904-5 procedure, which needs a reference $V_{oc}$ measured on the same device.
+
+### 2.11 Site Coefficients and Procedure 3 (`solar_core/iv_site_fit.py`, `growatt_iv.site_coefficients`)
+
+`GET /growatt/plants/{id}/iv-sweeps/site-coefficients?sn=&string_no=` fits coefficients from one string's stored handheld sweeps. It is computed on read; nothing is stored or applied. An admin enters the values worth keeping in the fleet module setting. The I-V panel shows it under the chart ("Fit").
+
+**Sweeps used**: string level, `source = "upload"`, shape gate passed, no steps on the measured curve, the module count of the newest such sweep. A sweep at $G \ge 700\text{ W/m}^2$ must also have a healthy signature (`normal`, `normal_degradation`, `isc_low_normal_shape`), and at least one such sweep is required. Below $700\text{ W/m}^2$ the signature rests on a long translation and is not used.
+
+| Fitted | How | Needs |
+|:---|:---|:---|
+| $V_{oc,\text{STC}}$ per module | least squares on $V_{oc} = V_{oc,\text{STC}}\,[1/f(G) + \beta_{rel}\,f(G)\,(T - 25)]$, $f(G) = 1 + B_1 \ln(1000/G)$ | $\ge 3$ sweeps and one of the spans below |
+| $B_1$ | search over $0$–$0.15$ in the same fit | irradiance span $\ge 300\text{ W/m}^2$ (IEA PVPS T13-24) |
+| $\beta_{rel}$ | same fit | temperature span $\ge 10\text{ K}$ (our choice, no published figure); $\ge 4$ sweeps when $B_1$ is fitted too |
+| $R_s$ per module | the value ($0$–$1\ \Omega$) that brings the sweeps' Procedure 2 STC $P_{\text{max}}$ closest together | irradiance span $\ge 300\text{ W/m}^2$ |
+| $\kappa$ per module | same search ($0$–$0.005\ \Omega/\text{K}$), after $R_s$ | temperature span $\ge 10\text{ K}$ |
+
+A value the sweeps cannot determine is `null` with a line in `reasons` (too few sweeps, span too small, best fit on the edge of the search range). When irradiance and temperature move together (correlation above $0.9$), `reasons` says that $R_s$ and $\kappa$ cannot be told apart reliably. Not fitted: $\alpha$ (its effect over a field temperature range is smaller than the irradiance sensor's error) and $B_2$.
+
+The fit is an estimate from field sweeps of one string, not the IEC 60891 laboratory determination. The $R_s$ / $\kappa$ search follows the idea of that procedure (minimise the spread of translated $P_{\text{max}}$) without its requirement of equal temperature or equal irradiance between curves. The fitted $R_s$ is informative only: sweeps are translated with the $R_s$ fitted from each curve.
+
+**Procedure 3** (`interpolate_procedure_3`, in the same response as `procedure_3`): linear interpolation between the string's lowest- and highest-irradiance sweeps, pairing points at $I_2 = I_1 + (I_{sc,2} - I_{sc,1})$, to $1000\text{ W/m}^2$. It needs no coefficients. With two curves the temperature is not chosen: $T_3 = T_1 + a\,(T_2 - T_1)$ is returned with the result, so it is $P_{\text{max}}$ at $1000\text{ W/m}^2$ and $T_3$, not at STC. `extrapolated = true` when $1000\text{ W/m}^2$ lies outside the two sweeps (the report warns Procedure 3 distorts when extrapolating). Formulas from the literature, not checked against the standard's text.
+
+### 2.12 Sweeps That Failed the Quality Gate: `not_judged`
+
+A sweep that failed the quality gate (below $700\text{ W/m}^2$, unstable irradiance, or too fast for the cells) is translated over a long distance or has unreliable power, so a signature read from its STC values can be an artefact: a healthy string at $450\text{ W/m}^2$ read as "module count" in tests. Such a sweep now gets `signature = "not_judged"` (not a finding, no ticket), and `classification.unjudged_signature` keeps what the STC values would have been read as, for information. `steps_in_curve` is the exception: it comes from the measured shape and is judged from $400\text{ W/m}^2$. Sweeps stored before this change keep their stored signature.
 
 ---
 
@@ -168,6 +282,7 @@ ORM models: [`backend/app/db/models.py`](../../backend/app/db/models.py)
 
 1. **`growatt_iv_sweeps` (new table)**:
    - Stores sweep metadata (`plant_id`, `device_sn`, `string_no`, `module_no`, `level`, `source`, `swept_at`), conditions (`irradiance_wm2`, `module_temp_c`, `irradiance_change_pct`, `reference_cell_tech`, `modules`), quality gate (`quality_gate_passed`, `gate_reasons_json`), raw and STC curve points (`points_json`, `stc_points_json`), extracted parameters and single-diode fits (`measured_params_json`, `stc_params_json`, `fit_json`), fault classification (`p_max_stc_w`, `expected_pmax_stc_w`, `pmax_dev_pct`, `signature`, `is_finding`, `ticket_recommended`), and two-source warranty fields (`ir_confirmed`, `timeseries_trend_confirmed`, `warranty_claim_ready`).
+   - Added by [`a3b4c5d6e7f8_iv_sweep_conditions.py`](../../backend/alembic/versions/a3b4c5d6e7f8_iv_sweep_conditions.py) (and by `ensure_schema` at startup): optional conditions `temp_change_k_per_min`, `sweep_time_ms`, `cell_technology`, `irradiance_uncertainty_pct` (§2.9), `reverse_pmax_w`, `sensor_misalignment_deg` (§2.10).
 2. **`growatt_plant_daily` (new table)**:
    - Stores daily filtered plant KPIs: `capacity_kwp`, `energy_kwh`, `dc_energy_kwh`, `modelled_energy_kwh`, `yr_h`, `ya_kwh_kwp`, `yf_kwh_kwp`, `ya_minus_yf`, `pr_pct`, `pr_temp_corrected_pct`, `epi`, `irradiance_weighted_tmod_c`, `filtered_slots`, `stale_masked_slots`, `clipped_masked_slots`, `curtailed_masked_slots`.
 3. **`growatt_string_layout` (added columns)**:
@@ -183,7 +298,7 @@ ORM models: [`backend/app/db/models.py`](../../backend/app/db/models.py)
 |---|---|
 | `GET /api/growatt/plant/{plant_id}/iv-sweeps` | Lists stored I–V sweeps for a plant (optional filters: `sn`, `string_no`, `limit`). |
 | `POST /api/growatt/plant/{plant_id}/iv-sweeps` | Validates measurement conditions, cleans and translates the curve to STC via IEC 60891 Procedure 1, extracts parameters, fits the single-diode model, classifies fault signatures, checks two-source warranty eligibility, and stores the sweep. |
-| `PATCH /api/growatt/plant/{plant_id}/iv-sweeps/{sweep_id}` | Updates `ir_confirmed` (drone/handheld IR confirmation) or `note`, and recomputes `warranty_claim_ready`. |
+| `PATCH /api/growatt/plant/{plant_id}/iv-sweeps/{sweep_id}` | Updates `ir_confirmed` (drone/handheld IR confirmation) or `note`, and recomputes `module_test_candidate`. |
 | `GET /api/growatt/plant/{plant_id}/string-layout` / `PUT` | Reads and saves per-string `modules`, `module_wp`, `azimuth_deg`, and `tilt_deg`. |
 | `GET /api/growatt/plant/{plant_id}/overview` | Includes `dc_yield_today_kwh`, `ya_kwh_kwp`, `ya_minus_yf`, `iec_pr_temp_corrected_pct`, `irradiance_weighted_module_temp_c`, and `epi`. |
 

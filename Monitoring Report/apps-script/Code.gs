@@ -17,6 +17,8 @@
  * Never overwrites: a check cell (Status, Note, ค่าแสง, สภาพอากาศ, DATA LOG, kW, INV online) is written
  * only while it is empty. A check the API hasn't published yet (every plant "—") is skipped.
  * Kept up to date (summaries of the checks so far): weather Status, Yield (kWh).
+ * weather Status is only "Normal" (sensor reported at every check so far) or "Abnormal" (anything
+ * else: a missed check, no sensor, no data, plant not found).
  * Firmware (row-1 header) is written when empty or "—". Column C (SN Datalogger) is corrected from the
  * API when the row matched by plant name and the plant has exactly one datalogger.
  *
@@ -36,6 +38,7 @@ const FETCH_WINDOW = 120;  // keep trying a check for this many minutes after it
 const POLL_EVERY = 5;      // minutes between automatic runs (Apps Script allows 1, 5, 10, 15, 30)
 const FIRST_ROW = 3;
 const DASH = '—';
+const WX_NORMAL = 'Normal', WX_ABNORMAL = 'Abnormal'; // the only two weather Status values
 const REPORT_URL = 'https://tcroof-string-analysis.web.app/api/report/pwa';
 const HANDLERS = ['createTodaySheet', 'pollChecks', 'fillChecks', 'fillToday']; // old ones removed on setup
 
@@ -178,7 +181,7 @@ function fillDay(day, hours) {
     nm = String(nm || '').trim();
     if (!sn && !nm) return; // not a plant row
     const pid = matchPlant_(sn, nm, data.loggers || {}, names);
-    if (!pid) { if (sn) { stats.unmatched++; set(i, lay.weather, 'ไม่พบในระบบ'); } return; }
+    if (!pid) { if (sn) { stats.unmatched++; set(i, lay.weather, WX_ABNORMAL); } return; }
     stats.rows++;
     // SN Datalogger (column C): the plant's current datalogger, when the sheet's SN isn't one of its
     // loggers (replaced, or C empty) and the API names exactly one.
@@ -193,7 +196,7 @@ function fillDay(day, hours) {
       if (!wasEmpty) stats.kept++;
       if (get(i, b.status) === '') missing[pad_(b.hour)]++;
     });
-    set(i, lay.weather, p.weather_status);
+    set(i, lay.weather, weatherStatus_(p.weather_status));
     set(i, lay.yieldKwh, p.yield_kwh);
   });
   block.setValues(values);
@@ -210,7 +213,9 @@ function fillDay(day, hours) {
 
 /**
  * Firmware column (row-1 header "Firmware"), by the row's datalogger SN (column C):
- * firmware = {datalogger_sn: version} from the API. Written on its own, so the check block and
+ * firmware = {datalogger_sn: version} from the API: the firmware of that datalogger's inverters
+ * (Growatt innerVersion, else fwVersion; several versions joined with ", "). Growatt gives no
+ * datalogger firmware. Written on its own, so the check block and
  * newDaySheet_ (which clears only the check block) never touch it. Returns the number of rows that
  * got a version, or null when the sheet has no Firmware column or the API sent no firmware map
  * (older API: the column is left as it is). Only empty / "—" cells are written; an SN the API
@@ -251,6 +256,15 @@ function loggersByPlant_(data) {
     (out[id] = out[id] || []).push(sn);
   });
   return out;
+}
+
+/**
+ * weather Status is only "Normal" / "Abnormal" (header "(Normal / Abnormal)"): Normal when the API
+ * says the weather sensor reported at every check so far; anything else — a missed check
+ * ("loss (13:00)"), no sensor, no data, plant not found — is Abnormal.
+ */
+function weatherStatus_(v) {
+  return String(v == null ? '' : v).trim().toLowerCase() === 'normal' ? WX_NORMAL : WX_ABNORMAL;
 }
 
 /** True when at least one plant has a real value (not "—" / empty) in check `hh`. */
@@ -321,7 +335,7 @@ function newDaySheet_(ss, name) {
  * The sheet's values for `day`, checks `hours` only:
  * {day, hours, columns, published_plants, loggers: {datalogger_sn: id}, names: {id: name},
  *  plants: {id: {checks: {"09": [status, note, irr, wx, log, kw, inv]}, weather_status, yield_kwh}},
- *  firmware: {datalogger_sn: version}}   (firmware optional; without it the Firmware column is left as is)
+ *  firmware: {datalogger_sn: inverter firmware}}   (without it, e.g. an older API, the Firmware column is left as is)
  */
 function reportCells_(day, hours) {
   const props = PropertiesService.getScriptProperties();

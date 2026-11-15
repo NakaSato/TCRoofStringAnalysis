@@ -672,6 +672,13 @@ class GrowattIvSweep(Base):
     module_temp_c: Mapped[float] = mapped_column(Float, nullable=False)
     irradiance_change_pct: Mapped[Optional[float]] = mapped_column(Float)
     reference_cell_tech: Mapped[Optional[str]] = mapped_column(String(64))
+    # optional measurement conditions (null = not recorded with the sweep)
+    temp_change_k_per_min: Mapped[Optional[float]] = mapped_column(Float)  # module T change, minute before
+    sweep_time_ms: Mapped[Optional[float]] = mapped_column(Float)
+    cell_technology: Mapped[Optional[str]] = mapped_column(String(16))  # perc | topcon | hjt | ibc
+    irradiance_uncertainty_pct: Mapped[Optional[float]] = mapped_column(Float)  # sensor calibration, k = 2
+    reverse_pmax_w: Mapped[Optional[float]] = mapped_column(Float)  # measured Pmax of the opposite-direction sweep
+    sensor_misalignment_deg: Mapped[Optional[float]] = mapped_column(Float)  # irradiance sensor vs array plane
     modules: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     quality_gate_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     gate_reasons_json: Mapped[Optional[Any]] = mapped_column(JSON)
@@ -794,6 +801,23 @@ class PublishWriteCount(Base):
     sink: Mapped[str] = mapped_column(String(32), primary_key=True)
     quota_day: Mapped[str] = mapped_column(String(10), primary_key=True)  # YYYY-MM-DD, Pacific
     writes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class PwaCheckSlot(Base):
+    """One PWA report check slot of one plant, frozen when it was first fully built.
+
+    Built from stored, source-timestamped history only (services/check_slots.py), never from
+    realtime values. Later publishes reuse it, so a slot the sheet has already shown never
+    changes, even when late uploads would change a recomputation. Pruned with the raw history.
+    """
+
+    __tablename__ = "pwa_check_slots"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    hour: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # 9 / 13 / 17
+    slot_json: Mapped[Any] = mapped_column(JSON, nullable=False)
+    built_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class GoogleWeatherHourly(Base):

@@ -17,7 +17,7 @@ export type * from "./types/assistant";
 export type * from "./types/issues";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
-import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
+import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
@@ -216,6 +216,10 @@ export const api = {
     const qs = q.toString();
     return apiFetch<IvSweepList>(`/growatt/plants/${plantId}/iv-sweeps${qs ? `?${qs}` : ""}`);
   },
+  getIvSiteCoefficients: (plantId: number, sn: string, stringNo: number) =>
+    apiFetch<IvSiteCoefficients>(
+      `/growatt/plants/${plantId}/iv-sweeps/site-coefficients?sn=${encodeURIComponent(sn)}&string_no=${stringNo}`
+    ),
   createIvSweep: (plantId: number, payload: IvSweepCreate) =>
     apiFetch<IvSweep>(`/growatt/plants/${plantId}/iv-sweeps`, {
       method: "POST",

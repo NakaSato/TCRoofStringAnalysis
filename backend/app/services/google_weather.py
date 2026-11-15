@@ -19,9 +19,11 @@ Cost model (10,000 free calls/month, then $0.15 per 1,000):
 - Daytime only (`GOOGLE_WEATHER_DAY_START_H`–`_END_H`, 06:00–18:00): only those hours are
   stored and read, so day totals / days since rain count daytime rain only. Google bills per
   call, not per hour, so this saves storage and night-time live calls, not history calls.
-- Current conditions: only for a plant someone is looking at, inside the daytime window, cached
-  `GOOGLE_WEATHER_LIVE_TTL_S` (30 min) per cell in memory, never stored.
-- Budget = the whole free tier: `GOOGLE_WEATHER_MONTHLY_BUDGET` (10,000) calls per calendar
+- Current conditions: for a plant someone is looking at, inside the daytime window, cached
+  `GOOGLE_WEATHER_LIVE_TTL_S` (30 min) per cell in memory, never stored; and at each PWA check
+  (`slot_current`, 08:50 / 12:50 / 16:50): one call per cell (≈ 229 × 3 = 687 calls/day), kept
+  only in the frozen check slot, where it is the sheet's สภาพอากาศ.
+- Budget: `GOOGLE_WEATHER_MONTHLY_BUDGET` (30,000; ≈ 28.4k needed: 687 check + 229 history calls a day) calls per calendar
   month. Every call is counted per billing day (US/Pacific, when Google's month and daily
   quotas reset) in `external_api_call_counts`. Today's allowance is what is left of the month
   spread over the days left (`allowance`), so calls a quiet day doesn't use roll over. Until the
@@ -535,6 +537,65 @@ def day_summary(db: Session, plant: GrowattPlant, day: date) -> Optional[Dict[st
         "days_since_rain": days_since_rain(db, cell[0], day)["days_since_rain"],
         "slots": slots(rows),
     }
+
+
+# --------------------------------------------------------------------------- PWA check slots
+
+
+SLOT_CURRENT_LATE = timedelta(minutes=20)  # current conditions count for a check only this soon after its slot time
+_slot_current: Dict[Tuple[date, int], Dict[str, Dict[str, Any]]] = {}  # (day, hour) -> {cell: current}; memory only
+_slot_lock = threading.Lock()
+
+
+def slot_current(
+    db: Session,
+    day: date,
+    hour: int,
+    slot_at: datetime,
+    now_local: Optional[datetime] = None,
+    client: Optional[GoogleWeatherClient] = None,
+    workers: int = FETCH_WORKERS,
+) -> Dict[str, Dict[str, Any]]:
+    """Google current conditions (modelled) of every fleet cell for PWA check `hour` of `day`,
+    taken at the check's slot time (08:50 for 09) so the sheet's สภาพอากาศ is Google's sky then.
+
+    One `currentConditions` call per cell, once per check (memoized in this process; plants of one
+    cell share the call), within today's call budget. Empty without a key, or when `now_local`
+    is not in [slot_at, slot_at + SLOT_CURRENT_LATE]: a slot built later (or a past day) falls
+    back to the stored hour. The values end up only in the frozen check slot."""
+    if not settings.google_weather_api_key:
+        return {}
+    now = now_local or datetime.now(PLANT_TZ).replace(tzinfo=None)
+    if not (slot_at <= now <= slot_at + SLOT_CURRENT_LATE):
+        return {}
+    key = (day, hour)
+    with _slot_lock:
+        if key in _slot_current:
+            return _slot_current[key]
+        for k in [k for k in _slot_current if k[0] != day]:  # keep today's checks only
+            del _slot_current[k]
+        cells = fleet_cells(db)
+        todo = list(cells.items())[: max(0, remaining(db, API_CURRENT))]
+        skipped = len(cells) - len(todo)
+        cl = client or make_client()
+
+        def fetch(item: Tuple[str, Tuple[float, float]]) -> Tuple[str, Any]:
+            k, (lat, lon) = item
+            try:
+                return k, cl.current(lat, lon)
+            except GoogleWeatherError as exc:
+                return k, exc
+
+        calls_before = cl.calls
+        with ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="gweather-slot") as pool:
+            results = list(pool.map(fetch, todo))
+        record_calls(db, API_CURRENT, cl.calls - calls_before)
+        out = {k: r for k, r in results if not isinstance(r, Exception)}
+        failed = len(results) - len(out)
+        if failed or skipped:
+            log.warning("google weather check %02d: %d cells failed, %d skipped (call budget)", hour, failed, skipped)
+        _slot_current[key] = out
+        return out
 
 
 # --------------------------------------------------------------------------- live (memory only)

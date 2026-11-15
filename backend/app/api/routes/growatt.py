@@ -893,6 +893,25 @@ def list_plant_iv_sweeps(
     return {"plant_id": plant_id, "sweeps": sweeps, "meta": {"source": "db"}}
 
 
+@router.get("/plants/{plant_id}/iv-sweeps/site-coefficients")
+def get_plant_iv_site_coefficients(
+    plant_id: int,
+    sn: str = Query(..., min_length=1, max_length=64),
+    string_no: int = Query(..., ge=1, le=64),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Voc at STC, β, Procedure 2 B1, Rs and κ fitted from one string's stored handheld sweeps, plus
+    IEC 60891 Procedure 3 between its lowest- and highest-irradiance sweeps. Computed on read,
+    nothing is stored or applied; a value the sweeps cannot determine is null with a reason."""
+    from app.services import growatt_iv
+
+    try:
+        return growatt_iv.site_coefficients(db, plant_id, sn, string_no)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/plants/{plant_id}/iv-sweeps", status_code=201)
 def create_plant_iv_sweep(
     plant_id: int,

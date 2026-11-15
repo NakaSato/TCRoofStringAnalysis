@@ -34,8 +34,9 @@ POA_FILTER_MAX_WM2 = 1200.0  # KPI filter upper bound (W/m²)
 STALE_RUN_LEN = 3  # >= 3 consecutive identical non-zero readings = stale sensor reading
 DEFAULT_GAMMA_PCT_PER_K = -0.30  # default Pmax temperature coefficient (%/°C, ZNShine 570 W)
 MIN_PR_COVERAGE = 0.9  # share of producing slots that must have an irradiance sample for IEC PR
-# Daily O&M check times (plant-local hour) of the PWA monitoring report; Firestore daily plant
-# docs carry the sensor irradiance and Google's weather at these hours (`check_slots`).
+# Daily O&M check hours of the PWA monitoring report. `check_slots` below is the overview's view
+# (nearest reading to hh:00); the report itself uses services/check_slots.py (snapshot at
+# hh:00 − CHECK_OFFSET_MIN), which is what Firestore daily plant docs carry.
 CHECK_HOURS = (9, 13, 17)
 CHECK_NEAREST = timedelta(minutes=10)  # a check takes the 5-minute slot nearest hh:00 within this
 

@@ -135,7 +135,7 @@ maintenance_work_mem=512MB  max_connections=60  random_page_cost=1.1
 
 ### 3.8 Free services stay free (already enforced in code)
 - Firestore: `PUBLISH_DAILY_WRITE_BUDGET` (writes stay under the 20k/day free quota).
-- Google Weather: `GOOGLE_WEATHER_MONTHLY_BUDGET` (10,000 calls, the whole free tier).
+- Google Weather: `GOOGLE_WEATHER_MONTHLY_BUDGET` (30,000 calls; PWA-check current conditions 687/day + history 229/day ≈ 28.4k, about 18k over the 10k free tier).
 - Artifact Registry: keep only the 3 newest images (cleanup policy).
 - Logging: default 30-day retention, far under 50 GiB/month.
 - Redis (added 2026-11-13): a container on the existing VM (256 MB of its 8 GB, no persistence), not Memorystore (≈ $36 ≈ ฿1,200/month for the smallest instance, which would pass the cost guard's trip point). Extra cost ฿0; Cloud Run reaches it over the same Direct VPC egress as Postgres.

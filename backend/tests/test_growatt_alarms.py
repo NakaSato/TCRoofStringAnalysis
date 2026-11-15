@@ -257,10 +257,12 @@ def test_cold_reads_are_spread_over_ticks(factory):
 def test_alarm_schedule_skips_pwa_checks_and_ends_at_20():
     s = next(x for x in default_schedule() if x.job == "alarms")
     bkk = jobs.PLANT_TZ
-    assert s.is_due(datetime(2026, 11, 13, 9, 19, tzinfo=bkk), None)
-    assert not s.is_due(datetime(2026, 11, 13, 9, 20, tzinfo=bkk), None)
-    assert not s.is_due(datetime(2026, 11, 13, 13, 30, tzinfo=bkk), None)
-    assert s.is_due(datetime(2026, 11, 13, 13, 31, tzinfo=bkk), None)
+    # checks are snapshots at hh:00 − 10 min: history pull 08:47, publish 08:50
+    assert s.is_due(datetime(2026, 11, 13, 8, 41, tzinfo=bkk), None)
+    assert not s.is_due(datetime(2026, 11, 13, 8, 42, tzinfo=bkk), None)
+    assert not s.is_due(datetime(2026, 11, 13, 12, 50, tzinfo=bkk), None)
+    assert s.is_due(datetime(2026, 11, 13, 12, 51, tzinfo=bkk), None)
+    assert s.is_due(datetime(2026, 11, 13, 9, 20, tzinfo=bkk), None)
     assert s.is_due(datetime(2026, 11, 13, 19, 55, tzinfo=bkk), None)
     assert not s.is_due(datetime(2026, 11, 13, 20, 0, tzinfo=bkk), None)
 
