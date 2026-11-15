@@ -1,154 +1,264 @@
 /**
- * Monitoring PWA Report — fill a day's sheet (DD.MM) from the published daily data (Firestore),
- * read through the TC Roof API with a shared key, so the script needs no Google Cloud permission.
+ * Monitoring PWA Report — fill each day's sheet (DD.MM) from the TC Roof API (published daily data,
+ * Firestore daily/{day}/plants/{id}), read with a shared key, so the script needs no Google Cloud permission.
  *
- * Bound script of the Google Sheet. Rows 3+, B = plant name, C = datalogger SN. Columns are found
- * from the header rows, so both layouts work (see layout_):
+ * Menu "PWA Report" (3 items):
+ *   ตั้งค่า…               report key + fetch time per check (default 08:50 / 12:50 / 16:50), then
+ *                          turns on the automatic runs. Run it once; run again to change the times.
+ *   ดึงข้อมูลตอนนี้          fills today's checks whose fetch time has passed (empty cells only)
+ *   ดึงข้อมูลย้อนหลัง…       asks for a date (yyyy-MM-dd) and fills that day (empty cells only)
+ *
+ * Automatic runs (Bangkok time):
+ *   06:00-07:00     today's DD.MM sheet is created (copy of the newest DD.MM sheet, check columns cleared)
+ *   every 5 min     from each fetch time until FETCH_WINDOW min after it, the check is fetched as soon
+ *                   as the API has published it; with 08:50 the 09:00 check is in the sheet by ~08:55.
+ *                   Once every plant row has its check, that check is done for the day (no more calls).
+ *
+ * Never overwrites: a check cell (Status, Note, ค่าแสง, สภาพอากาศ, DATA LOG, kW, INV online) is written
+ * only while it is empty. A check the API hasn't published yet (every plant "—") is skipped.
+ * Kept up to date (summaries of the checks so far): weather Status, Yield (kWh).
+ * Firmware (row-1 header) is written when empty or "—". Column C (SN Datalogger) is corrected from the
+ * API when the row matched by plant name and the plant has exactly one datalogger.
+ *
+ * Rows 3+: B = plant name, C = datalogger SN. Columns are found from the header rows (layout_):
  *   old: weather Status | per check: Status, Note
- *   new: weather Status | per check: Status, ค่าแสง, สภาพอากาศ, DATA LOG (Fault log)
- *   optional, filled when present: per check "kW", "INV online"; per plant "Yield (kWh)" (row 1)
+ *   new: weather Status | per check: Status, ค่าแสง, สภาพอากาศ, DATA LOG (Fault log) [, kW, INV online]
+ * Source: GET {REPORT_URL}/{day}/cells?hours=09,13 (X-Report-Key). The API builds every cell
+ * (backend/app/services/pwa_sheet.py, plant_cells); nothing is made up: no source = "—".
  *
- * Source: GET {REPORT_URL}/{day}/cells?hours=09,13 — the API builds every cell with the same rules
- * as the worker (backend/app/services/pwa_sheet.py, plant_cells) from the published daily docs
- * (Firestore daily/{day}/plants/{id}); this script only matches rows and writes. Nothing is made
- * up: no source = "—". Values per check: Status, Note, ค่าแสง (sensor W/m²), สภาพอากาศ (sky class
- * from the sensor vs clear-sky, else Google Weather "(Google)"), DATA LOG, kW, INV online.
- *
- * Setup (once):
- *   1. Extensions → Apps Script; paste Code.gs and appsscript.json (Project Settings → show manifest).
- *   2. Reload the sheet → menu "PWA Report" → "Set report key…" and paste the key, from:
- *        gcloud secrets versions access latest --secret tcroof-report-key --project tcroof-string-analysis
- *      (script properties REPORT_KEY; optional REPORT_URL, default below)
- *   3. Menu "PWA Report" → "Install daily triggers".
- *
- * Daily triggers (Bangkok time; Apps Script runs each one some time within that hour):
- *   06:00  createTodaySheet  new empty DD.MM sheet for today (copy of the newest DD.MM sheet, check columns cleared)
- *   10:00  fillChecks        the 09:00 check   ┐ the worker publishes today so far at 09:30 / 13:30 / 17:30,
- *   14:00  fillChecks        the 13:00 check   │ so each run fills only the checks already published
- *   18:00  fillChecks        the 17:00 check   ┘ (later checks are left as they are)
- *   22:00  fillToday         all three checks again, from the full day (published 19:30)
+ * Setup: Extensions → Apps Script, paste Code.gs + appsscript.json, reload the sheet, PWA Report → ตั้งค่า…
+ *   key: gcloud secrets versions access latest --secret tcroof-report-key --project tcroof-string-analysis
  */
 
-const CHECK_HOURS = [9, 13, 17]; // daily check times; columns are found from the headers (layout_)
-const PUBLISH_MIN = 30;           // the worker publishes today at hh:30 after each check
-const FILL_HOURS = [10, 14, 18];  // fillChecks triggers, one per check
+const CHECK_HOURS = [9, 13, 17];                     // the sheet's three checks (columns found by layout_)
+const DEFAULT_FETCH = ['08:50', '12:50', '16:50'];   // default fetch time per check
+const FETCH_WINDOW = 120;  // keep trying a check for this many minutes after its fetch time
+const POLL_EVERY = 5;      // minutes between automatic runs (Apps Script allows 1, 5, 10, 15, 30)
 const FIRST_ROW = 3;
 const DASH = '—';
 const REPORT_URL = 'https://tcroof-string-analysis.web.app/api/report/pwa';
+const HANDLERS = ['createTodaySheet', 'pollChecks', 'fillChecks', 'fillToday']; // old ones removed on setup
 
 
-// ------------------------------------------------------------------ menu / triggers
+// ------------------------------------------------------------------ menu
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('PWA Report')
-    .addItem('Create today\'s sheet', 'createTodaySheet')
-    .addItem('Fill checks so far', 'fillChecks')
-    .addItem('Fill today (all checks)', 'fillToday')
-    .addItem('Fill a day…', 'fillAskDay')
-    .addSeparator()
-    .addItem('Set report key…', 'setReportKey')
-    .addItem('Install daily triggers (06 new sheet · 10/14/18 checks · 22 all)', 'installTrigger')
+    .addItem('ตั้งค่า…', 'setup')
+    .addItem('ดึงข้อมูลตอนนี้', 'fillNow')
+    .addItem('ดึงข้อมูลย้อนหลัง…', 'fillAskDay')
     .addToUi();
 }
 
-function today_() { return Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd'); }
+/** Report key + fetch times, then (re)installs the automatic runs. */
+function setup() {
+  const ui = SpreadsheetApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  const hasKey = !!props.getProperty('REPORT_KEY');
+  const k = ui.prompt('ตั้งค่า 1/2 — Report key',
+    hasKey ? 'มี key อยู่แล้ว ปล่อยว่างเพื่อใช้ key เดิม หรือวาง key ใหม่:' : 'วาง key (secret tcroof-report-key):',
+    ui.ButtonSet.OK_CANCEL);
+  if (k.getSelectedButton() !== ui.Button.OK) return;
+  const key = k.getResponseText().trim();
+  if (key) props.setProperty('REPORT_KEY', key);
+  else if (!hasKey) return ui.alert('ยังไม่มี key — ยกเลิก');
 
-function sheetName_(day) { return day.slice(8, 10) + '.' + day.slice(5, 7); }
+  const cur = fetchTimes_();
+  const t = ui.prompt('ตั้งค่า 2/2 — เวลาดึงข้อมูล',
+    `เวลาดึงข้อมูลของรอบ ${CHECK_HOURS.map(h => pad_(h) + ':00').join(' / ')} คั่นด้วยจุลภาค\n` +
+    `(ตอนนี้: ${cur.join(', ')}  ปล่อยว่าง = ใช้ค่าเดิม)`, ui.ButtonSet.OK_CANCEL);
+  if (t.getSelectedButton() !== ui.Button.OK) return;
+  let times = cur;
+  if (t.getResponseText().trim()) {
+    times = t.getResponseText().split(',').map(x => x.trim()).filter(Boolean).map(normTime_);
+    if (times.length !== CHECK_HOURS.length || times.some(x => !x))
+      return ui.alert(`ต้องใส่ ${CHECK_HOURS.length} เวลา รูปแบบ HH:MM เช่น ${DEFAULT_FETCH.join(', ')}`);
+    props.setProperty('FETCH_TIMES', times.join(','));
+  }
 
-function fillToday() { return fillDay(today_()); }
-
-/** Today's checks that the worker has already published (hh:30 has passed). */
-function fillChecks() {
-  const now = new Date();
-  const hm = Number(Utilities.formatDate(now, 'Asia/Bangkok', 'H')) * 60 + Number(Utilities.formatDate(now, 'Asia/Bangkok', 'm'));
-  const hours = CHECK_HOURS.filter(h => hm >= h * 60 + PUBLISH_MIN);
-  if (!hours.length) { console.log('No check published yet today.'); return 'No check published yet today.'; }
-  return fillDay(today_(), hours);
-}
-
-/** Creates today's empty DD.MM sheet (no-op if it already exists). Safe to run any number of times. */
-function createTodaySheet() {
-  const ss = SpreadsheetApp.getActive();
-  const name = sheetName_(today_());
-  let msg;
-  if (ss.getSheetByName(name)) msg = `Sheet ${name} already exists.`;
-  else { newDaySheet_(ss, name); msg = `Created sheet ${name}.`; }
-  console.log(msg);
-  return msg;
+  ScriptApp.getProjectTriggers().filter(tr => HANDLERS.indexOf(tr.getHandlerFunction()) >= 0).forEach(tr => ScriptApp.deleteTrigger(tr));
+  ScriptApp.newTrigger('createTodaySheet').timeBased().atHour(6).everyDays(1).inTimezone('Asia/Bangkok').create();
+  ScriptApp.newTrigger('pollChecks').timeBased().everyMinutes(POLL_EVERY).create();
+  ui.alert('บันทึกแล้ว — ทำงานอัตโนมัติ (เวลาไทย)\n\n' +
+    '06:00–07:00  สร้างแท็บวันนี้\n' +
+    CHECK_HOURS.map((h, k) => `${times[k]}  ดึงรอบ ${pad_(h)}:00 (ลองทุก ${POLL_EVERY} นาที จนได้ข้อมูล)`).join('\n') +
+    '\n\nช่องที่มีค่าแล้วจะไม่ถูกเขียนทับ');
 }
 
 function fillAskDay() {
   const ui = SpreadsheetApp.getUi();
-  const r = ui.prompt('Fill a day', 'Plant-local date (yyyy-MM-dd):', ui.ButtonSet.OK_CANCEL);
+  const r = ui.prompt('ดึงข้อมูลย้อนหลัง', 'วันที่ (yyyy-MM-dd) เช่น 2026-11-12:', ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
   const day = r.getResponseText().trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return ui.alert('Use yyyy-MM-dd, e.g. 2026-11-12');
-  ui.alert(fillDay(day));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return ui.alert('ใช้รูปแบบ yyyy-MM-dd เช่น 2026-11-12');
+  ui.alert(fillDay(day).msg);
 }
 
-function setReportKey() {
-  const ui = SpreadsheetApp.getUi();
-  const r = ui.prompt('Report key', 'Paste the key (secret tcroof-report-key):', ui.ButtonSet.OK_CANCEL);
-  if (r.getSelectedButton() !== ui.Button.OK || !r.getResponseText().trim()) return;
-  PropertiesService.getScriptProperties().setProperty('REPORT_KEY', r.getResponseText().trim());
-  ui.alert('Saved. Try "Fill checks so far".');
+/** Menu: today's checks whose fetch time has passed. */
+function fillNow() {
+  const hm = nowMin_(), times = fetchTimes_();
+  const hours = CHECK_HOURS.filter((h, k) => hm >= toMin_(times[k]));
+  const msg = hours.length ? fillDay(today_(), hours).msg : `ยังไม่ถึงเวลาดึงรอบแรก (${times[0]})`;
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) { console.log(msg); }
 }
 
-function installTrigger() {
-  const handlers = ['createTodaySheet', 'fillChecks', 'fillToday'];
-  ScriptApp.getProjectTriggers().filter(t => handlers.indexOf(t.getHandlerFunction()) >= 0).forEach(t => ScriptApp.deleteTrigger(t));
-  const daily = (fn, h) => ScriptApp.newTrigger(fn).timeBased().atHour(h).everyDays(1).inTimezone('Asia/Bangkok').create();
-  daily('createTodaySheet', 6);
-  FILL_HOURS.forEach(h => daily('fillChecks', h));
-  daily('fillToday', 22);
-  SpreadsheetApp.getUi().alert('Daily triggers installed (Bangkok):\n06:00 create today\'s sheet\n10:00 / 14:00 / 18:00 fill the 09 / 13 / 17 check\n22:00 fill all checks again (full day)');
+// ------------------------------------------------------------------ automatic runs
+
+/** Creates today's empty DD.MM sheet (no-op if it already exists). */
+function createTodaySheet() {
+  const ss = SpreadsheetApp.getActive();
+  const name = sheetName_(today_());
+  if (!ss.getSheetByName(name)) newDaySheet_(ss, name);
+}
+
+/** Every POLL_EVERY min: fills each check inside its window that isn't done yet today; else returns at once. */
+function pollChecks() {
+  const hm = nowMin_(), times = fetchTimes_(), day = today_();
+  const props = PropertiesService.getScriptProperties();
+  const done = (props.getProperty('DONE_' + day) || '').split(',').filter(Boolean);
+  const due = CHECK_HOURS.filter((h, k) => {
+    const t = toMin_(times[k]);
+    return hm >= t && hm <= t + FETCH_WINDOW && done.indexOf(pad_(h)) < 0;
+  });
+  if (!due.length) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+  try {
+    // ask for every check due so far, so weather Status covers them all; filled cells stay as they are
+    const hours = CHECK_HOURS.filter((h, k) => hm >= toMin_(times[k]));
+    const r = fillDay(day, hours);
+    const nowDone = done.concat(due.filter(h => r.complete.indexOf(pad_(h)) >= 0).map(pad_));
+    if (nowDone.length > done.length) props.setProperty('DONE_' + day, nowDone.join(','));
+    console.log(r.msg);
+  } finally { lock.releaseLock(); }
 }
 
 // ------------------------------------------------------------------ main
 
-/** Fills `day`'s sheet; `hours` limits it to those checks (default all three), other checks are left as they are. */
+/**
+ * Fills `day`'s sheet for checks `hours` (default all three). Check cells are written only while empty;
+ * checks the API hasn't published yet are skipped. Returns {msg, complete: ["09", …]} where complete
+ * lists the checks every matched plant row now has.
+ */
 function fillDay(day, hours) {
   const ss = SpreadsheetApp.getActive();
   const name = sheetName_(day);
   const sh = ss.getSheetByName(name) || newDaySheet_(ss, name);
   const lay = layout_(sh);
-  const blocks = hours ? lay.blocks.filter(b => hours.indexOf(b.hour) >= 0) : lay.blocks;
-  if (!blocks.length) return `${name}: no check to fill.`;
+  let blocks = hours ? lay.blocks.filter(b => hours.indexOf(b.hour) >= 0) : lay.blocks;
+  if (!blocks.length) return { msg: `${name}: ไม่มีรอบให้ดึง`, complete: [] };
 
-  const data = reportCells_(day, blocks.map(b => b.hour));
-  if (!data.published_plants) return `No published data for ${day} yet.`;
+  let data = reportCells_(day, blocks.map(b => b.hour));
+  if (!data.published_plants) return { msg: `${day}: API ยังไม่มีข้อมูล`, complete: [] };
+  const ready = blocks.filter(b => published_(data, pad_(b.hour)));
+  if (!ready.length) return { msg: `${name}: รอบ ${blocks.map(b => pad_(b.hour)).join(', ')} ยังไม่ publish`, complete: [] };
+  if (ready.length < blocks.length) { // refetch so weather Status / yield cover only published checks
+    blocks = ready;
+    data = reportCells_(day, blocks.map(b => b.hour));
+  }
   const cols = data.columns; // ["status", "note", "irr", "wx", "log", "kw", "inv"]
   const names = data.names || {};
 
   const last = sh.getLastRow();
-  if (last < FIRST_ROW) return `Sheet ${name} has no plant rows.`;
+  if (last < FIRST_ROW) return { msg: `${name}: ไม่มีแถวสถานี`, complete: [] };
   const n = last - FIRST_ROW + 1;
   const keys = sh.getRange(FIRST_ROW, 2, n, 2).getValues(); // B name, C SN
   const block = sh.getRange(FIRST_ROW, lay.first, n, lay.last - lay.first + 1);
   const values = block.getValues();
+  const get = (row, col) => values[row][col - lay.first];
   const set = (row, col, v) => { if (col) values[row][col - lay.first] = v; };
+  const fill = (row, col, v) => { if (col && get(row, col) === '') { values[row][col - lay.first] = v; return 1; } return 0; };
 
-  const stats = { rows: 0, normal: 0, abnormal: 0, noPower: 0, unmatched: 0 };
+  const stats = { rows: 0, written: 0, kept: 0, unmatched: 0, snUpdated: 0 };
+  const missing = {}; blocks.forEach(b => { missing[pad_(b.hour)] = 0; });
+  const snOf = loggersByPlant_(data);
+  const snCol = keys.map(k => [k[1]]);
   keys.forEach(([nm, sn], i) => {
     sn = String(sn || '').trim();
-    if (!sn) return;
-    const pid = matchPlant_(sn, String(nm || '').trim(), data.loggers || {}, names);
-    if (!pid) { stats.unmatched++; set(i, lay.weather, 'ไม่พบในระบบ'); return; }
+    nm = String(nm || '').trim();
+    if (!sn && !nm) return; // not a plant row
+    const pid = matchPlant_(sn, nm, data.loggers || {}, names);
+    if (!pid) { if (sn) { stats.unmatched++; set(i, lay.weather, 'ไม่พบในระบบ'); } return; }
     stats.rows++;
+    // SN Datalogger (column C): the plant's current datalogger, when the sheet's SN isn't one of its
+    // loggers (replaced, or C empty) and the API names exactly one.
+    const sns = snOf[pid] || [];
+    if (sns.indexOf(sn) < 0 && sns.length === 1) { snCol[i] = [sns[0]]; keys[i][1] = sns[0]; stats.snUpdated++; }
     const p = data.plants[pid];
     blocks.forEach(b => {
-      const v = p.checks[pad_(b.hour)];
-      cols.forEach((c, k) => set(i, b[c], v[k]));
-      const kw = v[cols.indexOf('kw')], st = v[cols.indexOf('status')];
-      if (kw === DASH) stats.noPower++; else if (st === 'normal') stats.normal++; else stats.abnormal++;
+      const v = (p.checks || {})[pad_(b.hour)];
+      if (!v) { if (get(i, b.status) === '') missing[pad_(b.hour)]++; return; }
+      const wasEmpty = get(i, b.status) === '';
+      cols.forEach((c, k) => { stats.written += fill(i, b[c], v[k]); });
+      if (!wasEmpty) stats.kept++;
+      if (get(i, b.status) === '') missing[pad_(b.hour)]++;
     });
     set(i, lay.weather, p.weather_status);
     set(i, lay.yieldKwh, p.yield_kwh);
   });
   block.setValues(values);
-  const msg = `${name} [${blocks.map(b => pad_(b.hour)).join(', ')}]: ${JSON.stringify(stats)} (published plants: ${data.published_plants})`;
+  if (stats.snUpdated) sh.getRange(FIRST_ROW, 3, snCol.length, 1).setValues(snCol);
+  const fw = fillFirmware_(sh, lay.firmware, keys, data.firmware);
+  if (fw !== null) stats.firmware = fw;
+  const complete = Object.keys(missing).filter(hh => !missing[hh]);
+  const msg = `${name} [${blocks.map(b => pad_(b.hour)).join(', ')}]: เขียนใหม่ ${stats.written} ช่อง, ` +
+    `สถานีที่มีค่าอยู่แล้ว (ไม่เขียนทับ) ${stats.kept}, ไม่พบในระบบ ${stats.unmatched}, ` +
+    `แก้ SN ${stats.snUpdated}${fw !== null ? ', firmware ' + fw : ''} (${stats.rows} สถานี)`;
   console.log(msg);
-  return msg;
+  return { msg, complete };
+}
+
+/**
+ * Firmware column (row-1 header "Firmware"), by the row's datalogger SN (column C):
+ * firmware = {datalogger_sn: version} from the API. Written on its own, so the check block and
+ * newDaySheet_ (which clears only the check block) never touch it. Returns the number of rows that
+ * got a version, or null when the sheet has no Firmware column or the API sent no firmware map
+ * (older API: the column is left as it is). Only empty / "—" cells are written; an SN the API
+ * doesn't know gets "—".
+ */
+function fillFirmware_(sh, col, keys, firmware) {
+  if (!col || !firmware) return null;
+  let hits = 0;
+  const range = sh.getRange(FIRST_ROW, col, keys.length, 1);
+  const old = range.getValues();
+  const vals = keys.map(([, sn], i) => {
+    sn = String(sn || '').trim();
+    if (!sn) return old[i]; // non-plant row: keep
+    const cur = String(old[i][0] === null ? '' : old[i][0]).trim();
+    if (cur !== '' && cur !== DASH) return old[i]; // already has a version: never overwrite
+    const v = firmware[sn];
+    if (v) hits++;
+    return [v || DASH];
+  });
+  range.setValues(vals);
+  return hits;
+}
+
+/**
+ * {plant id: [datalogger SN, …]}: the plant's own `datalogger_sn` (list or string) when the API sends
+ * one, else every SN in the API's loggers map that points at that plant.
+ */
+function loggersByPlant_(data) {
+  const out = {};
+  Object.keys(data.plants || {}).forEach(id => {
+    const own = data.plants[id].datalogger_sn;
+    if (own) out[id] = [].concat(own).map(String);
+  });
+  const loggers = data.loggers || {};
+  Object.keys(loggers).forEach(sn => {
+    const id = loggers[sn];
+    if (data.plants && data.plants[id] && data.plants[id].datalogger_sn) return;
+    (out[id] = out[id] || []).push(sn);
+  });
+  return out;
+}
+
+/** True when at least one plant has a real value (not "—" / empty) in check `hh`. */
+function published_(data, hh) {
+  return Object.keys(data.plants || {}).some(id => {
+    const v = (data.plants[id].checks || {})[hh];
+    return v && v.some(x => x !== DASH && x !== '' && x != null);
+  });
 }
 
 /** Plant id of a sheet row: datalogger SN, else a unique plant-name match (datalogger replaced). */
@@ -188,8 +298,9 @@ function layout_(sh) {
     return b;
   });
   const yieldKwh = r1.findIndex(v => /yield/i.test(v) || /พลังงาน/.test(v)) + 1;
+  const firmware = r1.findIndex(v => /firmware/i.test(v)) + 1; // own column, outside the check block
   const cols = [weather, yieldKwh].concat(...blocks.map(b => [b.status, b.note, b.irr, b.wx, b.log, b.kw, b.inv])).filter(Boolean);
-  return { weather, yieldKwh, blocks, first: Math.min(...cols), last: Math.max(...cols) };
+  return { weather, yieldKwh, firmware, blocks, first: Math.min(...cols), last: Math.max(...cols) };
 }
 
 /** New day sheet = copy of the newest DD.MM sheet with its check columns cleared. */
@@ -209,12 +320,13 @@ function newDaySheet_(ss, name) {
 /**
  * The sheet's values for `day`, checks `hours` only:
  * {day, hours, columns, published_plants, loggers: {datalogger_sn: id}, names: {id: name},
- *  plants: {id: {checks: {"09": [status, note, irr, wx, log, kw, inv]}, weather_status, yield_kwh}}}
+ *  plants: {id: {checks: {"09": [status, note, irr, wx, log, kw, inv]}, weather_status, yield_kwh}},
+ *  firmware: {datalogger_sn: version}}   (firmware optional; without it the Firmware column is left as is)
  */
 function reportCells_(day, hours) {
   const props = PropertiesService.getScriptProperties();
   const key = props.getProperty('REPORT_KEY');
-  if (!key) throw new Error('No report key: menu PWA Report → Set report key…');
+  if (!key) throw new Error('ยังไม่มี report key: เมนู PWA Report → ตั้งค่า…');
   const url = `${props.getProperty('REPORT_URL') || REPORT_URL}/${day}/cells?hours=${hours.join(',')}`;
   let res;
   for (let attempt = 1; ; attempt++) { // one retry: the API scales to zero and may be cold
@@ -229,3 +341,27 @@ function reportCells_(day, hours) {
 // ------------------------------------------------------------------ helpers
 
 function pad_(n) { return (n < 10 ? '0' : '') + n; }
+
+function today_() { return Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd'); }
+
+function sheetName_(day) { return day.slice(8, 10) + '.' + day.slice(5, 7); }
+
+function nowMin_() {
+  const now = new Date();
+  return Number(Utilities.formatDate(now, 'Asia/Bangkok', 'H')) * 60 + Number(Utilities.formatDate(now, 'Asia/Bangkok', 'm'));
+}
+
+/** "8:50" / "08:50" → "08:50"; anything else → null. */
+function normTime_(t) {
+  const m = /^(\d{1,2})[:.](\d{2})$/.exec(String(t).trim());
+  if (!m || +m[1] > 23 || +m[2] > 59) return null;
+  return pad_(+m[1]) + ':' + m[2];
+}
+
+function toMin_(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
+
+/** Fetch time per check from script property FETCH_TIMES, else DEFAULT_FETCH. */
+function fetchTimes_() {
+  const v = (PropertiesService.getScriptProperties().getProperty('FETCH_TIMES') || '').split(',').map(normTime_);
+  return v.length === CHECK_HOURS.length && v.every(Boolean) ? v : DEFAULT_FETCH.slice();
+}
