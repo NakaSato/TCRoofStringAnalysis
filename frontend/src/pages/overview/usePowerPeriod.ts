@@ -122,7 +122,7 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
     const ratedKw = power?.rated_ac_kw ?? null;
     // answered without a curve (error, or a day the backend has no records for): the empty frame
     const frame = () => (day ? powerCurveSpec({ ts: [], day, endDay, start, end, inverters: 0, ratedKw }, liveAt) : null);
-    if (dayOv) return powerSpec(dayOv, liveAt, { extra: true, ts: ts ?? undefined, growatt: growattTs }) ?? frame();
+    if (dayOv) return powerSpec(dayOv, liveAt, { extra: true, irradiance: true, grid: true, ts: ts ?? undefined, growatt: growattTs }) ?? frame();
     if (!power) return answered ? frame() : null;
     return powerCurveSpec(
       {
@@ -136,7 +136,7 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
         growatt: growattTs,
       },
       liveAt,
-      { extra: true }
+      { extra: true, grid: true }
     );
   }, [dayOv, ts, power, liveAt, start, end, day, endDay, answered, growattTs]);
 

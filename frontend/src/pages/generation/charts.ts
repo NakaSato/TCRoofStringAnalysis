@@ -2,6 +2,7 @@
 import type { PanelChartSpec, RefLine, XBand, XMarker } from "../../components/PanelChart";
 import { SERIES, STATUS } from "../../components/chartTheme";
 import { fmt } from "../../components/ui";
+import { IRR_AXIS_MIN } from "../sensors/dayChart";
 import type { GrowattPlantOverview } from "../../api/client";
 import { invName } from "../inverters/shared";
 import type { OverviewInverter } from "../inverters/shared";
@@ -32,6 +33,10 @@ export const powerSpec = (
     extra?: boolean;
     /** the curve to draw instead of `ov.timeseries` (e.g. with a live tail) */ ts?: PowerCurve["ts"];
     growatt?: PowerCurve["growatt"];
+    /** add the weather sensor's POA irradiance as a second panel (only when the rows carry any) */
+    irradiance?: boolean;
+    /** add the energy meter: derived load in the power panel, grid import / export in its own panel */
+    grid?: boolean;
   } = {}
 ): PanelChartSpec | null => {
   if (!ov.meta.day) return null;
@@ -44,7 +49,7 @@ export const powerSpec = (
 /** A stored plant curve over one day or a day range, optionally a time-of-day window on every day. */
 export interface PowerCurve {
   /** `live`: summed from the live records past the newest stored slot (memory only, not stored yet) */
-  ts: Array<Omit<Overview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c"> & { live?: boolean }>;
+  ts: Array<Omit<Overview["timeseries"][number], "module_temp_c" | "ambient_temp_c"> & { live?: boolean }>;
   day: string;
   /** last day of a range (null / same = one day) */
   endDay?: string | null;
@@ -58,7 +63,7 @@ export interface PowerCurve {
 }
 
 /** `powerSpec` for any stored period: the x axis spans the window (default 05:00–19:00) of the first to the last day. */
-export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: boolean } = {}): PanelChartSpec | null => {
+export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: boolean; irradiance?: boolean; grid?: boolean } = {}): PanelChartSpec | null => {
   const { day, ratedKw } = c;
   const last = c.endDay && c.endDay > day ? c.endDay : day;
   const multi = last !== day;
@@ -128,6 +133,70 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
   });
   const peak = ts.map((r, i) => (i === pk ? r.pac_kw : null));
   const pct = (a: number, b: number) => `${fmt((a / b) * 100, 0)} %`;
+  // measured POA irradiance (weather sensor) under the power: a sensor-less plant or live rows have none
+  const irr = ts.map((r) => r.irradiance_wm2 ?? null);
+  const irrPeak = Math.max(0, ...irr.map((v) => v ?? 0));
+  const irrPanels: PanelChartSpec["panels"] =
+    o.irradiance && irr.some((v) => v != null)
+      ? [
+          {
+            key: "g",
+            title: "POA irradiance (W/m²)",
+            yMin: 0,
+            yMax: Math.max(IRR_AXIS_MIN, Math.ceil(irrPeak / 200) * 200),
+            series: [
+              {
+                key: "g",
+                name: "POA irradiance (sensor)",
+                type: "line",
+                area: true,
+                color: SERIES.irradianceWithDc,
+                y: irr,
+                format: (v) => `${fmt(v, 0)} W/m²`,
+              },
+            ],
+          },
+        ]
+      : [];
+  // energy meter at the grid connection point: one signed line (+ import / − export) in its own
+  // panel; load is not measured, it is PV AC + grid, drawn dashed and named "derived"
+  const hasGrid = Boolean(o.grid) && ts.some((r) => r.grid_import_kw != null);
+  const gridSigned = ts.map((r) => (r.grid_import_kw == null || r.grid_export_kw == null ? null : Math.round((r.grid_import_kw - r.grid_export_kw) * 100) / 100));
+  const gridPanels: PanelChartSpec["panels"] = hasGrid
+    ? [
+        {
+          key: "grid",
+          title: "Grid at the meter (kW, + import / − export)",
+          zero: true,
+          refLines: [{ y: 0, label: "", color: SERIES.reference }],
+          series: [
+            {
+              key: "grid",
+              name: "Grid (meter)",
+              type: "line",
+              area: true,
+              color: SERIES.grid,
+              y: gridSigned,
+              format: (v) => (v >= 0 ? `import ${fmt(v, 1)} kW` : `export ${fmt(-v, 1)} kW`),
+            },
+          ],
+        },
+      ]
+    : [];
+  const loadSeries = hasGrid
+    ? [
+        {
+          key: "load",
+          name: "Load (derived: PV + grid)",
+          type: "line" as const,
+          dash: "dash" as const,
+          width: 1.75,
+          color: SERIES.load,
+          y: ts.map((r) => r.load_kw ?? null),
+          unit: "kW",
+        },
+      ]
+    : [];
   const at = (t: string) => (pk < 0 ? "" : multi ? `${Number(t.slice(8, 10))}/${Number(t.slice(5, 7))} ${t.slice(11, 16)}` : t.slice(11, 16));
   return {
     xKind: "time",
@@ -142,6 +211,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
       {
         key: "p",
         title: "Power (kW)",
+        weight: irrPanels.length || gridPanels.length ? 2.2 : 1,
         refLines,
         series: [
           {
@@ -157,6 +227,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
           { key: "dc", name: "DC input", type: "line", color: SERIES.dc, y: ts.map((r) => r.ppv_kw), unit: "kW" },
           { key: "ac", name: "AC output", type: "line", area: true, color: SERIES.ac, y: ts.map((r) => r.pac_kw), unit: "kW" },
           ...growattSeries,
+          ...loadSeries,
           ...(partial.some((v) => v != null)
             ? [
                 {
@@ -186,6 +257,8 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
             : []),
         ],
       },
+      ...gridPanels,
+      ...irrPanels,
     ],
     tipExtra: (i) => {
       const r = ts[i];

@@ -37,6 +37,8 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                  ├─ plant/details, queryDeviceInfoParam ─► growatt-worker (fleet 05:30, weekly / monthly) ─► registry
                  ├─ env_data today (one sensor) ─► backend memory cache (300 s) ─► /growatt/live/sensors/{dl}/{addr}/today ─► sensor page chart (today only)
                  ├─ env_data sensor history ─► growatt-worker (every 30 min with history; also every 10 min, 05–20) ─► SQL
+                 ├─ ammeter meter_data (grid-point meter, every plant) ─► growatt-worker (with history) ─► SQL
+                 │              ─► overview / power curve: grid import / export (measured), load = PV + grid (derived)
                  └─ alarm_data log ─► growatt-worker (10-min tick, 05–20, per inverter by tier: fault/open 10 min,
                                   alarms today 30 min, none 60 min; yesterday in full at 00:30) ─► SQL ─► /growatt/alarms (Active Alarm)
 API + worker logging ─► app_logs (SQL, redacted, 14 days) ─► /system/logs (admin: System → Logs)
@@ -49,7 +51,7 @@ Rules for every layer:
 
 1. **Never store realtime values.** Live data stays in memory only: the API process, mirrored in Redis on the VM (`REDIS_URL`; no persistence, every key expires, `services/live_store.py`) so a Cloud Run cold start stays warm. SQL gets only source-timestamped history (Growatt records, Google Weather hours).
 2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 1,250 writes (about 250 per publish of today: at 08:50, 12:50 and 16:50 for the PWA report checks and at 19:30, plus about 235 when `google_weather` re-publishes yesterday), capped at `PUBLISH_DAILY_WRITE_BUDGET`.
-3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load; irradiance only where a plant has a weather sensor), and label modelled values as modelled.
+3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (irradiance only where a plant has a weather sensor; grid import / export only from the plant's energy meter), and label modelled or derived values as such (load = PV + grid is derived, never measured).
 4. **The Growatt tokens and the Google Weather key stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
 
 ## Deploy (GCP, test month at ≤ ฿3,000/month)

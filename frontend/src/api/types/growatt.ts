@@ -340,6 +340,11 @@ export interface GrowattPlantOverview {
     strings_normalized?: number;
     avg_health_score: number | null;
     tariff_thb_per_kwh: number;
+    /** energy meter at the grid connection point: import / export measured, load derived (null = no readings) */
+    has_meter?: boolean;
+    grid_import_kwh?: number | null;
+    grid_export_kwh?: number | null;
+    load_kwh?: number | null;
   };
   inverters: Array<{
     device_sn: string;
@@ -397,6 +402,11 @@ export interface GrowattPlantOverview {
     held?: number;
     /** measured by the weather sensor (null without one) */
     irradiance_wm2?: number | null;
+    /** energy meter at the grid connection point (null without a record in the slot) */
+    grid_import_kw?: number | null;
+    grid_export_kw?: number | null;
+    /** derived: PV AC + import − export (null where that would be negative) */
+    load_kw?: number | null;
     module_temp_c?: number | null;
     ambient_temp_c?: number | null;
   }>;
@@ -879,6 +889,8 @@ export interface GrowattPlantPower {
   /** sum of the inverters' nameplate AC; null unless every inverter has one */
   rated_ac_kw: number | null;
   timeseries: Omit<GrowattPlantOverview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c">[];
+  /** the plant has an energy meter (grid / load columns in `timeseries`) */
+  has_meter?: boolean;
   /** Growatt's own 5-min plant AC curve (`plant/power`), stored for finished days only */
   growatt_timeseries?: Array<{ timestamp: string; pac_kw: number }>;
   /** AC energy per day integrated from the records (in the time window); null = no records.

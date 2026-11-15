@@ -13,7 +13,7 @@ const CHART_START = "05:00";
 const CHART_END = "19:00";
 
 /** Irradiance axis reaches at least this, so a dull day looks dull next to a bright one. */
-const IRR_AXIS_MIN = 1200;
+export const IRR_AXIS_MIN = 1200;
 
 /** Today: no record for longer than this before "now" is shaded as a gap. */
 const TRAILING_GAP_MIN = 20;

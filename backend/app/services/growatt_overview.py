@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.services import growatt_weather
+from app.services import growatt_meter, growatt_weather
 from app.db.models import (
     GrowattInverter,
     GrowattInverterEnergyDay,
@@ -462,6 +462,14 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         r["irradiance_wm2"] = wx.get("irradiance_wm2")  # measured, plane of array
         r["module_temp_c"] = wx.get("module_temp_c")
         r["ambient_temp_c"] = wx.get("ambient_temp_c")
+    # Energy meter at the grid connection point: grid import / export measured, load derived
+    has_meter, grid_energy = False, {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}
+    if day is not None:
+        m_start, m_end = _day_bounds(day)
+        has_meter, gslots = growatt_meter.meter_slots(db, plant_id, m_start, m_end)
+        growatt_meter.attach_grid(timeseries, gslots)
+        if gslots:
+            grid_energy = growatt_meter.day_energy(db, plant_id, m_start, m_end, timeseries)
     pr = growatt_weather.iec_pr(
         yield_today_kwh, cap_kwp, weather, [r["timestamp"] for r in timeseries if r["pac_kw"] > 0], gamma_pct
     )
@@ -603,6 +611,9 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "avg_health_score": avg_health,
             # the day's generation priced slot by slot with the tariff (TOU + Ft, or the plant's flat rate)
             "tariff_thb_per_kwh": _day_rate(db, plant_id, day, timeseries),
+            # energy meter (grid connection point): import / export measured, load = PV + grid (derived)
+            "has_meter": has_meter,
+            **grid_energy,
         },
         "inverters": inverters_out,
         "timeseries": timeseries,
@@ -720,6 +731,9 @@ def build_plant_power(
             }
         )
         d += timedelta(days=1)
+    curve = _plant_curve(raw, cap_kwp)
+    has_meter, gslots = growatt_meter.meter_slots(db, plant_id, g_start, g_end)
+    growatt_meter.attach_grid(curve, gslots)
     return {
         "meta": {
             "source": "db",
@@ -730,7 +744,8 @@ def build_plant_power(
         "plant_id": plant_id,
         "inverter_count": len(sns),
         "rated_ac_kw": _round(rated_w / 1000.0, 1) if rated_w else None,
-        "timeseries": _plant_curve(raw, cap_kwp),
+        "timeseries": curve,
+        "has_meter": has_meter,
         # Growatt's own 5-minute plant AC curve (`plant/power`, stored for finished days)
         "growatt_timeseries": [{"timestamp": _fmt_ts(ts), "pac_kw": round(w / 1000.0, 2)} for ts, w in g_raw],
         "daily": daily,

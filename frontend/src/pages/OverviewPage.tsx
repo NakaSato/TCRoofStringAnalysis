@@ -1,24 +1,21 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
-  BatteryCharging,
+  Banknote,
   Building2,
-  Coins,
   ExternalLink,
+  Grid3x3,
   MapPin,
-  PanelsTopLeft,
-  Sun,
-  Zap,
+  Sigma,
 } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
 import { api } from "../api/client";
 import type { GrowattLive, GrowattLiveWeather } from "../api/client";
 import { useLivePoll } from "../context/useLivePoll";
-import { EmptyState, KpiTile, LoadingState, fmt } from "../components/ui";
+import { EmptyState, LoadingState, fmt } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { GrowattAlarmLogPanel } from "../components/GrowattAlarmLogPanel";
 import { dayLabel } from "@/lib/day";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,52 +28,43 @@ import { slotTime } from "../components/stringDetail/period";
 import { FillChart } from "./overview/FillChart";
 import { Spinner } from "@/components/ui/spinner";
 import { Link } from "react-router-dom";
+import type { LucideIcon } from "lucide-react";
 import { WeatherCard } from "./overview/WeatherCard";
 import { SensorTodayCard } from "./overview/SensorTodayCard";
 import { IssuesCard } from "./overview/IssuesCard";
 import { InvertersOnlineTile, StringHealthTile } from "./overview/SummaryCards";
-import { IconStat, IconStats } from "./overview/IconStat";
+import { Meter, StatTile } from "./overview/StatTile";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
+/** "2026-11-11" → "11 Nov" */
+const shortDay = (d: string | null | undefined) =>
+  d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : undefined;
+
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
 
-const kw = (w: number | null) => fmt(w == null ? null : w / 1000, 1);
-
-/** Plant-local "YYYY-MM-DD HH:MM:SS": before 06:00 or from 19:00 no production is expected. */
-const isNight = (ts: string | null) => {
-  if (!ts) return false;
-  const h = Number(ts.slice(11, 13));
-  return h < 6 || h >= 19;
-};
-
-/** One of the three headline numbers: small label, big value, optional short note and capacity bar. */
-const Headline: React.FC<{
-  label: string;
-  value: string;
-  unit: string;
-  tone: string;
-  sub?: string;
-  badge?: React.ReactNode;
-  /** 0–100: fills a thin bar under the value */
-  bar?: number | null;
-  barTitle?: string;
-}> = ({ label, value, unit, tone, sub, badge, bar, barTitle }) => (
-  <div className="flex min-w-0 flex-col gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-    <span className="flex items-center justify-between gap-2 text-xs text-slate-400">
-      {label}
-      {badge}
-    </span>
-    <span className="num truncate">
-      <span className={cn("text-3xl font-semibold tracking-tight", tone)}>{value}</span>
-      {value !== "—" && <span className="ml-1.5 text-sm text-muted-foreground">{unit}</span>}
-    </span>
-    {bar != null && (
-      <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]" title={barTitle} role="img" aria-label={barTitle}>
-        <div className="h-full rounded-full bg-solar-400" style={{ width: `${Math.max(0, Math.min(100, bar))}%` }} />
+/** Plant facts strip at the top of the Production card: fixed registry numbers with visible labels. */
+const PlantFacts: React.FC<{
+  items: ReadonlyArray<{ icon: LucideIcon; label: string; value: string; unit: string; hint?: string }>;
+}> = ({ items }) => (
+  <dl className="grid grid-cols-3 divide-x divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.015]">
+    {items.map(({ icon: Icon, label, value, unit, hint }) => (
+      <div key={label} className="flex min-w-0 items-center gap-2.5 px-3 py-2 sm:px-4" title={hint}>
+        <span className="hidden size-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] sm:flex">
+          <Icon className="size-3.5 text-slate-400" aria-hidden />
+        </span>
+        <div className="flex min-w-0 flex-col">
+          <dt className="truncate text-[11px] text-muted-foreground">
+            {label}
+            {hint && <span className="ml-1 text-amber-400" aria-label={hint}>!</span>}
+          </dt>
+          <dd className="num truncate">
+            <span className="text-sm font-semibold text-slate-100">{value}</span>
+            {value !== "—" && <span className="ml-1 text-[11px] text-muted-foreground">{unit}</span>}
+          </dd>
+        </div>
       </div>
-    )}
-    {sub && <span className="num truncate text-xs text-muted-foreground">{sub}</span>}
-  </div>
+    ))}
+  </dl>
 );
 
 /**
@@ -147,33 +135,24 @@ export const OverviewPage: React.FC = () => {
   const acW = sumOrNull(recs.map((r) => r.pac_w));
   const ofKwp = acW != null && k.capacity_kwp ? (acW / 1000 / k.capacity_kwp) * 100 : null;
 
-  // The top card's period: today by default, or what the picker chose
-  const f = pp.figures;
-  const pr = f?.prPct ?? null;
   const target = k.target_pr_pct ?? null;
-  const energy = f?.energyKwh ?? null;
-  // the period's own day rate when it is one day; a range / window uses today's rate (estimate, "≈")
-  const revenue = energy != null ? energy * (f?.tariffThbPerKwh ?? k.tariff_thb_per_kwh) : null;
   const hasLocation = plant.latitude != null && plant.longitude != null;
 
-  const night = isNight(liveAt);
-  // the overview's own day keeps "Today"; a picked period is named as picked
-  const periodCap = pp.mode === "own" ? (day ? (behind ? dayText : "Today") : "Today") : pp.label;
 
 
   // KPI strip: inverters online = reporting in the live answer (status not 0); string health of the stored day
   const online = plantLive?.data ? recs.filter((r) => r.status !== 0).length : null;
-  const dayCap = behind ? dayText : "Today";
   // Yield / revenue today from the live records (each inverter's own `eac_today` of today), so the
   // strip is current even when the stored day lags; only inverters with a record today are summed
   const todayRecs = liveDay ? recs.filter((r) => r.timestamp?.slice(0, 10) === liveDay && r.eac_today_kwh != null) : [];
   const liveYield = todayRecs.length ? todayRecs.reduce((a, r) => a + (r.eac_today_kwh ?? 0), 0) : null;
   const useLiveYield = liveYield != null;
   const yieldKwh = useLiveYield ? liveYield : k.yield_today_kwh;
-  const yieldCap = useLiveYield ? "Today" : dayCap;
   const yieldRevenue = yieldKwh != null ? yieldKwh * k.tariff_thb_per_kwh : null;
   const yieldSpecific = useLiveYield ? (k.capacity_kwp ? liveYield / k.capacity_kwp : null) : k.specific_yield_kwh_per_kwp;
   const yieldPartial = useLiveYield && k.inverter_count != null && todayRecs.length < k.inverter_count ? ` · ${todayRecs.length} of ${k.inverter_count} inverters` : "";
+  const dayPr = k.iec_pr_pct ?? k.plant_pr_pct ?? null;
+  const dayPrBar = dayPr == null || target == null ? "bg-slate-400" : dayPr >= target ? "bg-emerald-400" : dayPr >= target - 5 ? "bg-amber-400" : "bg-red-400";
   const yieldSrc = useLiveYield ? ` · live ${hhmm(liveAt ?? "")}${yieldPartial}` : "";
 
   return (
@@ -181,31 +160,46 @@ export const OverviewPage: React.FC = () => {
       <SelectedPlantBanner />
 
       {/* KPI strip under the tab bar */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-        <KpiTile
+      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
+        <StatTile
           label="PV Power"
-          icon={Sun}
-          tone="solar"
-          accentBar={false}
+          tag={liveAt ? `Live ${hhmm(liveAt)}` : undefined}
           value={acW == null ? "—" : fmt(acW / 1000, 1)}
           unit="kW"
-          hint={k.capacity_kwp != null ? `${ofKwp == null ? "—" : fmt(ofKwp, 0)}% of ${fmt(k.capacity_kwp, 1)} kWp` : "Capacity unknown"}
+          tone="text-solar-300"
+          meter={<Meter segments={ofKwp != null ? [{ pct: ofKwp, className: "bg-solar-400" }] : []} title={ofKwp != null ? `${fmt(ofKwp, 0)}% of capacity` : undefined} />}
+          footer={<span className="num">{k.capacity_kwp != null ? `${ofKwp == null ? "—" : fmt(ofKwp, 0)}% of ${fmt(k.capacity_kwp, 0)} kWp` : "Capacity unknown"}</span>}
         />
-        <KpiTile
-          label={`Yield ${yieldCap}`}
-          icon={Zap}
-          tone="energy"
-          accentBar={false}
+        <StatTile
+          label="Yield"
+          tag={useLiveYield ? `Live ${hhmm(liveAt ?? "")}` : shortDay(day)}
+          tagWarn={!useLiveYield && behind}
           value={fmt(yieldKwh, 1)}
           unit="kWh"
-          hint={`${fmt(yieldSpecific, 2)} kWh/kWp${yieldSrc}`}
+          tone="text-energy-300"
+          footer={
+            <>
+              {yieldRevenue != null && <span className="num font-semibold text-foreground">≈ ฿{fmt(yieldRevenue, 0)}</span>}
+              <span className="num">{fmt(yieldSpecific, 2)} kWh/kWp</span>
+              {yieldPartial && <span className="num text-amber-300" title={yieldPartial.replace(/^ · /, "")}>partial</span>}
+            </>
+          }
         />
-        <KpiTile
-          label={`Revenue ${yieldCap}`}
-          icon={Coins}
-          accentBar={false}
-          value={yieldRevenue == null ? "—" : `฿${fmt(yieldRevenue, 0)}`}
-          hint={`Tariff ฿${fmt(k.tariff_thb_per_kwh, 2)}/kWh`}
+        <StatTile
+          label="PR"
+          tag={shortDay(day)}
+          tagWarn={behind}
+          value={fmt(dayPr, 1)}
+          unit="%"
+          tone={target != null ? prTone(dayPr, target) : undefined}
+          meter={
+            <Meter
+              segments={dayPr != null ? [{ pct: dayPr, className: dayPrBar }] : []}
+              mark={target}
+              title={`PR ${fmt(dayPr, 1)}%${target != null ? ` · target ${fmt(target, 0)}%` : ""}`}
+            />
+          }
+          footer={<span className="num">{target != null ? `target ${fmt(target, 0)}%` : "no target"} · {k.iec_pr_pct != null ? "IEC 61724" : "peer"}</span>}
         />
         <InvertersOnlineTile ov={ov} href={plantHref("inverters")} recs={recs} liveLoading={plantLiveLoading} online={online} />
         <StringHealthTile ov={ov} href={plantHref("strings")} />
@@ -217,7 +211,7 @@ export const OverviewPage: React.FC = () => {
           {/* Three headline numbers and the period's power curve */}
           <Card className="flex-1 gap-5">
             <CardContent className="flex flex-1 flex-col gap-5">
-              {/* the period every stored figure below follows ("Power now" stays live) */}
+              {/* the period the chart follows */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
                   <CardTitle>Production</CardTitle>
@@ -243,50 +237,33 @@ export const OverviewPage: React.FC = () => {
                   </Button>
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Headline
-                  label="Power now"
-                  value={night && (acW ?? 0) === 0 ? "0" : kw(acW)}
-                  unit="kW"
-                  tone="text-solar-300"
-                  bar={night ? null : ofKwp}
-                  barTitle={ofKwp != null ? `${fmt(ofKwp, 0)}% of ${fmt(k.capacity_kwp, 1)} kWp` : undefined}
-                  sub={night ? "night" : liveAt ? undefined : "no live record"}
-                />
-                <Headline
-                  label={`Energy · ${periodCap}`}
-                  value={pp.loading && !f ? "…" : fmt(energy, energy != null && energy < 100 ? 1 : 0)}
-                  unit="kWh"
-                  tone="text-energy-300"
-                  sub={
-                    [
-                      revenue != null ? `≈ ฿${fmt(revenue, 0)}` : null,
-                      f?.growattKwh != null ? `Growatt ${fmt(f.growattKwh, 0)} kWh` : null,
-                      f?.growattImplausible ? "Growatt figure withheld (impossible)" : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || undefined
-                  }
-                />
-                <Headline
-                  label={`PR · ${periodCap}`}
-                  value={pp.loading && !f ? "…" : fmt(pr, 1)}
-                  unit="%"
-                  tone={target != null ? prTone(pr, target) : "text-foreground"}
-                  sub={
-                    pp.mode === "curve"
-                      ? "whole single day only"
-                      : target != null
-                        ? `target ${fmt(target, 0)}%${f?.prIec ? "" : " · peer"}`
-                        : undefined
-                  }
-                />
-              </div>
-
+              {/* plant facts (registry, not period-bound) */}
+              <PlantFacts
+                items={[
+                  {
+                    icon: Grid3x3,
+                    label: "DC capacity",
+                    value: fmt(k.capacity_kwp, 1),
+                    unit: "kWp",
+                    hint:
+                      plant.reported_peak_power_kwp != null && k.capacity_kwp == null
+                        ? `Growatt lists ${fmt(plant.reported_peak_power_kwp, 0)} kWp, impossible for its inverters`
+                        : undefined,
+                  },
+                  {
+                    icon: Sigma,
+                    label: "Lifetime yield",
+                    value: fmt(k.total_yield_kwh == null ? null : k.total_yield_kwh / 1000, 1),
+                    unit: "MWh",
+                  },
+                  { icon: Banknote, label: "Tariff", value: `฿${fmt(k.tariff_thb_per_kwh, 2)}`, unit: "/kWh" },
+                ]}
+              />
               <FillChart
                 spec={pp.spec}
                 minHeight={240}
                 legendToggle
+                legendPosition="bottom"
                 emptyLabel={pp.error ? `Could not load: ${pp.error}` : `No stored records for ${pp.label}${pp.day === pp.today ? " yet (the worker stores them every 30 min)" : ""}`}
                 onBrush={pp.multi || !pp.day ? undefined : (lo, hi) => pp.setPeriod({ ...pp.period, day: pp.day, start: slotTime(lo, pp.day!, false), end: slotTime(hi, pp.day!, true) })}
               />
@@ -325,26 +302,6 @@ export const OverviewPage: React.FC = () => {
                   <MapPin className="size-4" /> No location
                 </div>
               )}
-              <IconStats cols="grid-cols-3">
-                <IconStat
-                  icon={PanelsTopLeft}
-                  label="DC capacity"
-                  value={fmt(k.capacity_kwp, 1)}
-                  unit="kWp"
-                  hint={
-                    plant.reported_peak_power_kwp != null && k.capacity_kwp == null
-                      ? `Growatt lists ${fmt(plant.reported_peak_power_kwp, 0)} kWp, impossible for its inverters`
-                      : undefined
-                  }
-                />
-                <IconStat
-                  icon={BatteryCharging}
-                  label="Lifetime yield"
-                  value={fmt(k.total_yield_kwh == null ? null : k.total_yield_kwh / 1000, 1)}
-                  unit="MWh"
-                />
-                <IconStat icon={Coins} label="Tariff" value={`฿${fmt(k.tariff_thb_per_kwh, 2)}`} unit="/kWh" />
-              </IconStats>
             </CardContent>
           </Card>
 

@@ -129,8 +129,8 @@ def _today() -> date:
 
 
 def job_history(db: Session) -> Tuple[str, Dict[str, Any]]:
-    """New inverter/string records and weather-sensor records since the last run."""
-    from app.services.growatt_sync import sync_env_incremental, sync_incremental
+    """New inverter/string, weather-sensor and energy-meter records since the last run."""
+    from app.services.growatt_sync import sync_env_incremental, sync_incremental, sync_meter_incremental
 
     today = _today()
     return _per_phase(
@@ -138,6 +138,8 @@ def job_history(db: Session) -> Tuple[str, Dict[str, Any]]:
         lambda db, c, phase, untagged: {
             **sync_incremental(db, c, today, phase=phase, include_untagged=untagged),
             **sync_env_incremental(db, c, today, phase=phase, include_untagged=untagged),
+            # last: a rate-limited meter sweep stops early and never delays inverter history
+            **sync_meter_incremental(db, c, today, phase=phase, include_untagged=untagged),
         },
     )
 
@@ -196,7 +198,7 @@ def job_energy_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
 
 def job_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Re-read the previous two full days to catch uploads that arrived late."""
-    from app.services.growatt_sync import sync_all_history, sync_env_all
+    from app.services.growatt_sync import sync_all_history, sync_env_all, sync_meter_all
 
     today = _today()
     start, end = today - timedelta(days=2), today - timedelta(days=1)
@@ -205,6 +207,7 @@ def job_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
         lambda db, c, phase, untagged: {
             **sync_all_history(db, c, start, end, phase=phase, include_untagged=untagged),
             **sync_env_all(db, c, start, end, phase=phase, include_untagged=untagged),
+            **sync_meter_all(db, c, start, end, phase=phase, include_untagged=untagged),
         },
     )
 

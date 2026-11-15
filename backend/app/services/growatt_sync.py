@@ -35,11 +35,13 @@ from app.db.models import (
     GrowattEnvSensor,
     GrowattInverter,
     GrowattInverterReading,
+    GrowattMeter,
+    GrowattMeterReading,
     GrowattPlant,
     GrowattStringReading,
 )
 from app.db.session import SessionLocal, ensure_schema
-from solar_core.growatt import GrowattAPIError, GrowattClient, parse_env_records, parse_max_records
+from solar_core.growatt import GrowattAPIError, GrowattClient, parse_env_records, parse_max_records, parse_meter_records
 
 RATE_LIMIT_CODE = 10012
 
@@ -182,6 +184,13 @@ def sync_fleet(
         except Exception as exc:  # weather discovery must not break the inverter registry
             db.rollback()
             log.error("plant %s weather-sensor discovery failed: %s", pid, exc)
+        try:
+            n_meter = sync_meters(db, client, pid, now)
+            if n_meter:
+                log.debug("plant %s: %d meters", pid, n_meter)
+        except Exception as exc:  # meter discovery must not break the inverter registry
+            db.rollback()
+            log.error("plant %s meter discovery failed: %s", pid, exc)
         time.sleep(pause_s)
     pids = [int(p["plant_id"]) for p in plants]
     try:
@@ -583,6 +592,161 @@ def sync_env_incremental(
     return _sync_envs(db, client, sensors, window, pause_s, retries=retries, max_rate_limited=max_rate_limited)
 
 
+# --------------------------------------------------------------------------- energy meters
+
+
+def sync_meters(db: Session, client: GrowattClient, plant_id: int, now: Optional[datetime] = None) -> int:
+    """Register the plant's energy meters (type-3 devices named "meter"; `meter_list` on the
+    datalogger gives each one's bus address). Returns how many were found."""
+    dataloggers = sorted(
+        {
+            str(d.get("datalogger_sn"))
+            for d in client.list_devices(plant_id)
+            if d.get("type") == 3 and str(d.get("device_sn") or "").lower() == "meter" and d.get("datalogger_sn")
+        }
+    )
+    rows: List[Dict[str, Any]] = []
+    for dl in dataloggers:
+        for m in _retry(lambda: client.list_meters(dl, refresh=True), f"{dl} meter_list"):
+            try:
+                addr = int(str(m.get("address")))
+            except ValueError:
+                continue
+            rows.append(
+                {
+                    "datalogger_sn": dl,
+                    "address": addr,
+                    "plant_id": plant_id,
+                    "device_name": m.get("device_name"),
+                    "device_type": str(m.get("device_type")) if m.get("device_type") not in (None, "") else None,
+                    # lost / lastUpdateTime are realtime: never stored
+                    "synced_at": now or datetime.now().astimezone(),
+                }
+            )
+    _upsert(db, GrowattMeter, rows)
+    db.commit()
+    return len(rows)
+
+
+def _meters_query(phase: Optional[int], include_untagged: bool):
+    q = select(GrowattMeter).order_by(GrowattMeter.plant_id, GrowattMeter.datalogger_sn, GrowattMeter.address)
+    if phase is None:
+        return q
+    cond = GrowattPlant.phase == phase
+    if include_untagged:
+        cond = or_(cond, GrowattPlant.phase.is_(None))
+    return q.join(GrowattPlant, GrowattPlant.plant_id == GrowattMeter.plant_id).where(cond)
+
+
+def sync_meter_history(
+    db: Session,
+    client: GrowattClient,
+    meter: GrowattMeter,
+    start: date,
+    end: date,
+    retries: int = 3,
+    stop_before: Optional[datetime] = None,
+) -> int:
+    """Fetch and upsert one meter's history. Returns rows written."""
+    n = 0
+    for a, b in _date_chunks(start, end):
+        records = _retry(
+            lambda: client.meter_history(meter.datalogger_sn, meter.address, a, b, stop_before=stop_before),
+            f"meter {meter.datalogger_sn}/{meter.address} {a}..{b}",
+            retries,
+        )
+        rows = parse_meter_records(meter.datalogger_sn, meter.address, records)
+        _upsert(db, GrowattMeterReading, rows)
+        n += len(rows)
+    latest = db.scalar(
+        select(func.max(GrowattMeterReading.timestamp)).where(
+            GrowattMeterReading.datalogger_sn == meter.datalogger_sn, GrowattMeterReading.address == meter.address
+        )
+    )
+    meter.history_synced_until = latest
+    db.commit()
+    return n
+
+
+def _sync_meter_list(
+    db: Session,
+    client: GrowattClient,
+    meters: Sequence[GrowattMeter],
+    window,
+    pause_s: float,
+    retries: int = 3,
+    max_rate_limited: Optional[int] = MAX_RATE_LIMITED,
+) -> Dict[str, Any]:
+    """Like `_sync_envs`: 3 rate-limited meters in a row end the sweep (the rest wait for the
+    next run, which starts with the meters stored longest ago), so meters never starve the
+    inverter history of the same account."""
+    totals: Dict[str, Any] = {"meters": len(meters), "meter_rows": 0, "meter_failed": []}
+    limited = 0
+    for idx, meter in enumerate(meters):
+        start, end, stop_before = window(meter)
+        try:
+            totals["meter_rows"] += sync_meter_history(db, client, meter, start, end, retries=retries, stop_before=stop_before)
+            limited = 0
+        except Exception as exc:  # keep going; report at the end
+            db.rollback()
+            totals["meter_failed"].append((f"{meter.datalogger_sn}/{meter.address}", str(exc)))
+            log.error("meter %s/%s sync failed: %s", meter.datalogger_sn, meter.address, exc)
+            if max_rate_limited and isinstance(exc, GrowattAPIError) and exc.error_code == RATE_LIMIT_CODE:
+                limited += 1
+                if limited >= max_rate_limited:
+                    left = len(meters) - idx - 1
+                    totals["meter_failed"].append(("rate limited", f"{left} meters left for the next run"))
+                    log.warning("meter_data rate limited; %d meters wait for the next run", left)
+                    break
+        time.sleep(pause_s)
+    return totals
+
+
+def sync_meter_all(
+    db: Session,
+    client: GrowattClient,
+    start: date,
+    end: date,
+    pause_s: float = 0.3,
+    phase: Optional[int] = None,
+    include_untagged: bool = False,
+) -> Dict[str, Any]:
+    """Meter history for every meter (of one phase) over a fixed date range."""
+    if not settings.meter_history_enabled:
+        return {}
+    meters = list(db.scalars(_meters_query(phase, include_untagged)))
+    return _sync_meter_list(db, client, meters, lambda _m: (start, end, None), pause_s)
+
+
+def sync_meter_incremental(
+    db: Session,
+    client: GrowattClient,
+    today: date,
+    overlap: timedelta = timedelta(minutes=30),
+    max_back_days: int = 7,
+    pause_s: float = 0.3,
+    phase: Optional[int] = None,
+    include_untagged: bool = False,
+) -> Dict[str, Any]:
+    """Meter records new since each meter's `history_synced_until` (same rules as sensors)."""
+    if not settings.meter_history_enabled:
+        return {}
+    floor = datetime.combine(today - timedelta(days=max_back_days), datetime.min.time())
+
+    def window(m: GrowattMeter):
+        since = (m.history_synced_until - overlap) if m.history_synced_until else datetime.combine(
+            today - timedelta(days=1), datetime.min.time()
+        )
+        since = max(since, floor)
+        return since.date(), today, since
+
+    meters = sorted(
+        db.scalars(_meters_query(phase, include_untagged)),
+        key=lambda m: (m.history_synced_until is not None, m.history_synced_until or datetime.min),
+    )
+    return _sync_meter_list(db, client, meters, window, pause_s)
+
+
 def _inverters_query(phase: Optional[int], include_untagged: bool):
     """Inverters ordered by plant; restricted to one phase's plants when `phase` is given.
 
@@ -718,8 +882,11 @@ def prune_history(db: Session, today: date, keep_days: int) -> Dict[str, Any]:
     oldest = db.scalar(select(func.min(GrowattInverterReading.timestamp)))
     oldest_str = db.scalar(select(func.min(GrowattStringReading.timestamp)))
     oldest_env = db.scalar(select(func.min(GrowattEnvReading.timestamp)))
-    starts = [t for t in (oldest, oldest_str, oldest_env) if t is not None]
-    totals: Dict[str, Any] = {"cutoff": cutoff.isoformat(), "inverter_rows": 0, "string_rows": 0, "env_rows": 0, "days": 0}
+    oldest_meter = db.scalar(select(func.min(GrowattMeterReading.timestamp)))
+    starts = [t for t in (oldest, oldest_str, oldest_env, oldest_meter) if t is not None]
+    totals: Dict[str, Any] = {
+        "cutoff": cutoff.isoformat(), "inverter_rows": 0, "string_rows": 0, "env_rows": 0, "meter_rows": 0, "days": 0,
+    }
     if not starts:
         return totals
     day = datetime.combine(min(starts).date(), datetime.min.time())
@@ -736,15 +903,19 @@ def prune_history(db: Session, today: date, keep_days: int) -> Dict[str, Any]:
         n_env = db.execute(
             delete(GrowattEnvReading).where(GrowattEnvReading.timestamp >= day, GrowattEnvReading.timestamp < end)
         ).rowcount
+        n_meter = db.execute(
+            delete(GrowattMeterReading).where(GrowattMeterReading.timestamp >= day, GrowattMeterReading.timestamp < end)
+        ).rowcount
         db.commit()
+        totals["meter_rows"] += n_meter or 0
         totals["env_rows"] += n_env or 0
         totals["string_rows"] += n_str or 0
         totals["inverter_rows"] += n_inv or 0
         totals["days"] += 1
         day = end
     log.info(
-        "retention: deleted %d inverter / %d string / %d weather rows before %s",
-        totals["inverter_rows"], totals["string_rows"], totals["env_rows"], cutoff,
+        "retention: deleted %d inverter / %d string / %d weather / %d meter rows before %s",
+        totals["inverter_rows"], totals["string_rows"], totals["env_rows"], totals["meter_rows"], cutoff,
     )
     return totals
 

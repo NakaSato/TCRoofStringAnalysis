@@ -220,9 +220,11 @@ export const PanelChart: React.FC<{
   emptyLabel?: string;
   /** Legend items hide / show their series (by series name). */
   legendToggle?: boolean;
+  /** Where the legend sits (default top). */
+  legendPosition?: "top" | "bottom";
   /** Time / numeric axes: called with the x range dragged across (ms since epoch on a time axis). */
   onBrush?: (lo: number, hi: number) => void;
-}> = ({ spec: fullSpec, height = 320, emptyLabel = "No data for this chart.", legendToggle = false, onBrush }) => {
+}> = ({ spec: fullSpec, height = 320, emptyLabel = "No data for this chart.", legendToggle = false, legendPosition = "top", onBrush }) => {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<TipState | null>(null);
   const [hoverX, setHoverX] = useState<{ px: number; i: number | null } | null>(null);
@@ -492,10 +494,9 @@ export const PanelChart: React.FC<{
     });
   };
 
-  return (
-    <div className="w-full">
-      {legend.length > 1 && (
-        <div className="mb-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
+  const legendBox =
+    legend.length > 1 ? (
+        <div className={cn("flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300", legendPosition === "bottom" ? "mt-2" : "mb-1.5")}>
           {legend.map((l) =>
             canToggle && seriesNames.has(l.label) ? (
               <button
@@ -517,7 +518,11 @@ export const PanelChart: React.FC<{
             ),
           )}
         </div>
-      )}
+      ) : null;
+
+  return (
+    <div className="w-full">
+      {legendPosition === "top" && legendBox}
       <div
         ref={ref}
         className={cn("relative w-full", brushable && "cursor-crosshair select-none")}
@@ -625,6 +630,7 @@ export const PanelChart: React.FC<{
         )}
         <Tooltip tip={tip} width={width} />
       </div>
+      {legendPosition === "bottom" && legendBox}
     </div>
   );
 };
