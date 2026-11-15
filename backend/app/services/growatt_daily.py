@@ -665,7 +665,9 @@ def _plant_day(
             pac_kw = plant_pac_by_slot.get(slot, 0.0) / 1000.0
             t_mod = wx.get("module_temp_c")
             if t_mod is None:
-                t_mod = fallback_tmod if fallback_tmod is not None else 25.0
+                t_mod = fallback_tmod  # the day's measured (irradiance-weighted) module temperature
+            if t_mod is None:
+                continue  # no module temperature measured at all: the slot cannot be modelled
             temp_factor = max(0.5, 1.0 + (gamma_pct / 100.0) * (float(t_mod) - 25.0))
             p_mod_kw = plant_kwp * (float(g) / 1000.0) * temp_factor * 0.985
             if p_mod_kw > 0:
