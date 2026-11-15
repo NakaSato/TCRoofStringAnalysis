@@ -156,12 +156,13 @@ export const OverviewPage: React.FC = () => {
   const ofKwp = acW != null && k.capacity_kwp ? (acW / 1000 / k.capacity_kwp) * 100 : null;
   const wx = liveWx?.data.sensors[0] ?? null;
 
-  // The top card's period: the stored day by default, or what the picker chose
+  // The top card's period: today by default, or what the picker chose
   const f = pp.figures;
   const pr = f?.prPct ?? null;
   const target = k.target_pr_pct ?? null;
   const energy = f?.energyKwh ?? null;
-  const revenue = energy != null ? energy * k.tariff_thb_per_kwh : null;
+  // the period's own day rate when it is one day; a range / window uses today's rate (estimate, "≈")
+  const revenue = energy != null ? energy * (f?.tariffThbPerKwh ?? k.tariff_thb_per_kwh) : null;
   const co2t = energy != null ? (energy * GRID_EF_KG_PER_KWH) / 1000 : null;
   const hasLocation = plant.latitude != null && plant.longitude != null;
 
@@ -238,11 +239,13 @@ export const OverviewPage: React.FC = () => {
                   <StringPeriodPicker
                     period={pp.period}
                     onChange={pp.setPeriod}
-                    shownDay={pp.ovDay}
+                    shownDay={pp.day}
                     today={pp.today}
                     loading={pp.loading}
                     time={false}
                     align="end"
+                    resetLabel="Today"
+                    resetTitle="Back to today"
                   />
                   <Button asChild variant="ghost" size="icon-sm" aria-label="Generation details" title="Generation details">
                     <Link to={plantHref("generation")}>

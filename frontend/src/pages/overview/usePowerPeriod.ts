@@ -1,6 +1,6 @@
 /**
- * The period the Plant Overview's top card shows (URL `day`, `to`, `from_t`, `to_t`): the stored
- * day the overview already holds (default), another whole day (its own overview, so PR and every
+ * The period the Plant Overview's top card shows (URL `day`, `to`, `from_t`, `to_t`): today by
+ * default (the overview already held when its stored day is today), another whole day (its own overview, so PR and every
  * figure match the Generation page), or a day range and / or a time-of-day window
  * (`/growatt/plants/{id}/power`: curve + energy integrated from the 5-min records; no PR, which is
  * a whole-day figure). DB only; a period that includes today is re-read every 5 min while visible.
@@ -25,6 +25,8 @@ export interface PeriodFigures {
   peakKw: number | null;
   peakAt: string | null;
   specificKwhKwp: number | null;
+  /** the day's tariff (energy-weighted, from that day's overview); null for a range / window */
+  tariffThbPerKwh: number | null;
 }
 
 type Loaded = { key: string; ov?: GrowattPlantOverview; power?: GrowattPlantPower; error?: string };
@@ -38,7 +40,8 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
   const ovDay = ov?.meta.day ?? null;
 
   const windowed = isWindowed(period);
-  const day = period.day ?? ovDay;
+  // default: today (plant-local), even when the newest stored day is older
+  const day = period.day ?? today;
   const endDay = period.endDay && day && period.endDay > day ? period.endDay : null;
   const start = windowed ? period.start : "";
   const end = windowed ? period.end : "";
@@ -103,6 +106,7 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
         peakKw: k.peak_power_kw,
         peakAt: pk?.timestamp ?? null,
         specificKwhKwp: k.specific_yield_kwh_per_kwp,
+        tariffThbPerKwh: k.tariff_thb_per_kwh,
       };
     }
     const es = power!.daily.map((d) => d.energy_kwh).filter((v): v is number => v != null);
@@ -115,6 +119,7 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
       peakKw: pk?.pac_kw ?? null,
       peakAt: pk?.timestamp ?? null,
       specificKwhKwp: energy != null && kwp ? energy / kwp : null,
+      tariffThbPerKwh: null,
     };
   }, [dayOv, power, ov]);
 

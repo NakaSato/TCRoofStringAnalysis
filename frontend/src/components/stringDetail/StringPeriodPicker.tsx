@@ -48,7 +48,10 @@ export const StringPeriodPicker: React.FC<{
   time?: boolean;
   /** popover edge aligned to the trigger: "end" when the picker sits at the right of its row */
   align?: "start" | "end";
-}> = ({ period, onChange, shownDay, shownEndDay, today, loading, onPopoverOpenChange, hint, time = true, align = "start" }) => {
+  /** the reset button: back to the default period (default "Latest", the newest stored day) */
+  resetLabel?: string;
+  resetTitle?: string;
+}> = ({ period, onChange, shownDay, shownEndDay, today, loading, onPopoverOpenChange, hint, time = true, align = "start", resetLabel = "Latest", resetTitle = "The newest stored day, all day" }) => {
   const uid = useId();
   const [open, setOpen] = useState(false);
   useEffect(() => onPopoverOpenChange?.(open), [open, onPopoverOpenChange]);
@@ -214,8 +217,8 @@ export const StringPeriodPicker: React.FC<{
         </Button>
       </ButtonGroup>
       {(period.day != null || win) && (
-        <Button variant="ghost" size="sm" onClick={() => onChange({ day: null, endDay: null, start: "", end: "" })} title="The newest stored day, all day">
-          Latest
+        <Button variant="ghost" size="sm" onClick={() => onChange({ day: null, endDay: null, start: "", end: "" })} title={resetTitle}>
+          {resetLabel}
         </Button>
       )}
     </div>
