@@ -157,15 +157,23 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
       const iec = k.iec_pr_pct ?? null;
       const kwp = k.capacity_kwp ?? null;
       // a live peak past the stored records beats the stored one
-      const livePeak = pk?.live && (k.peak_power_kw == null || pk.pac_kw > k.peak_power_kw);
+      const livePeak = Boolean(pk?.live && (k.peak_power_kw == null || pk.pac_kw > k.peak_power_kw));
+      // the time goes with the figure shown: the live slot's, else the stored curve's own peak slot
+      const storedPk = livePeak
+        ? null
+        : rows.reduce<(typeof rows)[number] | null>((m, r) => (!r.live && r.pac_kw > 0 && (m == null || r.pac_kw > m.pac_kw) ? r : m), null);
+      // a live total older than the newest stored sync never shows less than the stored one
+      const yieldKwh =
+        liveYield != null && (k.yield_today_kwh == null || liveYield > k.yield_today_kwh) ? liveYield : k.yield_today_kwh;
+      const yieldIsLive = yieldKwh != null && yieldKwh === liveYield && yieldKwh !== k.yield_today_kwh;
       return {
-        energyKwh: liveYield ?? k.yield_today_kwh,
+        energyKwh: yieldKwh,
         // PR stays the stored day's: a whole-day figure from stored records
         prPct: iec ?? k.plant_pr_pct,
         prIec: iec != null,
-        peakKw: livePeak ? pk.pac_kw : k.peak_power_kw,
-        peakAt: pk?.timestamp ?? null,
-        specificKwhKwp: liveYield != null ? (kwp ? liveYield / kwp : null) : k.specific_yield_kwh_per_kwp,
+        peakKw: livePeak && pk ? pk.pac_kw : k.peak_power_kw,
+        peakAt: livePeak ? (pk?.timestamp ?? null) : k.peak_power_kw != null ? (storedPk?.timestamp ?? null) : null,
+        specificKwhKwp: yieldIsLive ? (kwp ? yieldKwh / kwp : null) : k.specific_yield_kwh_per_kwp,
         tariffThbPerKwh: k.tariff_thb_per_kwh,
         growattKwh,
         growattImplausible,
