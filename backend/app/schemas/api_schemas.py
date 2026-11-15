@@ -320,6 +320,10 @@ class FleetModule(BaseModel):
     kappa_ohm_per_k: Optional[float] = Field(default=0.0012, ge=0, le=1)
     first_year_lid_pct: Optional[float] = Field(default=1.0, ge=0, le=10)
     annual_degradation_pct: Optional[float] = Field(default=0.45, ge=0, le=5)
+    # I-V analysis: cell technology (sweep-time gate) and measured IEC 60891 Procedure 2 irradiance factors
+    cell_technology: Optional[str] = Field(default=None, pattern="^(perc|topcon|hjt|ibc)$")
+    p2_b1: Optional[float] = Field(default=None, ge=0, le=0.5)
+    p2_b2: Optional[float] = Field(default=None, ge=-0.5, le=0.5)
     datasheet_url: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -341,8 +345,22 @@ class IvSweepCreate(BaseModel):
     module_temp_c: float = Field(ge=-40, le=120, description="Measured back-of-module temperature T₁ (°C)")
     irradiance_change_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Irradiance change during sweep (%)")
     reference_cell_tech: Optional[str] = Field(default=None, max_length=64)
+    temp_change_k_per_min: Optional[float] = Field(
+        default=None, ge=0, le=50, description="Module temperature change over the minute before the sweep (K)"
+    )
+    sweep_time_ms: Optional[float] = Field(default=None, gt=0, le=60000, description="Duration of the sweep (ms)")
+    cell_technology: Optional[str] = Field(default=None, pattern="^(perc|topcon|hjt|ibc)$")
+    irradiance_uncertainty_pct: Optional[float] = Field(
+        default=None, gt=0, le=20, description="Calibration uncertainty of the irradiance sensor (%, k = 2)"
+    )
+    reverse_pmax_w: Optional[float] = Field(
+        default=None, gt=0, le=100000, description="Measured Pmax of the opposite-direction sweep of the same string (W)"
+    )
+    sensor_misalignment_deg: Optional[float] = Field(
+        default=None, ge=0, le=90, description="Angle between the irradiance sensor and the array plane (°)"
+    )
     modules: Optional[int] = Field(default=None, ge=1, le=60)
-    dead_band_pct: float = Field(default=4.0, ge=1.0, le=10.0)
+    dead_band_pct: float = Field(default=5.0, ge=1.0, le=10.0)
     near_negative_pole: bool = False
     low_irradiance_worse: bool = False
     ir_confirmed: bool = False
@@ -352,7 +370,7 @@ class IvSweepCreate(BaseModel):
 
 
 class IvSweepPatch(BaseModel):
-    """Confirm or clear IR agreement / note on a stored I-V sweep for the two-source warranty rule."""
+    """Confirm or clear IR agreement / note on a stored I-V sweep for the two-source module-test rule."""
 
     ir_confirmed: Optional[bool] = None
     note: Optional[str] = Field(default=None, max_length=1000)

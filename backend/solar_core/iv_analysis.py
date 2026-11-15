@@ -1,8 +1,9 @@
 """I-V curve analysis at string and module level (pure NumPy engine, no SciPy/pvlib required).
 
 Implements:
-1. Measurement-condition validation (stable, high irradiance G >= 700 W/m², |ΔG| <= 2 %, with G, T
-   and timestamp mandatory).
+1. Measurement-condition validation (G, T and timestamp mandatory). STC comparison needs
+   G >= 700 W/m² (IEC 61829) and |ΔG| <= 2 %; a curve at G >= 400 W/m² (IEC 62446-1) can still be
+   read for its shape (steps). 700–800 W/m² and |ΔG| 1–2 % pass with a warning.
 2. Curve cleaning (`rectify_iv_curve`, matching `pvlib.ivtools.utils.rectify_iv_curve`).
 3. Translation to STC (1000 W/m², 25 °C) via IEC 60891 Procedure 1:
        I₂ = I₁ + Isc₁·(G₂/G₁ − 1) + α·(T₂ − T₁)
@@ -11,8 +12,10 @@ Implements:
    via Newton/Lambert W).
 5. Parameter extraction per curve: Isc, Voc, Imp, Vmp, Pmax, FF = Pmax / (Isc·Voc), slope near Voc
    (Rs indicator), slope near Isc (Rsh indicator), and step / inflection count.
-6. Fault-signature classification and warranty decision rule with a configurable ±3–5 % dead band
-   and two-source warranty verification (I-V + IR or I-V + time-series trend).
+6. Fault-signature classification with a configurable dead band (default 5 %, the expanded
+   uncertainty of field STC Pmax). Steps are counted on the measured curve, not the translated one.
+   A string below warranted power with a second source (IR or time-series trend) is a candidate
+   for module-level testing: a string sweep alone is not warranty evidence.
 """
 
 from __future__ import annotations
@@ -30,9 +33,45 @@ T_STC = 25.0  # °C
 K_BOLTZMANN = 1.380649e-23
 Q_ELECTRON = 1.602176634e-19
 
-MIN_SWEEP_IRRADIANCE_WM2 = 700.0
-MAX_SWEEP_IRR_CHANGE_PCT = 2.0
-DEFAULT_DEAD_BAND_PCT = 4.0  # within ±3–5 % field I-V uncertainty
+MIN_SWEEP_IRRADIANCE_WM2 = 700.0  # IEC 61829: minimum for translation to STC
+WARN_SWEEP_IRRADIANCE_WM2 = 800.0  # IEA PVPS T13-24 best practice
+MIN_SHAPE_IRRADIANCE_WM2 = 400.0  # IEC 62446-1: minimum for any diagnostic curve
+MAX_SWEEP_IRR_CHANGE_PCT = 2.0  # engineering practice (reject level)
+WARN_SWEEP_IRR_CHANGE_PCT = 1.0  # IEA PVPS T13-24 best practice
+# Expanded uncertainty of field STC Pmax is ±3.5–5 % (IEA PVPS T13-24); 3 % is only justified with
+# a primary-calibrated reference cell and equivalent cell temperature.
+DEFAULT_DEAD_BAND_PCT = 5.0
+# Second translation target for trending: closer to operating temperature on Thai roofs, so the
+# temperature extrapolation (and the error from the coefficients) is smaller than to 25 °C.
+SITE_REFERENCE_TEMP_C = 55.0
+# IEC 60891:2021 Procedure 2 irradiance factors for Voc. Typical c-Si values, not measured for the
+# fleet module: results that use them are labelled `assumed`.
+DEFAULT_P2_B1 = 0.045
+DEFAULT_P2_B2 = 0.0
+P2_DISAGREE_PCT = 1.0  # Procedure 1 vs 2 Pmax difference worth a warning
+# IEC 60891:2021 Procedure 4 device constant ε (V per cell), default for crystalline silicon.
+DEFAULT_P4_EPSILON_V = 1.232
+# Dynamic procedure (Li et al. 2024, DuraMAT/IVcorrection): a shunt resistance above this per
+# module is neglected, as in the reference implementation.
+PDYN_RSH_NEGLECT_OHM_PER_MODULE = 100.0
+PDYN_RSH_NEGLECTED_OHM = 1e5
+# IEA PVPS T13-24 best practice: module temperature changes < 1 K over the minute before the sweep.
+MAX_TEMP_CHANGE_K_PER_MIN = 1.0
+# High-capacitance cells (TOPCon, HJT, IBC) need a sweep of at least 100 ms; a faster sweep can
+# mis-measure Pmax by more than 20 % (JRC guidelines).
+MIN_SWEEP_TIME_MS_HIGH_CAPACITANCE = 100.0
+HIGH_CAPACITANCE_TECH = ("topcon", "hjt", "ibc")
+# Forward and reverse sweeps of one string should give the same Pmax; a larger difference points
+# at cell capacitance (proposed level, not from a standard).
+MAX_FWD_REV_PMAX_DIFF_PCT = 1.0
+# Irradiance sensor against the array plane: IEC 60904-1 allows ±2°, best practice is ±1°.
+MAX_SENSOR_MISALIGNMENT_DEG = 2.0
+WARN_SENSOR_MISALIGNMENT_DEG = 1.0
+# Assumed inputs of the Pmax uncertainty estimate (expanded, k = 2), used when nothing is measured.
+ASSUMED_IRRADIANCE_UNCERTAINTY_PCT = 2.5  # factory-calibrated reference cell (IEA PVPS T13-24)
+ASSUMED_MODULE_TEMP_ERROR_K = 3.0  # backsheet-to-cell gradient plus non-uniformity along the string
+ASSUMED_TEMP_COEFF_UNCERTAINTY_FRAC = 0.10  # ±10 % on the temperature coefficient (IEA PVPS T13-24)
+ASSUMED_TRANSLATION_UNCERTAINTY_PCT = 1.0  # IEC 60891 translation above 800 W/m² (IEA PVPS T13-24)
 DEFAULT_FIRST_YEAR_LID_PCT = 1.0
 DEFAULT_ANNUAL_DEGRADATION_PCT = 0.45
 DEFAULT_RS_PER_MODULE_OHM = 0.22
@@ -60,6 +99,15 @@ class ModuleStcSpec:
     annual_degradation_pct: float = DEFAULT_ANNUAL_DEGRADATION_PCT
     cells_per_module: int = 72  # 144 half-cut = 72 cells in series equivalent
     substrings_per_module: int = 3  # 3 bypass diodes per standard module
+    # IEC 60891 Procedure 2 irradiance factors measured for this module; None = use the assumed defaults
+    p2_b1: Optional[float] = None
+    p2_b2: Optional[float] = None
+
+    def p2_factors(self) -> Tuple[float, float, str]:
+        """(B1, B2, source): the module's own factors (`fleet_setting`), else the typical ones (`assumed`)."""
+        if self.p2_b1 is None:
+            return DEFAULT_P2_B1, DEFAULT_P2_B2, "assumed"
+        return float(self.p2_b1), float(self.p2_b2 or 0.0), "fleet_setting"
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "ModuleStcSpec":
@@ -80,6 +128,8 @@ class ModuleStcSpec:
             kappa_ohm_per_k=_f("kappa_ohm_per_k", DEFAULT_KAPPA_PER_MODULE_OHM_K),
             first_year_lid_pct=_f("first_year_lid_pct", DEFAULT_FIRST_YEAR_LID_PCT),
             annual_degradation_pct=_f("annual_degradation_pct", DEFAULT_ANNUAL_DEGRADATION_PCT),
+            p2_b1=float(d["p2_b1"]) if d.get("p2_b1") is not None else None,
+            p2_b2=float(d["p2_b2"]) if d.get("p2_b2") is not None else None,
         )
 
     def alpha_a_per_k(self) -> float:
@@ -103,12 +153,26 @@ def validate_sweep_conditions(
     irradiance_change_pct: Optional[float] = None,
     min_irradiance_wm2: float = MIN_SWEEP_IRRADIANCE_WM2,
     max_irradiance_change_pct: float = MAX_SWEEP_IRR_CHANGE_PCT,
+    temp_change_k_per_min: Optional[float] = None,
+    sweep_time_ms: Optional[float] = None,
+    cell_technology: Optional[str] = None,
+    sensor_misalignment_deg: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Validate sweep conditions.
 
     Raises ValueError if G, T, or timestamp is missing ("A curve without its conditions can't be
-    interpreted"). Returns gate status for high, stable irradiance (G >= 700 W/m², ΔG <= 2 %).
+    interpreted"). Returns:
+    - `quality_gate_passed`: G >= 700 W/m² and ΔG <= 2 %, so the STC comparison may be judged
+    - `shape_gate_passed`: G >= 400 W/m² and ΔG <= 2 %, so the curve shape (steps) may be judged
+    - `gate_warnings`: passed, but outside best practice (G < 800 W/m², ΔG > 1 %, module
+      temperature changing by more than 1 K/min, sweep under 100 ms on an unknown cell technology)
+    - `quality_flags`: `low_G`, `unstable_G`, `unstable_T`, `capacitance_suspect`, `sensor_misaligned`
+      (irradiance sensor more than 2° off the array plane, IEC 60904-1: a warning)
+
+    A sweep under 100 ms on high-capacitance cells (TOPCon, HJT, IBC) fails the quality gate: its
+    power is unreliable, but steps in the curve can still be judged.
     """
+    shape_min = min(MIN_SHAPE_IRRADIANCE_WM2, min_irradiance_wm2)
     if swept_at is None or (isinstance(swept_at, str) and not swept_at.strip()):
         raise ValueError("Sweep timestamp is required; a curve without its conditions cannot be interpreted")
     if irradiance_wm2 is None or not math.isfinite(irradiance_wm2) or irradiance_wm2 <= 0:
@@ -117,15 +181,68 @@ def validate_sweep_conditions(
         raise ValueError("Valid back-of-module temperature T (°C) is required with every curve")
 
     reasons: List[str] = []
+    warnings: List[str] = []
+    flags: List[str] = []
+    shape_ok = True
     if irradiance_wm2 < min_irradiance_wm2:
-        reasons.append(f"Irradiance {irradiance_wm2:.0f} W/m² is below the {min_irradiance_wm2:.0f} W/m² sweep gate")
-    if irradiance_change_pct is not None and abs(irradiance_change_pct) > max_irradiance_change_pct:
+        flags.append("low_G")
+    if irradiance_wm2 < shape_min:
+        shape_ok = False
+        reasons.append(f"Irradiance {irradiance_wm2:.0f} W/m² is below the {shape_min:.0f} W/m² minimum for any diagnosis")
+    elif irradiance_wm2 < min_irradiance_wm2:
         reasons.append(
-            f"Irradiance changed by {abs(irradiance_change_pct):.2f}% during the sweep (limit {max_irradiance_change_pct:.1f}%)"
+            f"Irradiance {irradiance_wm2:.0f} W/m² is below the {min_irradiance_wm2:.0f} W/m² sweep gate for STC comparison (curve shape only)"
         )
+    elif irradiance_wm2 < WARN_SWEEP_IRRADIANCE_WM2:
+        warnings.append(f"Irradiance {irradiance_wm2:.0f} W/m² is below the {WARN_SWEEP_IRRADIANCE_WM2:.0f} W/m² best practice")
+    if irradiance_change_pct is not None:
+        change = abs(irradiance_change_pct)
+        if change > max_irradiance_change_pct:
+            shape_ok = False
+            reasons.append(f"Irradiance changed by {change:.2f}% during the sweep (limit {max_irradiance_change_pct:.1f}%)")
+        elif change > WARN_SWEEP_IRR_CHANGE_PCT:
+            warnings.append(f"Irradiance changed by {change:.2f}% during the sweep (best practice {WARN_SWEEP_IRR_CHANGE_PCT:.0f}%)")
+        if change > WARN_SWEEP_IRR_CHANGE_PCT:
+            flags.append("unstable_G")
+    if temp_change_k_per_min is not None and abs(temp_change_k_per_min) > MAX_TEMP_CHANGE_K_PER_MIN:
+        flags.append("unstable_T")
+        warnings.append(
+            f"Module temperature changed by {abs(temp_change_k_per_min):.1f} K in the minute before the sweep "
+            f"(best practice {MAX_TEMP_CHANGE_K_PER_MIN:.0f} K)"
+        )
+    if sweep_time_ms is not None and sweep_time_ms < MIN_SWEEP_TIME_MS_HIGH_CAPACITANCE:
+        tech = (cell_technology or "").strip().lower()
+        flags.append("capacitance_suspect")
+        if tech in HIGH_CAPACITANCE_TECH:
+            reasons.append(
+                f"Sweep of {sweep_time_ms:.0f} ms is too fast for {tech.upper()} cells "
+                f"(minimum {MIN_SWEEP_TIME_MS_HIGH_CAPACITANCE:.0f} ms): power is unreliable (curve shape only)"
+            )
+        elif not tech:
+            warnings.append(
+                f"Sweep of {sweep_time_ms:.0f} ms is under {MIN_SWEEP_TIME_MS_HIGH_CAPACITANCE:.0f} ms and the cell "
+                "technology is not given: power is unreliable if the modules are TOPCon, HJT or IBC"
+            )
+        else:
+            flags.remove("capacitance_suspect")
+    if sensor_misalignment_deg is not None:
+        off = abs(sensor_misalignment_deg)
+        if off > MAX_SENSOR_MISALIGNMENT_DEG:
+            flags.append("sensor_misaligned")
+            warnings.append(
+                f"Irradiance sensor is {off:.1f}° off the array plane (IEC 60904-1 limit {MAX_SENSOR_MISALIGNMENT_DEG:.0f}°): "
+                "the irradiance reading, and so Isc and Pmax at STC, are less certain"
+            )
+        elif off > WARN_SENSOR_MISALIGNMENT_DEG:
+            warnings.append(
+                f"Irradiance sensor is {off:.1f}° off the array plane (best practice {WARN_SENSOR_MISALIGNMENT_DEG:.0f}°)"
+            )
     return {
         "quality_gate_passed": len(reasons) == 0,
+        "shape_gate_passed": shape_ok,
         "gate_reasons": reasons,
+        "gate_warnings": warnings,
+        "quality_flags": flags,
         "min_irradiance_wm2": min_irradiance_wm2,
         "max_irradiance_change_pct": max_irradiance_change_pct,
     }
@@ -217,6 +334,11 @@ def rectify_iv_curve(
         i_sc = max(float(i_arr[0]), float(intercept))
         v_arr = np.insert(v_arr, 0, 0.0)
         i_arr = np.insert(i_arr, 0, i_sc)
+
+    # A sweep that runs past Voc ends in several points at I = 0; Voc is the first of them
+    pos = np.flatnonzero(i_arr > 0.0)
+    if pos.size and pos[-1] + 2 < i_arr.size:
+        v_arr, i_arr = v_arr[: pos[-1] + 2], i_arr[: pos[-1] + 2]
 
     # Extrapolate or clamp to I = 0 at Voc if needed
     if i_arr[-1] > 0:
@@ -507,13 +629,56 @@ def translate_to_stc_iec60891(
     modules: int = 1,
     r_s_ohm: Optional[float] = None,
     kappa_ohm_per_k: Optional[float] = None,
+    target_irradiance_wm2: float = G_STC,
+    target_temp_c: float = T_STC,
+    procedure: int | str = 1,
+    b1: Optional[float] = None,
+    b2: Optional[float] = None,
+    r_sh_ohm: Optional[float] = None,
+    epsilon_v: float = DEFAULT_P4_EPSILON_V,
 ) -> Dict[str, Any]:
-    """Translate a measured (V₁, I₁) curve at (G₁, T₁) to STC (G₂ = 1000 W/m², T₂ = 25 °C)
-    using IEC 60891 Procedure 1:
+    """Translate a measured (V₁, I₁) curve at (G₁, T₁) to (G₂, T₂), by default STC
+    (1000 W/m², 25 °C). The `*_stc` keys of the result hold the curve at the target.
+
+    IEC 60891 Procedure 1 (default):
 
         I₂ = I₁ + Isc₁·(G₂/G₁ − 1) + α·(T₂ − T₁)
         V₂ = V₁ − Rs·(I₂ − I₁) − κ·I₂·(T₂ − T₁) + β·(T₂ − T₁)
+
+    IEC 60891:2021 Procedure 2 (`procedure=2`), with relative coefficients and
+    f(G) = B₂·ln²(1000/G) + B₁·ln(1000/G) + 1:
+
+        I₂ = I₁·(G₂/G₁)·[1 + α_rel·(T₂ − 25)] / [1 + α_rel·(T₁ − 25)]
+        V₂ = V₁ − Rs₁·(I₂ − I₁) − κ·I₂·(T₂ − T₁)
+             + Voc_STC·{β_rel·[f(G₂)·(T₂ − 25) − f(G₁)·(T₁ − 25)] + 1/f(G₂) − 1/f(G₁)}
+        Rs₁ = Rs + κ·(T₁ − 25)
+
+    IEC 60891:2021 Procedure 4 (`procedure=4`), for c-Si without Rs/κ/β; T₁ in kelvin in the
+    divisor, Ns = cells in series, ε = 1.232 V:
+
+        I₁′ = I₁ + Isc₁·(G₂/G₁ − 1)          V₁′ = V₁ − Rs·(I₁′ − I₁)
+        I₂ = I₁′ + α·(T₂ − T₁)               V₂ = V₁′ + (T₂ − T₁)/T₁·(V₁′ − Ns·ε)
+
+    Dynamic procedure (`procedure="dynamic"`, Li et al. 2024): Procedure 2 applied to the curve
+    without its shunt current, which is put back afterwards, so a low shunt resistance does not
+    distort the translation. Rs and Rsh come from the measured curve (`r_s_ohm`, `r_sh_ohm`, or a
+    Sandia fit); Rsh above 100 Ω per module is neglected:
+
+        I′ = (I₁ + V₁/Rsh)·(G₂/G₁)·[1 + α_rel·(T₂ − 25)] / [1 + α_rel·(T₁ − 25)]
+        V₂ = Procedure 2 voltage with (I′ − I₁ − V₁/Rsh) as the current step and I′ in the κ term
+        I₂ = I′ − V₂/Rsh
+
+    Procedures 2, 4 and dynamic follow the open-source reference implementation of Li et al.
+    (DuraMAT/IVcorrection), which corrects to STC; the general target (G₂, T₂) for Procedure 2 is
+    from the literature. None was checked against the standard's text. Voc_STC is the datasheet
+    value × modules.
     """
+    if procedure not in (1, 2, 4, "dynamic"):
+        raise ValueError("procedure must be 1, 2, 4 or 'dynamic'")
+    if b1 is None:
+        b1, b2_spec, _ = spec.p2_factors()
+        b2 = b2_spec if b2 is None else b2
+    b2 = 0.0 if b2 is None else b2
     if irradiance_wm2 <= 0:
         raise ValueError("irradiance_wm2 must be positive for IEC 60891 translation")
     n_mod = max(1, int(modules))
@@ -523,21 +688,61 @@ def translate_to_stc_iec60891(
     # Take α and β from datasheet; Rs and κ from fitting or module defaults scaled by N
     alpha = spec.alpha_a_per_k()
     beta = spec.beta_v_per_k(n_mod)
-    if r_s_ohm is None:
+    sde: Optional[Dict[str, float]] = None
+    if r_s_ohm is None or (procedure == "dynamic" and r_sh_ohm is None):
         try:
             sde = fit_sandia_simple(v1, i1)
-            r_s = float(sde["r_s_ohm"])
         except Exception:
-            r_s = spec.rs_ohm * n_mod
-    else:
+            sde = None
+    if r_s_ohm is not None:
         r_s = float(r_s_ohm)
+    else:
+        r_s = float(sde["r_s_ohm"]) if sde else spec.rs_ohm * n_mod
+    r_sh: Optional[float] = None
+    if procedure == "dynamic":
+        if r_sh_ohm is not None:
+            r_sh = float(r_sh_ohm)
+        elif sde:
+            r_sh = float(sde["r_sh_ohm"])
+        else:
+            raise ValueError("The dynamic procedure needs a shunt resistance from the measured curve")
+        if r_sh > PDYN_RSH_NEGLECT_OHM_PER_MODULE * n_mod:
+            r_sh = PDYN_RSH_NEGLECTED_OHM
     kappa = float(kappa_ohm_per_k) if kappa_ohm_per_k is not None else spec.kappa_ohm_per_k * n_mod
 
-    dt = T_STC - float(module_temp_c)
-    g_ratio = G_STC / float(irradiance_wm2) - 1.0
+    g1, t1 = float(irradiance_wm2), float(module_temp_c)
+    g2, t2 = float(target_irradiance_wm2), float(target_temp_c)
+    dt = t2 - t1
 
-    i2 = i1 + i_sc1 * g_ratio + alpha * dt
-    v2 = v1 - r_s * (i2 - i1) - kappa * i2 * dt + beta * dt
+    if procedure == 1:
+        i2 = i1 + i_sc1 * (g2 / g1 - 1.0) + alpha * dt
+        v2 = v1 - r_s * (i2 - i1) - kappa * i2 * dt + beta * dt
+    elif procedure == 4:
+        i_tmp = i1 + i_sc1 * (g2 / g1 - 1.0)
+        v_tmp = v1 - r_s * (i_tmp - i1)
+        i2 = i_tmp + alpha * dt
+        v2 = v_tmp + dt / (t1 + 273.15) * (v_tmp - epsilon_v * n_mod * spec.cells_per_module)
+    else:
+        a_rel = spec.temp_coeff_isc_pct / 100.0
+        b_rel = spec.temp_coeff_voc_pct / 100.0
+        voc_stc = n_mod * spec.voc_stc
+
+        def f(g: float) -> float:
+            x = math.log(G_STC / g)
+            return b2 * x * x + b1 * x + 1.0
+
+        # dynamic: translate the curve without its shunt current, then put that current back
+        i_src = i1 + v1 / r_sh if r_sh is not None else i1
+        i2 = i_src * (g2 / g1) * (1.0 + a_rel * (t2 - T_STC)) / (1.0 + a_rel * (t1 - T_STC))
+        r_s1 = r_s + kappa * (t1 - T_STC)
+        v2 = (
+            v1
+            - r_s1 * (i2 - i_src)
+            - kappa * i2 * dt
+            + voc_stc * (b_rel * (f(g2) * (t2 - T_STC) - f(g1) * (t1 - T_STC)) + 1.0 / f(g2) - 1.0 / f(g1))
+        )
+        if r_sh is not None:
+            i2 = i2 - v2 / r_sh
 
     v2_clean, i2_clean = rectify_iv_curve(v2, i2)
     return {
@@ -552,15 +757,16 @@ def translate_to_stc_iec60891(
             for vv, ii in zip(v1, i1)
         ],
         "iec60891": {
-            "procedure": 1,
-            "g1_wm2": round(float(irradiance_wm2), 1),
-            "t1_c": round(float(module_temp_c), 1),
-            "g2_wm2": G_STC,
-            "t2_c": T_STC,
+            "procedure": procedure,
+            "g1_wm2": round(g1, 1),
+            "t1_c": round(t1, 1),
+            "g2_wm2": g2,
+            "t2_c": t2,
             "alpha_a_per_k": round(alpha, 5),
             "beta_v_per_k": round(beta, 4),
             "r_s_ohm": round(r_s, 4),
             "kappa_ohm_per_k": round(kappa, 5),
+            **({"r_sh_ohm": round(r_sh, 2)} if r_sh is not None else {}),
         },
     }
 
@@ -574,6 +780,11 @@ FAULT_SIGNATURES: Dict[str, Dict[str, str]] = {
         "observation": "Within STC expected dead band",
         "likely_cause": "Operating within normal STC uncertainty band",
         "recommended_action": "No action required.",
+    },
+    "not_judged": {
+        "observation": "Sweep conditions do not allow a comparison at STC; only steps in the curve are judged",
+        "likely_cause": "Not judged: irradiance below 700 W/m², unstable irradiance, or a sweep too fast for the cells",
+        "recommended_action": "Repeat the sweep at 700 W/m² or more with stable irradiance.",
     },
     "isc_low_normal_shape": {
         "observation": "Isc low, curve shape normal",
@@ -651,9 +862,22 @@ def classify_iv_fault(
     quality_gate_passed: bool = True,
     ir_confirmed: bool = False,
     timeseries_trend_confirmed: bool = False,
+    steps_measured: Optional[int] = None,
+    shape_gate_passed: Optional[bool] = None,
+    absolute_comparison_ok: bool = True,
 ) -> Dict[str, Any]:
     """Classify an STC-translated I-V curve against the fault signature table and apply the
-    warranty decision rule."""
+    decision rule.
+
+    `steps_measured` is the step count of the measured (untranslated) curve; when given it is used
+    instead of the translated curve's, because translating a stepped curve can distort it.
+    `shape_gate_passed` (default: `quality_gate_passed`) allows a ticket for steps on a sweep that
+    is good enough for its shape but not for STC comparison.
+    `absolute_comparison_ok = False` (inverter scan: irradiance and temperature come from a plant
+    sensor, not a reference cell at the string): the signatures that rest on absolute current or
+    power (`isc_low_normal_shape`, `normal_degradation`) raise no ticket and the power is not
+    judged against warranty. Such sweeps are judged against their same-time peers instead."""
+    shape_ok = quality_gate_passed if shape_gate_passed is None else bool(shape_gate_passed)
     n_mod = max(1, int(modules))
     exp = expected_stc_power_w(spec, n_mod, system_age_years)
     p_exp = exp["expected_pmax_stc_w"]
@@ -669,7 +893,7 @@ def classify_iv_fault(
     ff_stc = float(params_stc["fill_factor"])
     slope_voc = float(params_stc["slope_voc_ohm"])
     slope_isc = float(params_stc["slope_isc_ohm"])
-    steps = int(params_stc["steps_count"])
+    steps = int(params_stc["steps_count"]) if steps_measured is None else int(steps_measured)
 
     p_dev_pct = (p_stc - p_exp) / p_exp * 100.0 if p_exp > 0 else 0.0
     voc_dev_pct = (voc_stc - voc_exp) / voc_exp * 100.0 if voc_exp > 0 else 0.0
@@ -681,6 +905,9 @@ def classify_iv_fault(
     rsh_nom = max(50.0, vmp_exp / max(0.1, isc_exp - imp_exp) * 3.0)
 
     voc_drop_v = voc_exp - voc_stc
+    # A collapsed shunt lowers Voc too; a missing module or a shorted bypass diode leaves the
+    # slope near Isc normal, so a Voc drop is read as structural only while that slope is.
+    shunt_ok = slope_isc >= 0.55 * rsh_nom
     one_mod_voc = spec.voc_stc
     one_sub_voc = spec.voc_stc / max(1, spec.substrings_per_module)
 
@@ -691,14 +918,16 @@ def classify_iv_fault(
         signature = "steps_in_curve"
     # 2. Voc low by about 1 or more full modules (while Isc is normal)
     elif (
-        abs(isc_dev_pct) <= dead_band_pct
+        shunt_ok
+        and abs(isc_dev_pct) <= dead_band_pct
         and voc_drop_v >= 0.75 * one_mod_voc
         and abs(voc_drop_v / one_mod_voc - round(voc_drop_v / one_mod_voc)) <= 0.25
     ):
         signature = "miswiring_or_module_count"
     # 3. Voc low by about 1/3 (or 2/3) of one module's Voc (shorted bypass diode, while Isc is normal)
     elif (
-        abs(isc_dev_pct) <= dead_band_pct
+        shunt_ok
+        and abs(isc_dev_pct) <= dead_band_pct
         and voc_drop_v >= 0.70 * one_sub_voc
         and (
             abs(voc_drop_v - one_sub_voc) <= 0.25 * one_sub_voc
@@ -722,6 +951,14 @@ def classify_iv_fault(
     elif p_dev_pct < -dead_band_pct:
         signature = "normal_degradation"
 
+    # A sweep that failed the quality gate is translated over a long distance (or its power is
+    # unreliable), so a signature read from its STC values can be an artefact of the translation.
+    # Only steps, read from the measured shape, are judged; the rest is reported as not judged.
+    unjudged_signature: Optional[str] = None
+    if not quality_gate_passed and signature != "steps_in_curve":
+        unjudged_signature = signature
+        signature = "not_judged"
+
     # Decision rule:
     # - Deviation inside ±dead_band_pct (without structural steps/module-count/bypass faults) is not a finding.
     in_dead_band = abs(p_dev_pct) <= dead_band_pct and signature in ("normal", "normal_degradation", "isc_low_normal_shape")
@@ -729,17 +966,25 @@ def classify_iv_fault(
         signature = "normal"
         is_finding = False
     else:
-        is_finding = signature != "normal"
+        is_finding = signature not in ("normal", "not_judged")
 
     # A deviation outside the dead band that matches a signature in the table becomes a ticket
     # (only when the sweep passed the measurement condition gate).
+    stepped = signature == "steps_in_curve"
     ticket_recommended = bool(is_finding and quality_gate_passed and signature != "normal_degradation")
     if signature == "normal_degradation" and p_dev_pct < -dead_band_pct and quality_gate_passed:
         # Exceeds warranted degradation slope beyond the uncertainty dead band
         ticket_recommended = True
+    if not absolute_comparison_ok and signature in ("isc_low_normal_shape", "normal_degradation"):
+        ticket_recommended = False
+    if stepped and shape_ok:
+        # Steps are read from the measured shape: valid from 400 W/m², no STC comparison needed
+        ticket_recommended = True
 
-    # Warranty claim needs agreement from two sources: I-V + IR, or I-V + time-series trend
-    below_warranty = p_dev_pct < -dead_band_pct and quality_gate_passed
+    # A string sweep gives the average of its modules, so it cannot prove a warranty case. Below
+    # warranted power + a second source (IR or time-series trend) = test the modules one by one.
+    # The STC power of a stepped curve is for comparison only and is not judged against warranty.
+    below_warranty = p_dev_pct < -dead_band_pct and quality_gate_passed and not stepped and absolute_comparison_ok
     second_source: Optional[str] = None
     if ir_confirmed and timeseries_trend_confirmed:
         second_source = "ir_and_timeseries"
@@ -747,7 +992,7 @@ def classify_iv_fault(
         second_source = "ir"
     elif timeseries_trend_confirmed:
         second_source = "timeseries_trend"
-    warranty_claim_ready = bool(below_warranty and second_source is not None)
+    module_test_candidate = bool(below_warranty and second_source is not None)
 
     sig_meta = FAULT_SIGNATURES[signature]
     return {
@@ -755,16 +1000,19 @@ def classify_iv_fault(
         "observation": sig_meta["observation"],
         "likely_cause": sig_meta["likely_cause"],
         "recommended_action": sig_meta["recommended_action"],
+        # what the STC values would have been read as, had the conditions allowed it; for information
+        "unjudged_signature": unjudged_signature,
         "is_finding": is_finding,
         "in_dead_band": in_dead_band,
         "dead_band_pct": dead_band_pct,
         "ticket_recommended": ticket_recommended,
+        "stc_comparison_valid": bool(quality_gate_passed and not stepped and absolute_comparison_ok),
         "warranty": {
             "below_warranted_power": below_warranty,
             "ir_confirmed": ir_confirmed,
             "timeseries_trend_confirmed": timeseries_trend_confirmed,
             "second_source": second_source,
-            "warranty_claim_ready": warranty_claim_ready,
+            "module_test_candidate": module_test_candidate,
             **exp,
         },
         "deviations_pct": {
@@ -773,6 +1021,57 @@ def classify_iv_fault(
             "i_sc_vs_stc_pct": round(isc_dev_pct, 2),
             "ff_vs_stc_pct": round(ff_dev_pct, 2),
         },
+    }
+
+
+def estimate_stc_pmax_uncertainty(
+    module_temp_c: float,
+    spec: ModuleStcSpec,
+    irradiance_uncertainty_pct: Optional[float] = None,
+    irradiance_change_pct: Optional[float] = None,
+    temp_change_k_per_min: Optional[float] = None,
+    procedure_spread_pct: Optional[float] = None,
+    target_temp_c: float = T_STC,
+) -> Dict[str, Any]:
+    """Expanded uncertainty (k = 2) of the translated Pmax, in % of Pmax: the components below
+    combined as a root sum of squares (uncorrelated, GUM). It is an estimate from stated
+    assumptions, and a lower bound: `not_included` lists what it leaves out.
+
+    - irradiance sensor: the given calibration uncertainty, else 2.5 % (assumed)
+    - irradiance change during the sweep: the measured ΔG, when given
+    - module temperature: ±3 K (assumed; plus the measured change per minute) × |γ|
+    - temperature coefficient: ±10 % of γ over the translation distance |T₂ − T₁|
+    - translation: 1 %, or the spread between the IEC 60891 procedures when that is larger
+    """
+    gamma = abs(spec.temp_coeff_pmax_pct)
+    comps: List[Dict[str, Any]] = []
+
+    def add(name: str, pct: float, source: str) -> None:
+        comps.append({"name": name, "pct": round(float(pct), 2), "source": source})
+
+    if irradiance_uncertainty_pct is not None:
+        add("irradiance_sensor", abs(irradiance_uncertainty_pct), "input")
+    else:
+        add("irradiance_sensor", ASSUMED_IRRADIANCE_UNCERTAINTY_PCT, "assumed")
+    if irradiance_change_pct is not None:
+        add("irradiance_change", abs(irradiance_change_pct), "input")
+    t_err = ASSUMED_MODULE_TEMP_ERROR_K
+    if temp_change_k_per_min is not None:
+        t_err = math.hypot(t_err, abs(temp_change_k_per_min))
+    add("module_temperature", t_err * gamma, "assumed")
+    add("temperature_coefficient", ASSUMED_TEMP_COEFF_UNCERTAINTY_FRAC * gamma * abs(target_temp_c - module_temp_c), "assumed")
+    spread = abs(procedure_spread_pct) if procedure_spread_pct is not None else 0.0
+    if spread > ASSUMED_TRANSLATION_UNCERTAINTY_PCT:
+        add("translation", spread, "procedure_spread")
+    else:
+        add("translation", ASSUMED_TRANSLATION_UNCERTAINTY_PCT, "assumed")
+    total = math.sqrt(sum(c["pct"] ** 2 for c in comps))
+    return {
+        "expanded_pct": round(total, 1),
+        "coverage_k": 2,
+        "lower_bound": True,
+        "components": comps,
+        "not_included": ["tracer_voltage_current_accuracy", "repeatability", "spectral_mismatch", "sensor_alignment"],
     }
 
 
@@ -791,19 +1090,36 @@ def analyze_iv_sweep(
     low_irradiance_worse: bool = False,
     ir_confirmed: bool = False,
     timeseries_trend_confirmed: bool = False,
+    absolute_comparison_ok: bool = True,
+    temp_change_k_per_min: Optional[float] = None,
+    sweep_time_ms: Optional[float] = None,
+    cell_technology: Optional[str] = None,
+    irradiance_uncertainty_pct: Optional[float] = None,
+    reverse_pmax_w: Optional[float] = None,
+    sensor_misalignment_deg: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Full pipeline for one string or module I-V sweep:
-    1. Validate conditions (G, T, timestamp mandatory; gate on G >= 700 W/m² and ΔG <= 2 %)
+    1. Validate conditions (G, T, timestamp mandatory; STC gate G >= 700 W/m² and ΔG <= 2 %,
+       shape gate G >= 400 W/m²)
     2. Rectify curve & extract measured parameters + Sandia single-diode fit
     3. Translate to STC via IEC 60891 Procedure 1
     4. Extract STC parameters
-    5. Classify fault signature and evaluate dead-band & two-source warranty rule.
+    5. Classify fault signature and evaluate the dead band & two-source module-test rule.
+    6. Cross-check STC Pmax with Procedure 2, Procedure 4 and the dynamic procedure, and translate
+       to the site reference (1000 W/m², 55 °C).
+    7. Estimate the expanded uncertainty of STC Pmax (not for inverter scans).
+    8. Compare with the opposite-direction sweep's Pmax when given, and work out the equivalent
+       cell temperature from Voc (shown next to the measured temperature, never used to translate).
     """
     gate = validate_sweep_conditions(
         irradiance_wm2=irradiance_wm2,
         module_temp_c=module_temp_c,
         swept_at=swept_at,
         irradiance_change_pct=irradiance_change_pct,
+        temp_change_k_per_min=temp_change_k_per_min,
+        sweep_time_ms=sweep_time_ms,
+        cell_technology=cell_technology,
+        sensor_misalignment_deg=sensor_misalignment_deg,
     )
     assert irradiance_wm2 is not None and module_temp_c is not None
     params_meas = extract_iv_parameters(voltage, current)
@@ -852,7 +1168,149 @@ def analyze_iv_sweep(
         quality_gate_passed=gate["quality_gate_passed"],
         ir_confirmed=ir_confirmed,
         timeseries_trend_confirmed=timeseries_trend_confirmed,
+        steps_measured=params_meas["steps_count"],
+        shape_gate_passed=gate["shape_gate_passed"],
+        absolute_comparison_ok=absolute_comparison_ok,
     )
+    warnings = list(gate["gate_warnings"])
+    if not absolute_comparison_ok:
+        warnings.append("Inverter scan: irradiance and temperature are not from a reference cell at the string, so absolute STC power is not judged")
+
+    # Cross-checks with the other procedures and the site reference. All are modelled from the
+    # same measured curve; a translation that fails is left out (null), never replaced.
+    p1_pmax = float(params_stc["p_max_w"])
+    iec = dict(stc["iec60891"])
+    iec["procedure_2"] = None
+    iec["procedure_4"] = None
+    iec["procedure_dynamic"] = None
+    iec["site_reference"] = None
+    r_s_fit = float(sde_meas["r_s_ohm"])
+    b1, b2, b_source = spec.p2_factors()
+
+    def cross_check(procedure: int | str, **kw: Any) -> Optional[Dict[str, Any]]:
+        try:
+            tr = translate_to_stc_iec60891(
+                voltage, current, irradiance_wm2, module_temp_c, spec, modules, r_s_ohm=r_s_fit, procedure=procedure, **kw
+            )
+            pmax = float(extract_iv_parameters(tr["v_stc"], tr["i_stc"])["p_max_w"])
+        except (ValueError, np.linalg.LinAlgError):
+            return None
+        diff = (pmax - p1_pmax) / p1_pmax * 100.0 if p1_pmax > 0 else 0.0
+        return {"p_max_stc_w": round(pmax, 2), "diff_vs_procedure_1_pct": round(diff, 2), "_tr": tr}
+
+    p2 = cross_check(2)
+    if p2:
+        p2.pop("_tr")
+        iec["procedure_2"] = {**p2, "b1": b1, "b2": b2, "coefficients": b_source}
+        if abs(p2["diff_vs_procedure_1_pct"]) > P2_DISAGREE_PCT:
+            warnings.append(
+                f"IEC 60891 Procedures 1 and 2 differ by {abs(p2['diff_vs_procedure_1_pct']):.1f}% in STC Pmax: translation uncertainty is high"
+            )
+    p4 = cross_check(4)
+    if p4:
+        p4.pop("_tr")
+        iec["procedure_4"] = {**p4, "epsilon_v": DEFAULT_P4_EPSILON_V, "cells_in_series": n_mod * spec.cells_per_module}
+    pdyn = cross_check("dynamic", r_sh_ohm=float(sde_meas["r_sh_ohm"]))
+    if pdyn:
+        r_sh_used = pdyn.pop("_tr")["iec60891"]["r_sh_ohm"]
+        shunt_neglected = r_sh_used >= PDYN_RSH_NEGLECTED_OHM
+        diff_p2 = None
+        if p2 and p2["p_max_stc_w"] > 0:
+            diff_p2 = round((pdyn["p_max_stc_w"] - p2["p_max_stc_w"]) / p2["p_max_stc_w"] * 100.0, 2)
+        iec["procedure_dynamic"] = {
+            **pdyn,
+            "diff_vs_procedure_2_pct": diff_p2,
+            "r_sh_ohm": None if shunt_neglected else r_sh_used,
+            "shunt_neglected": shunt_neglected,
+            "b1": b1,
+            "b2": b2,
+            "coefficients": b_source,
+        }
+        if diff_p2 is not None and abs(diff_p2) > P2_DISAGREE_PCT:
+            warnings.append(
+                f"The dynamic procedure differs from Procedure 2 by {abs(diff_p2):.1f}% in STC Pmax: "
+                "the shunt current of this curve distorts the standard translation"
+            )
+    try:
+        v_m, i_m = rectify_iv_curve(voltage, current)  # ends at the first I = 0 point
+        site = translate_to_stc_iec60891(
+            v_m, i_m, irradiance_wm2, module_temp_c, spec, modules, r_s_ohm=r_s_fit, target_temp_c=SITE_REFERENCE_TEMP_C
+        )
+        sp = extract_iv_parameters(site["v_stc"], site["i_stc"])
+        iec["site_reference"] = {
+            "g_wm2": G_STC,
+            "t_c": SITE_REFERENCE_TEMP_C,
+            "procedure": 1,
+            "parameters": {k: sp[k] for k in ("p_max_w", "i_sc_a", "v_oc_v", "fill_factor")},
+        }
+    except (ValueError, np.linalg.LinAlgError):
+        pass
+
+    # Uncertainty of the judged (Procedure 1) STC Pmax. Not for inverter scans: their irradiance
+    # and temperature are not measured at the string, so no budget can be stated.
+    uncertainty: Optional[Dict[str, Any]] = None
+    if absolute_comparison_ok:
+        diffs = [abs(x["diff_vs_procedure_1_pct"]) for x in (iec["procedure_2"], iec["procedure_dynamic"]) if x]
+        uncertainty = estimate_stc_pmax_uncertainty(
+            module_temp_c=module_temp_c,
+            spec=spec,
+            irradiance_uncertainty_pct=irradiance_uncertainty_pct,
+            irradiance_change_pct=irradiance_change_pct,
+            temp_change_k_per_min=temp_change_k_per_min,
+            procedure_spread_pct=max(diffs) if diffs else None,
+        )
+        if uncertainty["expanded_pct"] > dead_band_pct:
+            warnings.append(
+                f"Estimated uncertainty of STC Pmax (±{uncertainty['expanded_pct']:.1f}%) is larger than the "
+                f"±{dead_band_pct:.1f}% dead band used: a shortfall inside it is not significant"
+            )
+
+    quality_flags = list(gate["quality_flags"])
+    # Forward vs reverse sweep: the same string should give the same Pmax in both directions.
+    fwd_rev: Optional[Dict[str, Any]] = None
+    p_meas = float(params_meas["p_max_w"])
+    if reverse_pmax_w is not None and reverse_pmax_w > 0 and p_meas > 0:
+        diff = abs(p_meas - reverse_pmax_w) / ((p_meas + reverse_pmax_w) / 2.0) * 100.0
+        suspect = diff > MAX_FWD_REV_PMAX_DIFF_PCT
+        fwd_rev = {
+            "reverse_pmax_w": round(float(reverse_pmax_w), 2),
+            "diff_pct": round(diff, 2),
+            "limit_pct": MAX_FWD_REV_PMAX_DIFF_PCT,
+            "limit_status": "proposed",
+            "capacitance_suspect": suspect,
+        }
+        if suspect:
+            if "capacitance_suspect" not in quality_flags:
+                quality_flags.append("capacitance_suspect")
+            warnings.append(
+                f"Pmax of the two sweep directions differs by {diff:.1f}% (limit {MAX_FWD_REV_PMAX_DIFF_PCT:.0f}%): "
+                "cell capacitance is distorting the curve, use a slower sweep"
+            )
+
+    # Equivalent cell temperature from Voc (the Procedure 2 Voc model solved for T). It is right
+    # only when the string's Voc is healthy, so it is left out for stepped curves and Voc faults,
+    # and it is never used to translate: that would hide a Voc fault.
+    ect: Optional[Dict[str, Any]] = None
+    voc_faults = ("bypass_diode_shorted", "miswiring_or_module_count", "steps_in_curve", "pid")
+    b_rel = spec.temp_coeff_voc_pct / 100.0
+    if gate["shape_gate_passed"] and classification["signature"] not in voc_faults and b_rel != 0:
+        x = math.log(G_STC / irradiance_wm2)
+        f_g = b2 * x * x + b1 * x + 1.0
+        t_ect = T_STC + (float(params_meas["v_oc_v"]) / (n_mod * spec.voc_stc) - 1.0 / f_g) / (b_rel * f_g)
+        if -40.0 <= t_ect <= 120.0:
+            ect = {
+                "t_c": round(t_ect, 1),
+                "diff_vs_measured_k": round(t_ect - module_temp_c, 1),
+                "basis": "datasheet_voc",
+                "coefficients": b_source,
+            }
+
+    classification["shape_gate_passed"] = gate["shape_gate_passed"]
+    classification["gate_warnings"] = warnings
+    classification["quality_flags"] = quality_flags
+    classification["forward_reverse"] = fwd_rev
+    classification["equivalent_cell_temp"] = ect
+    classification["uncertainty"] = uncertainty
 
     return {
         "conditions": {
@@ -860,9 +1318,15 @@ def analyze_iv_sweep(
             "irradiance_wm2": round(float(irradiance_wm2), 1),
             "module_temp_c": round(float(module_temp_c), 1),
             "irradiance_change_pct": round(float(irradiance_change_pct), 2) if irradiance_change_pct is not None else None,
+            "temp_change_k_per_min": temp_change_k_per_min,
+            "sweep_time_ms": sweep_time_ms,
+            "cell_technology": cell_technology,
+            "irradiance_uncertainty_pct": irradiance_uncertainty_pct,
+            "reverse_pmax_w": reverse_pmax_w,
+            "sensor_misalignment_deg": sensor_misalignment_deg,
             **gate,
         },
-        "iec60891": stc["iec60891"],
+        "iec60891": iec,
         "measured": {
             "parameters": params_meas,
             "single_diode_fit": sde_meas,

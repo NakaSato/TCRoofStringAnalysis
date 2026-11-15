@@ -672,6 +672,13 @@ class GrowattIvSweep(Base):
     module_temp_c: Mapped[float] = mapped_column(Float, nullable=False)
     irradiance_change_pct: Mapped[Optional[float]] = mapped_column(Float)
     reference_cell_tech: Mapped[Optional[str]] = mapped_column(String(64))
+    # optional measurement conditions (null = not recorded with the sweep)
+    temp_change_k_per_min: Mapped[Optional[float]] = mapped_column(Float)  # module T change, minute before
+    sweep_time_ms: Mapped[Optional[float]] = mapped_column(Float)
+    cell_technology: Mapped[Optional[str]] = mapped_column(String(16))  # perc | topcon | hjt | ibc
+    irradiance_uncertainty_pct: Mapped[Optional[float]] = mapped_column(Float)  # sensor calibration, k = 2
+    reverse_pmax_w: Mapped[Optional[float]] = mapped_column(Float)  # measured Pmax of the opposite-direction sweep
+    sensor_misalignment_deg: Mapped[Optional[float]] = mapped_column(Float)  # irradiance sensor vs array plane
     modules: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     quality_gate_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     gate_reasons_json: Mapped[Optional[Any]] = mapped_column(JSON)
