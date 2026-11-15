@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Building2, History } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
 import { PanelChart } from "../components/PanelChart";
 import { EmptyState, LoadingState, fmt } from "../components/ui";
@@ -9,7 +9,6 @@ import { GoogleWeatherPanel } from "../components/GoogleWeatherPanel";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { dayLabel } from "@/lib/day";
 import { cn } from "@/lib/utils";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,13 +34,12 @@ export const GenerationPrPage: React.FC = () => {
 
   const inverters = useMemo(() => ov?.inverters ?? [], [ov]);
   const target = ov?.kpis.target_pr_pct ?? null;
-  const liveDay = plantLive?.data?.day ?? null;
   const liveAt = (plantLive?.data?.inverters ?? []).reduce<string | null>(
     (a, r) => (r.timestamp && (a == null || r.timestamp > a) ? r.timestamp : a),
     null
   );
 
-  const power = useMemo(() => (ov ? powerSpec(ov, liveAt) : null), [ov, liveAt]);
+  const power = useMemo(() => (ov ? powerSpec(ov, liveAt, { irradiance: true, grid: true }) : null), [ov, liveAt]);
   const perInverter = useMemo(
     () => (chart === "thermal" ? inverterThermalSpec(inverters) : target != null ? inverterYieldSpec(inverters, target) : null),
     [chart, inverters, target]
@@ -68,8 +66,6 @@ export const GenerationPrPage: React.FC = () => {
   const k = ov.kpis;
   const day = ov.meta.day;
   const dayText = day ? dayLabel(day) : "—";
-  const untilText = ov.meta.data_until ? hhmm(ov.meta.data_until) : null;
-  const behind = day != null && liveDay != null && day < liveDay;
 
   // PR: IEC 61724 when a weather sensor allows it, else the peer-relative index (labelled as such)
   const iec = k.iec_pr_pct ?? null;
@@ -90,27 +86,7 @@ export const GenerationPrPage: React.FC = () => {
       <SelectedPlantBanner />
 
       <Card className="gap-4">
-        <CardHeader>
-          <CardTitle>Generation</CardTitle>
-          <CardDescription>
-            Stored 5-min history of {dayText}
-            {untilText ? `, up to ${untilText}` : ""} · {fmt(k.capacity_kwp, 1)} kWp DC · {inverters.length} inverters
-          </CardDescription>
-        </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          {behind && (
-            <Alert variant="warn">
-              <History />
-              <AlertTitle>
-                Stored history ends {dayText}
-                {untilText ? ` at ${untilText}` : ""}
-              </AlertTitle>
-              <AlertDescription>
-                Live records are from {dayLabel(liveDay!)}. Everything on this page is from the stored day until the worker stores newer records.
-              </AlertDescription>
-            </Alert>
-          )}
-
           <div className="grid gap-4 min-[1600px]:grid-cols-2">
             <div className="flex flex-col gap-2">
               <GroupLabel title="Energy" note="measured" />

@@ -1,9 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
-  ArrowLeft,
-  Building2,
-  MapPin,
   Cpu,
   Zap,
   Gauge,
@@ -40,6 +37,12 @@ export const SelectedPlantBanner: React.FC = () => {
   const location = useLocation();
 
   const plant = selectedPlantOverview?.plant;
+  const capacityKwp = selectedPlantOverview?.kpis.capacity_kwp ?? null;
+  const lifetimeKwh = selectedPlantOverview?.kpis.total_yield_kwh ?? null;
+  const capacityHint =
+    plant?.reported_peak_power_kwp != null && capacityKwp == null
+      ? `Growatt lists ${fmt(plant.reported_peak_power_kwp, 0)} kWp, impossible for its inverters`
+      : undefined;
 
   const [plantSearch, setPlantSearch] = useState("");
 
@@ -105,23 +108,10 @@ export const SelectedPlantBanner: React.FC = () => {
 
   return (
     <section className="overflow-hidden rounded-xl border border-white/[0.08] bg-ink-900">
-      {/* Top Row: Back Button + Plant Title + Quick Plant Switcher + Key Specs */}
+      {/* Top Row: Plant Title + Quick Plant Switcher + Key Specs */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] px-5 py-3.5">
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/"
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-500/15 px-3 py-1.5 text-xs font-semibold text-sky-200 transition hover:bg-sky-500/25 hover:text-white"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            All Plants{plantListLoaded ? ` (${growattPlants.length})` : ""}
-          </Link>
-
-          <div className="h-5 w-px bg-white/10" />
-
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-solar-400/30 bg-solar-400/10 text-solar-300">
-              <Building2 className="h-4 w-4" />
-            </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 {plant?.name ? (
@@ -140,8 +130,27 @@ export const SelectedPlantBanner: React.FC = () => {
                 <span className="num text-slate-300">ID #{plant?.plant_id ?? selectedGrowattPlantId}</span>
                 <span>·</span>
                 <span className="inline-flex items-center gap-1">
-                  <MapPin className="h-3 w-3 text-slate-500" />
                   {[plant?.city, plant?.country].filter(Boolean).join(", ") || "Thailand"}
+                </span>
+                <span>·</span>
+                <span
+                  className="inline-flex items-center gap-1"
+                  title={capacityHint ?? "DC capacity: PV modules connected to the inverters"}
+                >
+                  DC capacity
+                  <span className="num font-semibold text-slate-200">
+                    {fmt(capacityKwp, 1)}
+                    {capacityKwp != null && " kWp"}
+                  </span>
+                  {capacityHint && <span className="text-amber-400" aria-label={capacityHint}>!</span>}
+                </span>
+                <span>·</span>
+                <span className="inline-flex items-center gap-1" title="Lifetime yield reported by the inverters">
+                  Lifetime yield
+                  <span className="num font-semibold text-slate-200">
+                    {fmt(lifetimeKwh == null ? null : lifetimeKwh / 1000, 1)}
+                    {lifetimeKwh != null && " MWh"}
+                  </span>
                 </span>
                 {plant?.create_date && (
                   <>

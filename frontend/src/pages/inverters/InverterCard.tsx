@@ -15,6 +15,15 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { GroupLabel, HOT_C, KPI_ROW, LOW_PCT, LiveBadge, Row, Stat, Unit, hhmm, invName, isSwitchedOff, limitPct } from "./shared";
 import type { Anomaly, LiveState, OverviewInverter } from "./shared";
+import type { GrowattLiveDatalogger } from "../../api/types/growatt";
+
+/** Growatt's live word on the inverter's datalogger: its `lost` flag and last upload (never stored). */
+const dataloggerNow = (dl: GrowattLiveDatalogger | null | undefined): string | null => {
+  if (!dl) return null;
+  const state = dl.lost == null ? null : dl.lost ? "Offline" : "Online";
+  const at = dl.last_update_time ? `last upload ${dl.last_update_time.slice(0, 16)}` : null;
+  return [state, at].filter(Boolean).join(", ") || null;
+};
 
 /** Non-zero codes of the live record (0 = none, null = not reported). */
 const activeCodes = (d: NonNullable<OverviewInverter["live_diagnostics"]> | undefined) => {
@@ -37,6 +46,8 @@ const activeCodes = (d: NonNullable<OverviewInverter["live_diagnostics"]> | unde
 export const InverterCard: React.FC<{
   inv: OverviewInverter;
   state: LiveState;
+  /** this inverter's datalogger in the live answer; null / undefined = not known now */
+  datalogger?: GrowattLiveDatalogger | null;
   day: string | null;
   pct: number | null;
   anomalies: Anomaly[];
@@ -45,7 +56,7 @@ export const InverterCard: React.FC<{
   count: number;
   onStep: (delta: -1 | 1) => void;
   onTab: (tab: "strings" | "grid") => void;
-}> = ({ inv, state, day, pct, anomalies, inactiveCount, index, count, onStep, onTab }) => {
+}> = ({ inv, state, datalogger, day, pct, anomalies, inactiveCount, index, count, onStep, onTab }) => {
   const [open, setOpen] = useState(false);
   const rec = state.kind === "live" ? state.rec : null;
   const d = rec?.diagnostics;
@@ -238,6 +249,12 @@ export const InverterCard: React.FC<{
                 <Row label="Datalogger">
                   {inv.datalogger_sn || "—"}
                   {inv.datalogger_model ? ` · ${inv.datalogger_model}` : ""}
+                </Row>
+                <Row label="Datalogger now (live)" title="Growatt's own status of the datalogger. Offline here explains inverters with no live record.">
+                  {dataloggerNow(datalogger) ?? "—"}
+                </Row>
+                <Row label="Added to Growatt" title="When Growatt registered the device, as Growatt reports it. Not a commissioning date.">
+                  {inv.growatt_created_at ? inv.growatt_created_at.slice(0, 10) : "—"}
                 </Row>
               </div>
               <div>

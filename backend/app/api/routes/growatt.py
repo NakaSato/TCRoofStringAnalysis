@@ -46,6 +46,7 @@ from app.schemas.api_schemas import (
 )
 from app.services import fleet_settings
 from app.services import growatt_alarms
+from app.services import growatt_meter
 from app.services import growatt_sensors
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
@@ -173,24 +174,70 @@ def live_plant_latest(
     record, flagged only when the 6 newest records agree (`services/live_string_check.py`),
     realtime only. The DB is read only for the plant's inverter list, String Layout module counts
     and which inputs are wired; nothing is written.
+
+    `data.dataloggers` = the plant's dataloggers with Growatt's `lost` flag and last upload time
+    (`device/datalogger/list`, realtime only); null with `data.dataloggers_error` when that call
+    failed, which never fails the inverters' part.
     """
     sns = [inv["device_sn"] for inv in ov.list_inverters(db, plant_id)]
     if not sns:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no inverters")
+    phase, coords = ov.plant_phase(db, plant_id), ov.plant_coords(db, plant_id)
     try:
-        env = live.plant_latest(
-            plant_id,
-            sns,
-            datetime.now(jobs.PLANT_TZ).date(),
-            phase=ov.plant_phase(db, plant_id),
-            coords=ov.plant_coords(db, plant_id),
-        )
+        env = live.plant_latest(plant_id, sns, datetime.now(jobs.PLANT_TZ).date(), phase=phase, coords=coords)
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    loggers, loggers_error = live.plant_dataloggers(plant_id, phase=phase, coords=coords)
     check = live_string_check.check_plant(env["data"]["inverters"], ov.load_layout(db, sns, fleet_wp=False), ov.wired_inputs(db, sns))
     # the older records were only input to the check: don't send them to the browser
     invs = [{k: v for k, v in inv.items() if k != "previous_strings"} for inv in env["data"]["inverters"]]
-    return {**env, "data": {**env["data"], "inverters": invs, "string_check": check}}
+    return {
+        **env,
+        "data": {
+            **env["data"],
+            "inverters": invs,
+            "string_check": check,
+            "dataloggers": loggers,
+            "dataloggers_error": loggers_error,
+        },
+    }
+
+
+@router.get("/live/plants/{plant_id}/meter")
+def live_plant_meter(
+    plant_id: int,
+    load: bool = Query(True, description="Also derive load = PV AC + grid from the live inverter records (shared `/latest` cache)"),
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Grid import / export now, from the newest record of the plant's energy meter(s)
+    (`meter_last_data`), and the derived load. Memory only, never stored.
+
+    `data.grid`: measured at the meter (+ import / − export). `data.load` (with `load=true`):
+    PV AC + grid, **derived**; PV from each inverter's newest `max_data` record, the same cache
+    as `/live/plants/{id}/latest`, so a page polling both costs no extra Growatt calls. Null with
+    a `reason` when PV at the meter's time is not known for every inverter. 404 without a meter."""
+    meters = growatt_meter.plant_meters(db, plant_id)
+    if not meters:
+        raise HTTPException(status_code=404, detail=f"Plant {plant_id} has no energy meter")
+    phase, coords = ov.plant_phase(db, plant_id), ov.plant_coords(db, plant_id)
+    try:
+        env = live.plant_meter(plant_id, meters, phase=phase, coords=coords)
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    if not load:
+        return env
+    sns = [inv["device_sn"] for inv in ov.list_inverters(db, plant_id)]
+    try:
+        inv = live.plant_latest(plant_id, sns, datetime.now(jobs.PLANT_TZ).date(), phase=phase, coords=coords)
+        d = inv["data"]
+        derived = growatt_meter.live_load(env["data"]["grid"], sns, d["inverters"], d["errors"])
+        # the inverter cache can expire sooner than the meter's: poll on the earlier of the two
+        env = {**env, "refresh_in_s": min(env["refresh_in_s"], inv["refresh_in_s"])}
+    except LiveUnavailable as exc:
+        derived = {"timestamp": env["data"]["grid"]["timestamp"], "pv_kw": None, "load_kw": None, "reason": f"inverters unavailable: {exc}"}
+    return {**env, "data": {**env["data"], "load": {**derived, "derived": True}}}
 
 
 @router.get("/live/plants/{plant_id}/alarms")

@@ -33,6 +33,7 @@ from app.config import settings
 from app.services.live_store import RedisLink, TieredDict, cache_map, cooldown_map, redis_link
 from solar_core.growatt import (
     ENV_FIELDS,
+    METER_FIELDS,
     GrowattAPIError,
     GrowattClient,
     newest_max_records,
@@ -338,6 +339,25 @@ class GrowattLiveService:
         r = self._get(("inverters", ph, plant_id), lambda c: c.list_inverters(plant_id, refresh=True), ttl, ph)
         return self._envelope(r)
 
+    def plant_dataloggers(
+        self, plant_id: int, phase: Optional[int] = None, coords: Optional[Coords] = None
+    ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+        """Online state of one plant's dataloggers (`device/datalogger/list`): (rows, error).
+        Not persisted. One call per plant, cached `ttl_s` (night-stretched) under
+        `("dataloggers", phase, plant_id)`; a refused call serves the last rows (each `stale`).
+
+        It rides on `/live/plants/{id}/latest` and must never fail it: any failure answers
+        (None, reason). A plant whose inverters are all silent while its datalogger still
+        uploads has an inverter-side problem; a `lost` datalogger explains the silence."""
+        try:
+            ph = self.resolve_phase(phase)
+            ttl = lambda _rows: self._night(self.ttl_s, coords)
+            r = self._get(("dataloggers", ph, plant_id), lambda c: _datalogger_rows(c, plant_id), ttl, ph)
+        except Exception as exc:  # LiveUnavailable, or a client without the endpoint
+            return None, str(exc) or type(exc).__name__
+        rows = [{**d, "stale": r.stale, "fetched_at": r.wall.isoformat()} for d in r.data]
+        return rows, r.error
+
     def _latest_ttl(self, row: Optional[Dict[str, Any]]) -> float:
         """Cache one inverter's newest record until its next record should be on Growatt.
 
@@ -487,15 +507,7 @@ class GrowattLiveService:
         `DEFAULT_INTERVAL_S`). Gaps outside `MIN_INTERVAL_S`..`MAX_INTERVAL_S` are outages, not
         the rhythm, and are not used."""
 
-        def fetch(client: GrowattClient) -> Optional[Dict[str, Any]]:
-            row = _env_row(client, datalogger_sn, address)
-            hit = self._cache.get(key)
-            prev = hit[2] if hit else None
-            if row is not None and isinstance(prev, dict):
-                row["interval_s"] = _record_gap(prev, row)
-            return row
-
-        return fetch
+        return self._interval_fetch(key, lambda c: _env_row(c, datalogger_sn, address))
 
     def sensor_status(
         self, dataloggers: Sequence[Tuple[str, Optional[int]]], coords: Optional[Coords] = None
@@ -833,6 +845,78 @@ class GrowattLiveService:
             )
         )
 
+    def plant_meter(
+        self,
+        plant_id: int,
+        meters: Sequence[Tuple[str, int]],
+        phase: Optional[int] = None,
+        coords: Optional[Coords] = None,
+    ) -> Dict[str, Any]:
+        """Newest energy-meter record per meter of one plant (`meter_last_data`). Not persisted.
+
+        Cached per meter like `plant_weather` (until its next record is due, never sooner than
+        `device_gap_s`, night-stretched). `active_power_w` is signed grid power at the meter
+        (+ import / − export, as `growatt_meter`). `data.grid` sums the meters, only when every
+        meter has a record (a partial sum would understate import); else its values are null.
+        """
+        ph = self.resolve_phase(phase)
+        ttl = lambda row: self._night(max(self.device_gap_s, self._latest_ttl(row)), coords)
+        out: List[Dict[str, Any]] = []
+        errors: Dict[str, str] = {}
+        fresh_walls: List[datetime] = []
+        all_walls: List[datetime] = []
+        refresh: List[float] = []
+        for dl, addr in meters:
+            key = ("meter", dl, addr)
+            label = f"{dl}/{addr}"
+            try:
+                r = self._get(key, self._interval_fetch(key, lambda c, dl=dl, addr=addr: _meter_row(c, dl, addr)), ttl, ph, gap_s=self.device_gap_s)
+            except LiveUnavailable as exc:
+                errors[label] = str(exc)
+                refresh.append(self._refresh_in(key))
+                continue
+            refresh.append(r.refresh_in)
+            all_walls.append(r.wall)
+            if r.error:
+                errors[label] = r.error
+            if not r.stale:
+                fresh_walls.append(r.wall)
+            if r.data is not None:
+                out.append({**r.data, "stale": r.stale, "fetched_at": r.wall.isoformat()})
+        if not all_walls:
+            raise LiveUnavailable("; ".join(f"{k}: {e}" for k, e in errors.items()) or "no energy meters")
+        powers = [m["active_power_w"] for m in out]
+        whole = len(out) == len(meters) and all(p is not None for p in powers)
+        kw = sum(powers) / 1000.0 if whole else None  # type: ignore[arg-type]
+        grid = {
+            "timestamp": max(m["timestamp"] for m in out) if out else None,
+            "grid_power_kw": round(kw, 2) if kw is not None else None,
+            "grid_import_kw": round(max(kw, 0.0), 2) if kw is not None else None,
+            "grid_export_kw": round(max(-kw, 0.0), 2) if kw is not None else None,
+        }
+        return self._envelope(
+            _Result(
+                max(fresh_walls or all_walls),
+                {"plant_id": plant_id, "meters": out, "grid": grid, "errors": errors},
+                stale=not fresh_walls,
+                error="; ".join(f"{k}: {e}" for k, e in errors.items()) or None,
+                refresh_in=min(refresh),
+            )
+        )
+
+    def _interval_fetch(self, key: Hashable, row_fn: Callable[[GrowattClient], Optional[Dict[str, Any]]]) -> Callable[[GrowattClient], Any]:
+        """`row_fn` with `interval_s` measured from the record cached before it (see `_env_fetch`)."""
+
+        def fetch(client: GrowattClient) -> Optional[Dict[str, Any]]:
+            row = row_fn(client)
+            hit = self._cache.get(key)
+            prev = hit[2] if hit else None
+            if row is not None and isinstance(prev, dict):
+                row["interval_s"] = _record_gap(prev, row)
+            return row
+
+        return fetch
+
     def plant_alarms(
         self,
         plant_id: int,
@@ -984,6 +1068,20 @@ def _record_gap(prev: Dict[str, Any], row: Dict[str, Any]) -> Optional[float]:
     return prev.get("interval_s")  # same record, or an outage gap: keep the rhythm already measured
 
 
+def _meter_row(client: GrowattClient, datalogger_sn: str, address: int) -> Optional[Dict[str, Any]]:
+    rec = client.meter_latest(datalogger_sn, address)
+    if rec is None:
+        return None
+    return {
+        "datalogger_sn": datalogger_sn,
+        "address": address,
+        "timestamp": str(rec.get("timeText")),  # plant-local
+        "interval_s": None,  # set by `_interval_fetch` from the previously cached record
+        "lost": _flag(rec.get("lost")),
+        **{col: _f(rec.get(key)) for key, col in METER_FIELDS.items()},
+    }
+
+
 def _env_status_rows(client: GrowattClient, datalogger_sn: str) -> List[Dict[str, Any]]:
     """`env_list` → [{address, lost, last_update_time}]: realtime, never stored."""
     rows: List[Dict[str, Any]] = []
@@ -994,6 +1092,37 @@ def _env_status_rows(client: GrowattClient, datalogger_sn: str) -> List[Dict[str
             continue
         rows.append({"address": addr, "lost": _flag(e.get("lost")), "last_update_time": _local_ts(e.get("lastUpdateTime"))})
     return rows
+
+
+def _datalogger_rows(client: GrowattClient, plant_id: int) -> List[Dict[str, Any]]:
+    """`device/datalogger/list` → [{datalogger_sn, model, lost, last_update_time}]: realtime, never stored."""
+    rows: List[Dict[str, Any]] = []
+    for d in client.list_dataloggers(plant_id):
+        sn = str(d.get("sn") or "").strip()
+        if not sn:
+            continue
+        rows.append(
+            {
+                "datalogger_sn": sn,
+                "model": str(d.get("model") or "").strip() or None,
+                "lost": _flag(d.get("lost")),
+                "last_update_time": _epoch_local(d.get("last_update_time")),
+            }
+        )
+    return sorted(rows, key=lambda r: r["datalogger_sn"])
+
+
+def _epoch_local(v: Any) -> Optional[str]:
+    """A Java date object (`{"time": epoch ms, ...}`, as `device/datalogger/list` gives
+    `last_update_time`) → plant-local "YYYY-MM-DD HH:MM:SS". Epoch milliseconds carry no time
+    zone, so nothing is assumed; any other shape is None."""
+    ms = v.get("time") if isinstance(v, dict) else None
+    if isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).astimezone(PLANT_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _flag(v: Any) -> Optional[bool]:
@@ -1021,7 +1150,7 @@ POWER_TAIL_RECORDS = 100  # the first page of `max_data`: today's newest ≈ 8 h
 def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str, Any]]:
     # same single call either way (first page = 100 records); the older ones let the live string
     # check require a fault to persist instead of flagging one passing cloud shadow
-    page = newest_max_records(client, sn, day, n=POWER_TAIL_RECORDS)
+    page, source = _newest_records(client, sn, day)
     if not page:
         return None
     recs = page[: 1 + PREVIOUS_RECORDS]
@@ -1038,6 +1167,9 @@ def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str,
     prev = _record_ts(recs[1]) if len(recs) > 1 else None
     return {
         "device_sn": sn,
+        # which Growatt call gave the record: `max_data`, or (when that one refused) one of the
+        # newest-record endpoints, which bring no older records (no persistence check, no power tail)
+        "record_source": source,
         "timestamp": row["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),  # plant-local
         # gap to the previous record (Growatt timestamps); sets when the next one is due
         "interval_s": (row["timestamp"] - prev).total_seconds() if prev else None,
@@ -1060,6 +1192,29 @@ def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str,
         # overview chart draw past the newest stored record; memory only, never stored
         "power": _power_tail(page),
     }
+
+
+def _newest_records(client: GrowattClient, sn: str, day: date) -> Tuple[List[Dict[str, Any]], str]:
+    """Today's newest records of one inverter, newest first, and the call that gave them.
+
+    `max_data` first (up to POWER_TAIL_RECORDS records). When it refuses (10012 inside the
+    inverter's 4–5 min window, or any other Growatt error), the newest record alone is read from
+    `device/max/max_last_data`, then `new-api/queryLastData` (same record fields, their own rate
+    limits; not measured). A record of another day means no record today: []. If they refuse too,
+    the `max_data` error stands."""
+    try:
+        return newest_max_records(client, sn, day, n=POWER_TAIL_RECORDS), "max_data"
+    except GrowattAPIError as first:
+        for source, name in (("max_last_data", "max_last_record"), ("queryLastData", "device_last_record")):
+            try:
+                rec = getattr(client, name)(sn)
+            except Exception:  # refused as well, or a client without it: try the next one
+                continue
+            ts = _record_ts(rec) if rec else None
+            if rec is None or ts is None:
+                continue
+            return ([rec] if ts.date() == day else []), source
+        raise first
 
 
 def _power_tail(recs: List[Dict[str, Any]]) -> List[List[Any]]:

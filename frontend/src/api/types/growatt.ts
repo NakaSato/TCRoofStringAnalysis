@@ -48,6 +48,36 @@ export interface GrowattLive<T> {
   data: T;
 }
 
+/** `/growatt/live/plants/{id}/meter`: the energy meter's newest record (`meter_last_data`), memory only. */
+export interface GrowattLiveMeter {
+  plant_id: number;
+  meters: Array<{
+    datalogger_sn: string;
+    address: number;
+    /** plant-local record time */
+    timestamp: string;
+    interval_s: number | null;
+    lost: boolean | null;
+    /** signed grid power at the meter: + import / − export */
+    active_power_w: number | null;
+    active_power_l1_w: number | null;
+    active_power_l2_w: number | null;
+    active_power_l3_w: number | null;
+    reactive_power_var: number | null;
+    power_factor: number | null;
+    frequency_hz: number | null;
+    /** import counter, kWh */
+    import_counter_kwh: number | null;
+    stale: boolean;
+    fetched_at: string;
+  }>;
+  /** measured, summed over the plant's meters; null unless every meter has a record */
+  grid: { timestamp: string | null; grid_power_kw: number | null; grid_import_kw: number | null; grid_export_kw: number | null };
+  /** PV AC + grid: derived, never measured (absent with `load=false`); null with `reason` when PV is not known */
+  load?: { timestamp: string | null; pv_kw: number | null; load_kw: number | null; reason: string | null; derived: true };
+  errors: Record<string, string>;
+}
+
 /** One record of the Growatt alarm / fault log (`device/max/alarm_data`); times are plant-local. */
 export interface GrowattAlarm {
   device_sn: string;
@@ -189,6 +219,8 @@ export interface GrowattInverterSettings {
 }
 
 export interface GrowattLiveInverterLatest {
+  /** which Growatt call gave the record; other than `max_data` = a newest-record fallback (no older records, one-point `power`) */
+  record_source?: "max_data" | "max_last_data" | "queryLastData";
   device_sn: string;
   timestamp: string; // plant-local
   status: number | null;
@@ -236,12 +268,27 @@ export interface LiveStringCheck {
   summary: { healthy: number; warning: number; critical: number; unknown: number; checked_inverters: number; at: string | null };
 }
 
+/** One datalogger of `data.dataloggers` (/live/plants/{id}/latest, Growatt `device/datalogger/list`): realtime only. */
+export interface GrowattLiveDatalogger {
+  datalogger_sn: string;
+  model: string | null;
+  /** Growatt's own flag: true = it lost contact with the datalogger; null = not reported */
+  lost: boolean | null;
+  /** last upload, plant-local "YYYY-MM-DD HH:MM:SS"; null = not reported */
+  last_update_time: string | null;
+  stale: boolean;
+  fetched_at: string;
+}
+
 export interface GrowattLivePlantLatest {
   plant_id: number;
   day: string;
   inverters: GrowattLiveInverterLatest[];
   errors: Record<string, string>;
   string_check?: LiveStringCheck;
+  /** null = the datalogger call failed (`dataloggers_error` says why); the inverters are unaffected */
+  dataloggers?: GrowattLiveDatalogger[] | null;
+  dataloggers_error?: string | null;
 }
 
 /** /growatt/plants/{id}/inverters/{sn}/timeseries — one inverter's stored 5-minute day curve (DB only). */
@@ -359,6 +406,8 @@ export interface GrowattPlantOverview {
     device_model?: string | null;
     datalogger_model?: string | null;
     rated_power_kw?: number | null;
+    /** when the device was added to Growatt (`device/all/create_date`), as reported; not a commissioning date */
+    growatt_created_at?: string | null;
     settings?: GrowattInverterSettings;
     status: number | null;
     status_label: string | null;
@@ -878,6 +927,8 @@ export interface GrowattInverter {
   device_model?: string | null;
   datalogger_model?: string | null;
   rated_power_kw?: number | null;
+  /** when the device was added to Growatt (`device/all/create_date`), as reported; not a commissioning date */
+  growatt_created_at?: string | null;
   settings?: GrowattInverterSettings;
 }
 
@@ -888,7 +939,8 @@ export interface GrowattPlantPower {
   inverter_count: number;
   /** sum of the inverters' nameplate AC; null unless every inverter has one */
   rated_ac_kw: number | null;
-  timeseries: Omit<GrowattPlantOverview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c">[];
+  /** `irradiance_wm2`: the weather sensor's POA irradiance (measured; null without a sensor) */
+  timeseries: Omit<GrowattPlantOverview["timeseries"][number], "module_temp_c" | "ambient_temp_c">[];
   /** the plant has an energy meter (grid / load columns in `timeseries`) */
   has_meter?: boolean;
   /** Growatt's own 5-min plant AC curve (`plant/power`), stored for finished days only */

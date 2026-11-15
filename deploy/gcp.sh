@@ -51,6 +51,7 @@ BUDGET_TOPIC="tcroof-budget"
 GUARD="tcroof-cost-guard"
 DISK_GB="${DISK_GB:-100}"              # must hold HISTORY_RETENTION_DAYS of readings
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
+HISTORY_INTERVAL_MIN="${HISTORY_INTERVAL_MIN:-10}"   # history interval on the worker
 ENV_INTERVAL_MIN="${ENV_INTERVAL_MIN:-0}"   # env_history interval on the worker; 0 = off
 SNAPSHOT_POLICY="tcroof-db-weekly"
 OLD_SNAPSHOT_POLICIES="tcroof-db-daily"        # detached from the disk when found
@@ -421,7 +422,7 @@ FIREBASE_PROJECT_ID=${PROJECT}
 FIREBASE_CREDENTIALS_FILE=secrets/firebase-service-account.json
 PUBLISH_SINK=firestore
 PUBLISH_DAILY_WRITE_BUDGET=15000
-WORKER_HISTORY_INTERVAL_MIN=30
+WORKER_HISTORY_INTERVAL_MIN=${HISTORY_INTERVAL_MIN}
 WORKER_ENV_INTERVAL_MIN=${ENV_INTERVAL_MIN}
 HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
 $(tr ' ' '\n' <<<"$pg")

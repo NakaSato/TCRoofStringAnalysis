@@ -25,6 +25,16 @@ from app.services.growatt_common import _bucket, _integrate_kwh, _round
 M = GrowattMeterReading
 
 
+def plant_meters(db: Session, plant_id: int) -> List[Tuple[str, int]]:
+    """(datalogger SN, bus address) of each registered meter of the plant."""
+    rows = db.execute(
+        select(GrowattMeter.datalogger_sn, GrowattMeter.address)
+        .where(GrowattMeter.plant_id == plant_id)
+        .order_by(GrowattMeter.datalogger_sn, GrowattMeter.address)
+    ).all()
+    return [(str(dl), int(a)) for dl, a in rows]
+
+
 def meter_slots(db: Session, plant_id: int, start: datetime, end: datetime) -> Tuple[bool, Dict[str, float]]:
     """(plant has a meter, {slot "YYYY-MM-DD HH:MM:SS": grid power W}) for [start, end).
     Each meter's records are averaged within the 5-minute slot, then summed across meters."""
@@ -85,3 +95,53 @@ def day_energy(db: Session, plant_id: int, start: datetime, end: datetime, times
         "grid_export_kwh": integ("grid_export_kw"),
         "load_kwh": integ("load_kw"),
     }
+
+
+LIVE_LOAD_MATCH_S = 600  # an inverter record counts towards the live load only this close to the meter's
+
+
+def live_load(grid: Dict[str, Any], device_sns: List[str], inverters: List[Dict[str, Any]], errors: Dict[str, str]) -> Dict[str, Any]:
+    """Live load = PV AC + grid power at the meter's newest record (derived, never measured).
+
+    PV AC sums each inverter's newest live record (`/live/plants/{id}/latest`). An inverter
+    counts as 0 W when it has no record today, or when its newest record is older than the
+    meter's and read 0 W (it shut down for the night). Any other inverter without a record
+    within `LIVE_LOAD_MATCH_S` of the meter's (failed call, silent while producing) leaves
+    PV, and so load, unknown: null with a `reason`, never a partial sum."""
+    out: Dict[str, Any] = {"timestamp": grid.get("timestamp"), "pv_kw": None, "load_kw": None, "reason": None}
+    kw = grid.get("grid_power_kw")
+    if kw is None or not grid.get("timestamp"):
+        out["reason"] = "no complete meter record"
+        return out
+    t_meter = datetime.strptime(grid["timestamp"], "%Y-%m-%d %H:%M:%S")
+    by_sn = {r["device_sn"]: r for r in inverters}
+    pv_w = 0.0
+    unknown: List[str] = []
+    for sn in device_sns:
+        r = by_sn.get(sn)
+        if r is None:
+            if sn in errors:
+                unknown.append(sn)  # not read: may be producing
+            continue  # no record today: off
+        try:
+            t = datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S")
+        except (KeyError, TypeError, ValueError):
+            unknown.append(sn)
+            continue
+        pac = r.get("pac_w")
+        if abs((t - t_meter).total_seconds()) <= LIVE_LOAD_MATCH_S and pac is not None:
+            pv_w += pac
+        elif t < t_meter and pac == 0:
+            continue  # shut down before the meter's record
+        else:
+            unknown.append(sn)
+    if unknown:
+        out["reason"] = f"no inverter record near the meter's for {len(unknown)} of {len(device_sns)} inverters"
+        return out
+    out["pv_kw"] = round(pv_w / 1000.0, 2)
+    load = pv_w / 1000.0 + kw
+    if load < 0:
+        out["reason"] = "export above PV (inconsistent records)"
+        return out
+    out["load_kw"] = round(load, 2)
+    return out

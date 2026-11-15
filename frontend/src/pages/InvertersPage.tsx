@@ -152,6 +152,7 @@ export const InvertersPage: React.FC = () => {
       <InverterCard
         inv={inv}
         state={state}
+        datalogger={live?.dataloggers?.find((d) => d.datalogger_sn === inv.datalogger_sn) ?? null}
         day={day}
         pct={pctOfAvg(inv)}
         anomalies={invAnomalies}

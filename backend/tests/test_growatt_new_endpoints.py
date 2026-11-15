@@ -386,3 +386,360 @@ def test_implausible_growatt_day_figure_is_withheld(tmp_path):
     a, b = out["daily"]
     assert a["growatt_energy_kwh"] == 2092.0 and a["growatt_implausible"] is False
     assert b["growatt_energy_kwh"] is None and b["growatt_implausible"] is True
+
+
+# --------------------------------------------------------------------------- endpoints merged into existing ones
+# datalogger status → /live/plants/{id}/latest, creation date → inverter registry
+
+
+def test_client_parses_dataloggers_and_create_time():
+    seen: list = []
+
+    def get(url, params=None, timeout=None):
+        seen.append((url.split("/v1/")[1], dict(params)))
+        return _Resp({"error_code": 0, "data": {"count": 1, "dataloggers": [
+            {"sn": "DYDCE9302Z", "model": "ShineMaster", "lost": False, "last_update_time": {"time": 1794717078792, "timezoneOffset": -480}},
+        ]}})
+
+    def post(url, data: Any = None, params=None, timeout=None, **kw):
+        path = url.split("/v1/")[1]
+        seen.append((path, dict(data or params)))
+        return _Resp({"error_code": 0, "data": {
+            "A": {"createTime": "2025-01-16 16:05:44", "deviceSn": "A"}, "B": {"createTime": ""},
+        }})
+
+    c = _client(get=get, post=post)
+    assert c.list_dataloggers(9947162)[0]["sn"] == "DYDCE9302Z"
+    assert c.devices_create_time(["A", "B", "C"]) == {"A": datetime(2025, 1, 16, 16, 5, 44)}  # blank / unanswered: absent
+    # create_date: page 2 repeated page 1's serials, so paging stopped there
+    assert [p["pageNum"] for path, p in seen if path == "device/all/create_date"] == [1, 2]
+
+
+class _LoggerAcct:
+    def __init__(self):
+        self.calls = 0
+        self.fail: Any = None
+
+    def list_dataloggers(self, plant_id):
+        self.calls += 1
+        if self.fail:
+            raise self.fail
+        return [
+            {"sn": "DL2", "model": "", "lost": True, "last_update_time": "2026-11-15 11:31:18"},
+            {"sn": "DL1", "model": "ShineMaster", "lost": False, "last_update_time": {"time": 1794717078792}},
+        ]
+
+
+def test_plant_dataloggers_live_only_and_never_raises():
+    fake, clock = _LoggerAcct(), _Clock()
+    svc = GrowattLiveService(
+        client_factory=lambda phase: fake,  # type: ignore[arg-type,return-value]
+        ttl_s=120, clock=clock, phases=(1,), now_local=lambda: datetime(2026, 11, 15, 11, 35),
+    )
+    rows, error = svc.plant_dataloggers(1)
+    assert error is None and rows is not None and [r["datalogger_sn"] for r in rows] == ["DL1", "DL2"]
+    # epoch ms → plant-local (Bangkok); a text time has no known zone, so it is not guessed
+    assert rows[0] == {**rows[0], "model": "ShineMaster", "lost": False, "last_update_time": "2026-11-15 11:31:18", "stale": False}
+    assert (rows[1]["model"], rows[1]["lost"], rows[1]["last_update_time"]) == (None, True, None)
+    svc.plant_dataloggers(1)
+    assert fake.calls == 1  # cached
+    clock.t += 200
+    fake.fail = GrowattAPIError("frequently access", error_code=10012)
+    rows, error = svc.plant_dataloggers(1)
+    assert rows is not None and rows[0]["stale"] is True and error  # last value, marked stale
+    assert svc.plant_dataloggers(2) == (None, error)  # nothing cached: no rows, no exception
+    assert svc.plant_dataloggers(1, phase=4)[0] is None  # no token for that account
+
+
+def test_latest_route_carries_dataloggers(client):  # noqa: F811
+    from app.services.growatt_live import get_live_service
+    from tests.test_growatt_routes import PLANT, _FakeMaxClient
+
+    class Fake(_FakeMaxClient):  # max_data for the inverters, datalogger/list for the plant
+        fail: Any = None
+
+        def list_dataloggers(self, plant_id):
+            if self.fail:
+                raise self.fail
+            return [{"sn": "DL2", "lost": True}, {"sn": "DL1", "model": "ShineMaster", "lost": False}]
+
+    fake = Fake()
+    svc = GrowattLiveService(client_factory=lambda phase: fake, clock=_Clock(), phases=(1,))  # type: ignore[arg-type,return-value]
+    client.app_ref.dependency_overrides[get_live_service] = lambda: svc
+    data = client.get(f"/api/growatt/live/plants/{PLANT}/latest").json()["data"]
+    assert [d["datalogger_sn"] for d in data["dataloggers"]] == ["DL1", "DL2"] and data["dataloggers_error"] is None
+
+    fake.fail = GrowattAPIError("frequently access", error_code=10012)
+    svc2 = GrowattLiveService(client_factory=lambda phase: fake, clock=_Clock(), phases=(1,))  # type: ignore[arg-type,return-value]
+    client.app_ref.dependency_overrides[get_live_service] = lambda: svc2
+    r = client.get(f"/api/growatt/live/plants/{PLANT}/latest")
+    assert r.status_code == 200  # the datalogger call failing never fails the inverters' part
+    assert r.json()["data"]["dataloggers"] is None and "10012" not in (r.json()["error"] or "")
+    assert r.json()["data"]["dataloggers_error"]
+
+
+class _CreateAcct:
+    def __init__(self, answers):
+        self.answers = answers
+        self.calls: list = []
+        self.fail: Any = None
+
+    def devices_create_time(self, sns):
+        self.calls.append(list(sns))
+        if self.fail:
+            raise self.fail
+        return {sn: at for sn, at in self.answers.items() if sn in sns}
+
+
+def test_create_date_sweep_reads_once_and_reasks_unanswered(tmp_path):
+    db = _db(tmp_path)
+    acct = _CreateAcct({"A": datetime(2025, 1, 16, 16, 5, 44)})
+    now = datetime.now().astimezone()
+    assert growatt_sync._sync_create_dates(db, acct, [1], now, pause_s=0) == 1  # type: ignore[arg-type]
+    assert acct.calls == [["A", "B"]]  # one call for the plant's inverters
+    assert db.get(GrowattInverter, "A").growatt_created_at == datetime(2025, 1, 16, 16, 5, 44)
+    assert db.get(GrowattInverter, "B").growatt_created_at is None
+    acct.fail = GrowattAPIError("frequently access", error_code=10012)
+    assert growatt_sync._sync_create_dates(db, acct, [1], now, pause_s=0) == 0  # type: ignore[arg-type]
+    assert acct.calls[-1] == ["B"]  # only the unanswered one is asked again
+
+    from app.services.growatt_common import inverter_out
+
+    assert inverter_out(db.get(GrowattInverter, "A"))["growatt_created_at"] == "2025-01-16 16:05:44"
+    assert inverter_out(db.get(GrowattInverter, "B"))["growatt_created_at"] is None
+
+
+# --------------------------------------------------------------------------- remaining endpoints, as fallbacks
+# Each is merged into existing code and asked only when the primary call fails or left a gap.
+
+
+def test_client_parses_the_fallback_endpoints():
+    seen: list = []
+    rec = {"time": "2026-11-15 11:30:12", "pac": 16479, "ppv": 16823.9, "status": 1}
+    new_api = {
+        "new-api/queryDeviceInfo": {"max": [{  # real reply, trimmed
+            "serialNum": "A", "alias": "INVERTER 3", "fwVersion": "TI1.0", "innerVersion": "TIAA25220401",
+            "normalPower": 80000, "onOff": 0, "activeRate": 0, "reactiveRate": 0, "pf": 0.0, "exportLimit": 0,
+        }]},
+        "new-api/queryLastData": {"max": [rec]},
+        "new-api/queryDevicesHistoricalData": {"A": [rec], "B": None},
+    }
+
+    def post(url, data: Any = None, params=None, timeout=None, **kw):
+        path = url.split("/v1/")[1]
+        args = dict(data or params)
+        seen.append((path, args))
+        if path == "new-api/queryDeviceList":
+            rows = [{"deviceSn": "A", "createDate": "2024-12-26 18:53:03"}] if args["page"] == 1 else [{"deviceSn": "B", "createDate": ""}]
+            return _Resp({"code": 0, "data": {"pages": 2, "count": 2, "data": rows}})
+        if path == "new-api/queryHistoricalData":
+            return _Resp({"code": 0, "data": {"datas": [rec], "start": 1, "haveNext": args["deviceSn"] == "LONG"}})
+        if path in new_api:
+            return _Resp({"code": 0, "message": "SUCCESSFUL_OPERATION", "data": new_api[path]})
+        if path == "device/max/max_last_data":
+            return _Resp({"error_code": 0, "data": rec if args["max_sn"] == "A" else {}})
+        assert path == "device/sn_datalog"
+        return _Resp({"error_code": 0, "data": {"datalogSN": "DYDCE9302Z"}})
+
+    c = _client(post=post)
+    info = c.device_info("A")
+    assert (info["alias"], info["nominal_power_w"], info["fw_version"]) == ("INVERTER 3", 80000.0, "TI1.0")
+    assert info["active_rate_pct"] is None and info["on_off"] is None  # the all-zero settings block = not read
+    assert c.device_last_record("A") == rec and c.max_last_record("A") == rec and c.max_last_record("B") is None
+    assert c.max_history_batch(["A", "B"], TODAY) == {"A": [rec]}
+    assert c.max_history_day("A", TODAY) == [rec]
+    assert c.max_history_day("LONG", TODAY) is None  # more pages follow: an incomplete answer is not used
+    assert c.account_create_times() == {"A": datetime(2024, 12, 26, 18, 53, 3)}  # both pages read, blank date left out
+    assert [a["page"] for p, a in seen if p == "new-api/queryDeviceList"] == [1, 2]
+    assert c.device_datalogger("A") == "DYDCE9302Z"
+
+
+class _InfoAcct:
+    """max_data_info refuses from the second inverter on; queryDeviceInfo answers."""
+
+    def __init__(self):
+        self.old: list = []
+        self.new: list = []
+        self.new_fail: Any = None
+
+    def max_info(self, sn):
+        self.old.append(sn)
+        if sn != "A":
+            raise GrowattAPIError("frequently access", error_code=10012)
+        return {"alias": "OLD", "nominal_power_w": 50000.0}
+
+    def device_info(self, sn):
+        self.new.append(sn)
+        if self.new_fail:
+            raise self.new_fail
+        return {"alias": "NEW", "nominal_power_w": 80000.0}
+
+
+def test_info_sweep_continues_through_query_device_info(tmp_path):
+    db = _db(tmp_path)
+    for sn in "CD":
+        db.add(GrowattInverter(device_sn=sn, plant_id=1))
+    db.commit()
+    acct = _InfoAcct()
+    now = datetime.now().astimezone()
+    assert growatt_sync._sync_inverter_info(db, acct, [1], now, pause_s=0) == 4  # type: ignore[arg-type]
+    assert acct.old == ["A", "B"] and acct.new == ["B", "C", "D"]  # max_data_info is not asked again after its 10012
+    assert [db.get(GrowattInverter, sn).alias for sn in "ABCD"] == ["OLD", "NEW", "NEW", "NEW"]
+
+    # both refuse: three 10012s in a row end the sweep, nothing is stamped
+    for sn in "ABCD":
+        db.get(GrowattInverter, sn).info_synced_at = None
+    db.commit()
+    acct = _InfoAcct()
+    acct.new_fail = GrowattAPIError("frequently access", error_code=10012)
+    assert growatt_sync._sync_inverter_info(db, acct, [1], now, pause_s=0) == 1  # type: ignore[arg-type]
+    assert acct.new == ["B", "C", "D"] and db.get(GrowattInverter, "B").info_synced_at is None
+
+
+def test_create_date_and_datalogger_gaps_are_filled_from_the_other_endpoints(tmp_path):
+    db = _db(tmp_path)
+
+    class Acct(_CreateAcct):
+        def account_create_times(self):
+            return {"B": datetime(2024, 12, 26, 18, 53, 10), "ELSEWHERE": datetime(2020, 1, 1)}
+
+        def device_datalogger(self, sn):
+            self.calls.append(("sn_datalog", sn))
+            return "DL9" if sn == "A" else None
+
+    acct = Acct({"A": datetime(2025, 1, 16, 16, 5, 44)})
+    now = datetime.now().astimezone()
+    assert growatt_sync._sync_create_dates(db, acct, [1], now, pause_s=0) == 2  # type: ignore[arg-type]
+    assert db.get(GrowattInverter, "B").growatt_created_at == datetime(2024, 12, 26, 18, 53, 10)  # from queryDeviceList
+
+    db.get(GrowattInverter, "B").datalogger_sn = "DL1"
+    db.commit()
+    acct.calls.clear()
+    assert growatt_sync._sync_missing_dataloggers(db, acct, [1], now, pause_s=0) == 1  # type: ignore[arg-type]
+    assert acct.calls == [("sn_datalog", "A")] and db.get(GrowattInverter, "A").datalogger_sn == "DL9"  # only the one without
+
+
+def _hist(t, pac=1000.0):
+    return {"time": t, "pac": pac, "ppv": pac + 50, "status": 1, "vString1": 600.0, "currentString1": 5.0}
+
+
+class _HistAcct:
+    def __init__(self, batch):
+        self.batch = batch
+        self.batch_calls: list = []
+        self.single_calls: list = []
+        self.day_calls: list = []
+        self.fail: Any = None
+        self.single_fail: Any = None
+        self.day: Any = None
+
+    def max_history_batch(self, sns, day):
+        self.batch_calls.append(list(sns))
+        if self.fail:
+            raise self.fail
+        return {sn: recs for sn, recs in self.batch.items() if sn in sns}
+
+    def max_history(self, sn, start, end, stop_before=None):
+        self.single_calls.append(sn)
+        if self.single_fail:
+            raise self.single_fail
+        return [_hist("2026-11-15 11:40:00")]
+
+    def max_history_day(self, sn, day):
+        self.day_calls.append(sn)
+        return self.day
+
+
+def test_history_batch_covers_proven_inverters_and_falls_back(tmp_path):
+    from app.db.models import GrowattInverterReading
+
+    db = _db(tmp_path)
+    stored = datetime(2026, 11, 15, 11, 30)
+    a, b = db.get(GrowattInverter, "A"), db.get(GrowattInverter, "B")
+    a.history_synced_until = b.history_synced_until = stored
+    db.commit()
+    # A: reaches back to its stored record = complete. B: cut short (oldest record is newer) = not proven.
+    acct = _HistAcct({
+        "A": [_hist("2026-11-15 11:35:00"), _hist("2026-11-15 11:30:00"), _hist("2026-11-15 06:00:00")],
+        "B": [_hist("2026-11-15 11:35:00")],
+    })
+    out = growatt_sync.sync_incremental(db, acct, TODAY, pause_s=0, phase=1, batch_size=20)  # type: ignore[arg-type]
+    assert acct.batch_calls == [["A", "B"]] and acct.single_calls == ["B"]
+    assert (out["batch_calls"], out["batch_inverters"], out["batch_fallback"], out["batch_errors"]) == (1, 1, 1, 0)
+    times = sorted(db.scalars(select(GrowattInverterReading.timestamp).where(GrowattInverterReading.device_sn == "A")))
+    assert times == [datetime(2026, 11, 15, 11, 30), datetime(2026, 11, 15, 11, 35)]  # only the overlap window is written
+    assert db.get(GrowattInverter, "A").history_synced_until == datetime(2026, 11, 15, 11, 35)
+    assert db.get(GrowattInverter, "B").history_synced_until == datetime(2026, 11, 15, 11, 40)  # from max_data
+
+    # refused batch: every inverter is read with max_data, as without batching
+    acct.fail = GrowattAPIError("frequently access", error_code=10012)
+    acct.single_calls.clear()
+    out = growatt_sync.sync_incremental(db, acct, TODAY, pause_s=0, phase=1, batch_size=20)  # type: ignore[arg-type]
+    assert sorted(acct.single_calls) == ["A", "B"] and out["batch_errors"] == 1 and out["failed"] == []
+
+    # off (the default), or nothing stored today: no batch call at all
+    acct.batch_calls.clear()
+    growatt_sync.sync_incremental(db, acct, TODAY, pause_s=0, phase=1)  # type: ignore[arg-type]
+    growatt_sync.sync_incremental(db, acct, TODAY + timedelta(days=1), pause_s=0, phase=1, batch_size=20)  # type: ignore[arg-type]
+    assert acct.batch_calls == []
+
+
+def test_history_reads_today_through_query_historical_data_when_max_data_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(growatt_sync.time, "sleep", lambda s: None)  # `_retry` waits between attempts
+    db = _db(tmp_path)
+    a, b = db.get(GrowattInverter, "A"), db.get(GrowattInverter, "B")
+    a.history_synced_until = datetime(2026, 11, 15, 11, 30)  # B has nothing stored today
+    db.commit()
+    acct = _HistAcct({})
+    acct.single_fail = GrowattAPIError("device offline", error_code=10001)
+    acct.day = [_hist("2026-11-15 11:35:00"), _hist("2026-11-15 11:30:00")]
+    out = growatt_sync.sync_incremental(db, acct, TODAY, pause_s=0, phase=1)  # type: ignore[arg-type]
+    assert out["day_fallback"] == 1 and [sn for sn, _ in out["failed"]] == ["B"]  # B: not provable, stays failed
+    assert db.get(GrowattInverter, "A").history_synced_until == datetime(2026, 11, 15, 11, 35)
+    assert db.get(GrowattInverter, "B").history_synced_until is None
+
+    acct.day = None  # more pages follow / refused: A fails as before
+    out = growatt_sync.sync_incremental(db, acct, TODAY, pause_s=0, phase=1)  # type: ignore[arg-type]
+    assert out["day_fallback"] == 0 and sorted(sn for sn, _ in out["failed"]) == ["A", "B"]
+
+
+def test_latest_row_falls_back_to_the_newest_record_endpoints():
+    import pytest
+
+    from app.services.growatt_live import _latest_row
+
+    rec = {"time": "2026-11-15 11:30:12", "status": 1, "pac": 6100, "ppv": 6300, "vString1": 600, "currentString1": 5.1}
+
+    class Fake:
+        def __init__(self, last=None, new=None):
+            self.last, self.new, self.calls = last, new, []
+
+        def _request(self, method, path, params):
+            self.calls.append("max_data")
+            raise GrowattAPIError("frequently access", error_code=10012)
+
+        def max_last_record(self, sn):
+            self.calls.append("max_last_data")
+            if isinstance(self.last, Exception):
+                raise self.last
+            return self.last
+
+        def device_last_record(self, sn):
+            self.calls.append("queryLastData")
+            if isinstance(self.new, Exception):
+                raise self.new
+            return self.new
+
+    refused = GrowattAPIError("frequently access", error_code=10012)
+    row = _latest_row(Fake(last=rec), "A", TODAY)  # type: ignore[arg-type]
+    assert row is not None and (row["record_source"], row["timestamp"], row["pac_w"]) == ("max_last_data", "2026-11-15 11:30:12", 6100)
+    assert row["previous_strings"] == [] and row["interval_s"] is None and len(row["power"]) == 1  # one record: nothing older
+
+    f = Fake(last=refused, new=rec)
+    row = _latest_row(f, "A", TODAY)  # type: ignore[arg-type]
+    assert row is not None and row["record_source"] == "queryLastData" and f.calls == ["max_data", "max_last_data", "queryLastData"]
+
+    old = {**rec, "time": "2026-11-14 17:55:00"}
+    assert _latest_row(Fake(last=old), "A", TODAY) is None  # type: ignore[arg-type]  # a record of another day = none today
+    with pytest.raises(GrowattAPIError):
+        _latest_row(Fake(last=refused, new=refused), "A", TODAY)  # type: ignore[arg-type]  # all refuse: the max_data error stands

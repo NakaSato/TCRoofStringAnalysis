@@ -1,6 +1,7 @@
 # Growatt endpoints found by the probe: bring them into the app
 
-Status: building (15 Nov 2026). Source: `backend/scripts/probe_growatt_endpoints.py` (read-only probe of the
+Status: first batch merged 15 Nov 2026 (PR #23); second batch built, its calls not yet made against Growatt.
+Open checks are under each "Verify". Source: `backend/scripts/probe_growatt_endpoints.py` (read-only probe of the
 `growatt-public-api` endpoint list, phases 1–3, 15 Nov 2026). `readPower` is already in (`power_limits` job).
 
 ## What each endpoint gives and where it goes
@@ -86,3 +87,58 @@ curves (3 plant-days answered no points), 430 / 430 inverter days.
 - [ ] after deploy: `growatt_energy` run ok on all accounts; stored `plant/energy` vs our integrated kWh within a few % on
       plants with full records
 - [ ] snapshot sweep covers all 629 inverters within ≈ 5 min without blocking `/live/plants/{id}/latest`
+
+## Second batch (15 Nov 2026): every other endpoint, merged into existing routes and jobs
+
+Rule (owner, 15 Nov 2026): use every Growatt endpoint that answers data, but add **no new app route** for one;
+fold it into a route or job that exists. `new-api/readPower` and `new-api/queryDeviceInfoParam` stay as they
+were. The others below are new; all but the first two are **fallbacks**, asked only when the primary call fails
+or left a gap. None of their rate limits was measured.
+
+| Endpoint | Gives | Kind | Merged into |
+|---|---|---|---|
+| `device/datalogger/list` | each datalogger's model, `lost` flag, last upload time | **realtime** | `/growatt/live/plants/{id}/latest`: `data.dataloggers` (memory only, one call per plant); null + `data.dataloggers_error` when the call fails, never failing the inverters' part |
+| `device/all/create_date` | when Growatt registered each device, several serials per call | registry | `fleet`: `growatt_inverters.growatt_created_at` (read once per inverter, 50 serials per call); API field `growatt_created_at` |
+| `new-api/queryDeviceList` | the account's devices with `createDate`, 100 per page | registry | `fleet`: fills the creation date of inverters `create_date` left without one |
+| `device/sn_datalog` | the datalogger of a serial | registry | `fleet`: fills `datalogger_sn` where `device/list` named none |
+| `new-api/queryDeviceInfo` | the `max_data_info` fields (alias, rated power, firmware, settings block) | registry | `fleet` inverter info sweep: read through it once `max_data_info` answers 10012, so a run no longer stops at the first refusal |
+| `new-api/queryDevicesHistoricalData` | one day's records of several inverters per call | source-timestamped history | `history`: `WORKER_HISTORY_BATCH_SIZE` inverters per call, `max_data` per inverter as fallback. **Off by default (0)** |
+| `new-api/queryHistoricalData` | one day's records of one inverter | source-timestamped history | `history`: one more try for an inverter whose `max_data` call failed (`day_fallback`) |
+| `device/max/max_last_data`, `new-api/queryLastData` | the newest record of one inverter | **realtime** | `/growatt/live/plants/{id}/latest`: the newest record when `max_data` refuses the inverter (`record_source` on the row) |
+
+Not merged (nothing in the app lacks what they give): `plant/sn_plant`, `device/check/sn`, `user/c_user_list`.
+Dropped from the probe script (15 Nov 2026, same answer on all three accounts probed): `readMaxParam` (error
+10009), `new-api/getWiFiSignalByDevice` and `new-api/queryDfcData` (no data).
+
+### History from the two `new-api` history endpoints: what is known and what is not
+
+- Known (probe replies, phase 1, 15 Nov 11:30, one inverter): both give the same 70 records as `max_data` and,
+  through `parse_max_records`, the same 952 string rows; inverter rows differ only by float32 noise in `pac`
+  (275.7 vs 275.70001220703125).
+- Not measured: rate limits, the largest serial list, whether a long day is cut short (the batch reply has no
+  paging fields; the single one has `haveNext`, whose paging was not probed). A batch call returns the whole day
+  so far: 1.85 MB for 3 inverters at 11:30.
+- So an answer is stored only when proven complete: the inverter's newest stored record is from today and the
+  answer reaches back to it. Only the 30-min overlap window is written. Anything else goes the old way.
+- To turn batching on: set `WORKER_HISTORY_BATCH_SIZE` (start with 10) on the worker, run `history` once and
+  read the run's `batch_calls` / `batch_inverters` / `batch_fallback` / `batch_errors`.
+
+### Live fallback: what changes for the page
+
+- A row with `record_source` other than `max_data` is the inverter's newest record only: no older records, so
+  the live string check cannot confirm a fault over 6 records, and the chart tail gets one point.
+- A refused `max_data` now costs up to two more Growatt calls for that inverter before its cooldown.
+
+### UI
+
+- Inverter card, Device and settings: "Datalogger now (live)" (Online / Offline, last upload) and "Added to Growatt".
+
+### Verify
+
+- [x] tests: client parsing of every endpoint above; `/latest` carries `dataloggers`, survives a refused
+      datalogger call and falls back to the newest-record endpoints; creation-date and datalogger gaps filled;
+      info sweep continues through `queryDeviceInfo`; batch and single-day history store only proven answers
+- [x] frontend lint + build
+- [ ] none of the new calls has been made against Growatt from this change: check each on the first real runs
+      (`fleet` detail and logs, `history` `day_fallback`, a `/latest` row with `record_source` ≠ `max_data`)
+- [ ] batch history: one measured `history` run with `WORKER_HISTORY_BATCH_SIZE=10` before leaving it on

@@ -71,6 +71,9 @@ _ADDED_COLUMNS = [
     ("growatt_plants", "growatt_inverter_count", "INTEGER", None),
     ("growatt_plants", "growatt_datalogger_count", "INTEGER", None),
     ("growatt_plants", "details_synced_at", "TIMESTAMP WITH TIME ZONE", None),
+    ("growatt_inverter_readings", "fault_code", "INTEGER", None),
+    ("growatt_inverter_readings", "warn_code", "INTEGER", None),
+    ("growatt_inverters", "growatt_created_at", "TIMESTAMP", None),
 ]
 
 

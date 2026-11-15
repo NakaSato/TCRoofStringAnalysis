@@ -114,8 +114,6 @@ CORE: List[Probe] = [
     Probe("device/max/max_data", "POST", lambda s, d: {"max_sn": s.max_sn, "start_date": _day(d), "end_date": _day(d),
                                                       "page": 1, "perpage": 100}),
     Probe("device/max/alarm_data", "POST", lambda s, d: {"max_sn": s.max_sn, "date": _day(d), "page": 1, "perpage": 100}),
-    # readMaxParam only reads; the paramId is a named setting (on/off state)
-    Probe("readMaxParam", "POST", lambda s, d: {"device_sn": s.max_sn, "paramId": "pv_on_off", "startAddr": 0, "endAddr": 0}),
     # weather sensor
     Probe("device/env/env_list", "GET", _dl(lambda s, d: {"datalog_sn": s.env[0] if s.env else s.datalogger_sn,
                                                          "page": 1, "perpage": 100})),
@@ -127,12 +125,10 @@ CORE: List[Probe] = [
     Probe("new-api/queryDeviceInfo", "POST", _v4(), as_query=True),
     Probe("new-api/queryDeviceInfoParam", "POST", _v4(), as_query=True),
     Probe("new-api/queryLastData", "POST", _v4(), as_query=True),
-    Probe("new-api/queryDfcData", "POST", _v4(), as_query=True),
     Probe("new-api/readPower", "POST", _v4(), as_query=True),
     Probe("new-api/queryHistoricalData", "POST", lambda s, d: {**_v4()(s, d), "date": _day(d)}, as_query=True),
     Probe("new-api/queryDevicesHistoricalData", "POST", lambda s, d: {"deviceSn": ",".join(s.max_sns), "deviceType": "max",
                                                                      "date": _day(d)}, as_query=True),
-    Probe("new-api/getWiFiSignalByDevice", "POST", _v4(), as_query=True),
     # users
     Probe("user/c_user_list", "GET", lambda s, d: {"page": 1, "perpage": 100}),
 ]

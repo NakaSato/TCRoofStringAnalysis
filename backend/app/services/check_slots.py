@@ -12,6 +12,18 @@ plant at 08:50, so it can be published at 08:50 and be in the Monitoring PWA Rep
   every alarm-log entry with Growatt `fault_type` "Error" (not "Warning") that started by the
   slot time, open or already closed, once per inverter + message ("(×3)" when it recurred).
   Growatt's placeholder "undown error" is shown as "Error <code>", the code as reported.
+- `issues`: the sheet's DATA LOG, one entry per inverter with something wrong at the check, in
+  INV order: {"inv": "INV3", "state": "Offline" | "Fault" | "Alarm", "items": [{"code",
+  "message", "since", "count"}]}. Fault = status 3 at its reading; Alarm = not in fault, but an
+  alarm active at the check. `items` are the inverter's alarm-log entries active at the check
+  (`_active`), in Growatt's own wording; Growatt's placeholder "undown error" is no message
+  (code only). `since` ("06:19") = the first time that day the log reported the same alarm
+  (same kind, code and text) and `count` = how many times it reported it, both up to the check.
+  When the log has none, the reading's own `fault_code` / `warn_code` (max_data `faultType` /
+  `warnCode`), with the log's text for that code when it has one that day (no `since` /
+  `count`). No source = no items ("INV3 Fault"); nothing is made up. An Offline entry has
+  `last`: the time ("07:40") of the inverter's latest stored reading that day before the
+  check's window, None when it has none that day.
 - sensor: each of the plant's weather sensors' latest irradiance reading in the same window,
   averaged over the sensors (`irradiance_wm2`, `sensor_at`).
 - `google`: Google Maps Weather (modelled), the sheet's สภาพอากาศ. A slot of today frozen at its
@@ -31,16 +43,17 @@ Inverters named as replaced in Growatt ("INV 1 old") are left out (daily_checks.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import (
     GoogleWeatherHourly,
     GrowattAlarm,
+    GrowattAlarmSync,
     GrowattEnvReading,
     GrowattEnvSensor,
     GrowattInverter,
@@ -58,6 +71,9 @@ FAULT_STATUS = 3  # Growatt MAX inverter status: 0 waiting, 1 normal, 3 fault
 SKIP_ALARMS = {"undown error"}
 READY_HISTORY = ("ok", "partial")  # a `history` run in these states counts for readiness
 PULL_SLACK = timedelta(minutes=1)  # the worker starts a scheduled job within its 60 s tick
+# Growatt re-reports an alarm that is still present every ~5 min, each record with end = start:
+# one reported within this of the reference time is still active (growatt_alarms.ONGOING_GAP)
+ONGOING_GAP = timedelta(minutes=10)
 
 
 def hh(hour: int) -> str:
@@ -137,8 +153,8 @@ def is_replaced(inv: GrowattInverter) -> bool:
 def _labels(db: Session, plant_id: int) -> Dict[str, str]:
     from app.services.daily_checks import inverter_label
 
-    invs = db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id))
-    return {i.device_sn: inverter_label(i) for i in invs if not is_replaced(i)}
+    invs = [i for i in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id)) if not is_replaced(i)]
+    return {i.device_sn: inverter_label(i, sole=len(invs) == 1) for i in invs}
 
 
 def has_inverters(db: Session, plant_id: int) -> bool:
@@ -170,6 +186,51 @@ def _windows(col: Any, times: Dict[int, datetime]) -> Any:
     return or_(*[and_(col >= t - WINDOW, col <= t) for t in times.values()])
 
 
+def _active(a: GrowattAlarm, t: datetime, read_at: Optional[datetime]) -> bool:
+    """The alarm is active at slot time `t`: it started by `t` and has no end or ends after
+    `t`. A record with end = start is one report of an alarm Growatt repeats while it lasts:
+    active when reported within ONGOING_GAP of `t` (of the inverter's last alarm-log read
+    `read_at`, when that was before `t`: the log cannot show a later report)."""
+    if a.start_time is None or a.start_time > t:
+        return False
+    if a.end_time is None:
+        return True
+    if a.end_time > a.start_time:
+        return a.end_time >= t
+    ref = min(t, read_at) if read_at is not None else t
+    return a.start_time >= ref - ONGOING_GAP
+
+
+def _item(a: GrowattAlarm) -> Optional[Dict[str, Optional[str]]]:
+    """{code, message} of an alarm-log entry, as Growatt words it; None when it has neither."""
+    code = (a.alarm_code or "").strip() or None
+    msg = (a.alarm_message or "").strip() or None
+    if msg and msg.lower() in SKIP_ALARMS:
+        msg = None
+    return {"code": code, "message": msg} if code or msg else None
+
+
+def _is_error(a: GrowattAlarm) -> bool:
+    return (a.fault_type or "").strip().lower() == "error"
+
+
+def _last_seen(db: Session, sns: Sequence[str], day: date, before: datetime) -> Dict[str, datetime]:
+    """{device_sn: its latest stored reading of `day` earlier than `before`}."""
+    if not sns:
+        return {}
+    return dict(
+        db.execute(
+            select(GrowattInverterReading.device_sn, func.max(GrowattInverterReading.timestamp))
+            .where(
+                GrowattInverterReading.device_sn.in_(sns),
+                GrowattInverterReading.timestamp >= datetime.combine(day, time.min),
+                GrowattInverterReading.timestamp < before,
+            )
+            .group_by(GrowattInverterReading.device_sn)
+        ).all()
+    )
+
+
 def compute_slots(
     db: Session, plant: GrowattPlant, day: date, hours: Sequence[int], live_google: bool = False
 ) -> Dict[str, Dict[str, Any]]:
@@ -185,7 +246,8 @@ def compute_slots(
     inv_rows = (
         list(
             db.execute(
-                select(GrowattInverterReading.device_sn, GrowattInverterReading.timestamp, GrowattInverterReading.status, GrowattInverterReading.pac_w)
+                select(GrowattInverterReading.device_sn, GrowattInverterReading.timestamp, GrowattInverterReading.status, GrowattInverterReading.pac_w,
+                       GrowattInverterReading.fault_code, GrowattInverterReading.warn_code)
                 .where(GrowattInverterReading.device_sn.in_(sns), _windows(GrowattInverterReading.timestamp, times))
             )
         )
@@ -199,6 +261,16 @@ def compute_slots(
             select(GrowattAlarm).where(GrowattAlarm.plant_id == plant.plant_id, GrowattAlarm.day == day, GrowattAlarm.start_time.is_not(None))
         )
     )
+
+    # when each inverter's alarm log of the day was last read (naive plant-local)
+    alarm_read = {
+        sn: (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(PLANT_TZ).replace(tzinfo=None)
+        for sn, at in db.execute(
+            select(GrowattAlarmSync.device_sn, GrowattAlarmSync.synced_at).where(
+                GrowattAlarmSync.plant_id == plant.plant_id, GrowattAlarmSync.day == day
+            )
+        )
+    }
 
     sensors = [(s.datalogger_sn, s.address) for s in db.scalars(select(GrowattEnvSensor).where(GrowattEnvSensor.plant_id == plant.plant_id))]
     env_rows: List[Tuple[Any, ...]] = []
@@ -251,6 +323,53 @@ def compute_slots(
                 if text not in open_now:
                     open_now.append(text)
 
+        # DATA LOG: what is wrong with each inverter at the check
+        issues: List[Dict[str, Any]] = []
+        last_seen = _last_seen(db, [sn for sn in sns if sn not in hits], day, t - WINDOW)
+        for sn in sorted(sns, key=lambda sn: _sort_key(label[sn])):
+            r = hits.get(sn)
+            if r is None:
+                seen = last_seen.get(sn)
+                issues.append({"inv": label[sn], "state": "Offline", "items": [], "last": seen.strftime("%H:%M") if seen else None})
+                continue
+            mine = sorted((a for a in alarms if a.device_sn == sn), key=lambda a: a.start_time or t)
+            # every report of the same alarm (kind, code, text) that day up to the check
+            reports: Dict[Tuple[bool, Optional[str], Optional[str]], List[datetime]] = {}
+            for a in mine:
+                it = _item(a)
+                if it and a.start_time is not None and a.start_time <= t:
+                    reports.setdefault((_is_error(a), it["code"], it["message"]), []).append(a.start_time)
+            items: List[Dict[str, Any]] = []
+            seen_keys = set()
+            # errors before warnings, each in start order
+            for a in sorted((a for a in mine if _active(a, t, alarm_read.get(sn))), key=lambda a: not _is_error(a)):
+                it = _item(a)
+                key = (_is_error(a), it["code"], it["message"]) if it else None
+                if it and key not in seen_keys:
+                    seen_keys.add(key)
+                    times_ = reports[key]
+                    items.append({**it, "since": min(times_).strftime("%H:%M"), "count": len(times_)})
+            if not items:  # the alarm log has nothing active: the reading's own codes
+                # Growatt numbers faults and warnings separately (203 = "PV Isolation Low" as an
+                # Error, "PV Circuit short" as a Warning): the log's text only for the same kind
+                for code, is_error in ((r[4], True), (r[5], False)):
+                    if code:
+                        text = next(
+                            (
+                                i["message"]
+                                for a in mine
+                                if ((a.fault_type or "").strip().lower() == "error") == is_error
+                                for i in [_item(a)]
+                                if i and i["code"] == str(code) and i["message"]
+                            ),
+                            None,
+                        )
+                        items.append({"code": str(code), "message": text})
+            if r[2] == FAULT_STATUS:
+                issues.append({"inv": label[sn], "state": "Fault", "items": items})
+            elif items:
+                issues.append({"inv": label[sn], "state": "Alarm", "items": items})
+
         sens = [env[(h, s)] for s in sensors if (h, s) in env]
         irr = [float(r[2]) for r in sens]
         mod = [float(r[3]) for r in sens if r[3] is not None]
@@ -287,6 +406,7 @@ def compute_slots(
             "fault": fault,
             "alarms": open_now,
             "errors": [k if n == 1 else f"{k} (×{n})" for k, n in errors.items()],
+            "issues": issues,
             "kw": round(sum(pac) / 1000.0, 2) if pac else None,
             "reading_at": max(r[1] for r in hits.values()).strftime("%H:%M") if hits else None,
             "irradiance_wm2": round(sum(irr) / len(irr), 1) if irr else None,

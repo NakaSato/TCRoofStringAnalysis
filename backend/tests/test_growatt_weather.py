@@ -311,6 +311,20 @@ def test_weather_route_without_sensor_and_unknown_plant(env):
     assert c.get("/api/growatt/plants/999/weather").status_code == 404
 
 
+def test_power_range_carries_measured_irradiance_per_day(env):
+    """The day-range curve gets the sensor's POA irradiance slot by slot, as the day view; null without a sensor."""
+    c, _app, _S = env
+    rng = c.get(f"/api/growatt/plants/{PLANT}/power", params={"day": "2026-11-10", "end_day": "2026-11-11"}).json()
+    by_ts = {r["timestamp"]: r["irradiance_wm2"] for r in rng["timeseries"]}
+    assert by_ts["2026-11-11 12:00:00"] == 600 and by_ts["2026-11-10 09:00:00"] == 600
+    assert by_ts["2026-11-10 12:00:00"] is None  # the sensor stopped at 10:00 that day
+    ov = c.get(f"/api/growatt/plants/{PLANT}/overview", params={"day": "2026-11-11"}).json()
+    one = c.get(f"/api/growatt/plants/{PLANT}/power", params={"day": "2026-11-11"}).json()
+    assert [r["irradiance_wm2"] for r in one["timeseries"]] == [r["irradiance_wm2"] for r in ov["timeseries"]]
+    bare = c.get(f"/api/growatt/plants/{BARE}/power", params={"day": "2026-11-11"}).json()
+    assert bare["timeseries"] and all(r["irradiance_wm2"] is None for r in bare["timeseries"])
+
+
 def test_overview_iec_pr_from_measured_irradiance(env):
     c, _app, _S = env
     ov = c.get(f"/api/growatt/plants/{PLANT}/overview", params={"day": "2026-11-11"}).json()

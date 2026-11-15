@@ -17,9 +17,12 @@ Source: the published daily docs (Firestore daily/{day}/plants/{id}) + the plant
 `pwa_report.build`; a check frozen in SQL `pwa_check_slots` that Firestore lacks comes from SQL. Each check is a snapshot at hh:00 − CHECK_OFFSET_MIN (check_slots.py).
 Nothing is made up; no source = "—":
     Status      checks.{hh}.kw + offline / fault           real Growatt power at the slot time
-    DATA LOG    checks.{hh}: "online", "offline", or the faults: offline / fault-status inverters +
-                `errors`, the plant's Fault Error log of that day up to the check (Growatt alarm
-                log, fault_type "Error"; open or closed)
+    DATA LOG    checks.{hh}.issues: "INV1 Offline (last data 07:40), INV3 Fault: 117 Relay check
+                fail (06:19, ×5)" (every inverter offline / in fault status / with an alarm
+                active at the check, with Growatt's code and text, when the log first reported
+                it that day and how many times); inverters reporting but 0 kW = "INV ไม่ผลิตไฟ"
+                first; nothing wrong = "—", no data at all = "offline";
+                under LOG_MAX (300) characters, cut at a whole entry with "…(+N)"
     Note        "INV ทำงานปกติ ค่าแสง 584 (ฝนตก)" …          (old layout)
     ค่าแสง       checks.{hh}.irradiance_wm2                  Growatt weather sensor
     สภาพอากาศ    checks.{hh}.google.condition + " (Google)"  (modelled, at the slot time);
@@ -177,7 +180,7 @@ def sky_th(irr: float, cs: float) -> Optional[str]:
         return None
     k = irr / cs
     if k >= 0.75:
-        return "แดดดี"
+        return "ท้องฟ้าปลอดโปร่ง"
     if k >= 0.45:
         return "มีเมฆบางส่วน"
     if k >= 0.2:
@@ -195,6 +198,8 @@ def _check(c: Any) -> Optional[Dict[str, Any]]:
         "alarms": list(c.get("alarms") or []),
         # the day's Fault Error log up to the check (check slots since 15.11); None = older slot
         "errors": list(c["errors"]) if isinstance(c.get("errors"), list) else None,
+        # per-inverter state and fault codes at the check (check_slots `issues`); None = older slot
+        "issues": list(c["issues"]) if isinstance(c.get("issues"), list) else None,
     }
 
 
@@ -217,16 +222,69 @@ def note(kw: Optional[float], c: Optional[Dict[str, Any]], irr: Optional[int], h
     return " ".join(parts)
 
 
+LOG_MAX = 300  # a DATA LOG cell stays under this many characters
+
+
+NOT_PRODUCING = "INV ไม่ผลิตไฟ"  # the plant's inverters report, but 0 kW at the check
+
+
+def _issue_text(issue: Dict[str, Any]) -> str:
+    """"INV3 Fault: 117 Relay check fail (06:19, ×5) / 203": code and Growatt's own text, either
+    may be missing, then when the alarm log first reported it that day and, when more than once,
+    how many times up to the check. An offline inverter: "INV2 Offline (last data 07:40)", or
+    "(no data today)"; a slot frozen before `last` existed: "INV2 Offline"."""
+    parts = []
+    for it in issue.get("items") or []:
+        text = " ".join(str(v).strip() for v in (it.get("code"), it.get("message")) if v not in (None, ""))
+        if not text:
+            continue
+        count = it.get("count") or 0
+        when = [str(it["since"])] if it.get("since") else []
+        if count > 1:
+            when.append(f"×{count}")
+        if when:
+            text += " (" + ", ".join(when) + ")"
+        if text not in parts:
+            parts.append(text)
+    head = f"{issue.get('inv')} {issue.get('state')}"
+    if issue.get("state") == "Offline" and "last" in issue:
+        head += f" (last data {issue['last']})" if issue["last"] else " (no data today)"
+    return head + (": " + " / ".join(parts) if parts else "")
+
+
+def _capped(entries: Sequence[str], limit: int = LOG_MAX) -> str:
+    """The entries joined with ", "; over `limit`, cut at a whole entry and end with "…(+N)"
+    (N = entries left out)."""
+    full = ", ".join(entries)
+    if len(full) <= limit:
+        return full
+    for keep in range(len(entries) - 1, 0, -1):
+        text = ", ".join(entries[:keep]) + f", …(+{len(entries) - keep})"
+        if len(text) <= limit:
+            return text
+    tail = f"…(+{len(entries) - 1})" if len(entries) > 1 else "…"
+    return entries[0][: limit - len(tail)] + tail  # one entry alone is too long
+
+
 def data_log(kw: Optional[float], c: Optional[Dict[str, Any]]) -> str:
-    """DATA LOG (Fault log): offline inverters, inverters in fault status, then the plant's Fault
-    Error log of the day up to the check (`errors`; older slots: the alarms open at the check)."""
+    """DATA LOG (Fault log): every inverter with something wrong at the check, in INV order:
+    "INV1 Offline (last data 07:40), INV3 Fault: 117 Relay check fail (06:19, ×5)" (check_slots
+    `issues`). A plant whose inverters report but produce 0 kW starts with "INV ไม่ผลิตไฟ" (the
+    reason its Status is abnormal). Nothing wrong = "—"; no data at all = "offline". Slots frozen
+    before `issues`: offline / fault inverters and the alarm list they carry."""
     if kw is None or (c and len(c["offline"]) >= c["inverters"]):
-        return "offline" + (": " + ", ".join(c["errors"]) if c and c["errors"] else "")
+        if c and c["issues"] is None and c["errors"]:
+            return _capped(["offline: " + c["errors"][0], *c["errors"][1:]])
+        return "offline"
+    idle = [NOT_PRODUCING] if kw <= 0 else []
     if not c:
-        return "online"
-    log = c["errors"] if c["errors"] is not None else c["alarms"]
-    faults = [f"{x} Offline" for x in c["offline"]] + [f"{x} Fault" for x in c["fault"]] + log
-    return ", ".join(faults) if faults else "online"
+        return idle[0] if idle else DASH
+    if c["issues"] is not None:
+        entries = [_issue_text(i) for i in c["issues"]]
+    else:
+        log = c["errors"] if c["errors"] is not None else c["alarms"]
+        entries = [f"{x} Offline" for x in c["offline"]] + [f"{x} Fault" for x in c["fault"]] + log
+    return _capped(idle + entries) if idle or entries else DASH
 
 
 # Order of each check's values in `plant_cells` (and in the API's /cells response)

@@ -1,15 +1,15 @@
 # Plan & Spec: Sensors page with a Status tab (realtime)
 
-Status: **Agreed** · Created 2026-11-13 · Decisions 2026-11-13 (§11) · Owner: Chanthawat
+Status: **Built and deployed 2026-11-13** (API revision `tcroof-api-00018-x7g`). Open: the one-day 10012 trial (§8 Phase 2) and the comparison with Growatt's portal (§8 Phase 6) · Created 2026-11-13 · Decisions 2026-11-13 (§11) · Owner: Chanthawat
 Related: [`weather-station-realtime.md`](weather-station-realtime.md) (live tail, `env_history` job)
 
 Add a **Sensors** page whose **Status** tab lists every Growatt weather sensor the user can see, with its online state, last upload, newest reading and health flags, kept current in near realtime. Clicking a sensor opens an **Info** view with everything known about it.
 
 ---
 
-## 1. Current state (checked in code, 2026-11-13)
+## 1. State before this work (checked in code, 2026-11-13; file and line references are from that date)
 
-| Piece | Today | Where |
+| Piece | Then | Where |
 |---|---|---|
 | Sensor registry | `growatt_env_sensors`: `(datalogger_sn, address)`, `plant_id`, `device_name`, `history_synced_until`, `synced_at`. Filled by the `fleet` job from `device/list` (type 3, `device_sn` "env") + `device/env/env_list`. | `db/models.py:384`, `services/growatt_sync.py:248` |
 | Online state | `env_list` returns `lost` and `lastUpdateTime` per sensor, but they are **realtime and deliberately not stored**. Nothing serves them today. | `solar_core/growatt.py:184`, comment `growatt_sync.py:275` |
@@ -37,8 +37,8 @@ Add a **Sensors** page whose **Status** tab lists every Growatt weather sensor t
 - New fleet-wide page **`/sensors`** → nav label **"Weather Sensors"** in the **Monitoring** group (`components/Layout.tsx`), icon `Gauge`, description "Every weather sensor: status, last upload & newest reading". Visible to admins and engineers (filtered by plant).
 - Page tabs (shadcn `Tabs`, value kept in the URL query `?tab=`, per commit `5695c1a` "Keep each page's choices in the URL query"):
   - **Status** (default): fleet table, §6.2.
-  - **Info**: one sensor's full detail, §6.3 (`?tab=info&sensor=<datalogger_sn>:<address>`). Also reachable as a side sheet from a Status row.
-- On the per-plant Weather Station panel, a "Sensor status" link opens `/sensors?tab=info&sensor=…`.
+  - **Info**: one sensor's full detail, §6.3 (`?tab=info&sensor=<datalogger_sn>:<address>`). A Status row opens this tab (no side sheet was built, §8 Phase 3).
+- One plant's sensors are on its own **Sensors** tab (`/plant/:plantId/sensors`, `pages/sensors/PlantSensorView.tsx`). The per-plant Weather Station panel, which first carried a "Sensor status" link, no longer exists.
 
 ## 5. Backend spec
 
@@ -81,7 +81,7 @@ No flag is shown without data to support it; "—" otherwise.
 - Night mode: outside daylight (existing `_night`) entries live up to `GROWATT_LIVE_NIGHT_TTL_S`.
 - Budget check: daytime ≈ 231 calls / 5 min ≈ 2 800 calls/h **only while someone has the page open**. If 10012s rise on inverter `max_data`, raise `SENSOR_STATUS_TTL_S` to 600.
 
-Newest readings (`env_last_data`) are **not** swept fleet-wide: they are fetched for the sensor open in Info, and for up to `SENSOR_READING_ROWS` (default 0 = off) rows on the Status table. The Status table shows the **last stored reading** (≤ 30 min old, ≤ 10 min with `env_history`) labelled "Last sync".
+Newest readings (`env_last_data`) are **not** swept fleet-wide: they are fetched only for the sensor open in Info (the planned `SENSOR_READING_ROWS` setting for Status rows was not built). The Status table shows the **last stored reading** (≤ 30 min old, ≤ 10 min with `env_history`) labelled "Last sync".
 
 ### 5.3 Endpoints
 
@@ -110,7 +110,6 @@ All read-only, `require_plant_read` / `allowed_plant_ids` filtering, mounted at 
 | `SENSOR_STATUS_TTL_S` | `300` |
 | `SENSOR_SWEEP_PER_REQUEST` | `12` |
 | `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` | `15` / `60` |
-| `SENSOR_READING_ROWS` | `0` |
 | `SENSOR_ALARM_COVERAGE_PCT` | `80` |
 
 ## 6. Frontend spec
@@ -238,11 +237,11 @@ _Done 2026-11-13. Deviations: `?day=` also judges the stored-data flags on that 
 |---|---|
 | `env_list` sweep competes with inverter calls on the same datalogger | Per-request cap, 5-min TTL, cooldown on 10012, sweep only while the page is open, one-day trial |
 | Two users / dev + prod share tokens and both sweep | Shared in-process cache per instance; prod max 1 instance; keep dev TTL longer |
-| `lastUpdateTime` timezone confusion | Treat as plant-local like `timeText`; test with a fixture |
+| `lastUpdateTime` timezone confusion | It is China time (UTC+8), not plant-local like `timeText`; converted in `growatt_live.py` (`GROWATT_SERVER_TZ`) and tested with a fixture |
 | Flags look like measurements | Labelled as checks with reasons; never shown without supporting data |
 
 ## 11. Decisions (2026-11-13)
 
 1. **Nav placement:** "Weather Sensors" in the **Monitoring** group, as in §4.
 2. **Active Alarm:** yes, offline sensors are shown there (§6.4).
-3. **Table readings:** the Status table shows the **last stored reading**; a fresh live reading is fetched only for the sensor open in Info (`SENSOR_READING_ROWS` = 0).
+3. **Table readings:** the Status table shows the **last stored reading**; a fresh live reading is fetched only for the sensor open in Info.

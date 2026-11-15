@@ -60,6 +60,17 @@ def test_inverter_label_normalises_growatt_aliases():
     for alias, want in [("INVERTER 3", "INV3"), ("inverter 3", "INV3"), ("Inverter no.3", "INV3"), ("Inverter03", "INV3")]:
         assert inverter_label(GrowattInverter(device_sn="X", alias=alias)) == want
     assert inverter_label(GrowattInverter(device_sn="X", alias=None)) == "X"
+    # the number after INV, not a station suffix or a serial
+    for alias, want in [("INV No.05_ST2", "INV5"), ("INV. No.03_ST1", "INV3"), ("inv 3_st1", "INV3"), ("INV12-St2", "INV12"),
+                        ("INV2 MYHSF12345", "INV2"), ("(4) GKLRF0R001", "INV4"), (" INV7 MYHVG00001", "INV7"), ("INV 10", "INV10")]:
+        assert inverter_label(GrowattInverter(device_sn="X", alias=alias)) == want
+    # never renamed in Growatt (alias = serial): no INV number, even when the serial ends in digits
+    assert inverter_label(GrowattInverter(device_sn="GKLLEXC031", alias="GKLLEXC031")) == "GKLLEXC031"
+    assert inverter_label(GrowattInverter(device_sn="FYLXG4V00E", alias="FYLXG4V00E")) == "FYLXG4V00E"
+    # ... unless it is the plant's only inverter
+    assert inverter_label(GrowattInverter(device_sn="FYLXG4V00E", alias="FYLXG4V00E"), sole=True) == "INV1"
+    assert inverter_label(GrowattInverter(device_sn="X", alias="INVERTER 2"), sole=True) == "INV2"
+    assert is_replaced(GrowattInverter(device_sn="X", alias="INVERTER 1 (เก่า)"))
 
 
 def test_checks_offline_fault_and_open_alarms(db):

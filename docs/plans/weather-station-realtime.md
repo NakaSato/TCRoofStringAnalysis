@@ -1,14 +1,16 @@
 # Plan & Spec: Weather Station realtime updates
 
-Status: **Draft** · Created 2026-11-13 · Owner: Chanthawat
+Status: **Built and deployed 2026-11-14**; the UI part has since been replaced (note below). Open: the `env_history` interval decision (§7 Phase 3) and the stored-data lag check (§7 Phase 4) · Created 2026-11-13 · Owner: Chanthawat
 
 Make the Weather Station (Growatt environmental sensor: POA irradiance, module/ambient temperature, humidity, wind) update in near realtime, the way inverter power already does, without breaking the "never store realtime values" rule.
 
+**UI replaced (checked 2026-11-16):** `WeatherStationPanel` on Generation & PR, its chart live tail and the Overview `WeatherNowTile` no longer exist. A plant's weather sensors now show on its **Sensors** tab (`pages/sensors/PlantSensorView.tsx`; today's chart comes from `GET /growatt/live/sensors/{dl}/{addr}/today`, memory only) and on Plant Overview as `overview/WeatherCard` and `overview/SensorTodayCard`. §5.3, §5.4 and the Phase 1 checklist record what was built first, not what the app has now. The backend parts are still in use: the `env_history` job (§5.1) and the live endpoint's measured `interval_s` (§5.2).
+
 ---
 
-## 1. Current state (checked in code, 2026-11-13)
+## 1. State before this work (checked in code, 2026-11-13; file and line references are from that date)
 
-| Piece | Today | Where |
+| Piece | Then | Where |
 |---|---|---|
 | Live endpoint | `GET /growatt/live/plants/{id}/weather` → `env_last_data` per sensor, memory only, cached until the next 5-min record is due (`_latest_ttl`, `DEFAULT_INTERVAL_S` because `interval_s` is always null), never sooner than `GROWATT_LIVE_DEVICE_GAP_S` (270 s); night TTL up to 1800 s | `routes/growatt.py:144`, `services/growatt_live.py:382`, `_env_row` :522 |
 | Stored history | `history` job every 30 min → `sync_env_incremental` → `growatt_env_readings` | `services/jobs.py:128`, `services/growatt_sync.py:352` |
@@ -88,6 +90,8 @@ New worker job **`env_history`**, separate from `history`:
 | `WORKER_ENV_INTERVAL_MIN` | `10` | `env_history` interval; `0` disables the job |
 | `WORKER_ENV_START_H` / `WORKER_ENV_END_H` | `5` / `20` | Daytime window (plant-local) |
 
+Production runs the job every **15** min (`ENV_INTERVAL_MIN` in `deploy/gcp.config`, since 2026-11-14); the code default stays 10.
+
 ## 6. Plan (phases)
 
 1. **Frontend first (no backend risk):** all sensors, freshness badge, live tail using `timestamp > last stored point` from the loaded series, Overview tile. Delivers most of the visible "realtime" effect.
@@ -125,10 +129,23 @@ _Code done 2026-11-13; trial and prod switch-on open. The worker runs jobs one a
 - [x] 3 × 10012 ends an account's sweep; run `partial`
 - [x] Settings keys from §5.5 in `config.py` and `.env.example`
 - [x] Tests: job upserts env rows idempotently alongside `history`; window respected; disabled at 0; `history` start covers it; oldest-first + 10012 stop (`uv run pytest -q`: 214)
-- [ ] Trial for one day, run on prod instead of dev (a dev worker with the prod tokens would read every sensor a second time and inflate 10012s): `ENV_INTERVAL_MIN=15` in `deploy/gcp.config`, set on the VM 2026-11-14 20:41 Bangkok, so the first full day is 15 Nov 05:00–20:00. Compare 10012 counts for `env_data` and inverter `max_data` (`app_logs` messages containing `10012`) with the job on vs off
+- [x] Trial for one day, run on prod instead of dev (a dev worker with the prod tokens would read every sensor a second time and inflate 10012s): `ENV_INTERVAL_MIN=15` in `deploy/gcp.config`, set on the VM 2026-11-14 20:41 Bangkok, so the first full day is 15 Nov 05:00–20:00. Compare 10012 counts for `env_data` and inverter `max_data` (`app_logs` messages containing `10012`) with the job on vs off
   - Baseline, job off, 14 Nov 00:00–17:30 Bangkok: 8 × 10012, all in `history` (5 `env_data` on 2 sensors, 3 `max_data` on 2 inverters), each retried
   - Full day 14 Nov (job off): still 8, all in `history`. Count by `job`, not only by day: the 02:00 `backfill` also hits 10012 (4 × `max_data` on 15 Nov 02:30, its third start after two deploy restarts), and those are not `env_history`'s doing
+  - **Result, 15 Nov 05:00–20:00 Bangkok, job on at 15 min** (`app_logs`, one line per 10012 answer; run-summary lines left out; checked 15 Nov evening): **24 × 10012**, against **0** in the same hours on 14 Nov (the 14 Nov `history` ones were all at 01:13–02:39):
+
+    | Job | Endpoint | 14 Nov | 15 Nov | What happened |
+    |---|---|---|---|---|
+    | `history` | inverter `max_data` | 0 | 11 | 4 inverters on 2 phase-1 plants: P1_15 at 05:09–05:13 (recovered on retry), P1_26 at 17:27–17:35 (`GKLKE8L00C` failed after 3 retries → run `partial`, read at 17:55) |
+    | `history` | `env_data` | 0 | 2 | 1 sensor at 11:35, recovered on retry |
+    | `env_history` | `env_data` | — | 7 | 1 sensor at 13:17 (phase 3), 6 sensors at 17:45 (phase 1); 2 of 30 runs `partial`, 7,050 sensor reads in all (0.1 % refused) |
+    | `alarms` | `alarm_data` | 0 | 4 | 2 runs cut short (12:19 phase 2, 17:19 phase 1), 10 inverters each left for the next tick |
+
+    - 15 of the 24 fall in one burst, 17:19–17:46, all on the **phase 1 account** but across 9 different dataloggers and three jobs. That looks like the account being throttled, not `env_history` using up one datalogger's window. Outside that burst there were 9 (4 on `max_data`).
+    - The day was not clean: worker restarts at 10:51, 11:18 and 19:33 (deploys), the first day of the alarm tiers (`alarms` every 10 min), and a local phase-1 probe at 14:21–14:34 (no 10012 then).
+    - Acceptance criterion "no increase in inverter 10012" (§8): **not met** on this day (0 → 11 `max_data` answers, 2 inverter syncs lost until the next run), though the confounders above mean it can't be pinned on `env_history`.
 - [ ] Decide interval (10 or 15 min) from the trial, then enable in prod
+  - Recommendation (15 Nov): **stay at 15, don't go to 10.** A 10-min interval adds ≈ 50 % more `env_data` calls (≈ 3,500/day) on the same dataloggers / accounts while 10012 already rose with 15. A shorter interval would not fix the ≤ 15 min lag either: the lag comes from `history` covering the env tick and reaching the sensors ~7 min in, so the fix is to read the sensors before the inverters inside `history`. Repeat one clean day (no deploys) before ticking this box
 
 ### Phase 4: docs & deploy
 - [x] `backend/CLAUDE.md`: Worker table (`env_history`) (Weather sensors section: live `interval_s`, `stored_until` done in Phase 2)
@@ -160,6 +177,6 @@ _Code done 2026-11-13; trial and prod switch-on open. The worker runs jobs one a
 
 ## 10. Open questions
 
-1. Should the Weather Station panel move back onto Plant Overview in full, or is the compact tile enough?
-2. 10-minute env history: acceptable for cost/rate limits, or start at 15?
-3. Show a live weather column in the Fleet list later (DB `stored_until`-based, not live)?
+1. ~~Should the Weather Station panel move back onto Plant Overview in full, or is the compact tile enough?~~ Settled by the UI change: Plant Overview has the weather card and today's sensor chart; the panel is gone.
+2. 10-minute env history, or 15? Production runs 15 since 2026-11-14. The final choice waits for one clean day (§7 Phase 3).
+3. Show a live weather column in the Fleet list later (DB `stored_until`-based, not live)? Still open.

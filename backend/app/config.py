@@ -72,7 +72,13 @@ class Settings(BaseSettings):
     firebase_project_id: str = ""
     publish_daily_write_budget: int = 15000  # stop before the Spark plan's 20k writes/day
     publish_sink: str = "json"  # json (data/firestore_export) | firestore
-    worker_history_interval_min: int = 30
+    worker_history_interval_min: int = 10
+    # `history`: read today's records of this many inverters per call
+    # (`new-api/queryDevicesHistoricalData`) instead of one `max_data` call each. 0 = off. An
+    # inverter the batch does not cover back to its last stored record is read with `max_data`.
+    # Off by default: the endpoint's rate limit and largest serial list were not measured, and a
+    # call returns each inverter's whole day so far (about 0.6 MB per inverter by midday).
+    worker_history_batch_size: int = 0
     # Growatt alarm log (`alarm_data`, one call per inverter) → SQL, so the Active Alarm page
     # reads the whole fleet from the DB. The `alarms` job runs every WORKER_ALARMS_TICK_MIN between
     # WORKER_ALARMS_START_H and _END_H (plant-local) and reads only the inverters due by tier:

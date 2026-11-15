@@ -5,7 +5,7 @@ import { useFleet } from "./FleetContext";
 import { useLivePoll } from "./useLivePoll";
 import { overviewCache } from "./plantCache";
 
-const OVERVIEW_REFRESH_MS = 5 * 60_000; // DB history refresh (worker syncs every 30 min)
+const OVERVIEW_REFRESH_MS = 5 * 60_000; // DB history refresh (worker syncs every 10 min)
 
 /** Same names as the backend's solar_core.growatt.INVERTER_STATUS_NAMES. */
 export const INVERTER_STATUS_NAMES: Record<number, string> = { 0: "Offline", 1: "Normal", 3: "Fault" };

@@ -50,9 +50,11 @@ Quantity × unit rate per item, for one month (730 h). Rates are us-central1 lis
 - "lot" lines are estimates, not metered quantities: item 5 depends on how long the instance is busy serving requests, item 7 is the alerting upper bound (§3.5).
 - Per year: ≈ $906 ≈ ฿30,797.
 
-## 2. Current state (2026-11-13)
+## 2. State before the move (2026-11-13)
 
-| | Now | Target |
+Everything in the Target column is now in place except the company domain (§5).
+
+| | Before | Target |
 |---|---|---|
 | VM | `e2-micro` (free tier), Debian 12 | `e2-standard-2` |
 | Disk | 100 GB `pd-standard` | 100 GB `pd-balanced` |
@@ -73,7 +75,7 @@ Quantity × unit rate per item, for one month (730 h). Rates are us-central1 lis
   2. Create a `pd-balanced` disk from it.
   3. Swap the boot disk while the VM is stopped.
   4. Keep the old disk for 7 days, then delete it.
-- **Do both in one maintenance window: 21:30–23:00 Bangkok.** Alarm syncs end at 21:00 and `publish_today` runs at 19:30. Nothing else runs before `alarms_yesterday` at 00:30 and `backfill` at 02:00.
+- **Do both in one maintenance window: 21:30–23:00 Bangkok.** Alarm syncs ended at 21:00 then (20:00 since 2026-11-15) and `publish_today` runs at 19:30. Nothing else runs before `alarms_yesterday` at 00:30 and `backfill` at 02:00.
   - The UI keeps working during the window; DB pages answer 5xx for about 15 min.
   - A run cut off by the stop is retried after the restart (#11).
 - `deploy/gcp.sh` changes:
@@ -140,12 +142,12 @@ maintenance_work_mem=512MB  max_connections=60  random_page_cost=1.1
 - Logging: default 30-day retention, far under 50 GiB/month.
 - Redis (added 2026-11-13): a container on the existing VM (256 MB of its 8 GB, no persistence), not Memorystore (≈ $36 ≈ ฿1,200/month for the smallest instance, which would pass the cost guard's trip point). Extra cost ฿0; Cloud Run reaches it over the same Direct VPC egress as Postgres.
 
-## 4. Cost cap: never more than ฿3,013/month
+## 4. Cost cap: never more than ฿3,000/month
 
 A GCP budget **only sends alerts; it does not stop spending by itself**, and billing data arrives with a delay of several hours. The cap therefore has three layers.
 
 ### 4.1 Layer 1: limits built into the design
-- **Fixed items** (VM, disk, IP, snapshots, idle Cloud Run, domain) are known in advance: about ฿2,890/month.
+- **Fixed items** (VM, disk, IP, snapshots, secrets and images, domain) are known in advance: about ฿2,272/month (§1.1).
 - **Usage items have ceilings**:
   - Cloud Run `max-instances 1`.
   - The Google Weather budget, the Firestore write budget, the Sheets free quota and the Artifact Registry cleanup policy.
@@ -171,16 +173,18 @@ The function listens to `tcroof-budget` and acts on `costAmount` against the bud
 
 **Decision (2026-11-13): budget ฿3,000 and Cloud Run `min-instances 0`.** Scaling the API to zero saves the ฿447 idle instance, so planned spend is about ฿2,566 (+ requests while in use), with ≈ ฿310 of headroom under the ฿2,880 trigger. Cost: a cold start of a few seconds on the first request after an idle spell.
 
-**Trade-off (with `min-instances 1` and a ฿3,013 budget):** the fixed items alone are ฿2,889, which is 96 % of the cap. With the table's own totals (฿3,013), spend reaches the ฿2,892 trigger around **day 29**, and the guard **turns the whole system off for the last 1–2 days of the month**. A hard cap at ฿3,013 therefore needs headroom of at least ฿150/month. Pick one or more:
+**Rejected alternative, kept for reference (`min-instances 1` and a ฿3,013 budget):** the fixed items alone are ฿2,889, which is 96 % of the cap. With the table's own totals (฿3,013), spend reaches the ฿2,892 trigger around **day 29**, and the guard **turns the whole system off for the last 1–2 days of the month**. A hard cap at ฿3,013 therefore needs headroom of at least ฿150/month. Pick one or more:
 1. Cloud Run `min-instances 1` only from 07:00 to 19:00 (Cloud Scheduler switches it); saves about ฿220/month, with a cold start for the first visit at night.
 2. A 1-year committed-use discount on the VM (about −37 %, ≈ −฿600/month). This is a commitment to pay for the year.
 3. Weekly-only backups and monitoring will likely cost less than their table maximums (฿104, ฿170), but don't count on it.
 
 ## 5. Rollout
 
+Steps 1, 2, 4 and 5 are in place (the live setup is described under Deploy in the root `CLAUDE.md`). Whether step 3's dry run was done is not recorded here. Step 6 is open; step 7 is partly done.
+
 1. **PR 1, scripts and config:**
-   - `MACHINE_TYPE`, `DISK_TYPE`, `upsize`, Postgres tuning, `--min-instances 1`, the static IP and the weekly snapshot policy.
-   - The budget ฿3,013, Pub/Sub, and `tcroof-cost-guard` (new command `deploy/gcp.sh costguard`).
+   - `MACHINE_TYPE`, `DISK_TYPE`, `upsize`, Postgres tuning, `--min-instances 0` (`API_MIN_INSTANCES`), the static IP and the weekly snapshot policy.
+   - The budget ฿3,000, Pub/Sub, and `tcroof-cost-guard` (new command `deploy/gcp.sh costguard`).
    - Update CLAUDE.md (the "< $10/month" text, VM size, the "Why not Cloud SQL" line).
 2. **PR 2, app:** `/api/health/worker`, with tests.
 3. **Cost guard first**, before anything costs more, then a dry run with a test Pub/Sub message at 96 % against a scratch project.
@@ -194,5 +198,5 @@ The function listens to `tcroof-budget` and acts on `costAmount` against the bud
 ## 6. Open questions
 - Company domain name, and who manages its DNS?
 - Who receives alert and budget emails?
-- **Cost guard: OK that hitting ฿2,892 turns the whole system off until someone re-enables billing?** If not, use the softer option: at 96 % set Cloud Run to `min-instances 0` and email. Spend is then not hard-capped.
-- Region: users are in Thailand. Moving to asia-southeast1 (Singapore) cuts about 200 ms per request but costs about 20–25 % more for the VM and is a full migration. This plan keeps us-central1.
+- ~~Cost guard: OK that hitting the trigger turns the whole system off until someone re-enables billing?~~ Decided 2026-11-13: yes, a hard stop at 96 % = ฿2,880 (`COST_CAP_PCT` in `deploy/gcp.config`).
+- Region (not planned): users are in Thailand. Moving to asia-southeast1 (Singapore) cuts about 200 ms per request but costs about 20–25 % more for the VM and is a full migration. This plan keeps us-central1.

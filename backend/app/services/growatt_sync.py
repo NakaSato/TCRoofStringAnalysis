@@ -199,7 +199,12 @@ def sync_fleet(
     except Exception as exc:  # never break the registry over it
         db.rollback()
         log.error("phase %s inverter info sweep failed: %s", phase, exc)
-    for label, sweep in (("plant details", _sync_plant_details), ("inverter model", _sync_device_params)):
+    for label, sweep in (
+        ("plant details", _sync_plant_details),
+        ("inverter model", _sync_device_params),
+        ("inverter creation date", _sync_create_dates),
+        ("inverter datalogger", _sync_missing_dataloggers),
+    ):
         try:
             n = sweep(db, client, pids, now, pause_s)
             log.info("phase %s: %s read for %d", phase, label, n)
@@ -218,18 +223,39 @@ def sync_fleet(
 INFO_REFRESH_HOURS = 20  # settings (power limit, on/off) can change: re-read on each daily fleet run
 
 
+INFO_MAX_RATE_LIMITED = 3  # 10012s in a row from queryDeviceInfo (after max_data_info refused) end the sweep
+
+
 def _sync_inverter_info(
     db: Session, client: GrowattClient, plant_ids: Sequence[int], now: datetime, pause_s: float = 0.5
 ) -> int:
-    """Read name, rating, firmware and settings (`max_data_info`) of the plants' inverters that
-    were never read or were read more than INFO_REFRESH_HOURS ago, oldest first.
+    """Read name, rating, firmware and settings of the plants' inverters that were never read or
+    were read more than INFO_REFRESH_HOURS ago, oldest first.
 
-    `max_data_info` is tightly rate limited: the first 10012 ends the sweep (the rest are read on
-    the next run, still oldest first); any other failure skips that inverter.
+    `max_data_info` is tightly rate limited (about one call per account every few minutes). At
+    its first 10012 the sweep goes on with `new-api/queryDeviceInfo`, which answers the same
+    fields (`GrowattClient.device_info`); INFO_MAX_RATE_LIMITED 10012s in a row from that one end
+    the sweep (the rest are read on the next run, still oldest first). Any other failure skips
+    that inverter.
     """
     now = now.astimezone(timezone.utc)  # bookkeeping is UTC (SQLite drops tzinfo; read back as UTC)
     cutoff = now - timedelta(hours=INFO_REFRESH_HOURS)
     done = 0
+    fallback = False  # max_data_info refused: the rest of this sweep reads queryDeviceInfo
+    in_a_row = 0
+
+    def read(sn: str) -> Dict[str, Any]:
+        nonlocal fallback
+        if not fallback:
+            try:
+                return client.max_info(sn)
+            except GrowattAPIError as exc:
+                if exc.error_code != RATE_LIMIT_CODE:
+                    raise
+                fallback = True
+                log.info("max_data_info rate limited after %d inverters; continuing with queryDeviceInfo", done)
+        return client.device_info(sn)
+
     invs = db.scalars(
         select(GrowattInverter)
         .where(GrowattInverter.plant_id.in_(plant_ids))
@@ -240,18 +266,25 @@ def _sync_inverter_info(
         if last is not None and (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) > cutoff:
             continue
         try:
-            info = client.max_info(inv.device_sn)
+            info = read(inv.device_sn)
         except GrowattAPIError as exc:
             if exc.error_code == RATE_LIMIT_CODE:
-                log.warning("max_data_info rate limited after %d inverters; the rest wait for the next run", done)
-                break
-            log.warning("inverter %s max_data_info failed: %s", inv.device_sn, exc)
+                in_a_row += 1
+                if in_a_row >= INFO_MAX_RATE_LIMITED:
+                    log.warning("inverter info rate limited after %d inverters; the rest wait for the next run", done)
+                    break
+                time.sleep(pause_s)
+                continue
+            in_a_row = 0
+            log.warning("inverter %s info failed: %s", inv.device_sn, exc)
             continue
         except Exception as exc:
-            log.warning("inverter %s max_data_info failed: %s", inv.device_sn, exc)
+            in_a_row = 0
+            log.warning("inverter %s info failed: %s", inv.device_sn, exc)
             continue
-        if all(v is None for v in info.values()):  # answered without a `max` block: try again next run
-            log.warning("inverter %s max_data_info returned no data", inv.device_sn)
+        in_a_row = 0
+        if all(v is None for v in info.values()):  # answered without data: try again next run
+            log.warning("inverter %s info returned no data", inv.device_sn)
             continue
         for k, v in info.items():
             setattr(inv, k, v)
@@ -354,6 +387,79 @@ def _sync_device_params(
     ]
     return _registry_sweep(
         db, invs, lambda i: client.device_info_param(i.device_sn), "param_synced_at", "queryDeviceInfoParam", now, pause_s
+    )
+
+
+CREATE_DATE_CHUNK = 50  # serials per `device/all/create_date` call
+
+
+def _sync_create_dates(
+    db: Session, client: GrowattClient, plant_ids: Sequence[int], now: datetime, pause_s: float = 0.5
+) -> int:
+    """`device/all/create_date` (when Growatt registered the device) for the inverters that have
+    none yet, CREATE_DATE_CHUNK serials per call. The date never changes, so an inverter is read
+    once; one Growatt does not answer is asked again on the next run. REGISTRY_MAX_RATE_LIMITED
+    10012s in a row end the sweep."""
+    invs = list(
+        db.scalars(
+            select(GrowattInverter)
+            .where(GrowattInverter.plant_id.in_(plant_ids), GrowattInverter.growatt_created_at.is_(None))
+            .order_by(GrowattInverter.device_sn)
+        )
+    )
+    done = 0
+    in_a_row = 0
+    for i in range(0, len(invs), CREATE_DATE_CHUNK):
+        chunk = invs[i : i + CREATE_DATE_CHUNK]
+        if i:
+            time.sleep(pause_s)
+        try:
+            created = client.devices_create_time([inv.device_sn for inv in chunk])
+        except GrowattAPIError as exc:
+            if exc.error_code == RATE_LIMIT_CODE:
+                in_a_row += 1
+                if in_a_row >= REGISTRY_MAX_RATE_LIMITED:
+                    log.warning("device/all/create_date rate limited after %d inverters; the rest wait for the next run", done)
+                    break
+                continue
+            in_a_row = 0
+            log.warning("device/all/create_date failed: %s", exc)
+            continue
+        in_a_row = 0
+        for inv in chunk:
+            at = created.get(inv.device_sn)
+            if at is not None:
+                inv.growatt_created_at = at
+                done += 1
+        db.commit()
+    missing = [inv for inv in invs if inv.growatt_created_at is None]
+    if missing:  # the account's own device list carries the same date (`new-api/queryDeviceList`)
+        try:
+            listed = client.account_create_times()
+        except Exception as exc:
+            log.warning("queryDeviceList failed: %s", exc)
+            listed = {}
+        for inv in missing:
+            at = listed.get(inv.device_sn)
+            if at is not None:
+                inv.growatt_created_at = at
+                done += 1
+        db.commit()
+    return done
+
+
+def _sync_missing_dataloggers(
+    db: Session, client: GrowattClient, plant_ids: Sequence[int], now: datetime, pause_s: float = 0.5
+) -> int:
+    """`device/sn_datalog` for the inverters `device/list` named no datalogger for (the live
+    datalogger status and the meter / sensor lookups go by that serial). Usually none."""
+    invs = db.scalars(
+        select(GrowattInverter)
+        .where(GrowattInverter.plant_id.in_(plant_ids), or_(GrowattInverter.datalogger_sn.is_(None), GrowattInverter.datalogger_sn == ""))
+        .order_by(GrowattInverter.device_sn)
+    )
+    return _registry_sweep(
+        db, list(invs), lambda i: {"datalogger_sn": client.device_datalogger(i.device_sn)}, "synced_at", "device/sn_datalog", now, pause_s
     )
 
 
@@ -842,16 +948,27 @@ def sync_incremental(
     pause_s: float = 0.3,
     phase: Optional[int] = None,
     include_untagged: bool = False,
+    batch_size: int = 0,
 ) -> Dict[str, Any]:
     """Fetch only what is new for each inverter since its `history_synced_until`.
 
     The overlap re-reads the last half hour (Growatt uploads arrive late); upserts make the
     overlap free. Inverters never synced start yesterday; long-offline ones look back at
     most `max_back_days` (older gaps are for the `--start/--end` backfill).
+
+    `batch_size` > 0: inverters already holding a record of today are first read `batch_size`
+    per call (`_sync_today_batched`); the others, and any the batch did not cover, get their own
+    `max_data` call as before (`batch_calls` / `batch_inverters` / `batch_fallback` /
+    `batch_errors` in the totals). An inverter whose `max_data` call fails is tried once more
+    through `new-api/queryHistoricalData` (`_sync_today_single`, `day_fallback` in the totals)
+    before it counts as failed.
     """
     floor = datetime.combine(today - timedelta(days=max_back_days), datetime.min.time())
     inverters = list(db.scalars(_inverters_query(phase, include_untagged)))
-    totals: Dict[str, Any] = {"inverters": len(inverters), "inverter_rows": 0, "string_rows": 0, "failed": []}
+    totals: Dict[str, Any] = {"inverters": len(inverters), "inverter_rows": 0, "string_rows": 0, "failed": [], "day_fallback": 0}
+    if batch_size > 0:
+        done = _sync_today_batched(db, client, inverters, today, overlap, batch_size, pause_s, totals)
+        inverters = [inv for inv in inverters if inv.device_sn not in done]
     for inv in inverters:
         since = (inv.history_synced_until - overlap) if inv.history_synced_until else datetime.combine(
             today - timedelta(days=1), datetime.min.time()
@@ -863,10 +980,122 @@ def sync_incremental(
             totals["string_rows"] += n_str
         except Exception as exc:  # keep going; report at the end
             db.rollback()
-            totals["failed"].append((inv.device_sn, str(exc)))
-            log.error("%s incremental sync failed: %s", inv.device_sn, exc)
+            rows = _sync_today_single(db, client, inv, today, overlap)
+            if rows is None:
+                totals["failed"].append((inv.device_sn, str(exc)))
+                log.error("%s incremental sync failed: %s", inv.device_sn, exc)
+            else:
+                totals["inverter_rows"] += rows[0]
+                totals["string_rows"] += rows[1]
+                totals["day_fallback"] += 1
+                log.warning("%s max_data failed (%s): today read through queryHistoricalData", inv.device_sn, exc)
         time.sleep(pause_s)
     return totals
+
+
+BATCH_MAX_ERRORS = 2  # refused batch calls in a row: stop batching for this run
+
+
+def _store_today(
+    db: Session, inv: GrowattInverter, records: Sequence[Dict[str, Any]], today: date, overlap: timedelta
+) -> Optional[Tuple[int, int]]:
+    """Store today's `records` of `inv` (max_data record fields) from an endpoint whose answer
+    may be cut short: (inverter rows, string rows) written, or None when the answer is not
+    proven complete, in which case nothing is written.
+
+    Proof = the inverter's newest stored record is from today and the answer reaches back to it
+    (that record is still on Growatt, so a complete answer includes it). Only rows inside the
+    overlap window are written, like the `max_data` path."""
+    stored = inv.history_synced_until
+    if stored is None or stored < datetime.combine(today, datetime.min.time()):
+        return None
+    inv_rows, str_rows = parse_max_records(inv.device_sn, list(records))
+    times = [r["timestamp"] for r in inv_rows]
+    if not times or min(times) > stored:
+        return None
+    since = stored - overlap
+    inv_rows = [r for r in inv_rows if r["timestamp"] >= since]
+    str_rows = [r for r in str_rows if r["timestamp"] >= since]
+    _upsert(db, GrowattInverterReading, inv_rows)
+    _upsert(db, GrowattStringReading, str_rows)
+    inv.history_synced_until = max(stored, max(times))
+    db.commit()
+    return len(inv_rows), len(str_rows)
+
+
+def _sync_today_single(
+    db: Session, client: GrowattClient, inv: GrowattInverter, today: date, overlap: timedelta
+) -> Optional[Tuple[int, int]]:
+    """Today's records of one inverter through `new-api/queryHistoricalData`, for an inverter
+    `max_data` just refused. None = not used (refused too, more pages follow, or not proven
+    complete): the inverter then counts as failed for this run, as before."""
+    try:
+        records = client.max_history_day(inv.device_sn, today)
+        return None if records is None else _store_today(db, inv, records, today, overlap)
+    except Exception as exc:
+        db.rollback()
+        log.debug("%s queryHistoricalData fallback failed: %s", inv.device_sn, exc)
+        return None
+
+
+def _sync_today_batched(
+    db: Session,
+    client: GrowattClient,
+    inverters: Sequence[GrowattInverter],
+    today: date,
+    overlap: timedelta,
+    batch_size: int,
+    pause_s: float,
+    totals: Dict[str, Any],
+) -> set:
+    """Today's new records of several inverters per call (`new-api/queryDevicesHistoricalData`).
+    Returns the serials fully synced here; the caller reads the rest with `max_data`.
+
+    Only inverters whose newest stored record is from today take part, and an answer is stored
+    only when proven complete (`_store_today`). BATCH_MAX_ERRORS refused calls in a row end
+    batching for this run."""
+    day_start = datetime.combine(today, datetime.min.time())
+    eligible = [inv for inv in inverters if inv.history_synced_until and inv.history_synced_until >= day_start]
+    totals.update({"batch_calls": 0, "batch_inverters": 0, "batch_fallback": 0, "batch_errors": 0})
+
+    def count(key: str, n: int = 1) -> None:
+        totals[key] += n
+
+    done: set = set()
+    in_a_row = 0
+    for i in range(0, len(eligible), batch_size):
+        chunk = eligible[i : i + batch_size]
+        if i:
+            time.sleep(pause_s)
+        count("batch_calls")
+        try:
+            by_sn = client.max_history_batch([inv.device_sn for inv in chunk], today)
+        except GrowattAPIError as exc:
+            count("batch_errors")
+            in_a_row += 1
+            log.warning("batch history failed for %d inverters: %s", len(chunk), exc)
+            if in_a_row >= BATCH_MAX_ERRORS:
+                log.warning("batch history refused %d times in a row: the rest of this run uses max_data", in_a_row)
+                count("batch_fallback", len(eligible) - i)
+                return done
+            count("batch_fallback", len(chunk))
+            continue
+        in_a_row = 0
+        for inv in chunk:
+            try:
+                rows = _store_today(db, inv, by_sn.get(inv.device_sn) or [], today, overlap)
+            except Exception as exc:  # this inverter goes through max_data instead
+                db.rollback()
+                log.warning("%s batch history rows failed: %s", inv.device_sn, exc)
+                rows = None
+            if rows is None:  # not answered, or cut short
+                count("batch_fallback")
+                continue
+            totals["inverter_rows"] += rows[0]
+            totals["string_rows"] += rows[1]
+            count("batch_inverters")
+            done.add(inv.device_sn)
+    return done
 
 
 def prune_history(db: Session, today: date, keep_days: int) -> Dict[str, Any]:

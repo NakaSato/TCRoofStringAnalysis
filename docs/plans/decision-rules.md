@@ -1,15 +1,17 @@
 # Plan: Decision rules and the Issues queue
 
-Status: **Phases 1–2 implemented (branch `feat/decision-rules-phase1`), every rule in shadow mode; Phase 3 mostly built (EPI, R10); Phase 4: site log built (§6.1), soiling analysis not started** · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–2 built and merged, every rule starts in shadow mode; Phase 3 partly built (plant daily table, PR', EPI, R10, R11; not R16 or the fitted system factor); Phase 4: site log built (§6.1), soiling analysis not started** · Created 2026-11-15 · Owner: Chanthawat
 Source: the research report `docs/plans/Data-Driven Decisions for the TC Roof Solar Dashboard_ KPIs, Thresholds and Decision Rules for Thai Commercial and Industrial Rooftop PV.md` (rule numbers R1–R18 below are its §8 master table).
 
 Turn the data the platform already stores into **issues ranked by baht lost per day**. Each issue has an owner, a tier and evidence, and engineers can acknowledge and close it. Today the platform shows statuses (string Healthy / Warning / Critical, inverter fault codes, PR), but nothing says what to fix first or what a fault costs.
 
 ---
 
-## 1. What the platform has today (checked 2026-11-15)
+## 1. What the platform had before this work (checked 2026-11-15)
 
-| Need from the report | What exists | Gap |
+The Gap column is the starting point, not today's state: the "As built" sections (§3.5, §4.5, §6.1) and [`iv-and-timeseries-analysis.md`](iv-and-timeseries-analysis.md) say what has closed since (the tariff setting, the daily tables, PR', EPI, the site log).
+
+| Need from the report | What existed | Gap |
 |---|---|---|
 | String current vs peers | Live check `services/live_string_check.py`: newest record vs inverter median, −15 % Warning / −40 % Critical, gated at a median of 3 A, persistence over the records in one API call (about 10 min). Stored day `growatt_strings._classify_strings`: **whole-day averages** (`i_avg`) vs the median, plus a peer-relative "PR" index (Critical < 68, Warning < 81 or current −12 %). | The stored check averages the whole day, so morning and evening light dilute it. It has no gate on light, no persistence across hours or days, and no memory between days. |
 | Open string | Live `OPEN_A` = 0.3 A; stored `i_max < 0.3`; inactive inputs `_split_inactive` (7-day lookback). | No duration and no cost. |
@@ -52,7 +54,7 @@ Computed from `growatt_string_readings` for each inverter and plant-local day. A
 | `device_sn`, `string_no`, `day` | Key. |
 | `gated_slots` | How many slots passed the gate. A day with fewer than 12 (1 h) gets no verdict. |
 | `ratio_median` | Median over gated slots of I / median(I of peers on the same inverter). |
-| `low_min` | Minutes with a ratio below 0.85. |
+| `low_min` | Minutes with a ratio below 0.80 (`LOW_RATIO`; the plan first said 0.85). |
 | `severe_min` | Minutes with a ratio below 0.60. |
 | `open_min` | Minutes at or below 0.3 A while the peer median is at least 2 A. |
 | `v_ratio_median` | Voltage per module vs peers; null unless the String Layout covers the inverter. |
@@ -88,6 +90,8 @@ Columns: minutes per state, `energy_kwh`, `yf_kwh_kwp` (specific yield), `yf_vs_
 | R9 Grid trips | grid-fault alarm codes | 3 or more in 7 days | P3, owner: engineer |
 | R17 Data gap | No-data minutes / daylight minutes | above 5 % | P4 |
 | R18 Export limiting | Limited minutes | any | Info, reported as lost opportunity |
+
+Rules added after this table, described in [`iv-and-timeseries-analysis.md`](iv-and-timeseries-analysis.md) §3: R4 (bypass diode, only where a string has its own MPPT voltage), R6 (PID / rapid string degradation), R10 (plant EPI anomaly) and R11 (inverter Ya − Yf loss drift).
 
 String issues nest under their inverter's issue when the inverter has one. An issue closes itself when its rule has not fired for 2 days in a row with enough gated data.
 
@@ -154,7 +158,7 @@ Routes (scoped by `allowed_plant_ids`):
 
 ### 4.5 As built (2026-11-15)
 
-- `services/tariff.py` (setting `tariff`, `config/tariff`), `services/growatt_issues.py` (table `growatt_issues`), migration `b4c5d6e7f8a9`; routes `GET /growatt/issues`, `GET/PATCH /growatt/issues/{id}`, `GET/PUT /growatt/rules`, `GET/PUT /growatt/tariff`, `GET /growatt/plants/{id}/rules/daily`; UI `/issues`, `/rules` (Rule review, with the thresholds and tariff forms), the Plant Overview Issues card, the String page's Decision rules panel.
+- `services/tariff.py` (setting `tariff`, `config/tariff`), `services/growatt_issues.py` (table `growatt_issues`), migration `b4c5d6e7f8a9`; routes `GET /growatt/issues`, `GET/PATCH /growatt/issues/{id}`, `GET/PUT /growatt/rules`, `GET/PUT /growatt/tariff`, `GET /growatt/plants/{id}/rules/daily`; UI `/issues`, `/rules` (Rule review, with the thresholds and tariff forms), the String page's Decision rules panel. The Plant Overview Issues card (§4.3) was built, then removed when the overview was made compact.
 - Per-slot pricing: the daily tables store the on-peak part of each lost kWh (`lost_on_peak_kwh_est`, `lost_down_on_peak_kwh_est`, `lost_no_data_on_peak_kwh_est`) under the tariff's on-peak hours at compute time; baht are computed when the rules run, so a rate change applies from the next run and a changed on-peak window needs `rules_backfill` for past days. R7 has no slot split (priced at off-peak).
 - Not built yet: the Inverters page panel (inverter issues show on the String page panel and in `/issues`), the Firestore issue counts on plant day docs, Thai lunar holidays (admin to add), the Overview revenue / PWA report still multiply by a single rate (now the day's energy-weighted tariff rate).
 - `p1_thb_per_day` = 300 THB/day is a placeholder until §9 Q4 is answered.
@@ -170,6 +174,12 @@ Only on plants whose sensor covers the day (`iec_pr` coverage check).
 - **R16 Sensor health**: a stale value (3 or more identical non-zero irradiance readings in daylight), irradiance above the clear-sky value × 1.2, or a sensor reading far below its neighbouring plants' sensors on a day Google reports as clear (`cloud_cover_pct`). Google's stored hours carry no irradiance, so the report's sensor-vs-satellite ratio isn't possible; the other plants' sensors take its place (231 plants have one). A failing sensor greys out PR, PR' and EPI for that day.
 - New table `growatt_plant_daily` (kept indefinitely): energy, Yr, Yf, PR, PR', EPI, availability (time- and energy-based), lost kWh by cause and data coverage. It is also the base for Phase 4 and for future degradation analysis.
 
+### 5.1 As built (checked 2026-11-16)
+
+- Built: `growatt_plant_daily`, PR', EPI, R10 and R11; details and thresholds are in [`iv-and-timeseries-analysis.md`](iv-and-timeseries-analysis.md) §3.1.
+- Different from the plan above: the model uses a fixed, assumed factor of 0.985 for every plant. No system factor is fitted per plant.
+- Not built: R16 sensor health.
+
 ## 6. Phase 4: events, soiling and cleaning (from the 2026–27 dry season)
 
 The dry season starts now (November to April), so **start recording cleanings immediately**, even before this phase is built.
@@ -177,7 +187,7 @@ The dry season starts now (November to April), so **start recording cleanings im
 - `site_events` table + a form on the plant Maintenance page: type (cleaning, repair, module or inverter replaced, IR flight, curtailment), plant, optional inverter / string, date, cost in THB, note. Phase 1 issues can be closed with a linked event.
 - **Cleaning step**: compare EPI (or plant specific yield vs the fleet median on plants without one) over 3–5 clear days before and after each cleaning to measure what it recovered.
 - **Soiling wallet** (R12): the THB lost since the last cleaning, using a soiling rate measured from those steps. Suggest a cleaning when it exceeds the plant's cleaning cost, unless it is the monsoon (mid-May to mid-October, a setting).
-  The report's "skip if 10 mm of rain is forecast" gate needs a forecast. The platform stores only Google Weather history (`precip_mm` per hour) and current conditions, so this gate waits until a forecast call is budgeted (it would come out of the 10,000-call monthly Google budget).
+  The report's "skip if 10 mm of rain is forecast" gate needs a forecast. The platform stores only Google Weather history (`precip_mm` per hour) and current conditions, so this gate waits until a forecast call is budgeted (it would come out of `GOOGLE_WEATHER_MONTHLY_BUDGET`, 30,000 calls a month, of which about 28,400 are already used).
 - **R13 Incomplete recovery**: less than 50 % recovery after a day with 10 mm or more of rain (stored `precip_mm`) → suggest a manual cleaning.
 - RdTools SRR / CODS: evaluate after one dry season of `growatt_plant_daily` data. It would run in the worker only.
 

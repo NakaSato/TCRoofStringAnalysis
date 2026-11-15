@@ -182,6 +182,8 @@ def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
         "device_model": inv.device_model,
         "datalogger_model": inv.datalogger_model,
         "rated_power_kw": round(inv.rated_power_w / 1000, 1) if inv.rated_power_w else None,
+        # when the device was added to Growatt (`device/all/create_date`), as Growatt reports it
+        "growatt_created_at": inv.growatt_created_at.strftime("%Y-%m-%d %H:%M:%S") if inv.growatt_created_at else None,
         # configured settings (as read at info_synced_at), not measurements. The power limit
         # comes from readPower when it was read (max_data_info answers it as 0 = unknown)
         "settings": {

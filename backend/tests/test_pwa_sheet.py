@@ -39,7 +39,7 @@ def test_fill_rows_all_checks():
     rows = grid()
     stats = ps.fill_rows(DAY, ps.layout(rows), rows, DATA)
     a, b, gone, empty = rows[2], rows[3], rows[4], rows[5]
-    assert a[6:10] == ["normal", 600, "แดดดี", "online"]
+    assert a[6:10] == ["normal", 600, "ท้องฟ้าปลอดโปร่ง", "—"]
     assert a[10:14] == ["abnormal", "—", "ฝนตก (Google)", "INV2 Offline, INV1 Relay fault"]
     assert a[14] == "normal" and a[15] == "—"
     assert a[5] == "Abnormal"  # sensor missed 13:00 and 17:00
@@ -107,7 +107,7 @@ def test_fill_day_creates_tab_and_writes_block(monkeypatch):
     assert out["created"] is True and out["sheet"] == "12.11"
     assert client.cleared == ["'12.11'!F3:R6"]
     # cell by cell, only what changed
-    assert [client.writes[f"'12.11'!{c}3"] for c in "GHIJ"] == ["normal", 600, "แดดดี", "online"]
+    assert [client.writes[f"'12.11'!{c}3"] for c in "GHIJ"] == ["normal", 600, "ท้องฟ้าปลอดโปร่ง", "—"]
     assert client.writes["'12.11'!F3"] == "Normal"  # only check 09 asked: the sensor reported
     assert "'12.11'!K3" not in client.writes  # check 13 was not asked for
     assert out["cells_written"] == len(client.writes)
@@ -138,8 +138,8 @@ def test_plant_cells_matches_fill_rows():
     cells = ps.plant_cells(DAY, DATA["days"]["1"], DATA["plants"]["1"], [9, 13])
     assert list(cells["checks"]) == ["09", "13"]
     assert dict(zip(ps.CELL_COLUMNS, cells["checks"]["09"])) == {
-        "status": "normal", "note": "INV ทำงานปกติ ค่าแสง 600", "irr": 600, "wx": "แดดดี",
-        "log": "online", "kw": 50.0, "inv": "2/2",
+        "status": "normal", "note": "INV ทำงานปกติ ค่าแสง 600", "irr": 600, "wx": "ท้องฟ้าปลอดโปร่ง",
+        "log": "—", "kw": 50.0, "inv": "2/2",
     }
     assert cells["sources"] == {"09": "growatt", "13": "google"}
     assert cells["weather_status"] == "Abnormal" and cells["weather_detail"] == "loss (13:00)"
@@ -200,7 +200,7 @@ def test_fill_rows_skips_unpublished_checks_and_never_overwrites():
     rows[3] += ["", "", ""] + ["manual"] + [""] * 3  # Plant B: Status 09 typed by hand
     stats = ps.fill_rows(DAY, ps.layout(rows), rows, SLOT_DATA)
     a, b = rows[2], rows[3]
-    assert a[6:10] == ["normal", 512, ps.sky_th(512.4, ps.clear_sky(13.7, 100.5, DAY, 8, 50)), "online"]
+    assert a[6:10] == ["normal", 512, ps.sky_th(512.4, ps.clear_sky(13.7, 100.5, DAY, 8, 50)), "—"]
     assert a[10:14] == ["kept"] * 4  # check 13 not published: untouched
     assert a[5] == "Normal"  # weather Status is kept up to date
     assert b[6] == "manual"  # a filled check cell is never overwritten
@@ -253,13 +253,71 @@ def test_fill_rows_without_firmware_map_leaves_column():
     assert rows[2][4] == ""
 
 
-def test_data_log_is_the_days_fault_error_log():
+def test_data_log_of_a_slot_frozen_before_issues():
     slot = {"at": "08:50", "kw": 40.0, "inverters": 2, "offline": [], "fault": [], "alarms": [],
             "errors": ["INV1 AFCI Fault", "INV2 Error 25 (×2)"], "irradiance_wm2": None, "google": None}
     log = lambda s: ps.plant_cells(DAY, {"checks": {"09": s}}, {}, [9])["checks"]["09"][4]
     assert log(slot) == "INV1 AFCI Fault, INV2 Error 25 (×2)"  # closed earlier that day, still listed
-    assert log({**slot, "errors": []}) == "online"
+    assert log({**slot, "errors": []}) == "—"
     assert log({**slot, "offline": ["INV2"]}) == "INV2 Offline, INV1 AFCI Fault, INV2 Error 25 (×2)"
     assert log({**slot, "kw": None, "offline": ["INV1", "INV2"]}) == "offline: INV1 AFCI Fault, INV2 Error 25 (×2)"
     old = {k: v for k, v in slot.items() if k != "errors"}  # frozen before `errors`: alarms open at the check
     assert log({**old, "alarms": ["INV1 Relay fault"]}) == "INV1 Relay fault"
+
+
+def _log(issues, **over):
+    slot = {"at": "08:50", "kw": 40.0, "inverters": 12, "offline": [], "fault": [], "alarms": [], "errors": ["INV9 Closed earlier"],
+            "issues": issues, "irradiance_wm2": None, "google": None, **over}
+    return ps.plant_cells(DAY, {"checks": {"09": slot}}, {}, [9])["checks"]["09"][4]
+
+
+def test_data_log_shows_the_fault_code_and_growatt_text():
+    relay = {"code": "117", "message": "Relay check fail"}
+    assert _log([{"inv": "INV1", "state": "Offline", "items": []}, {"inv": "INV3", "state": "Fault", "items": [relay]}]) == (
+        "INV1 Offline, INV3 Fault: 117 Relay check fail")
+    # several active faults on one inverter
+    assert _log([{"inv": "INV3", "state": "Fault", "items": [relay, {"code": "203", "message": "PV Isolation Low"}]}]) == (
+        "INV3 Fault: 117 Relay check fail / 203 PV Isolation Low")
+    # a code without Growatt text: the code only; neither: as before
+    assert _log([{"inv": "INV3", "state": "Fault", "items": [{"code": "25", "message": None}]}]) == "INV3 Fault: 25"
+    assert _log([{"inv": "INV3", "state": "Fault", "items": []}]) == "INV3 Fault"
+    # an alarm active at the check on an inverter that is not in fault
+    assert _log([{"inv": "INV2", "state": "Alarm", "items": [{"code": "400", "message": "Fan function abnormal"}]}]) == (
+        "INV2 Alarm: 400 Fan function abnormal")
+    # no INV number in Growatt: the serial
+    assert _log([{"inv": "FYLXG4V00E", "state": "Fault", "items": [relay]}]) == "FYLXG4V00E Fault: 117 Relay check fail"
+
+
+def test_data_log_says_since_when_how_often_and_last_data():
+    relay = {"code": "117", "message": "Relay check fail", "since": "06:19", "count": 5}
+    once = {"code": "203", "message": "PV Isolation Low", "since": "08:20", "count": 1}
+    assert _log([{"inv": "INV3", "state": "Fault", "items": [relay, once]}]) == (
+        "INV3 Fault: 117 Relay check fail (06:19, ×5) / 203 PV Isolation Low (08:20)")
+    assert _log([{"inv": "INV1", "state": "Offline", "items": [], "last": "07:40"},
+                 {"inv": "INV2", "state": "Offline", "items": [], "last": None}]) == (
+        "INV1 Offline (last data 07:40), INV2 Offline (no data today)")
+
+
+def test_data_log_names_a_plant_that_reports_but_produces_nothing():
+    assert _log([], kw=0.0) == "INV ไม่ผลิตไฟ"  # Status is abnormal: the cell says why
+    assert _log([{"inv": "INV2", "state": "Fault", "items": []}], kw=0.0) == "INV ไม่ผลิตไฟ, INV2 Fault"
+    # an older doc without a check slot: hourly kW only
+    assert ps.plant_cells(DAY, {"hourly_kw": [0.0] * 24}, {}, [9])["checks"]["09"][4] == "INV ไม่ผลิตไฟ"
+
+
+def test_data_log_nothing_wrong_is_dash_and_no_data_is_offline():
+    assert _log([]) == "—"  # the day's closed errors are no longer listed
+    assert _log([{"inv": "INV1", "state": "Offline", "items": []}], kw=None, inverters=1, offline=["INV1"]) == "offline"
+
+
+def test_data_log_is_cut_at_a_whole_entry_under_300_characters():
+    issues = [{"inv": f"INV{n}", "state": "Fault", "items": [{"code": "203", "message": "PV Isolation Low"}]} for n in range(1, 13)]
+    text = _log(issues)
+    full = ", ".join(f"INV{n} Fault: 203 PV Isolation Low" for n in range(1, 13))
+    assert len(full) > 300 and len(text) <= 300
+    kept = text.split(", ")
+    assert kept[-1] == f"…(+{12 - (len(kept) - 1)})"
+    assert kept[:-1] == full.split(", ")[: len(kept) - 1]  # whole entries, in INV order
+    # one more entry would not fit
+    assert len(", ".join(full.split(", ")[: len(kept)]) + ", …(+0)") > 300
+    assert _log(issues[:5]) == ", ".join(f"INV{n} Fault: 203 PV Isolation Low" for n in range(1, 6))  # short: untouched

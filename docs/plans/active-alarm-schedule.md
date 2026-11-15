@@ -1,6 +1,8 @@
 # Active Alarm: tiered alarm-log schedule
 
-## Problem
+Status: **Deployed 2026-11-15**; first full day checked (result below), `_COLD_MIN` = 60 kept.
+
+## Problem (the schedule before 2026-11-15)
 
 The `alarms` job read `alarm_data` for **all 629 inverters every 30 min**, 05:00–21:00:
 32 runs × 629 ≈ 20,000 Growatt calls a day, about 2 min per run (4 accounts in parallel). The
@@ -80,5 +82,24 @@ API revision `tcroof-api-00025-bs4`, frontend on Hosting. The first full day on 
 
 **Decision:** keep `_COLD_MIN` = 60. After the deploy, compare one day of `sync_runs`
 (`alarm_due`, `alarm_hot` / `_warm` / `_cold`, `failed`) with the 2026-11-14 figures above.
+
+## Result, first full day on tiers (2026-11-15, checked that evening)
+
+From `sync_runs` (job `alarms`, Bangkok day). The 2026-11-14 column is the whole day (05:00–20:47); the
+28 runs / 17,432 above stop 4 runs earlier (4 × 629 = 2,516 fewer reads), with the same avg / max / cut short.
+
+| | 2026-11-14 (every 30 min) | 2026-11-15 (tiers, 10-min tick) |
+|---|---|---|
+| Runs | 32 (28 above) | 76 (74 `ok`, 2 `partial`, 0 `failed`) |
+| Inverter-days read | 19,948 (17,432 above) | 9,455 of 9,479 due (−53 %) |
+| Tier sizes per tick (hot / warm / cold) | — | 1–12 / 0–31 / 595–628; at 19:54: 4 / 30 / 595 |
+| Run time, avg / median / max | 99 s / — / 148 s | 68 s / 26 s / 549 s |
+| Cut short by 10012 | 1 (20:49) | 2 (12:19 phase 2, 17:19 phase 1; 10 inverters left each, read next tick) |
+| `failed` entries | 3 | 6 (4 × 10012 on `alarm_data` + 2 "rate limited" markers) |
+
+- Calls per day match the expected ~10,300 (§ Expected effect); the 05:00 full read of 629 took 96 s.
+- The 7 runs over 5 min (09:11, 10:58, 13:55, 14:56, 15:57, 16:57, 18:25) each ran alongside a
+  `history` run with the same start second and ended with it. Without them, runs stay under 2 min.
+- Decision stands: `_COLD_MIN` = 60.
 
 `WORKER_ALARMS_INTERVAL_MIN` is gone; an old value in `.env` is ignored (`extra="ignore"`).

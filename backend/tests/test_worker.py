@@ -14,6 +14,7 @@ from app.db.models import GrowattInverter, GrowattPlant, SyncRun
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
+from app import worker as worker_mod
 from app.services import jobs
 from app.worker import REGISTRY_RETRY, Schedule, default_schedule, tick
 from solar_core.growatt import GrowattClient
@@ -148,6 +149,8 @@ def test_empty_registry_runs_fleet_outside_its_slot_and_retries(factory, monkeyp
         return "ok", {"inverters": 1}
 
     monkeypatch.setattr(jobs, "JOBS", {"history": history, "fleet": fleet})
+    # a 30-min history interval, so the ticks below fall between history pulls
+    monkeypatch.setattr(worker_mod.settings, "worker_history_interval_min", 30)
     schedule = default_schedule()
     schedule = [s for s in schedule if s.job in ("fleet", "history")]
     noon = datetime(2026, 11, 12, 12, 0, tzinfo=BKK)  # far outside the 05:30 fleet slot

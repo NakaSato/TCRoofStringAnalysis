@@ -359,6 +359,9 @@ class GrowattInverter(Base):
     datalogger_model: Mapped[Optional[str]] = mapped_column(String(64))  # e.g. "ShineMaster"
     rated_power_w: Mapped[Optional[float]] = mapped_column(Float)  # nominal power as Growatt lists the model
     param_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # when the device was added to Growatt (`device/all/create_date`, fleet job), naive as Growatt
+    # reports it (time zone not verified); not a commissioning date
+    growatt_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     history_synced_until: Mapped[Optional[datetime]] = mapped_column(DateTime)  # latest reading stored
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
@@ -388,6 +391,9 @@ class GrowattInverterReading(Base):
     temperature_c: Mapped[Optional[float]] = mapped_column(Float)
     fac_hz: Mapped[Optional[float]] = mapped_column(Float)
     mppt_json: Mapped[Optional[Any]] = mapped_column(JSON)  # [{"mppt": n, "v": .., "i": .., "p": ..}]
+    # the record's `faultType` / `warnCode` (null = none, or stored before these were kept)
+    fault_code: Mapped[Optional[int]] = mapped_column(Integer)
+    warn_code: Mapped[Optional[int]] = mapped_column(Integer)
 
 
 class GrowattPlantEnergyDay(Base):

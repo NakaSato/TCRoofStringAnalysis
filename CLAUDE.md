@@ -31,12 +31,14 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                  │              (only while Weather Sensors / Active Alarm is open; never stored)
                  ├─ maxs_data newest record (50 inverters/call) ─► memory sweep (300 s) ─► /growatt/live/inverters/snapshot
                  │              (only while a page polls it; never stored)
-                 ├─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
+                 ├─ max_data history ─► growatt-worker (every 10 min) ─► SQL ─► /growatt/plants* (DB only)
                  │                                                       └─► daily summaries ─► Firestore
                  ├─ plant/energy, plant/power, inverter day_energy (finished days) ─► growatt-worker (00:50) ─► SQL
-                 ├─ plant/details, queryDeviceInfoParam ─► growatt-worker (fleet 05:30, weekly / monthly) ─► registry
+                 ├─ plant/details, queryDeviceInfoParam, device/all/create_date ─► growatt-worker (fleet 05:30; weekly / monthly / once) ─► registry
                  ├─ env_data today (one sensor) ─► backend memory cache (300 s) ─► /growatt/live/sensors/{dl}/{addr}/today ─► sensor page chart (today only)
-                 ├─ env_data sensor history ─► growatt-worker (every 30 min with history; also every 10 min, 05–20) ─► SQL
+                 ├─ env_data sensor history ─► growatt-worker (every 10 min with history; `env_history` only fills gaps, 05–20) ─► SQL
+                 ├─ ammeter meter_last_data (one plant's meter) ─► backend memory cache (per meter, ≥ 270 s) ─► /growatt/live/plants/{id}/meter
+                 │              (grid import / export now; load = PV + grid derived from the /latest cache; never stored)
                  ├─ ammeter meter_data (grid-point meter, every plant) ─► growatt-worker (with history) ─► SQL
                  │              ─► overview / power curve: grid import / export (measured), load = PV + grid (derived)
                  └─ alarm_data log ─► growatt-worker (10-min tick, 05–20, per inverter by tier: fault/open 10 min,
@@ -81,7 +83,8 @@ Rules for every layer:
 - `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_FILE`
 - `PUBLISH_SINK` (`json` | `firestore`)
 - `PUBLISH_DAILY_WRITE_BUDGET`
-- `WORKER_HISTORY_INTERVAL_MIN`
+- `WORKER_HISTORY_INTERVAL_MIN` (10; production: `HISTORY_INTERVAL_MIN` in `deploy/gcp.config`)
+- `WORKER_HISTORY_BATCH_SIZE` (0 = off): `history` reads today's records of this many inverters per call (`queryDevicesHistoricalData`), falling back to `max_data` per inverter; off by default (a call returns each inverter's whole day so far)
 - `HISTORY_RETENTION_DAYS` (90)
 - `WORKER_ALARMS_TICK_MIN` (10), `WORKER_ALARMS_HOT_MIN` / `_WARM_MIN` / `_COLD_MIN` (10 / 30 / 60), `WORKER_ALARMS_START_H` / `_END_H` (5 / 20): alarm log sync. Each tick reads only the inverters due by tier (hot = open alarm or fault status, warm = alarms today, cold = none); skipped 08/12/16:42–:51 for the PWA checks
 - `WORKER_ENV_INTERVAL_MIN` (10, 0 = off), `WORKER_ENV_START_H` / `_END_H` (5 / 20): `env_history`, weather-sensor history between `history` runs

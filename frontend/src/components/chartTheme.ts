@@ -16,7 +16,8 @@ export const SERIES = {
   irradiance: CATEGORICAL[1], // POA irradiance (never shares a chart with DC power)
   irradianceWithDc: CATEGORICAL[5], // POA irradiance in a chart that also draws DC power
   load: CATEGORICAL[3], // site load, derived from PV + grid (power charts have no temperature series)
-  grid: CATEGORICAL[4], // grid power at the meter: + import / − export
+  grid: CATEGORICAL[4], // grid import at the meter
+  gridExport: CATEGORICAL[5], // grid export at the meter (power charts draw no irradiance line in the same panel)
   secondary: CATEGORICAL[2], // a second measure: specific yield, efficiency, peak current, rated AC
   temp: CATEGORICAL[3], // inverter / module temperature
   ambient: CATEGORICAL[4], // ambient temperature, measured operating points

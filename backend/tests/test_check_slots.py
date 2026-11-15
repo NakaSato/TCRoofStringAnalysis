@@ -211,3 +211,119 @@ def test_frozen_slot_takes_google_current_at_the_slot_time(db, monkeypatch):
     assert google_weather.calls_today(db, google_weather.API_CURRENT, google_weather.billing_day()) == 1
     # a dry run never calls Google
     assert cs.compute_slots(db, plant, DAY, [13])["13"]["google"] is None and fake.calls == 1
+
+
+def test_issues_carry_the_fault_code_and_text_at_the_check(db):
+    plant = db.get(GrowattPlant, PLANT)
+    issues = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"]
+    # B is in fault at 08:35 with an alarm still open; the placeholder text is dropped, closed alarms are not listed
+    assert issues == [{"inv": "INV2", "state": "Fault", "items": [{"code": None, "message": "PV Isolation Low", "since": "08:20", "count": 1}]}]
+
+    # Growatt re-reports a present alarm every ~5 min with end = start: active when last reported within 10 min
+    db.add_all([
+        GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(8, 44), end_time=at(8, 44),
+                     alarm_code="117", alarm_message="Relay check fail", fault_type="Error"),
+        GrowattAlarm(device_sn="A", plant_id=PLANT, day=DAY, start_time=at(8, 46), end_time=at(8, 46),
+                     alarm_code="400", alarm_message="Fan function abnormal", fault_type="Warning"),
+        GrowattAlarm(device_sn="A", plant_id=PLANT, day=DAY, start_time=at(8, 47), end_time=at(8, 47),
+                     alarm_code="912", alarm_message="undown error", fault_type="Warning"),
+    ])
+    db.commit()
+    issues = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"]
+    assert issues == [
+        {"inv": "INV1", "state": "Alarm", "items": [
+            {"code": "400", "message": "Fan function abnormal", "since": "08:46", "count": 1},
+            {"code": "912", "message": None, "since": "08:47", "count": 1},
+        ]},
+        {"inv": "INV2", "state": "Fault", "items": [
+            {"code": None, "message": "PV Isolation Low", "since": "08:20", "count": 1},
+            {"code": "117", "message": "Relay check fail", "since": "08:44", "count": 1},
+        ]},
+    ]
+    silent = cs.compute_slots(db, db.get(GrowattPlant, 8), DAY, [9])["09"]
+    assert silent["issues"] == [{"inv": "INV1", "state": "Offline", "items": [], "last": None}]  # no reading that day
+
+
+def test_issue_items_say_since_when_and_how_many_times(db):
+    plant = db.get(GrowattPlant, PLANT)
+    # Growatt repeats a present alarm: reported at 06:19, 08:39 and 08:44; 08:51 is after the check
+    db.add_all([
+        GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(h, m), end_time=at(h, m),
+                     alarm_code="409", alarm_message="Bus voltage abnormal", fault_type="Error")
+        for h, m in ((6, 19), (8, 39), (8, 44), (8, 51))
+    ])
+    db.commit()
+    items = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"][0]["items"]
+    assert items == [
+        {"code": None, "message": "PV Isolation Low", "since": "08:20", "count": 1},
+        {"code": "409", "message": "Bus voltage abnormal", "since": "06:19", "count": 3},  # listed once
+    ]
+
+
+def test_an_offline_inverter_says_when_it_last_reported(db):
+    plant = db.get(GrowattPlant, PLANT)
+    # check 13 (12:50, window 12:35–12:50): A reported until 10:55, B not since 09:05
+    issues = cs.compute_slots(db, plant, DAY, [13])["13"]["issues"]
+    assert issues == [
+        {"inv": "INV1", "state": "Offline", "items": [], "last": "10:55"},
+        {"inv": "INV2", "state": "Offline", "items": [], "last": "09:05"},
+    ]
+    # a reading of the day before does not count
+    db.add(GrowattInverterReading(device_sn="S", timestamp=at(18, 0) - timedelta(days=1), status=1, pac_w=100))
+    db.commit()
+    assert cs.compute_slots(db, db.get(GrowattPlant, 8), DAY, [9])["09"]["issues"][0]["last"] is None
+
+
+def test_issues_fall_back_to_the_readings_own_codes(db):
+    from app.db.models import GrowattAlarmSync
+
+    plant = db.get(GrowattPlant, PLANT)
+    for a in db.query(GrowattAlarm).filter(GrowattAlarm.end_time.is_(None)):  # the morning's open alarms were closed
+        a.end_time = at(9, 30)
+    # check 13: A in fault with faultType 203 on the record, nothing in the alarm log at that time;
+    # the log has Growatt's text for 203 from the morning. B warns with a code the log never named.
+    db.add_all([
+        GrowattInverterReading(device_sn="A", timestamp=at(12, 45), status=3, pac_w=0, fault_code=203),
+        GrowattInverterReading(device_sn="B", timestamp=at(12, 45), status=1, pac_w=9000, warn_code=77),
+        # Growatt numbers warnings and faults separately: warning 203 is not fault 203
+        GrowattAlarm(device_sn="A", plant_id=PLANT, day=DAY, start_time=at(6, 0), end_time=at(6, 5),
+                     alarm_code="203", alarm_message="PV Circuit short", fault_type="Warning"),
+        GrowattAlarm(device_sn="A", plant_id=PLANT, day=DAY, start_time=at(7, 0), end_time=at(7, 5),
+                     alarm_code="203", alarm_message="PV Isolation Low", fault_type="Error"),
+    ])
+    db.commit()
+    issues = cs.compute_slots(db, plant, DAY, [13])["13"]["issues"]
+    assert issues == [
+        {"inv": "INV1", "state": "Fault", "items": [{"code": "203", "message": "PV Isolation Low"}]},
+        {"inv": "INV2", "state": "Alarm", "items": [{"code": "77", "message": None}]},
+    ]
+
+    # the alarm log was last read at 12:32: an alarm reported until then is still active at 12:50
+    db.add(GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(12, 30), end_time=at(12, 30),
+                        alarm_code="302", alarm_message="No AC Connection", fault_type="Error"))
+    db.commit()
+    assert cs.compute_slots(db, plant, DAY, [13])["13"]["issues"][1]["items"] == [{"code": "77", "message": None}]  # 20 min old
+    db.add(GrowattAlarmSync(device_sn="B", day=DAY, plant_id=PLANT, alarm_count=1,
+                            synced_at=at(12, 32).replace(tzinfo=BKK).astimezone(timezone.utc)))
+    db.commit()
+    assert cs.compute_slots(db, plant, DAY, [13])["13"]["issues"][1]["items"] == [
+        {"code": "302", "message": "No AC Connection", "since": "12:30", "count": 1}]
+
+
+def test_a_plants_only_unnamed_inverter_is_inv1_and_others_keep_the_serial(db):
+    db.add_all([
+        GrowattPlant(plant_id=20, name="One unnamed"),
+        GrowattPlant(plant_id=21, name="Two unnamed"),
+    ])
+    db.flush()
+    db.add_all([
+        GrowattInverter(device_sn="FYLXG4V00E", plant_id=20, alias="FYLXG4V00E"),
+        GrowattInverter(device_sn="GKLLEXC031", plant_id=21, alias="GKLLEXC031"),
+        GrowattInverter(device_sn="GKLLEXC00A", plant_id=21, alias="GKLLEXC00A"),
+        GrowattInverterReading(device_sn="FYLXG4V00E", timestamp=at(8, 45), status=3, pac_w=0),
+        GrowattInverterReading(device_sn="GKLLEXC031", timestamp=at(8, 45), status=3, pac_w=0),
+        GrowattInverterReading(device_sn="GKLLEXC00A", timestamp=at(8, 45), status=1, pac_w=5000),
+    ])
+    db.commit()
+    assert cs.compute_slots(db, db.get(GrowattPlant, 20), DAY, [9])["09"]["issues"] == [{"inv": "INV1", "state": "Fault", "items": []}]
+    assert cs.compute_slots(db, db.get(GrowattPlant, 21), DAY, [9])["09"]["issues"] == [{"inv": "GKLLEXC031", "state": "Fault", "items": []}]

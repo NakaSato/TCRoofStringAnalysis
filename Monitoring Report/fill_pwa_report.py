@@ -82,7 +82,7 @@ def sky_th(irr: float, cs: float) -> Optional[str]:
         return None
     k = irr / cs
     if k >= 0.75:
-        return "แดดดี"
+        return "ท้องฟ้าปลอดโปร่ง"
     if k >= 0.45:
         return "มีเมฆบางส่วน"
     if k >= 0.2:

@@ -210,7 +210,7 @@ export const SensorInfo: React.FC<{
             <EmptyState
               icon={Sun}
               title="No readings stored today"
-              description={storedError ?? "The worker stores this sensor's 5-min records every 30 min; nothing has arrived for today yet."}
+              description={storedError ?? "The worker stores this sensor's 5-min records every 10 min; nothing has arrived for today yet."}
               className="py-8"
             />
           )}

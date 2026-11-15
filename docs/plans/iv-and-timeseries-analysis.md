@@ -311,13 +311,6 @@ Every route is mounted at `/api/...` and `/...`; plant routes need `require_plan
 | `GET /growatt/plants/{plant_id}/string-layout` / `PUT` | Reads and saves per-string `modules`, `module_wp`, `azimuth_deg`, and `tilt_deg`. |
 | `GET /growatt/plants/{plant_id}/overview` | `kpis` include `dc_yield_today_kwh`, `ya_kwh_kwp`, `ya_minus_yf`, `iec_pr_temp_corrected_pct`, `irradiance_weighted_module_temp_c`, and `epi`. |
 
----|---|
-| `GET /api/growatt/plant/{plant_id}/iv-sweeps` | Lists stored I–V sweeps for a plant (optional filters: `sn`, `string_no`, `limit`). |
-| `POST /api/growatt/plant/{plant_id}/iv-sweeps` | Validates measurement conditions, cleans and translates the curve to STC via IEC 60891 Procedure 1, extracts parameters, fits the single-diode model, classifies fault signatures, checks two-source warranty eligibility, and stores the sweep. |
-| `PATCH /api/growatt/plant/{plant_id}/iv-sweeps/{sweep_id}` | Updates `ir_confirmed` (drone/handheld IR confirmation) or `note`, and recomputes `module_test_candidate`. |
-| `GET /api/growatt/plant/{plant_id}/string-layout` / `PUT` | Reads and saves per-string `modules`, `module_wp`, `azimuth_deg`, and `tilt_deg`. |
-| `GET /api/growatt/plant/{plant_id}/overview` | Includes `dc_yield_today_kwh`, `ya_kwh_kwp`, `ya_minus_yf`, `iec_pr_temp_corrected_pct`, `irradiance_weighted_module_temp_c`, and `epi`. |
-
 ---
 
 ## 6. Frontend Components

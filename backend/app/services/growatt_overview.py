@@ -734,6 +734,17 @@ def build_plant_power(
     curve = _plant_curve(raw, cap_kwp)
     has_meter, gslots = growatt_meter.meter_slots(db, plant_id, g_start, g_end)
     growatt_meter.attach_grid(curve, gslots)
+    # Weather sensor POA irradiance (measured) per slot, built day by day as the day view does,
+    # so a probe stuck at 0 all day counts as not measured. Null where the plant has no sensor.
+    irr: Dict[str, Optional[float]] = {}
+    if growatt_weather.plant_sensors(db, plant_id):
+        d = day
+        while d <= last_day:
+            for p in growatt_weather.build_weather_day(db, plant_id, d, latest_if_none=False)["series"]:
+                irr[p["timestamp"]] = p["irradiance_wm2"]
+            d += timedelta(days=1)
+    for r in curve:
+        r["irradiance_wm2"] = irr.get(r["timestamp"])
     return {
         "meta": {
             "source": "db",

@@ -19,19 +19,29 @@ from sqlalchemy.orm import Session
 
 from app.db.models import GrowattInverter, GrowattPlant
 
-REPLACED = re.compile(r"\bold\b", re.IGNORECASE)
+REPLACED = re.compile(r"\bold\b|เก่า", re.IGNORECASE)  # "INV 1 old", "INVERTER 1 (เก่า)"
 
 
 def is_replaced(inv: GrowattInverter) -> bool:
     return bool(inv.alias and REPLACED.search(inv.alias))
 
 
-def inverter_label(inv: GrowattInverter) -> str:
-    """"INV3" from Growatt aliases such as "INVERTER 3", "inverter 3", "Inverter no.3", "Inverter03"."""
-    m = re.search(r"(\d+)\s*$", inv.alias or "")
-    if m:
-        return f"INV{int(m.group(1))}"
-    return inv.alias or inv.device_sn
+# the inverter number in a Growatt alias: "INVERTER 3", "Inverter no.3", "Inverter03",
+# "INV No.05_ST2" (5, not the station), "INV1 MYHSF12345" (1, not the serial), "(2) GKLRF..."
+_INV_NO = re.compile(r"inv(?:erter)?[\s.]*(?:no\.?)?\s*(\d+)", re.IGNORECASE)
+_PAREN_NO = re.compile(r"^\s*\(\s*(\d+)\s*\)")
+
+
+def inverter_label(inv: GrowattInverter, sole: bool = False) -> str:
+    """"INV3" from the inverter number in the Growatt alias. An inverter never renamed in Growatt
+    has its serial as alias: that is not a number (a serial ending in digits is not "INV31"), so
+    it is "INV1" when it is the plant's only inverter (`sole`), else its serial."""
+    alias = (inv.alias or "").strip()
+    if alias and alias.upper() != (inv.device_sn or "").upper():
+        m = _INV_NO.search(alias) or _PAREN_NO.match(alias)
+        if m:
+            return f"INV{int(m.group(1))}"
+    return "INV1" if sole else inv.device_sn
 
 
 def _sort_key(label: str) -> Tuple[int, str]:

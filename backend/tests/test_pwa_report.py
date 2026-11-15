@@ -27,7 +27,8 @@ def client(tmp_path, monkeypatch):
         s.add(GrowattPlant(plant_id=7, name="สถานี A", latitude=14.1, longitude=100.5))
         s.flush()
         s.add(GrowattInverter(device_sn="INV1", plant_id=7, datalogger_sn="DL1", fw_version="TI1.0", inner_version="TIAA25220401"))
-        s.add(GrowattInverter(device_sn="INV3", plant_id=7, datalogger_sn="DL1", fw_version="TN1.0"))
+        s.add(GrowattInverter(device_sn="INV3", plant_id=7, datalogger_sn="DL1", fw_version="TN1.0", datalogger_model="ShineMaster"))
+        s.add(GrowattInverter(device_sn="INV5", plant_id=7, datalogger_sn="DL2"))  # model not read yet
         s.add(GrowattInverter(device_sn="INV4", plant_id=7, datalogger_sn="DL1", alias="INV 4 old", inner_version="ZZ"))
         s.add(GrowattInverter(device_sn="INV2", plant_id=7))
         s.commit()
@@ -60,7 +61,7 @@ def test_returns_registry_and_day_docs(client):
     body = r.json()
     assert body["day"] == "2026-11-13"
     assert body["plants"] == {"7": {"name": "สถานี A", "latitude": 14.1, "longitude": 100.5}}
-    assert body["loggers"] == {"DL1": "7"}
+    assert body["loggers"] == {"DL1": "7", "DL2": "7"}
     assert body["days"]["7"]["hourly_kw"][9] == 12.5
     assert str(client.seen[0]) == "2026-11-13"
     assert client.get("/api/report/pwa/13.11", headers={"X-Report-Key": "s3cret"}).status_code == 422
@@ -72,13 +73,18 @@ def test_cells_are_the_sheet_values(client):
     body = r.json()
     assert body["hours"] == ["09"] and body["published_plants"] == 1
     assert body["columns"] == ["status", "note", "irr", "wx", "log", "kw", "inv"]
-    assert body["loggers"] == {"DL1": "7"} and body["names"] == {"7": "สถานี A"}
+    assert body["loggers"] == {"DL1": "7", "DL2": "7"} and body["names"] == {"7": "สถานี A"}
     p = body["plants"]["7"]
-    assert p["checks"] == {"09": ["normal", "INV ทำงานปกติ", "—", "—", "online", 12.5, "1/1"]}
+    assert p["checks"] == {"09": ["normal", "INV ทำงานปกติ", "—", "—", "—", 12.5, "1/1"]}
     assert p["weather_status"] == "Abnormal" and p["weather_detail"] == "ไม่มีเซนเซอร์" and p["yield_kwh"] == "—"
-    assert p["datalogger_sn"] == ["DL1"]
+    assert p["datalogger_sn"] == ["DL1", "DL2"]
     # inverter firmware per datalogger: innerVersion, else fwVersion; replaced inverters left out
     assert body["firmware"] == {"DL1": "TIAA25220401, TN1.0"}
+    # the datalogger itself: Growatt's model, null until read; inverters not marked as replaced
+    assert body["dataloggers"] == {
+        "DL1": {"plant_id": "7", "model": "ShineMaster", "inverters": 2},
+        "DL2": {"plant_id": "7", "model": None, "inverters": 1},
+    }
     assert body["checks_ready"] == ["09"]  # an older day without `checks_ready`: what is there counts
 
 

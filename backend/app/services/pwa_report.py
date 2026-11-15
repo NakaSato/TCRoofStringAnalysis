@@ -77,7 +77,9 @@ def firestore_day_docs(day: date) -> Iterable[Tuple[str, Dict[str, Any]]]:
 
 _lock = threading.Lock()
 _day_cache: Dict[date, Tuple[float, Dict[str, Dict[str, Any]]]] = {}
-_registry_cache: Optional[Tuple[float, Dict[str, Any], Dict[str, str], Dict[str, List[str]], Dict[str, str]]] = None
+_registry_cache: Optional[
+    Tuple[float, Dict[str, Any], Dict[str, str], Dict[str, List[str]], Dict[str, str], Dict[str, Dict[str, Any]]]
+] = None
 
 
 def cached_day_docs(day: date) -> Dict[str, Dict[str, Any]]:
@@ -97,10 +99,15 @@ def cached_day_docs(day: date) -> Dict[str, Dict[str, Any]]:
 
 def _registry(
     db: Session, cache: bool
-) -> Tuple[Dict[str, Any], Dict[str, str], Dict[str, List[str]], Dict[str, str]]:
+) -> Tuple[Dict[str, Any], Dict[str, str], Dict[str, List[str]], Dict[str, str], Dict[str, Dict[str, Any]]]:
     """(plants {id: {name, latitude, longitude}}, loggers {datalogger_sn: id}, each plant's
     current datalogger SNs {id: [sn, ...]}: those of its inverters not marked as replaced, else
-    of all its inverters, firmware {datalogger_sn: version}).
+    of all its inverters, firmware {datalogger_sn: version}, dataloggers {datalogger_sn:
+    {plant_id, model, inverters}}).
+
+    Dataloggers: `model` is Growatt's `dataloggerModel` ("ShineMaster", from
+    `new-api/queryDeviceInfoParam`, stored on the inverter), null until that sync has read it;
+    `inverters` counts the ones not marked as replaced.
 
     Firmware is the inverters' own (`max_data_info` innerVersion, else fwVersion; Growatt gives no
     datalogger firmware): the distinct versions of the datalogger's inverters not marked as
@@ -110,7 +117,7 @@ def _registry(
     global _registry_cache
     now = time.monotonic()
     if cache and _registry_cache and now - _registry_cache[0] < REGISTRY_CACHE_S:
-        return _registry_cache[1], _registry_cache[2], _registry_cache[3], _registry_cache[4]
+        return _registry_cache[1:]  # type: ignore[return-value]
     plants = {
         str(p.plant_id): {"name": p.name, "latitude": p.latitude, "longitude": p.longitude}
         for p in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id))
@@ -119,11 +126,15 @@ def _registry(
     current: Dict[str, List[str]] = {}
     every: Dict[str, List[str]] = {}
     versions: Dict[str, Set[str]] = {}
+    models: Dict[str, Optional[str]] = {}
+    counts: Dict[str, int] = {}
     for inv in db.scalars(select(GrowattInverter).where(GrowattInverter.datalogger_sn.is_not(None)).order_by(GrowattInverter.device_sn)):
         sn, pid = inv.datalogger_sn, str(inv.plant_id)
         if not sn:
             continue
         loggers[sn] = pid  # last by device_sn wins, as before
+        models[sn] = models.get(sn) or (inv.datalogger_model or "").strip() or None
+        counts[sn] = counts.get(sn, 0) + (0 if is_replaced(inv) else 1)
         if sn not in every.setdefault(pid, []):
             every[pid].append(sn)
         if not is_replaced(inv):
@@ -134,9 +145,10 @@ def _registry(
                 versions.setdefault(sn, set()).add(v)
     by_plant = {pid: sorted(current.get(pid) or sns) for pid, sns in every.items()}
     firmware = {sn: ", ".join(sorted(vs)) for sn, vs in sorted(versions.items())}
+    dataloggers = {sn: {"plant_id": loggers[sn], "model": models[sn], "inverters": counts[sn]} for sn in sorted(loggers)}
     if cache:
-        _registry_cache = (now, plants, loggers, by_plant, firmware)
-    return plants, loggers, by_plant, firmware
+        _registry_cache = (now, plants, loggers, by_plant, firmware, dataloggers)
+    return plants, loggers, by_plant, firmware, dataloggers
 
 
 def _sql_checks(
@@ -187,7 +199,7 @@ def build(db: Session, day: date, day_docs: Optional[DayDocs] = None) -> Dict[st
     """Raw data: registry + the day's published docs, with frozen check slots Firestore lacks
     filled in from SQL (_sql_checks). `day_docs` given (tests, the worker's own reader) = no
     caching."""
-    plants, loggers, by_plant, firmware = _registry(db, cache=day_docs is None)
+    plants, loggers, by_plant, firmware, dataloggers = _registry(db, cache=day_docs is None)
     firestore_error: Optional[str] = None
     try:
         docs = dict(cached_day_docs(day) if day_docs is None else {pid: doc for pid, doc in day_docs(day)})
@@ -206,6 +218,7 @@ def build(db: Session, day: date, day_docs: Optional[DayDocs] = None) -> Dict[st
         "loggers": loggers,
         "plant_loggers": by_plant,
         "firmware": firmware,
+        "dataloggers": dataloggers,
         # check hours fully published ("09", ...); None = not stated (older day): all count
         "checks_ready": ready,
         "days": docs,
@@ -245,4 +258,6 @@ def cells(db: Session, day: date, hours: Sequence[int], day_docs: Optional[DayDo
         "plants": plants,
         # {datalogger_sn: inverter firmware}, for the sheet's Firmware column (see _registry)
         "firmware": data["firmware"],
+        # {datalogger_sn: {plant_id, model, inverters}}; Growatt gives no datalogger firmware
+        "dataloggers": data["dataloggers"],
     }

@@ -14,7 +14,7 @@ import { useLivePoll } from "../context/useLivePoll";
 import { overlay } from "./sensorView";
 import type { ViewRow } from "./sensorView";
 
-/** DB list re-read while today is shown: the worker stores new readings every 30 min. */
+/** DB list re-read while today is shown: the worker stores new readings every 10 min. */
 const REFRESH_MS = 5 * 60_000;
 
 const RANK: Record<string, number> = { offline: 0, late: 1 };

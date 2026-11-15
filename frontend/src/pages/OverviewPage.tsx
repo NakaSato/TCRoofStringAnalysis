@@ -1,12 +1,12 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import {
+  ArrowDownToLine,
   ArrowRight,
-  Banknote,
+  ArrowUpFromLine,
   Building2,
   ExternalLink,
-  Grid3x3,
+  House,
   MapPin,
-  Sigma,
 } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
 import { api } from "../api/client";
@@ -30,8 +30,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import { WeatherCard } from "./overview/WeatherCard";
+import { LiveMeterCard } from "./overview/LiveMeterCard";
+import { useLiveMeter } from "./overview/useLiveMeter";
 import { SensorTodayCard } from "./overview/SensorTodayCard";
-import { IssuesCard } from "./overview/IssuesCard";
 import { InvertersOnlineTile, StringHealthTile } from "./overview/SummaryCards";
 import { Meter, StatTile } from "./overview/StatTile";
 
@@ -42,13 +43,16 @@ const shortDay = (d: string | null | undefined) =>
 
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
 
-/** Plant facts strip at the top of the Production card: fixed registry numbers with visible labels. */
+/** Facts strip under the Production chart (energy meter figures), with visible labels, one column each. */
 const PlantFacts: React.FC<{
-  items: ReadonlyArray<{ icon: LucideIcon; label: string; value: string; unit: string; hint?: string }>;
+  /** `hint`: a warning (amber "!"); `tip`: plain context, tooltip only */
+  items: ReadonlyArray<{ icon: LucideIcon; label: string; value: string; unit: string; hint?: string; tip?: string }>;
 }> = ({ items }) => (
-  <dl className="grid grid-cols-3 divide-x divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.015]">
-    {items.map(({ icon: Icon, label, value, unit, hint }) => (
-      <div key={label} className="flex min-w-0 items-center gap-2.5 px-3 py-2 sm:px-4" title={hint}>
+  <dl
+    style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+    className="grid divide-x divide-white/[0.06] rounded-lg border border-white/[0.06] bg-white/[0.015]">
+    {items.map(({ icon: Icon, label, value, unit, hint, tip }) => (
+      <div key={label} className="flex min-w-0 items-center gap-2.5 px-3 py-2 sm:px-4" title={hint ?? tip}>
         <span className="hidden size-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] sm:flex">
           <Icon className="size-3.5 text-slate-400" aria-hidden />
         </span>
@@ -101,7 +105,13 @@ export const OverviewPage: React.FC = () => {
   const recs: LiveInverter[] = useMemo(() => plantLive?.data?.inverters ?? [], [plantLive]);
   const liveAt = recs.reduce<string | null>((a, r) => (r.timestamp && (a == null || r.timestamp > a) ? r.timestamp : a), null);
   // the top card's period (stored data): the overview's day, or a picked day / range / time window
-  const pp = usePowerPeriod(ov, liveAt, recs);
+  // live energy meter: one poll for the Energy meter card and the chart's live tail (memory only)
+  const liveMeter = useLiveMeter(plantId);
+  const pp = usePowerPeriod(ov, liveAt, recs, liveMeter.points);
+  const pf = pp.figures;
+  const meter = pf && (pf.loadKwh != null || pf.gridImportKwh != null || pf.gridExportKwh != null) ? pf : null;
+  // today's live tail has no meter values: the meter figures cover the stored records only
+  const meterStoredOnly = pp.day === pp.today ? " (stored records only, the live tail has no meter values)" : "";
 
   if (plantOverviewLoading && !ov) {
     return (
@@ -237,36 +247,42 @@ export const OverviewPage: React.FC = () => {
                   </Button>
                 </div>
               </div>
-              {/* plant facts (registry, not period-bound) */}
-              <PlantFacts
-                items={[
-                  {
-                    icon: Grid3x3,
-                    label: "DC capacity",
-                    value: fmt(k.capacity_kwp, 1),
-                    unit: "kWp",
-                    hint:
-                      plant.reported_peak_power_kwp != null && k.capacity_kwp == null
-                        ? `Growatt lists ${fmt(plant.reported_peak_power_kwp, 0)} kWp, impossible for its inverters`
-                        : undefined,
-                  },
-                  {
-                    icon: Sigma,
-                    label: "Lifetime yield",
-                    value: fmt(k.total_yield_kwh == null ? null : k.total_yield_kwh / 1000, 1),
-                    unit: "MWh",
-                  },
-                  { icon: Banknote, label: "Tariff", value: `฿${fmt(k.tariff_thb_per_kwh, 2)}`, unit: "/kWh" },
-                ]}
-              />
               <FillChart
                 spec={pp.spec}
                 minHeight={240}
                 legendToggle
                 legendPosition="bottom"
-                emptyLabel={pp.error ? `Could not load: ${pp.error}` : `No stored records for ${pp.label}${pp.day === pp.today ? " yet (the worker stores them every 30 min)" : ""}`}
+                emptyLabel={pp.error ? `Could not load: ${pp.error}` : `No stored records for ${pp.label}${pp.day === pp.today ? " yet (the worker stores them every 10 min)" : ""}`}
                 onBrush={pp.multi || !pp.day ? undefined : (lo, hi) => pp.setPeriod({ ...pp.period, day: pp.day, start: slotTime(lo, pp.day!, false), end: slotTime(hi, pp.day!, true) })}
               />
+              {/* energy meter at the grid point, for the chart's period: only when the period has meter readings */}
+              {meter && (
+                <PlantFacts
+                  items={[
+                    {
+                      icon: House,
+                      label: "Load (derived)",
+                      value: fmt(meter.loadKwh, 1),
+                      unit: "kWh",
+                      tip: `Site consumption for ${pp.label}: PV AC + grid, derived from the energy meter, not measured${meterStoredOnly}`,
+                    },
+                    {
+                      icon: ArrowDownToLine,
+                      label: "Grid import",
+                      value: fmt(meter.gridImportKwh, 1),
+                      unit: "kWh",
+                      tip: `Bought from the grid for ${pp.label}, measured by the energy meter${meterStoredOnly}`,
+                    },
+                    {
+                      icon: ArrowUpFromLine,
+                      label: "Grid export",
+                      value: fmt(meter.gridExportKwh, 1),
+                      unit: "kWh",
+                      tip: `Sent to the grid for ${pp.label}, measured by the energy meter${meterStoredOnly}`,
+                    },
+                  ]}
+                />
+              )}
 
             </CardContent>
           </Card>
@@ -305,6 +321,8 @@ export const OverviewPage: React.FC = () => {
             </CardContent>
           </Card>
 
+          <LiveMeterCard m={liveMeter} />
+
           <WeatherCard
             plantId={plant.plant_id}
             day={day ?? null}
@@ -312,7 +330,6 @@ export const OverviewPage: React.FC = () => {
             liveWx={liveWx}
             liveWxFailed={liveWxFailed}
           />
-          <IssuesCard plantId={plant.plant_id} />
         </div>
       </div>
 

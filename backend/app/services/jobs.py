@@ -136,7 +136,9 @@ def job_history(db: Session) -> Tuple[str, Dict[str, Any]]:
     return _per_phase(
         db,
         lambda db, c, phase, untagged: {
-            **sync_incremental(db, c, today, phase=phase, include_untagged=untagged),
+            **sync_incremental(
+                db, c, today, phase=phase, include_untagged=untagged, batch_size=settings.worker_history_batch_size
+            ),
             **sync_env_incremental(db, c, today, phase=phase, include_untagged=untagged),
             # last: a rate-limited meter sweep stops early and never delays inverter history
             **sync_meter_incremental(db, c, today, phase=phase, include_untagged=untagged),

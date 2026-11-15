@@ -17,6 +17,8 @@ import { powerCurveSpec, powerSpec } from "../generation/charts";
 import type { PowerCurve } from "../generation/charts";
 import type { LiveInverter } from "../inverters/shared";
 import { withLiveTail } from "./liveTail";
+import { withLiveMeter } from "./useLiveMeter";
+import type { MeterPoint } from "./useLiveMeter";
 
 const REFRESH_MS = 5 * 60_000;
 
@@ -34,11 +36,22 @@ export interface PeriodFigures {
   growattKwh?: number | null;
   /** a Growatt day figure of the period was withheld as impossible (> 10 kWh/kWp) */
   growattImplausible?: boolean;
+  /** energy meter at the grid point (null without meter readings): import / export measured,
+   *  load derived (PV + grid). A whole day = the overview's kpis; a range / window = summed 5-min rows */
+  gridImportKwh: number | null;
+  gridExportKwh: number | null;
+  loadKwh: number | null;
 }
+
+/** kWh of one column of 5-min rows (kW × 5 min); null when no row carries it. */
+const sumKwh = (rows: PowerCurve["ts"], key: "grid_import_kw" | "grid_export_kw" | "load_kw"): number | null => {
+  const vs = rows.map((r) => r[key]).filter((v): v is number => v != null);
+  return vs.length ? Math.round(vs.reduce((a, v) => a + v, 0) * (5 / 60) * 10) / 10 : null;
+};
 
 type Loaded = { key: string; ov?: GrowattPlantOverview; power?: GrowattPlantPower; error?: string };
 
-export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string | null, recs: LiveInverter[] = []) => {
+export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string | null, recs: LiveInverter[] = [], meterPts: MeterPoint[] = []) => {
   const [query, setQuery] = useUrlState();
   const period = periodFromQuery(query);
   const setPeriod = (p: StringPeriod) => setQuery(periodToQuery(p));
@@ -108,8 +121,11 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
   // today's whole day: the stored curve continued with the live records past its newest slot
   const liveDay = Boolean(dayOv && dayOv.meta.day === today);
   const ts = useMemo(
-    () => (dayOv && liveDay ? withLiveTail(dayOv.timeseries, recs, today, dayOv.kpis.capacity_kwp ?? null) : (dayOv?.timeseries ?? null)),
-    [dayOv, liveDay, recs, today]
+    () =>
+      dayOv && liveDay
+        ? withLiveMeter(withLiveTail(dayOv.timeseries, recs, today, dayOv.kpis.capacity_kwp ?? null), meterPts, today)
+        : (dayOv?.timeseries ?? null),
+    [dayOv, liveDay, recs, meterPts, today]
   );
   // each inverter's own today's yield from its live record, only when every inverter has one
   const liveYield = useMemo(() => {
@@ -133,12 +149,13 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
         end,
         inverters: power.inverter_count,
         ratedKw: power.rated_ac_kw,
+        kwp: ov?.kpis.capacity_kwp ?? null,
         growatt: growattTs,
       },
       liveAt,
-      { extra: true, grid: true }
+      { extra: true, irradiance: true, grid: true }
     );
-  }, [dayOv, ts, power, liveAt, start, end, day, endDay, answered, growattTs]);
+  }, [dayOv, ts, power, liveAt, start, end, day, endDay, answered, growattTs, ov]);
 
   // Growatt's figure covers whole days: only without a time window, and only when every day has one
   const gDaily = gPower?.daily ?? null;
@@ -151,17 +168,17 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
   const figures = useMemo<PeriodFigures | null>(() => {
     const rows: PowerCurve["ts"] | undefined = ts ?? power?.timeseries;
     if (!rows) return null;
-    const pk = rows.reduce<(typeof rows)[number] | null>((m, r) => (r.pac_kw > 0 && (m == null || r.pac_kw > m.pac_kw) ? r : m), null);
+    const pk = rows.reduce<(typeof rows)[number] | null>((m, r) => ((r.pac_kw ?? 0) > 0 && (m == null || (r.pac_kw ?? 0) > (m.pac_kw ?? 0)) ? r : m), null);
     if (dayOv) {
       const k = dayOv.kpis;
       const iec = k.iec_pr_pct ?? null;
       const kwp = k.capacity_kwp ?? null;
       // a live peak past the stored records beats the stored one
-      const livePeak = Boolean(pk?.live && (k.peak_power_kw == null || pk.pac_kw > k.peak_power_kw));
+      const livePeak = Boolean(pk?.live && pk.pac_kw != null && (k.peak_power_kw == null || pk.pac_kw > k.peak_power_kw));
       // the time goes with the figure shown: the live slot's, else the stored curve's own peak slot
       const storedPk = livePeak
         ? null
-        : rows.reduce<(typeof rows)[number] | null>((m, r) => (!r.live && r.pac_kw > 0 && (m == null || r.pac_kw > m.pac_kw) ? r : m), null);
+        : rows.reduce<(typeof rows)[number] | null>((m, r) => (!r.live && (r.pac_kw ?? 0) > 0 && (m == null || (r.pac_kw ?? 0) > (m.pac_kw ?? 0)) ? r : m), null);
       // a live total older than the newest stored sync never shows less than the stored one
       const yieldKwh =
         liveYield != null && (k.yield_today_kwh == null || liveYield > k.yield_today_kwh) ? liveYield : k.yield_today_kwh;
@@ -177,6 +194,9 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
         tariffThbPerKwh: k.tariff_thb_per_kwh,
         growattKwh,
         growattImplausible,
+        gridImportKwh: k.grid_import_kwh ?? null,
+        gridExportKwh: k.grid_export_kwh ?? null,
+        loadKwh: k.load_kwh ?? null,
       };
     }
     const es = power!.daily.map((d) => d.energy_kwh).filter((v): v is number => v != null);
@@ -192,6 +212,9 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
       tariffThbPerKwh: null,
       growattKwh,
       growattImplausible,
+      gridImportKwh: sumKwh(rows, "grid_import_kw"),
+      gridExportKwh: sumKwh(rows, "grid_export_kw"),
+      loadKwh: sumKwh(rows, "load_kw"),
     };
   }, [dayOv, ts, liveYield, power, ov, growattKwh, growattImplausible]);
 

@@ -303,7 +303,7 @@ export const PlantSensorView: React.FC<{
                   {windowed ? "No readings stored in this time window" : isToday ? "No readings stored today" : `No readings stored for ${dayLabel(day)}`}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {storedError ?? (isToday ? "The worker stores this sensor's 5-min records every 30 min; nothing has arrived for today yet." : "Raw readings are kept for 90 days.")}
+                  {storedError ?? (isToday ? "The worker stores this sensor's 5-min records every 10 min; nothing has arrived for today yet." : "Raw readings are kept for 90 days.")}
                 </EmptyDescription>
               </EmptyHeader>
               {!storedError && sensor.last_reading_at && sensor.last_reading_at.slice(0, 10) !== day && (

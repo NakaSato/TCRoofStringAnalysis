@@ -8,7 +8,7 @@ several API workers would each start a scheduler and multiply Growatt calls.
     PYTHONPATH=backend uv run python -m app.worker --list       # schedule + last runs
 
 Schedule (plant-local time, Asia/Bangkok):
-    history            every WORKER_HISTORY_INTERVAL_MIN (30) min  incremental max_data pull,
+    history            every WORKER_HISTORY_INTERVAL_MIN (10) min  incremental max_data pull,
                        and at 08:47 / 12:47 / 16:47 so each PWA check's readings are in
     backfill           02:00   re-read the previous two days (late uploads)
     fleet              05:30   plant / inverter registry
@@ -32,7 +32,7 @@ Schedule (plant-local time, Asia/Bangkok):
                                by tier: hot 10 min, warm 30 min, cold 60 min (growatt_alarms.Tiers)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
     rules_yesterday    00:45   daily string / inverter rows for yesterday + decision rules (counts only)
-    rules_today        every WORKER_HISTORY_INTERVAL_MIN (30) min, 06–20: the same for today so far
+    rules_today        every WORKER_HISTORY_INTERVAL_MIN (10) min, 06–20: the same for today so far
     rules_backfill     not scheduled: daily rows for every stored day (queue once after deploy)
     env_history        every WORKER_ENV_INTERVAL_MIN (10) min, WORKER_ENV_START_H..END_H (05–20)
                                weather-sensor env_data only (0 = off); a `history` start counts as

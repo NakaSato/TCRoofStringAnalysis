@@ -40,7 +40,7 @@ Add an **AI Assistant** that answers questions about the fleet in Thai or Englis
 | 3. Never invent numbers | The system prompt says to answer only from tool results, to say "no data" for `null`, to label modelled values (`expected_kw`, peer-relative `pr_pct`, Google Weather) as modelled, and to give the day and the source of every number. Tools return `null` as `null`, never a default. |
 | 4. Keys stay on the backend | `AI_API_KEY` comes from Secret Manager (`tcroof-ai-api-key`) on Cloud Run and from `.env` locally. The browser never sees it. Add it to `logging_db` redaction (the secret-values list) so it never reaches `app_logs`. |
 | Engineers see only assigned plants | Every tool takes `allowed` from the request's user and filters like the routes do. An unassigned plant id returns "not found" (ids are not revealed), the same as the 404 rule. |
-| Cloud Run: min 0 / max 1, CPU only during a request | The tool loop runs inside the request and streams, so CPU stays allocated. Set a hard 120 s limit per turn. |
+| Cloud Run: min 0 / max 1, CPU only during a request | The tool loop runs inside the request and streams, so CPU stays allocated. A hard limit per turn: `AI_TURN_TIMEOUT_S` (120 s by default, 110 s on prod, §6). |
 | ฿3,000/month GCP budget | Qwen Cloud bills separately, so the GCP cost guard **does not cover it**. The app enforces its own cap (§5), and a spending limit or alert in the Model Studio console is the backstop. |
 
 Privacy: when the assistant is used, plant names, serial numbers and measurements are sent to Alibaba Cloud Model Studio in Singapore. Confirm this is acceptable for the client contract before going to production. No personal data is sent apart from the user's question.
@@ -127,8 +127,8 @@ Handler rules:
 
 ### 4.4 Model call (`loop.py`)
 
-- Use `client.messages.stream(...)` with `model=settings.ai_model` and `max_tokens=4000`. Use only the **core Messages API**: `system`, `messages`, `tools`, `tool_use` / `tool_result`, and streaming, which is what the probe tested. Don't send Claude-only parameters (`output_config.effort`, `thinking`, `betas` / server-side fallbacks, `inference_geo`, mid-conversation system messages); the compatible endpoint may reject or ignore them.
-- Write the tool loop by hand, so each round can check the budget and stream `tool` events. Stop at `AI_MAX_TOOL_ROUNDS` or at 120 s.
+- Use `client.messages.stream(...)` with `model=settings.ai_model` and `max_tokens=settings.ai_max_tokens` (4000). Use only the **core Messages API**: `system`, `messages`, `tools`, `tool_use` / `tool_result`, and streaming, which is what the probe tested. Don't send Claude-only parameters (`output_config.effort`, `betas` / server-side fallbacks, `inference_geo`, mid-conversation system messages); the compatible endpoint may reject or ignore them. The one exception is `thinking={"type": "disabled"}`, sent on every call while `AI_THINKING` is false (§5).
+- Write the tool loop by hand, so each round can check the budget and stream `tool` events. Stop at `AI_MAX_TOOL_ROUNDS` or at `AI_TURN_TIMEOUT_S`.
 - Return all parallel `tool_result` blocks in **one** user message.
 - **Prompt caching**: keep the tools and system prompt frozen and deterministic (sorted, no timestamps) so Qwen's automatic implicit cache hits them. Don't send `cache_control`: explicit cache creation costs 1.25× input (§5). Record the cached tokens (`usage.cache_read_input_tokens`, or `prompt_tokens_details.cached_tokens`) in `ai_usage`; the cost estimate doesn't count on them.
 - **Stop reasons**: handle `end_turn`, `tool_use` and `max_tokens`, and treat anything else (including a content-filter stop) as a plain "can't answer that" event.
@@ -158,7 +158,7 @@ Handler rules:
 | `cost_usd` | Numeric(10,5) | From `AI_PRICE_IN_PER_M` / `AI_PRICE_OUT_PER_M`. |
 | `status` | String(16) | `ok` \| `refused` \| `error` \| `budget` \| `limit` |
 
-Index `(ts)` and `(user_id, ts)`. Create it in `ensure_schema` and add a hand-written Alembic migration. The `retention` job prunes rows after 400 days (they are small). No prompt or answer text is stored.
+Index `(ts)` and `(user_id, ts)`. Create it in `ensure_schema` and add a hand-written Alembic migration. Planned but not built: the `retention` job pruning rows after 400 days (they are small; nothing deletes `ai_usage` rows today). No prompt or answer text is stored.
 
 ### 4.7 Frontend
 
@@ -187,7 +187,9 @@ Token volume of one question: about 3 tool rounds, about 3–4k tokens of system
 |---|---|---|
 | `qwen3.7-plus` (default) | ≈ $0.011 | ≈ $6.6 (≈ ฿230); ≈ $8.2 at list price |
 | `qwen3.8-flash` | ≈ $0.005 | ≈ $3 (≈ ฿110) |
-| `qwen3.8-max` | ≈ $0.065 | ≈ $39 (≈ ฿1,370), over the $30 cap |
+| `qwen3.8-max` | ≈ $0.065 | ≈ $39 (≈ ฿1,370) |
+
+These are worst-case figures for 600 questions. The app stops at `AI_MONTHLY_BUDGET_USD` ($5) whatever the model.
 
 `qwen3.7-max` ($2.50 / $7.50, implicit cache $0.50, 1M TPM / 600 RPM) would cost ≈ $49/month at the same volume.
 
@@ -227,7 +229,7 @@ Measure real `ai_usage` in the first week. Ways to keep cost down:
 
 ## 6. Deploy
 
-Built 2026-11-15 (not run yet):
+Built and run 2026-11-15 (live on prod for admins, see Status):
 - `deploy/gcp.sh ai`: `AI_API_KEY` from `.env` → secret `tcroof-ai-api-key`, readable by the API service account. Run it again after rotating the key. `setup` also grants access when the secret exists (`ai_secret()`).
 - `deploy/gcp.sh backend`: adds `AI_API_KEY=tcroof-ai-api-key:latest` to `--set-secrets` when the secret exists, and passes `AI_MODEL`, `AI_ENABLED_ROLES` (`admin` for the first week), `AI_MONTHLY_BUDGET_USD` (5), `AI_USER_DAILY_QUESTIONS` (15) and `AI_TURN_TIMEOUT_S` from `deploy/gcp.config`. `AI_BASE_URL` keeps its code default (Singapore).
 - **Firebase Hosting buffers the SSE stream** (measured after the first deploy: the first event arrived with `done`, 8.6 s) and ends `/api/**` rewrites after 60 s. So `deploy/gcp.sh frontend` builds the chat to call the Cloud Run URL directly (`VITE_ASSISTANT_API_BASE_URL`; CORS already allows the app's origins). Direct, text arrives spread over the answer. Only `/assistant/chat` bypasses Hosting; `AI_TURN_TIMEOUT_S` is 110 (Cloud Run timeout 300 s).
@@ -235,9 +237,11 @@ Built 2026-11-15 (not run yet):
 - The worker doesn't need the key in v1.
 - Admin page System → **AI Usage** (`/ai-usage`): spend against the cap, questions, not answered, per user.
 
-Before the first deploy: rotate the Qwen key (it appeared in a chat transcript), set a spending limit in the Model Studio console, and confirm that sending plant data to Alibaba Cloud (Singapore) is acceptable under the client agreements.
+Three checks were listed for before the first deploy. This document does not record whether they were done: rotate the Qwen key (it appeared in a chat transcript), set a spending limit in the Model Studio console, and confirm that sending plant data to Alibaba Cloud (Singapore) is acceptable under the client agreements.
 
 ## 7. Tests
+
+As built, the tests are in one file, `backend/tests/test_assistant.py`, and the smoke script `scripts/assistant_smoke.py` was not written. The plan was:
 
 - `backend/tests/test_assistant_tools.py`: each tool against seeded SQLite. Check RBAC (an engineer asking for an unassigned plant gets `is_error`, with no data leaked), that `null` stays `null`, and the row and size caps.
 - `backend/tests/test_assistant_loop.py`: a fake Anthropic client (monkeypatched `messages.stream`) that returns tool_use → tool_result → text. Check the event order, the max-rounds stop, budget and limit 429s, refusal handling, that usage rows are written, and that no prompt text ends up in `ai_usage` or `app_logs`.
@@ -245,6 +249,8 @@ Before the first deploy: rotate the Qwen key (it appeared in a chat transcript),
 - No test calls the real API. A manual smoke script `scripts/assistant_smoke.py` runs about 10 fixed questions against the dev DB and prints the answers, tokens and cost. It is billed, so run it on purpose. Later it can become a small eval set.
 
 ## 8. Phases
+
+Phases 1–3 are done. Phase 4 is deployed; its week of measuring and the engineer switch-on are open.
 
 1. **Backend core** (≈ 2 days): config, `ai_usage`, client and loop, 4 tools (`list_plants`, `plant_overview`, `alarms`, `fleet_ranking`), SSE route, tests.
 2. **UI** (≈ 1.5 days): drawer, streaming, page context, suggested questions, status gating.
@@ -257,4 +263,4 @@ Before the first deploy: rotate the Qwen key (it appeared in a chat transcript),
 - Model: `qwen3.7-plus` (≈ $7/month, the default) or `qwen3.7-max` (≈ $49/month, the most accurate in §5.1)? Decide after the phase 4 rerun with real tools.
 - The 20% discount on `qwen3.7-plus` may be a promotion. The budget uses the list price either way.
 - Is sending plant data to Alibaba Cloud (Singapore) acceptable under the client agreements?
-- Engineers from day one, or admins only for the first week?
+- ~~Engineers from day one, or admins only for the first week?~~ Decided: admins only first (`AI_ENABLED_ROLES=admin` in `deploy/gcp.config`); engineers after the first-week review.

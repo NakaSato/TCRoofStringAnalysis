@@ -23,7 +23,7 @@ import { LOW_COVERAGE_PCT, hhmm, plantNow, minutesBetween, fmtAge, coverageTone 
 import { SensorInfo } from "./SensorInfo";
 import { PlantSensorView } from "./PlantSensorView";
 
-/** DB list re-read while the page is visible: the worker stores new readings every 30 min. */
+/** DB list re-read while the page is visible: the worker stores new readings every 10 min. */
 const REFRESH_MS = 5 * 60_000;
 
 const TABS = ["status", "info"] as const;

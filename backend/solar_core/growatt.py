@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import requests
 import requests.adapters
@@ -215,6 +215,42 @@ class GrowattClient:
             raise GrowattAPIError(f"Growatt {path} answered no value", error_code=0)
         return value
 
+    def device_info(self, device_sn: str) -> Dict[str, Any]:
+        """The `max_info` fields of one MAX inverter from `new-api/queryDeviceInfo` instead of
+        `device/max/max_data_info`: its reply (`data.max[0]`) carries the same field names
+        (`alias`, `normalPower`, `fwVersion`, `innerVersion` and the settings block, also answered
+        as 0; probed 15 Nov 2026). Its rate limit was not measured."""
+        data = self._new_api("new-api/queryDeviceInfo", {"deviceSn": device_sn, "deviceType": "max"})
+        rows = data.get("max") if isinstance(data, dict) else None
+        m = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else {}
+        return parse_max_info(m)
+
+    def device_last_record(self, device_sn: str) -> Optional[Dict[str, Any]]:
+        """Newest record of one MAX inverter from `new-api/queryLastData` (`data.max[0]`): the
+        `max_data` record fields, `time` plant-local. None when there is none. Realtime: callers
+        must not store it."""
+        data = self._new_api("new-api/queryLastData", {"deviceSn": device_sn, "deviceType": "max"})
+        rows = data.get("max") if isinstance(data, dict) else None
+        rec = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else None
+        return rec if rec and rec.get("time") else None
+
+    def account_create_times(self, max_pages: int = 20) -> Dict[str, datetime]:
+        """Every device of the account with its creation time on Growatt
+        (`new-api/queryDeviceList`, 100 per page), {serial: createDate}; naive, as reported."""
+        out: Dict[str, datetime] = {}
+        for page in range(1, max_pages + 1):
+            data = self._new_api("new-api/queryDeviceList", {"page": page})
+            d = data if isinstance(data, dict) else {}
+            rows = [r for r in (d.get("data") or []) if isinstance(r, dict)]
+            for r in rows:
+                try:
+                    out[str(r.get("deviceSn"))] = datetime.strptime(str(r.get("createDate"))[:19], "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    continue
+            if not rows or page >= int(_f(d.get("pages")) or 0):
+                break
+        return out
+
     def device_info_param(self, device_sn: str) -> Dict[str, Any]:
         """Model text, datalogger model and nominal power of one MAX inverter
         (`new-api/queryDeviceInfoParam`), e.g. "MAX 80KTL3 LV", "ShineMaster", 80000 W.
@@ -356,6 +392,85 @@ class GrowattClient:
                 return records
             page += 1
 
+    def max_history_batch(self, device_sns: Sequence[str], day: date) -> Dict[str, List[Dict[str, Any]]]:
+        """One day's records of several MAX inverters in one call
+        (`new-api/queryDevicesHistoricalData`), {serial: records, newest first}.
+
+        The records carry the fields `parse_max_records` reads under the same names as `max_data`
+        (probed 15 Nov 2026: same 70 records and 952 string rows for one inverter-day; float32
+        noise in `pac` only). The reply has no paging fields, so a caller must check that an
+        inverter's records reach back as far as it needs and fall back to `max_history`. Rate
+        limit and the largest accepted serial list were not measured."""
+        data = self._new_api(
+            "new-api/queryDevicesHistoricalData",
+            {"deviceSn": ",".join(device_sns), "deviceType": "max", "date": day.isoformat()},
+        )
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for sn, recs in (data if isinstance(data, dict) else {}).items():
+            if isinstance(recs, list):
+                out[str(sn)] = [r for r in recs if isinstance(r, dict)]
+        return out
+
+    def max_history_day(self, device_sn: str, day: date) -> Optional[List[Dict[str, Any]]]:
+        """One day's records of one MAX inverter from `new-api/queryHistoricalData`, newest first
+        (the `max_data` record fields). None when Growatt says more follow (`haveNext`): how it
+        pages was not probed, so an incomplete answer is not used."""
+        data = self._new_api(
+            "new-api/queryHistoricalData", {"deviceSn": device_sn, "deviceType": "max", "date": day.isoformat()}
+        )
+        d = data if isinstance(data, dict) else {}
+        if d.get("haveNext"):
+            return None
+        return [r for r in (d.get("datas") or []) if isinstance(r, dict)]
+
+    def max_last_record(self, device_sn: str) -> Optional[Dict[str, Any]]:
+        """Newest record of one MAX inverter (`device/max/max_last_data`, POST): the `max_data`
+        record fields, `time` plant-local. None when there is none. Realtime: callers must not
+        store it."""
+        data = self._request("POST", "device/max/max_last_data", {"max_sn": device_sn})
+        return data if isinstance(data, dict) and data.get("time") else None
+
+    def device_datalogger(self, device_sn: str) -> Optional[str]:
+        """Serial of the datalogger a device hangs on (`device/sn_datalog`, POST); None when
+        Growatt names none."""
+        data = self._request("POST", "device/sn_datalog", {"device_sn": device_sn})
+        return _text(data.get("datalogSN")) if isinstance(data, dict) else None
+
+    def list_dataloggers(self, plant_id: int) -> List[Dict[str, Any]]:
+        """Dataloggers of one plant (`device/datalogger/list`): sn, model, `lost` and
+        `last_update_time` (a Java date object; its `time` is epoch milliseconds). Realtime:
+        callers must not store `lost` / `last_update_time`."""
+        loggers: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            data = self._get("device/datalogger/list", use_cache=False, plant_id=plant_id, page=page, perpage=100) or {}
+            batch = [d for d in (data.get("dataloggers") or []) if isinstance(d, dict)]
+            loggers.extend(batch)
+            if not batch or len(loggers) >= int(data.get("count") or 0):
+                return loggers
+            page += 1
+
+    def devices_create_time(self, device_sns: Sequence[str], max_pages: int = 10) -> Dict[str, datetime]:
+        """When each device was added to Growatt (`device/all/create_date`, POST, several serials
+        per call), {serial: createTime}. Naive, as Growatt reports it (its time zone was not
+        verified). Serials Growatt does not answer, or answers without a readable time, are absent."""
+        out: Dict[str, datetime] = {}
+        wanted = set(device_sns)
+        seen: set = set()
+        for page in range(1, max_pages + 1):
+            data = self._request("POST", "device/all/create_date", {"pageNum": page, "devices": ",".join(device_sns)})
+            batch = data if isinstance(data, dict) else {}
+            new = set(batch) - seen
+            seen |= new
+            for sn in new:
+                v = batch[sn]
+                try:
+                    out[str(sn)] = datetime.strptime(str(v.get("createTime"))[:19], "%Y-%m-%d %H:%M:%S")
+                except (AttributeError, ValueError):
+                    continue
+            if not new or wanted <= seen:
+                break
+        return out
 
     # ------------------------------------------------------------------ weather (environmental) sensors
     # A datalogger with a weather sensor lists a type-3 device whose `device_sn` is literally
@@ -427,6 +542,13 @@ class GrowattClient:
             if not batch or len(meters) >= int(data.get("count") or 0):
                 return meters
             page += 1
+
+    def meter_latest(self, datalogger_sn: str, address: int) -> Optional[Dict[str, Any]]:
+        """Newest meter record (`device/ammeter/meter_last_data`), or None when the meter has none.
+        Probed 15 Nov 2026 (CHNT_THREE, address 36): same field names as `meter_data`, `timeText`
+        plant-local."""
+        data = self._request("GET", "device/ammeter/meter_last_data", {"datalog_sn": datalogger_sn, "address": address})
+        return data if isinstance(data, dict) and data.get("timeText") else None
 
     def meter_history(
         self, datalogger_sn: str, address: int, start_date: date, end_date: date, stop_before: Optional[datetime] = None
@@ -681,6 +803,15 @@ def _text(v: Any) -> Optional[str]:
     return t or None
 
 
+def _nonzero_int(v: Any) -> Optional[int]:
+    """A Growatt code field as int; 0, empty or unreadable = None (no code)."""
+    try:
+        n = int(float(v))
+    except (TypeError, ValueError):
+        return None
+    return n or None
+
+
 def parse_max_records(
     device_sn: str, records: List[Dict[str, Any]], max_strings: int = 32, max_mppts: int = 16
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -721,6 +852,9 @@ def parse_max_records(
             "temperature_c": _f(r.get("temperature")),
             "fac_hz": _f(r.get("fac")),
             "mppt_json": mppts,
+            # the record's own fault / warning code (0 = none), as Growatt reports it
+            "fault_code": _nonzero_int(r.get("faultType")),
+            "warn_code": _nonzero_int(r.get("warnCode")),
         }
         if ppv <= 0:
             continue

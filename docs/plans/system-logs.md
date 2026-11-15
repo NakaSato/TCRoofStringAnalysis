@@ -39,7 +39,7 @@ Collect the backend's log records (API and `growatt-worker`) in one place and sh
 | Never run jobs inside the API | Log writing is not a job; the API flushes its own buffer inside the request. |
 | Cloud Run cuts CPU after the response | A background flush thread in the API may stall. Flush synchronously at the end of each request (middleware) and on shutdown. |
 | Firestore budget | Nothing goes to Firestore. |
-| e2-micro VM, 100 GB disk | Bounded volume and retention (§4.5). |
+| VM disk is 100 GB, shared with 90 days of readings | Bounded volume and retention (§4.5). |
 
 ## 4. Spec
 
@@ -73,7 +73,7 @@ Created by `ensure_schema` (`create_all`); add a hand-written Alembic migration 
   - Worker / CLI: a daemon thread flushes every `LOG_FLUSH_INTERVAL_S` (default 5 s) and at exit (`atexit`), plus immediately for `ERROR`+.
   - API: a middleware flushes after each response is built, before it is returned; `lifespan` shutdown flushes too.
 - Levels: handler level `LOG_DB_LEVEL` (default `INFO`). Always skip the loggers `sqlalchemy.*`, `app.logging_db`, and `urllib3`, `httpx`, `httpcore` below `WARNING` (they log full URLs, including `key=`).
-- `setup_logging(source)` replaces the three separate `logging.basicConfig` calls (`worker.py:147`, `growatt_sync.py:547`, `daily_summary.py:444`): console handler as today, plus `DbLogHandler` when `LOG_DB_ENABLED`. Called from `main.py` (`source="api"`), `worker.py` (`"worker"`), and the CLI entry points (`"cli"`).
+- `setup_logging(source)` replaces the three separate `logging.basicConfig` calls (in `worker.py`, `growatt_sync.py`, `daily_summary.py`): console handler as today, plus `DbLogHandler` when `LOG_DB_ENABLED`. Called from `main.py` (`source="api"`), `worker.py` (`"worker"`), and the CLI entry points (`"cli"`).
 - Context: `contextvars` `run_id`, `job`, `request_id`. `jobs.execute()` (runs one `SyncRun`) sets `run_id`/`job` for the run's duration. Per-phase threads in `_per_phase` copy the context (`contextvars.copy_context().run`), so phase logs keep the run id.
 
 ### 4.3 What the API itself logs
@@ -93,8 +93,8 @@ Applied to `message`, `exc_text` and `extra_json` values before buffering:
 
 ### 4.5 Volume and retention
 
-- Estimate at `INFO`: `history` logs one line per inverter (`growatt_sync.py:448`) → 629 × 48 runs ≈ 30 k lines/day, plus about 5 k others. At ~300 B/row that is roughly 10 MB/day.
-- Change the per-inverter success line at `growatt_sync.py:448` to `DEBUG`, keep the per-phase summary at `INFO`. Expected: < 5 k rows/day.
+- Estimate at `INFO` before this work: `history` logged one line per inverter (in `growatt_sync.py`) → 629 × 48 runs ≈ 30 k lines/day, plus about 5 k others. At ~300 B/row that is roughly 10 MB/day.
+- The per-inverter success line is now `DEBUG`; the per-phase summary stays at `INFO`. Expected: < 5 k rows/day (measured 2026-11-14: 1,013 rows, 512 kB; §6 Phase 4).
 - `LOG_RETENTION_DAYS` (default 14). The `retention` job deletes older `app_logs` rows (batched `DELETE … WHERE ts < ?`) and reports `log_rows` in its `detail`.
 - Safety cap: if `app_logs` exceeds `LOG_MAX_ROWS` (default 500 000), `retention` also deletes the oldest beyond the cap.
 
@@ -132,11 +132,11 @@ Engineers get **403** (same as other admin-only routes).
 
 ### 4.7 Frontend: `/logs`
 
-- **Nav:** add `{ to: "/logs", label: "Logs", icon: ScrollText, description: "Backend and worker logs, errors & job runs" }` to the **System** group in `components/Layout.tsx`. Add `"/logs"` to `ADMIN_ONLY_PATHS` (`auth/access.ts`), and wrap the route in `<AdminOnly>` in `App.tsx`. Optional: a small `crit` badge with the 24 h error count from `/system/logs/summary`.
+- **Nav:** add `{ to: "/logs", label: "Logs", icon: ScrollText, description: "Backend and worker logs, errors & job runs" }` to the **System** group in `components/Layout.tsx`. Add `"/logs"` to `ADMIN_ONLY_PATHS` (`auth/access.ts`), and wrap the route in `<AdminOnly>` in `App.tsx`. No sidebar badge (§8).
 - **API client:** `api.listSystemLogs(params)` and `api.getSystemLogSummary(since)` in `src/api/client.ts`, with types `SystemLogEntry`, `SystemLogPage`, `SystemLogSummary`. No `fetch` in components.
 - **Page `pages/SystemLogsPage.tsx`:**
   - `PageHeader` "Logs" with KPI tiles from the summary: errors, warnings, total (last 24 h), and "Last error · hh:mm".
-  - Filter bar (shadcn `Select`, `Input`, `Button`): level, source, time range (1 h / 24 h / 7 d / custom), job, text search (debounced 300 ms). Filters live in the URL query string so a view can be shared.
+  - Filter bar (shadcn `Select`, `Input`, `Button`): level, source, time range (1 h / 24 h / 7 d / 14 d), job, text search (debounced 300 ms). Filters live in the URL query string so a view can be shared.
   - Table (`Table` with `containerClassName="table-wrap"`): time (Bangkok, `HH:mm:ss`, date on day change), level `Badge` (`crit` = ERROR/CRITICAL, `warn` = WARNING, `info` = INFO, `neutral` = DEBUG), source, logger (short name, full name in `Tooltip`), message (one line, `num` font for ids), run link.
   - Row click expands the full message and `exc_text` in a `<pre>` with a copy button.
   - Clicking a job/run chip filters by `run_id`.
@@ -176,7 +176,7 @@ _Built 2026-11-13, phases 1–3 together. Decisions on §8: admins only, 14 days
 - [x] Flush: worker thread every 5 s + on ERROR + `atexit`; API middleware per request + lifespan shutdown
 - [x] `urllib3` / `httpx` / `httpcore` / `sqlalchemy` filtered as in §4.2
 - [x] Context vars `run_id` / `job` set in `jobs.execute()`; copied into `_per_phase` threads
-- [x] `growatt_sync.py:448` per-inverter success line → `DEBUG`
+- [x] `growatt_sync.py` per-inverter success line → `DEBUG`
 - [x] Settings keys from §4.8 added to `config.py`
 
 ### Phase 2: API
@@ -223,8 +223,8 @@ _Built 2026-11-13, phases 1–3 together. Decisions on §8: admins only, 14 days
 - `app_logs` stays under `LOG_RETENTION_DAYS` and `LOG_MAX_ROWS` after `retention` runs.
 - The API keeps scaling to zero; no background thread is needed in the API process.
 
-## 8. Open questions
+## 8. Decisions (2026-11-13)
 
-1. Should engineers see logs for their assigned plants only? (Needs `plant_id` on records; out of scope now.)
-2. Keep 14 days, or match `HISTORY_RETENTION_DAYS` (90)?
-3. Is a sidebar error badge wanted, or only the page header tiles?
+1. Engineers do not see logs: admins only. (Per-plant access would need `plant_id` on records.)
+2. Retention is 14 days (`LOG_RETENTION_DAYS`), not the 90 days of `HISTORY_RETENTION_DAYS`.
+3. No sidebar error badge; the page header tiles only.
