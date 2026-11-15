@@ -5,7 +5,7 @@ Status: **Implemented (Option B — Pure NumPy in `solar_core/`, no `scipy` or `
 This document describes the architecture, mathematical models, database schema, API endpoints, decision rules, and UI components for the two analytical capabilities implemented in the **TC Roof Solar** platform:
 
 1. **I–V Curve Analysis (String & Module Level)** — measurement condition gating, IEC 60891 Procedure 1 STC translation, parameter extraction, single-diode fitting (`rectify_iv_curve`, `fit_sandia_simple`, `fit_desoto`), 8-signature fault classification, $\pm 5\%$ dead band, and two-source module-test candidates.
-2. **Time-Series Performance Analysis (Plant, Inverter & String Level)** — pre-KPI data filtering ($\text{POA } 200\text{–}1,200\text{ W/m}^2$, stale-value, clipping, and curtailment masks), temperature-corrected $\text{PR}'$, Energy Performance Index ($\text{EPI}$, Rule R10), inverter/BOS loss ($Y_a - Y_f$, Rule R11), same-orientation/tilt/module-count string peer ratio ($R_i$), low-variability irradiance gating, and string fault rules (`R1`, `R2`, `R4` with per-string voltage sensing check, `R5`, `R6`).
+2. **Time-Series Performance Analysis (Plant, Inverter & String Level)** — pre-KPI data filtering ($\text{POA } 200\text{–}1,200\text{ W/m}^2$, stale-value, clipping, and curtailment masks), temperature-corrected $\text{PR}'$, Energy Performance Index ($\text{EPI}$, Rule R10), inverter/BOS loss ($Y_a - Y_f$, Rule R11), same-orientation/tilt/module-count string peer ratio ($R_i$), irradiance gating, and string fault rules (`R1`, `R2`, `R4` with per-string voltage sensing check, `R5`, `R6`).
 
 ---
 
@@ -46,7 +46,7 @@ An I–V curve cannot be interpreted without its measurement conditions. Every s
 - Sweeps that fail `quality_gate_passed` are stored with explicit `gate_reasons`. Their STC power is never judged: no module-test candidate, and no ticket except for steps.
 - A sweep with `shape_gate_passed` can still raise a `steps_in_curve` ticket, because steps are read from the measured curve.
 - `gate_warnings` and `shape_gate_passed` are stored inside `classification`.
-- Not gated yet (no input fields): module temperature stability before the sweep, and sweep time for high-capacitance (TOPCon / HJT) modules.
+- Module temperature stability and sweep time for high-capacitance modules are optional inputs, gated in §2.9.
 
 ### 2.2 Data Cleaning (`rectify_iv_curve`)
 
@@ -56,7 +56,7 @@ Before parameter extraction or STC translation, `rectify_iv_curve(voltage, curre
 3. Anchors $(0, I_{\text{sc}})$ by linear extrapolation of the low-voltage segment and $(V_{\text{oc}}, 0)$ by linear interpolation/extrapolation of the high-voltage drop-off.
 4. A sweep that runs past $V_{\text{oc}}$ ends in several points at $I = 0$. Only the first of them is kept, so $V_{\text{oc}}$ is read where the current first reaches zero, not at the end of the sweep.
 
-### 2.3 Translation to STC — IEC 60891 Procedure 1 (`translate_iec60891_proc1`)
+### 2.3 Translation to STC — IEC 60891 Procedure 1 (`translate_to_stc_iec60891`, `procedure=1`)
 
 Every curve is translated from measured $(G_1, T_1)$ to Standard Test Conditions ($G_2 = 1000\text{ W/m}^2$, $T_2 = 25\,^\circ\text{C}$) before any comparison:
 
@@ -236,43 +236,47 @@ Implemented in [`backend/app/services/growatt_weather.py`](../../backend/app/ser
 #### Plant & Inverter KPIs
 - **Temperature-Corrected $\text{PR}'$ (`pr_temp_corrected_pct`)**:
   $$\text{PR}' = \frac{\text{PR}}{1 + \gamma\cdot(\overline{T}_{\text{mod},G} - 25\,^\circ\text{C})}$$
-  where $\overline{T}_{\text{mod},G} = \frac{\sum G_t \cdot T_{\text{mod},t}}{\sum G_t}$ is the irradiance-weighted module temperature (`irradiance_weighted_tmod_c`) and $\gamma < 0$ is the module power temperature coefficient (default $-0.0034\text{ K}^{-1}$). Raw PR is never used to trigger alarms.
+  where $\overline{T}_{\text{mod},G} = \frac{\sum G_t \cdot T_{\text{mod},t}}{\sum G_t}$ is the irradiance-weighted module temperature (`irradiance_weighted_tmod_c`) and $\gamma < 0$ is the module power temperature coefficient: the fleet module's `temp_coeff_pmax_pct`, else `DEFAULT_GAMMA_PCT_PER_K` ($-0.30\,\%/\text{K}$). Raw PR is never used to trigger alarms.
 - **EPI — Energy Performance Index (`epi`, labelled `modelled`)**:
-  $$\text{EPI} = \frac{E_{\text{measured}}}{E_{\text{modelled}}}, \quad E_{\text{modelled}} = \sum_{t \in \text{valid}} P_{\text{STC}} \cdot \frac{G_t}{1000} \cdot \left[1 + \gamma(T_{\text{mod},t} - 25\,^\circ\text{C})\right] \cdot \eta_{\text{inv,nom}} \cdot \Delta t$$
-  - **Rule R10 (`EPI low`)**: Alarms when daily $\text{EPI} < \mu - 3\sigma$ for 1 day (`r10_sigma_1d = 3.0`) or $\text{EPI} < \mu - 2\sigma$ for 3 consecutive days (`r10_sigma_3d = 2.0`) relative to the plant's trailing baseline.
+  $$\text{EPI} = \frac{E_{\text{measured}}}{E_{\text{modelled}}}, \quad E_{\text{modelled}} = \sum_{t \in \text{valid}} P_{\text{STC}} \cdot \frac{G_t}{1000} \cdot \max\left(0.5,\ 1 + \gamma(T_{\text{mod},t} - 25\,^\circ\text{C})\right) \cdot 0.985 \cdot \Delta t$$
+  - $0.985$ is a fixed (assumed) inverter/BOS efficiency, not a nameplate value.
+  - A slot without its own module temperature uses the day's irradiance-weighted (else daylight average) measured module temperature. When the sensor measured no module temperature at all that day, the slot is skipped, so EPI is `null` rather than modelled at an assumed $25\,^\circ\text{C}$.
+  - Valid slots: POA $200\text{–}1{,}200\text{ W/m}^2$, not stale, not clipped (daily rows also not curtailed). At least 6 (daily rows, `growatt_daily._plant_day`) or 3 (overview) valid slots, else `null`.
+  - **Rule R10 (`Plant EPI anomaly`)**: baseline $\mu$, $\sigma$ = daily EPI over `r10_window_days` (30) days before the trailing `r10_two_sigma_days` (3) days, at least `r10_min_days` (7), $\sigma \ge 0.015$. Fires P2 when today's $\text{EPI} < \mu - 3\sigma$, or P3 when each of the last 3 days is $< \mu - 2\sigma$.
 - **$Y_a - Y_f$ — Array Yield Minus Final Yield (`ya_minus_yf`)**:
   $$Y_a = \frac{E_{\text{DC}}}{\text{kWp}}, \quad Y_f = \frac{E_{\text{AC}}}{\text{kWp}}, \quad \text{Loss}_{\text{inv+BOS}} = Y_a - Y_f\text{ (h/d)}$$
-  - **Rule R11 (`Inverter/BOS loss drift`)**: Alarms when the recent 7-day median of $(Y_a - Y_f)$ exceeds the prior baseline median by more than `r11_drift_pct` ($15\%$).
+  - **Rule R11 (`Inverter Ya − Yf loss drift`)**: per inverter, fires when each of the last `r11_days` (2) days has $Y_a - Y_f \ge$ the median of the `r11_window_days` (14) days before them $+$ `r11_gap_increase_h` ($0.15\text{ h/d}$, an absolute gap, not a percentage), with at least `r11_min_days` (5) baseline days.
 
 ### 3.2 String Level
 
-Implemented in [`backend/app/services/growatt_daily.py`](../../backend/app/services/growatt_daily.py) and [`backend/app/services/growatt_rules.py`](../../backend/app/services/growatt_rules.py).
+Implemented in [`backend/app/services/growatt_daily.py`](../../backend/app/services/growatt_daily.py) (`_strings_day`, daily rows in `growatt_string_daily`) and [`backend/app/services/growatt_rules.py`](../../backend/app/services/growatt_rules.py) (`evaluate`, thresholds in `DEFAULT_RULES`, overridable in Rule Review).
 
-#### Peer Grouping (`_peer_groups`)
-Peer ratio $R_i = \frac{I_i}{\text{median}(I_{\text{peers}})}$ compares **only** strings that share the same:
-1. Module count (`modules`)
-2. Orientation (`azimuth_deg`, rounded to nearest $5^\circ$)
-3. Tilt (`tilt_deg`, rounded to nearest $2^\circ$)
+#### Peer Grouping
+Peer ratio $R_i = \frac{I_i}{\text{median}(I_{\text{peers}})}$. Each string's peers are the strings of its inverter with the same String Layout key (module count, `azimuth_deg`, `tilt_deg`, compared exactly, not rounded), when that group has at least 2 strings reporting in the slot. Otherwise, or when the string has no layout, the peers are all wired strings of the inverter.
 
-#### Gating (`_stable_poa_timestamps`)
-String ratios are evaluated only in 5-minute slots where:
-- $\text{POA} \ge 350\text{ W/m}^2$ (within the $300\text{–}400\text{ W/m}^2$ threshold, configurable via `gate_irradiance_wm2`)
-- **Low irradiance variability**: relative step change $|\text{POA}_t - \text{POA}_{t-1}| / \text{POA}_t \le 10\%$ (`MAX_POA_STEP_FRAC = 0.10`) and non-stale sensor reading
-- Inverter status is normal (`status == 1`), not clipped ($P_{\text{AC}} < 98\%$ nominal), and not curtailed (`active_rate_pct >= 100`)
+#### Gating
+A 5-minute slot counts toward the ratio (`gated`) only when:
+- the inverter's status is normal (`status == 1`) and at least `MIN_PEERS` (3) wired strings report;
+- not more than a third of the strings read $\le 0.3\text{ A}$ together (that is an inverter event, not the strings);
+- the median string current is $\ge$ `GATE_MEDIAN_A` ($3\text{ A}$);
+- AC power is below `CLIP_FRACTION` ($98\%$) of the nameplate × active power limit (not clipped);
+- where the plant has a weather sensor: POA $\ge$ `GATE_IRRADIANCE_WM2` ($400\text{ W/m}^2$, a constant) and the irradiance step $|G_t - G_{t-1}| / \max(G_t, G_{t-1}) \le$ `MAX_IRR_VARIABILITY` ($15\%$).
+
+Fewer than `MIN_GATED_SLOTS` (12) gated slots = no verdict that day (`null`). The stale-value and curtailment masks of §3.1 apply to the plant KPIs, not to the string gate.
 
 #### String Fault Thresholds
 
 | Rule | Condition | Persistence | Points To | Notes |
 |---|---|---|---|---|
-| **R1** | $R_i < 0.80$ (`r1_low_ratio = 0.80`) | $> 2\text{ h}$ (`r1_low_min = 120` min) | Underperforming string | Configurable in Rule Review |
-| **R2** | $I_i \le 0.3\text{ A}$ while $\text{median}(I_{\text{peers}}) \ge 2.0\text{ A}$ | $3\text{ samples}$ (`r2_open_min = 15` min) | Open circuit | P1 if above THB threshold, else P2 |
-| **R4** | String voltage $> 1.2\%$ below peer voltage (`v_ratio_median < 0.988`) | $\ge 2\text{ days}$ (`r4_days = 2`) | Bypass diode | **Enforces Voltage Limit Rule**: only evaluated when `voltage_sensing == "per_string"` |
-| **R5** | 30-day median $R_i < 0.95$ (`r5_30d_ratio = 0.95`) | 30 days (min 10 valid days) | Mismatch or degradation | Slow drift |
-| **R6** | $R_i$ falling $> 1\%$ per month (`r6_slope_pct_per_month = -1.0`) | $\ge 14$ gated days | PID | Linear regression slope in $\%$/30d |
+| **R1** | $R_i <$ `LOW_RATIO` (0.80) for $\ge$ `r1_low_min` (120) gated minutes in a day | today, and on `r1_days_hit` (2) of the last `r1_days` (3) judged days | Weak string | P2 |
+| **R2** | $I_i \le 0.3\text{ A}$ while the peer median $\ge 2.0\text{ A}$ | $\ge$ `r2_open_min` (15) min today | Open string | P1 above `p1_thb_per_day`, else P2 |
+| **R4** | daily median voltage ratio $<1 - 1.2\%$ (`r4_v_drop_pct`) | `r4_days` (2) days in a row | Bypass diode | Only with `voltage_sensing == "per_string"` (below) |
+| **R5** | median of daily $R_i$ over `r5_window_days` (30) $<$ `r5_ratio` (0.95) | $\ge$ `r5_min_days` (10) days with a verdict | Mismatch or slow degradation | P3 |
+| **R6** | linear-regression slope of daily median $R_i$ falls by $>$ `r6_drop_pct_per_month` (1.0 %) per 30 days | over `r6_window_days` (30), $\ge$ `r6_min_days` (10) days with a verdict | PID / rapid degradation | P2; when it fires, R5 is not raised for that string |
 
 #### Voltage Limit Rule (`voltage_sensing`)
-Strings wired in parallel on the same MPPT share a single DC bus voltage. In `compute_string_day` (`backend/app/services/growatt_daily.py`), each string's MPPT is checked:
-- If only **1 wired string** is connected to that MPPT (`mppt_wired_counts[mppt] == 1`), `voltage_sensing = "per_string"` and Rule **R4** is active.
+Strings wired in parallel on the same MPPT share a single DC bus voltage. In `_strings_day` (`backend/app/services/growatt_daily.py`), each string's MPPT (string $n$ on MPPT $\lceil n/2 \rceil$) is checked:
+- If only **1 wired string** is connected to that MPPT, `voltage_sensing = "per_string"` and Rule **R4** is active.
 - If **2 or more wired strings** share that MPPT, `voltage_sensing = "shared_mppt"` and Rule **R4** is automatically skipped (on those inverters, only an I–V sweep or drone IR can detect a shorted bypass diode).
 
 ---
@@ -283,11 +287,11 @@ Migration file: [`backend/alembic/versions/c5d6e7f8a9b0_iv_sweeps_and_timeseries
 ORM models: [`backend/app/db/models.py`](../../backend/app/db/models.py)
 
 1. **`growatt_iv_sweeps` (new table)**:
-   - Stores sweep metadata (`plant_id`, `device_sn`, `string_no`, `module_no`, `level`, `source`, `swept_at`), conditions (`irradiance_wm2`, `module_temp_c`, `irradiance_change_pct`, `reference_cell_tech`, `modules`), quality gate (`quality_gate_passed`, `gate_reasons_json`), raw and STC curve points (`points_json`, `stc_points_json`), extracted parameters and single-diode fits (`measured_params_json`, `stc_params_json`, `fit_json`), fault classification (`p_max_stc_w`, `expected_pmax_stc_w`, `pmax_dev_pct`, `signature`, `is_finding`, `ticket_recommended`), and two-source warranty fields (`ir_confirmed`, `timeseries_trend_confirmed`, `warranty_claim_ready`).
+   - Stores sweep metadata (`plant_id`, `device_sn`, `string_no`, `module_no`, `level`, `source`, `swept_at`), conditions (`irradiance_wm2`, `module_temp_c`, `irradiance_change_pct`, `reference_cell_tech`, `modules`), quality gate (`quality_gate_passed`, `gate_reasons_json`), the measured and STC curves with their extracted parameters and fits (`measured_json`, `stc_json`), the IEC 60891 cross-checks (`iec60891_json`), the full classification (`classification_json`), its headline values (`p_max_stc_w`, `expected_pmax_stc_w`, `pmax_dev_pct`, `signature`, `is_finding`, `ticket_recommended`), and two-source fields (`ir_confirmed`, `timeseries_trend_confirmed`, `warranty_claim_ready` = API `module_test_candidate`), plus `note`, `created_by`, `created_at`.
    - Added by [`a3b4c5d6e7f8_iv_sweep_conditions.py`](../../backend/alembic/versions/a3b4c5d6e7f8_iv_sweep_conditions.py) (and by `ensure_schema` at startup): optional conditions `temp_change_k_per_min`, `sweep_time_ms`, `cell_technology`, `irradiance_uncertainty_pct` (§2.9), `reverse_pmax_w`, `sensor_misalignment_deg` (§2.10).
 2. **`growatt_plant_daily` (new table)**:
    - Stores daily filtered plant KPIs: `capacity_kwp`, `energy_kwh`, `dc_energy_kwh`, `modelled_energy_kwh`, `yr_h`, `ya_kwh_kwp`, `yf_kwh_kwp`, `ya_minus_yf`, `pr_pct`, `pr_temp_corrected_pct`, `epi`, `irradiance_weighted_tmod_c`, `filtered_slots`, `stale_masked_slots`, `clipped_masked_slots`, `curtailed_masked_slots`.
-3. **`growatt_string_layout` (added columns)**:
+3. **`growatt_string_layouts` (added columns)**:
    - `azimuth_deg` (`Float`, nullable) and `tilt_deg` (`Float`, nullable) for same-orientation/tilt peer grouping.
 4. **`growatt_string_daily` (added column)**:
    - `voltage_sensing` (`String(20)`, `"per_string"` or `"shared_mppt"`).
@@ -296,8 +300,18 @@ ORM models: [`backend/app/db/models.py`](../../backend/app/db/models.py)
 
 ## 5. API Reference
 
+Every route is mounted at `/api/...` and `/...`; plant routes need `require_plant_read` / `require_plant_write` (an unassigned plant answers 404).
+
 | Method & Path | Description |
 |---|---|
+| `GET /growatt/plants/{plant_id}/iv-sweeps` | Lists stored I–V sweeps for a plant (optional filters: `sn`, `string_no`, `limit`), each with `comparison` (§2.7) computed on read. |
+| `POST /growatt/plants/{plant_id}/iv-sweeps` | Validates measurement conditions, translates to STC (IEC 60891 Procedure 1, cross-checked), extracts parameters, fits the single-diode model, classifies the fault signature, checks the two-source module-test candidate, and stores the sweep. 422 for invalid input, including a string whose module count is unknown (§2.6). |
+| `PATCH /growatt/plants/{plant_id}/iv-sweeps/{sweep_id}` | Updates `ir_confirmed` (drone/handheld IR confirmation) or `note`, and recomputes `module_test_candidate`. |
+| `GET /growatt/plants/{plant_id}/iv-sweeps/site-coefficients?sn=&string_no=` | Site coefficients and Procedure 3 from one string's stored sweeps (§2.11), computed on read. |
+| `GET /growatt/plants/{plant_id}/string-layout` / `PUT` | Reads and saves per-string `modules`, `module_wp`, `azimuth_deg`, and `tilt_deg`. |
+| `GET /growatt/plants/{plant_id}/overview` | `kpis` include `dc_yield_today_kwh`, `ya_kwh_kwp`, `ya_minus_yf`, `iec_pr_temp_corrected_pct`, `irradiance_weighted_module_temp_c`, and `epi`. |
+
+---|---|
 | `GET /api/growatt/plant/{plant_id}/iv-sweeps` | Lists stored I–V sweeps for a plant (optional filters: `sn`, `string_no`, `limit`). |
 | `POST /api/growatt/plant/{plant_id}/iv-sweeps` | Validates measurement conditions, cleans and translates the curve to STC via IEC 60891 Procedure 1, extracts parameters, fits the single-diode model, classifies fault signatures, checks two-source warranty eligibility, and stores the sweep. |
 | `PATCH /api/growatt/plant/{plant_id}/iv-sweeps/{sweep_id}` | Updates `ir_confirmed` (drone/handheld IR confirmation) or `note`, and recomputes `module_test_candidate`. |
@@ -327,8 +341,8 @@ Run the automated test suites from the repository root:
 # 1. Pure NumPy I-V analysis, IEC 60891 STC translation, fault signatures, PR', EPI, and R1-R11 rules
 uv run pytest backend/tests/test_iv_and_timeseries.py backend/tests/test_decision_rules.py -q
 
-# 2. Type-check backend
-uv run pyright
+# 2. Type-check the files you changed (whole-tree runs report older pandas-stubs errors in solar_core/)
+uv run pyright backend/solar_core/iv_analysis.py backend/app/services/growatt_iv.py backend/app/services/growatt_daily.py backend/app/services/growatt_rules.py
 
 # 3. Lint and build frontend
 cd frontend && bun run lint && bun run build
