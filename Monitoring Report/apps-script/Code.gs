@@ -216,7 +216,7 @@ function fillDay(day, hours) {
  * firmware = {datalogger_sn: version} from the API: the firmware of that datalogger's inverters
  * (Growatt innerVersion, else fwVersion; several versions joined with ", "). Growatt gives no
  * datalogger firmware. Written on its own, so the check block and
- * newDaySheet_ (which clears only the check block) never touch it. Returns the number of rows that
+ * newDaySheet_ (which clears only the report's own columns) never touch it. Returns the number of rows that
  * got a version, or null when the sheet has no Firmware column or the API sent no firmware map
  * (older API: the column is left as it is). Only empty / "—" cells are written; an SN the API
  * doesn't know gets "—".
@@ -314,10 +314,13 @@ function layout_(sh) {
   const yieldKwh = r1.findIndex(v => /yield/i.test(v) || /พลังงาน/.test(v)) + 1;
   const firmware = r1.findIndex(v => /firmware/i.test(v)) + 1; // own column, outside the check block
   const cols = [weather, yieldKwh].concat(...blocks.map(b => [b.status, b.note, b.irr, b.wx, b.log, b.kw, b.inv])).filter(Boolean);
-  return { weather, yieldKwh, firmware, blocks, first: Math.min(...cols), last: Math.max(...cols) };
+  return { weather, yieldKwh, firmware, blocks, cols, first: Math.min(...cols), last: Math.max(...cols) };
 }
 
-/** New day sheet = copy of the newest DD.MM sheet with its check columns cleared. */
+/**
+ * New day sheet = copy of the newest DD.MM sheet with its check columns cleared: only the columns
+ * the report writes (layout_ cols), in contiguous runs, so a manual column between them is kept.
+ */
 function newDaySheet_(ss, name) {
   const tpl = ss.getSheets().filter(s => /^\d{2}\.\d{2}/.test(s.getName())).pop();
   if (!tpl) throw new Error('No DD.MM template sheet to copy');
@@ -325,7 +328,16 @@ function newDaySheet_(ss, name) {
   ss.setActiveSheet(sh);
   ss.moveActiveSheet(ss.getNumSheets());
   const lay = layout_(sh);
-  if (sh.getLastRow() >= FIRST_ROW) sh.getRange(FIRST_ROW, lay.first, sh.getLastRow() - FIRST_ROW + 1, lay.last - lay.first + 1).clearContent();
+  const rows = sh.getLastRow() - FIRST_ROW + 1;
+  if (rows > 0) {
+    const cols = Array.from(new Set(lay.cols)).sort((a, b) => a - b);
+    for (let i = 0; i < cols.length; ) {
+      let j = i;
+      while (j + 1 < cols.length && cols[j + 1] === cols[j] + 1) j++;
+      sh.getRange(FIRST_ROW, cols[i], rows, cols[j] - cols[i] + 1).clearContent();
+      i = j + 1;
+    }
+  }
   return sh;
 }
 

@@ -51,3 +51,7 @@ Monitoring Report/*.xlsx
 
 # Growatt endpoint probe replies (backend/scripts/probe_growatt_endpoints.py)
 data/growatt_probe/
+
+# frontend uses Bun (bun.lock) only
+frontend/package-lock.json
+frontend/yarn.lock
