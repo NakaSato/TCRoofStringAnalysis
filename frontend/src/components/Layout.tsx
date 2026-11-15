@@ -94,7 +94,7 @@ const PLANT_NAV: Record<PlantPage, { label: string; description?: string }> = {
   strings: { label: "String Diagnostics", description: "String performance, heatmap & I-V / P-V curves" },
   string: { label: "String Analysis", description: "One string in depth: I-V / P-V, profile, mismatch by hour, daily energy" },
   "string-layout": { label: "String Layout", description: "Modules per string for each inverter" },
-  maintenance: { label: "Maintenance & RCA", description: "PM schedule, CM work orders & root cause analysis" },
+  maintenance: { label: "Maintenance", description: "Site log (cleanings, repairs) and, for admins, PM / CM / RCA" },
 };
 
 const useClock = () => {

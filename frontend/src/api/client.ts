@@ -15,6 +15,7 @@ export type * from "./types/sensors";
 export type * from "./types/systemLogs";
 export type * from "./types/assistant";
 export type * from "./types/issues";
+export type * from "./types/events";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
@@ -22,6 +23,7 @@ import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWea
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
+import type { SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
 import type { Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut } from "./types/issues";
 
 export function getStoredToken(): string | null {
@@ -401,6 +403,19 @@ export const api = {
   },
   patchIssue: (id: number, body: IssueActionBody) =>
     apiFetch<Issue>(`/growatt/issues/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  // ---- site events (work done on a plant: cleanings, repairs, …; DB only)
+  listSiteEvents: (plantId: number, q: SiteEventQuery = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<SiteEventList>(`/growatt/plants/${plantId}/events${qs ? `?${qs}` : ""}`);
+  },
+  createSiteEvent: (plantId: number, body: SiteEventBody) =>
+    apiFetch<SiteEvent>(`/growatt/plants/${plantId}/events`, { method: "POST", body: JSON.stringify(body) }),
+  patchSiteEvent: (plantId: number, id: number, body: Partial<SiteEventBody>) =>
+    apiFetch<SiteEvent>(`/growatt/plants/${plantId}/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteSiteEvent: (plantId: number, id: number) =>
+    apiFetch<void>(`/growatt/plants/${plantId}/events/${id}`, { method: "DELETE" }),
   getRules: (sinceDays = 90) => apiFetch<RulesOut>(`/growatt/rules?since_days=${sinceDays}`),
   putRules: (patch: RulesPatch) =>
     apiFetch<{ settings: RuleSettings }>("/growatt/rules", { method: "PUT", body: JSON.stringify(patch) }),

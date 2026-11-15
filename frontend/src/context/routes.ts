@@ -45,8 +45,7 @@ export interface RouteData {
 export const routeData = (pathname: string, admin: boolean): RouteData => {
   const plant = parsePlantPath(pathname);
   if (plant) {
-    // an admin-only page redirects non-admins away: load nothing for it
-    const ok = Number.isFinite(plant.plantId) && plant.page != null && (admin || plant.page !== "maintenance");
+    const ok = Number.isFinite(plant.plantId) && plant.page != null;
     return {
       // sidebar fleet card; the banner's plant status is the fleet poll's per-plant status too
       fleetList: true,

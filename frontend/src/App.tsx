@@ -21,7 +21,7 @@ const InvertersPage = page(() => import("./pages/InvertersPage"), "InvertersPage
 const StringAnalysisPage = page(() => import("./pages/StringAnalysisPage"), "StringAnalysisPage");
 const StringLayoutPage = page(() => import("./pages/StringLayoutPage"), "StringLayoutPage");
 const StringDetailPage = page(() => import("./pages/StringDetailPage"), "StringDetailPage");
-const MaintenanceRcaPage = page(() => import("./pages/MaintenanceRcaPage"), "MaintenanceRcaPage");
+const PlantMaintenancePage = page(() => import("./pages/PlantMaintenancePage"), "PlantMaintenancePage");
 const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage");
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
 const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
@@ -121,7 +121,7 @@ export const App: React.FC = () => {
               <Route path="strings" element={<StringAnalysisPage />} />
               <Route path="string" element={<StringDetailPage />} />
               <Route path="string-layout" element={<StringLayoutPage />} />
-              <Route path="maintenance" element={<AdminOnly><MaintenanceRcaPage /></AdminOnly>} />
+              <Route path="maintenance" element={<PlantMaintenancePage />} />
               <Route path="*" element={<Navigate to=".." relative="path" replace />} />
             </Route>
             {/* URLs from before the plant was in the URL */}

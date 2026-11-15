@@ -11,7 +11,8 @@ export const isAdmin = (user: UserProfile | null | undefined): boolean => user?.
 export const ADMIN_ONLY_PATHS = ["/maintenance", "/she", "/users", "/logs", "/ai-usage", "/rules"];
 
 /** Plant pages (`/plant/:id/<page>`) that are admin only. */
-export const ADMIN_ONLY_PLANT_PAGES: readonly string[] = ["maintenance"];
+/** (Maintenance is open to engineers for the site log; its legacy sections stay admin only.) */
+export const ADMIN_ONLY_PLANT_PAGES: readonly string[] = [];
 
 export const canAccessPlantPage = (user: UserProfile | null | undefined, page: string): boolean =>
   isAdmin(user) || !ADMIN_ONLY_PLANT_PAGES.includes(page);

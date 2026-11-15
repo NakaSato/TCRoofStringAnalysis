@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -427,3 +427,41 @@ class IssueAction(BaseModel):
     action: Literal["acknowledge", "resolve", "dismiss", "reopen", "note"]
     note: Optional[str] = Field(default=None, max_length=2000)
     feedback: Optional[Literal["confirmed", "false_alarm"]] = None
+
+
+SiteEventType = Literal["cleaning", "repair", "module_replaced", "inverter_replaced", "ir_flight", "curtailment", "other"]
+
+
+class SiteEventCreate(BaseModel):
+    """Record work done on a plant (plant-local dates). `close_issue` resolves `issue_id` as confirmed."""
+
+    event_type: SiteEventType
+    day: date
+    end_day: Optional[date] = None
+    device_sn: Optional[str] = Field(default=None, max_length=64)
+    string_no: Optional[int] = Field(default=None, ge=1, le=64)
+    cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+    issue_id: Optional[int] = None
+    close_issue: bool = False
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SiteEventPatch(BaseModel):
+    """Change an event: only the fields sent are changed; null clears an optional one."""
+
+    event_type: Optional[SiteEventType] = None
+    day: Optional[date] = None
+    end_day: Optional[date] = None
+    device_sn: Optional[str] = Field(default=None, max_length=64)
+    string_no: Optional[int] = Field(default=None, ge=1, le=64)
+    cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+    issue_id: Optional[int] = None
+    close_issue: bool = False
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+    def changes(self) -> Dict[str, Any]:
+        out = self.model_dump(exclude_unset=True)
+        for k in ("event_type", "day"):  # required on the event: null means "unchanged"
+            if out.get(k, 0) is None:
+                out.pop(k)
+        return out
