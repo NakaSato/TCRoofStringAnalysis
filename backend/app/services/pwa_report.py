@@ -3,6 +3,11 @@
 The sheet reads the published daily plant docs (Firestore `daily/{day}/plants`) through the API
 with a shared key, so the Apps Script needs no Google Cloud permission of its own. Plant names,
 locations and datalogger serials come from the SQL registry.
+
+SQL fallback: a check slot frozen in `pwa_check_slots` but missing from Firestore (the publish hit
+PUBLISH_DAILY_WRITE_BUDGET, or PUBLISH_SINK=json) is filled in from SQL. It is the same frozen
+snapshot the publish would have written, so Firestore and SQL never disagree; Firestore wins when
+both have it. Nothing else comes from SQL (no yield, no hourly curve): missing stays "—".
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.models import GrowattInverter, GrowattPlant
+from app.db.models import GrowattEnvSensor, GrowattInverter, GrowattPlant, PwaCheckSlot
 
 # Only what the sheet uses (Firestore reads stay one per plant doc either way)
 DAY_FIELDS = ["hourly_kw", "yield_kwh", "checks", "weather.has_sensor", "weather.slots", "google_weather.slots"]
@@ -131,13 +136,59 @@ def _registry(
     return plants, loggers, by_plant, firmware
 
 
+def _sql_checks(
+    db: Session, day: date, docs: Dict[str, Dict[str, Any]], ready: Optional[List[str]]
+) -> Tuple[Dict[str, Dict[str, Any]], Optional[List[str]], Dict[str, int]]:
+    """Fill `docs` (not changed in place: they may be the shared cache) with the day's frozen
+    check slots that Firestore lacks. A check hour is ready from SQL when every plant with an
+    inverter not marked as replaced has it frozen (the publish freezes all plants before it
+    writes Firestore), so the sheet's all-or-nothing gate still holds."""
+    from app.services.check_slots import hh
+    from app.services.daily_checks import is_replaced
+
+    frozen: Dict[str, Dict[str, Any]] = {}
+    for r in db.scalars(select(PwaCheckSlot).where(PwaCheckSlot.day == day)):
+        frozen.setdefault(str(r.plant_id), {})[hh(r.hour)] = r.slot_json
+    stats = {"plants": 0, "checks": 0}
+    if not frozen:
+        return docs, ready, stats
+
+    active = {str(i.plant_id) for i in db.scalars(select(GrowattInverter)) if not is_replaced(i)}
+    sql_ready = [
+        h for h in sorted({h for slots in frozen.values() for h in slots})
+        if active and all(h in (frozen.get(pid) or {}) for pid in active)
+    ]
+    ready = sorted(set(ready or []) | set(sql_ready))
+
+    sensors = {str(pid) for pid in db.scalars(select(GrowattEnvSensor.plant_id))}
+    out = dict(docs)
+    for pid, slots in frozen.items():
+        doc = out.get(pid)
+        have = (doc or {}).get("checks") or {}
+        add = {h: v for h, v in slots.items() if h not in have}
+        if not add:
+            continue
+        stats["checks"] += len(add)
+        if doc is None:
+            stats["plants"] += 1
+            out[pid] = {"checks": add, "weather": {"has_sensor": pid in sensors}, "source": "sql"}
+        else:
+            new = {**doc, "checks": {**have, **add}}
+            if "weather" not in doc:
+                new["weather"] = {"has_sensor": pid in sensors}
+            out[pid] = new
+    return out, ready, stats
+
+
 def build(db: Session, day: date, day_docs: Optional[DayDocs] = None) -> Dict[str, Any]:
-    """Raw data: registry + the day's published docs. `day_docs` given (tests, the worker's own
-    reader) = no caching."""
+    """Raw data: registry + the day's published docs, with frozen check slots Firestore lacks
+    filled in from SQL (_sql_checks). `day_docs` given (tests, the worker's own reader) = no
+    caching."""
     plants, loggers, by_plant, firmware = _registry(db, cache=day_docs is None)
     docs = dict(cached_day_docs(day) if day_docs is None else {pid: doc for pid, doc in day_docs(day)})
     head = docs.pop(DAY_KEY, None) or {}
     ready = head.get("checks_ready") if isinstance(head.get("checks_ready"), list) else None
+    docs, ready, fallback = _sql_checks(db, day, docs, ready)
     return {
         "day": day.isoformat(),
         "plants": plants,
@@ -147,6 +198,8 @@ def build(db: Session, day: date, day_docs: Optional[DayDocs] = None) -> Dict[st
         # check hours fully published ("09", ...); None = not stated (older day): all count
         "checks_ready": ready,
         "days": docs,
+        # plants (no Firestore doc) and checks taken from SQL `pwa_check_slots`
+        "sql_fallback": fallback,
     }
 
 
@@ -172,6 +225,7 @@ def cells(db: Session, day: date, hours: Sequence[int], day_docs: Optional[DayDo
         # requested checks that are published in full; the others are "—" for every plant
         "checks_ready": [f"{h:02d}" for h in hours if ready is None or f"{h:02d}" in ready],
         "published_plants": len(docs),
+        "sql_fallback": data["sql_fallback"],
         "loggers": data["loggers"],
         "names": {pid: info["name"] for pid, info in data["plants"].items()},
         "plants": plants,

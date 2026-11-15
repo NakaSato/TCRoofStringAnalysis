@@ -14,7 +14,7 @@ from the header rows (see `layout`), so both layouts work:
     new: weather Status | per check: Status, ค่าแสง, สภาพอากาศ, DATA LOG (Fault log)
 
 Source: the published daily docs (Firestore daily/{day}/plants/{id}) + the plant registry, i.e.
-`pwa_report.build`. Each check is a snapshot at hh:00 − CHECK_OFFSET_MIN (check_slots.py).
+`pwa_report.build`; a check frozen in SQL `pwa_check_slots` that Firestore lacks comes from SQL. Each check is a snapshot at hh:00 − CHECK_OFFSET_MIN (check_slots.py).
 Nothing is made up; no source = "—":
     Status      checks.{hh}.kw + offline / fault           real Growatt power at the slot time
     DATA LOG    checks.{hh}: "online", "offline", or the faults: offline / fault-status inverters +
