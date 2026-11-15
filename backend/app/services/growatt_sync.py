@@ -1108,6 +1108,11 @@ def _sync_today_batched(
     return done
 
 
+def _rowcount(result: Any) -> int:
+    """Rows a DELETE touched (`CursorResult.rowcount`; typed as plain `Result` by `Session.execute`)."""
+    return getattr(result, "rowcount", 0) or 0
+
+
 _RAW_BATCH = 200  # raw rows per statement (about 4 kB each)
 
 
@@ -1137,7 +1142,7 @@ def prune_raw(db: Session, today: date, keep_days: int) -> int:
     day = datetime.combine(oldest.date(), datetime.min.time())
     while day < cutoff:
         end = min(day + timedelta(days=1), cutoff)
-        n += db.execute(delete(GrowattInverterRaw).where(GrowattInverterRaw.timestamp >= day, GrowattInverterRaw.timestamp < end)).rowcount or 0
+        n += _rowcount(db.execute(delete(GrowattInverterRaw).where(GrowattInverterRaw.timestamp >= day, GrowattInverterRaw.timestamp < end)))
         db.commit()
         day = end
     return n
@@ -1166,20 +1171,20 @@ def prune_history(db: Session, today: date, keep_days: int) -> Dict[str, Any]:
     day = datetime.combine(min(starts).date(), datetime.min.time())
     while day < cutoff:
         end = min(day + timedelta(days=1), cutoff)
-        n_str = db.execute(
+        n_str = _rowcount(db.execute(
             delete(GrowattStringReading).where(GrowattStringReading.timestamp >= day, GrowattStringReading.timestamp < end)
-        ).rowcount
-        n_inv = db.execute(
+        ))
+        n_inv = _rowcount(db.execute(
             delete(GrowattInverterReading).where(
                 GrowattInverterReading.timestamp >= day, GrowattInverterReading.timestamp < end
             )
-        ).rowcount
-        n_env = db.execute(
+        ))
+        n_env = _rowcount(db.execute(
             delete(GrowattEnvReading).where(GrowattEnvReading.timestamp >= day, GrowattEnvReading.timestamp < end)
-        ).rowcount
-        n_meter = db.execute(
+        ))
+        n_meter = _rowcount(db.execute(
             delete(GrowattMeterReading).where(GrowattMeterReading.timestamp >= day, GrowattMeterReading.timestamp < end)
-        ).rowcount
+        ))
         db.commit()
         totals["meter_rows"] += n_meter or 0
         totals["env_rows"] += n_env or 0

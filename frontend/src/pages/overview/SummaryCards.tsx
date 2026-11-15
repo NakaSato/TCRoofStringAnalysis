@@ -36,7 +36,11 @@ export const InvertersOnlineTile: React.FC<{
   liveLoading: boolean;
   /** reporting with status ≠ 0; null before the live answer */
   online: number | null;
-}> = ({ ov, href, recs, liveLoading, online }) => {
+  /** the live answer is in (false while waiting or when it failed) */
+  liveLoaded: boolean;
+  /** inverters Growatt refused in that answer: state unknown, never counted as offline */
+  unanswered: number;
+}> = ({ ov, href, recs, liveLoading, online, liveLoaded, unanswered }) => {
   const { inverters, kpis } = ov;
   const s = useMemo(() => {
     const withYield = inverters.filter((i) => i.yield_today_kwh != null);
@@ -59,13 +63,13 @@ export const InvertersOnlineTile: React.FC<{
   }, [inverters]);
 
   // Growatt status: 1 Normal, 0 Waiting, 3 Fault (INVERTER_STATUS_NAMES); anything else = other.
-  // Offline = no live record today.
+  // Offline = the live answer is in and has no record of the inverter today (not one Growatt refused).
   const normal = recs.filter((r) => r.status === 1).length;
   const waiting = recs.filter((r) => r.status === 0).length;
   const fault = recs.filter((r) => r.status === 3).length;
   const other = recs.length - normal - waiting - fault;
-  const offline = recs.length ? Math.max(0, inverters.length - recs.length) : 0;
-  const total = normal + waiting + fault + other + offline;
+  const offline = liveLoaded ? Math.max(0, inverters.length - recs.length - unanswered) : 0;
+  const total = normal + waiting + fault + other + offline + (liveLoaded ? unanswered : 0);
   const lowWarn = s.lowestPct != null && s.lowestPct < LOW_PCT;
   const hot = kpis.max_temp_c != null && kpis.max_temp_c >= HOT_C;
 
@@ -98,7 +102,8 @@ export const InvertersOnlineTile: React.FC<{
             {offline > 0 && <Count level="off" n={offline} label="offline" />}
             {waiting > 0 && <Count level="warn" n={waiting} label="waiting" />}
             {other > 0 && <Count level="warn" n={other} label="other" />}
-            {fault + offline + waiting + other === 0 && normal > 0 && <span>all normal</span>}
+            {liveLoaded && unanswered > 0 && <Count level="off" n={unanswered} label="no answer" />}
+            {fault + offline + waiting + other + unanswered === 0 && normal > 0 && <span>all normal</span>}
             {lowWarn && s.lowest && (
               <span className="num text-amber-300" title={`${fmt(s.lowest.yield_today_kwh, 1)} kWh, ${fmt(s.lowestPct, 0)}% of the plant average (stored day)`}>
                 low {invName(s.lowest)} {fmt(s.lowestPct, 0)}%

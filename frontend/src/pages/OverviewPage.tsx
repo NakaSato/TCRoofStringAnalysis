@@ -211,7 +211,10 @@ export const OverviewPage: React.FC = () => {
           }
           footer={<span className="num">{target != null ? `target ${fmt(target, 0)}%` : "no target"} · {k.iec_pr_pct != null ? "IEC 61724" : "peer"}</span>}
         />
-        <InvertersOnlineTile ov={ov} href={plantHref("inverters")} recs={recs} liveLoading={plantLiveLoading} online={online} />
+        <InvertersOnlineTile ov={ov} href={plantHref("inverters")} recs={recs} liveLoading={plantLiveLoading} online={online}
+          liveLoaded={plantLive?.data != null}
+          unanswered={ov.inverters.filter((i) => i.device_sn in (plantLive?.data?.errors ?? {})).length}
+        />
         <StringHealthTile ov={ov} href={plantHref("strings")} />
       </div>
 

@@ -12,7 +12,7 @@ import { Spinner } from "@/components/ui/spinner";
  * no string rows stay listed. Click a tile to open its I-V curve in the String Inspector modal.
  */
 export const StringStatusMatrix: React.FC = () => {
-  const { selectedGrowattPlantId, selectedPlantOverview, setInspectedStringId, plantLiveLoading } = useAppContext();
+  const { selectedGrowattPlantId, selectedPlantOverview, setInspectedStringId, plantLiveLoading, plantLive } = useAppContext();
 
   const [selectedInverterSn, setSelectedInverterSn] = useState<string>("ALL");
   const [groupByInverter, setGroupByInverter] = useState(true);
@@ -184,15 +184,20 @@ export const StringStatusMatrix: React.FC = () => {
       {groupByInverter ? (
         <div className="space-y-4">
           {stringGroups.map(({ inv, mppts, active, inactive, crit, warn }) => {
-            // Offline = Growatt answered live and has no record of it today (or says it lost it)
-            const offline = Boolean(inv.lost) || (inv.status == null && selectedPlantOverview.live != null);
-            const lvl = offline ? "crit" : inverterStatusLevel(inv.status);
+            // Judged on the raw live answer (the overlay is not applied when the stored day is older).
+            // Offline = Growatt answered and has no record of it today (or says it lost it); an
+            // inverter Growatt refused (`errors`) is unknown, never Offline.
+            const liveData = plantLive?.data ?? null;
+            const rec = liveData?.inverters.find((r) => r.device_sn === inv.device_sn);
+            const status = rec?.status ?? inv.status;
+            const offline = Boolean(inv.lost) || (liveData != null && !rec && !(inv.device_sn in (liveData.errors ?? {})));
+            const lvl = offline ? "crit" : inverterStatusLevel(status);
             return (
               <section key={inv.device_sn} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                   {/* spinner only while the live request runs; an inverter missing from the live answer
                       (no record yet today: asleep, offline) says so instead of loading forever */}
-                  {inv.status == null && !inv.lost && plantLiveLoading ? (
+                  {status == null && !inv.lost && plantLiveLoading ? (
                     <Spinner className="size-3" aria-label="Loading live status…" />
                   ) : (
                     <Led level={lvl} />
@@ -210,12 +215,12 @@ export const StringStatusMatrix: React.FC = () => {
                     <span className="text-red-300" title="Growatt has no record of this inverter today">
                       Offline
                     </span>
-                  ) : inv.status === 0 ? (
+                  ) : status === 0 ? (
                     <span className="text-amber-300" title="Growatt status 0: waiting to start (not producing)">
                       Waiting
                     </span>
                   ) : (
-                    inv.status == null &&
+                    status == null &&
                     !plantLiveLoading && <span className="text-slate-500">Live unavailable</span>
                   )}
                   <span className="num text-sky-300">{active} active</span>
