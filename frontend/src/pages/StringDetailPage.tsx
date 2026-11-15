@@ -37,6 +37,7 @@ import { TablePager, pageBounds } from "../components/TablePager";
 import { StringPeriodPicker } from "../components/stringDetail/StringPeriodPicker";
 import { useStringDetail } from "../components/stringDetail/useStringDetail";
 import { StringRulesPanel } from "../components/stringDetail/StringRulesPanel";
+import { StringIvSweepPanel } from "../components/stringDetail/StringIvSweepPanel";
 import { daysBetween, isWindowed, periodDayText, periodFromQuery, periodToQuery, slotTime, windowText } from "../components/stringDetail/period";
 import type { StringPeriod } from "../components/stringDetail/period";
 import {
@@ -387,6 +388,11 @@ export const StringDetailPage: React.FC = () => {
       {/* Decision rules: open issues + last 30 days of the daily table */}
       {selectedGrowattPlantId != null && sn && stringNo != null && (
         <StringRulesPanel plantId={selectedGrowattPlantId} sn={sn} stringNo={stringNo} />
+      )}
+
+      {/* Measured I-V curve sweeps + IEC 60891 STC translation + fault signatures */}
+      {selectedGrowattPlantId != null && sn && stringNo != null && (
+        <StringIvSweepPanel plantId={selectedGrowattPlantId} sn={sn} stringNo={stringNo} />
       )}
 
       {/* Strings of the inverter (overview day) */}

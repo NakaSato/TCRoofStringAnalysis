@@ -215,7 +215,12 @@ _Done 2026-11-13. Deviations: `?day=` also judges the stored-data flags on that 
 - [x] `backend/CLAUDE.md`: Growatt data rules table rows for the 3 endpoints; weather-sensor section (live sweep, status rules)
 - [x] `frontend/CLAUDE.md`: route list + Sensors page notes; Active Alarm sensors panel (live today, stored gaps for past days)
 - [x] `CLAUDE.md`: data-flow diagram line for sensor status (live, memory only); Config keys
-- [x] Deploy backend, frontend (2026-11-13: API revision tcroof-api-00018-x7g, Hosting); [ ] verify sweep completes in ≈ 5 min on prod and counts match Growatt's portal for a sample of plants
+- [x] Deploy backend, frontend (2026-11-13: API revision tcroof-api-00018-x7g, Hosting)
+- [x] Verify sweep completes in ≈ 5 min on prod (2026-11-15 12:34:01–12:39:29 Bangkok, admin, cold cache: 12 / 232 dataloggers checked at the first request): `sweep.checked == total` (232) after **331 s (5.5 min)**, 20 requests polled on `refresh_in_s` (15 s), 12 dataloggers per request, 0 errors. Counts for 235 sensors: **215 online, 3 late, 17 offline**, 0 unknown
+- [ ] Counts match Growatt's portal for a sample of plants (manual; samples picked 2026-11-15 12:39, compare in the portal):
+  - late: `DYDCE9301R:10`, สถานีผลิตน้ำโรงกรองน้ำป่าตัน กปภ.เชียงใหม่ (plant 10096254), last upload 12:17:28, lost false
+  - offline: `DYD6A4805G:7`, สถานีผลิตน้ำมาบประชัน (plant 10031737), last upload 2026-11-13 18:37:58, lost true
+  - online: `DYD1E7R002:1`, สถานีผลิต-จ่ายน้ำปากแซง กปภ.จันทบุรี (plant 10014165), last upload 12:38:00
 
 ## 9. Acceptance criteria
 

@@ -21,7 +21,14 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AppSetting, GrowattAlarm, GrowattInverterDaily, GrowattPlant, GrowattStringDaily
+from app.db.models import (
+    AppSetting,
+    GrowattAlarm,
+    GrowattInverterDaily,
+    GrowattPlant,
+    GrowattPlantDaily,
+    GrowattStringDaily,
+)
 from app.services.tariff import Pricer, pricer as load_pricer
 
 SETTING_KEY = "decision_rules"
@@ -35,10 +42,17 @@ DEFAULT_RULES: Dict[str, Any] = {
     "r2_open_min": 15,
     # R3 insulation / ground / arc fault: alarm message keywords (Growatt codes to be confirmed, plan §9)
     "r3_keywords": ["isolation", "insulation", "gfci", "residual current", "ground", "earth", "afci", "arc"],
+    # R4 bypass diode: string voltage more than 1.2 % below peer voltage for >= 2 days (per-string voltage sensing only)
+    "r4_v_drop_pct": 1.2,
+    "r4_days": 2,
     # R5 slow drift: median ratio over a window
     "r5_window_days": 30,
     "r5_min_days": 10,
     "r5_ratio": 0.95,
+    # R6 PID / rapid string degradation: R_i falling more than 1 % per month
+    "r6_window_days": 30,
+    "r6_min_days": 10,
+    "r6_drop_pct_per_month": 1.0,
     # R7 inverter underperforming vs the plant's other inverters
     "r7_pct": -3.0,
     "r7_days": 2,
@@ -51,6 +65,15 @@ DEFAULT_RULES: Dict[str, Any] = {
     "r9_keywords": ["no ac connection", "grid", "ac v outrange", "ac f outrange", "ac voltage", "ac frequency"],
     "r9_events": 3,
     "r9_window_days": 7,
+    # R10 plant EPI control-chart anomaly (mu - 3*sigma for 1 day, or mu - 2*sigma for 3 days)
+    "r10_window_days": 30,
+    "r10_min_days": 7,
+    "r10_two_sigma_days": 3,
+    # R11 inverter Ya - Yf conversion/BOS loss drift
+    "r11_window_days": 14,
+    "r11_min_days": 5,
+    "r11_days": 2,
+    "r11_gap_increase_h": 0.15,
     # R17 data gap
     "r17_pct": 5.0,
     # THB/day above which R2 is P1 (else P2) and R7 is P2 (else P3). Not confirmed yet (plan §9 Q4).
@@ -65,10 +88,14 @@ RULE_NAMES = {
     "R1": "Weak string",
     "R2": "Open string",
     "R3": "Insulation / ground fault",
+    "R4": "Bypass diode (voltage drop)",
     "R5": "Slow string drift",
+    "R6": "PID / rapid string degradation",
     "R7": "Inverter underperforming",
     "R8": "Inverter down",
     "R9": "Grid trips",
+    "R10": "Plant EPI anomaly",
+    "R11": "Inverter Ya − Yf loss drift",
     "R17": "Data gap",
     "R18": "Power limiting",
 }
@@ -201,7 +228,16 @@ def evaluate(
     pr = pricer or load_pricer(db)
     on = {r for r, st in cfg["rules"].items() if st["enabled"]}
     line = float(cfg["p1_thb_per_day"])
-    look = max(int(cfg["r5_window_days"]), int(cfg["r1_days"]), int(cfg["r7_days"]), int(cfg["r9_window_days"]))
+    look = max(
+        int(cfg["r5_window_days"]),
+        int(cfg["r6_window_days"]),
+        int(cfg["r1_days"]),
+        int(cfg["r4_days"]),
+        int(cfg["r7_days"]),
+        int(cfg["r9_window_days"]),
+        int(cfg["r10_window_days"]) + int(cfg["r10_two_sigma_days"]),
+        int(cfg["r11_window_days"]) + int(cfg["r11_days"]),
+    )
     since = day - timedelta(days=look - 1)
     out: List[Dict[str, Any]] = []
 
@@ -222,6 +258,41 @@ def evaluate(
                 tier = "P1" if thb is not None and thb > line else "P2"
                 out.append(_finding("R2", tier, pid, day, sn, sno, today.lost_kwh_est, thb, open_min=today.open_min))
             continue  # an open string is also "low": R1 / R5 would only repeat it
+
+        # R4 bypass diode: string voltage > r4_v_drop_pct (1.2 %) below peer voltage for >= r4_days
+        # Enforces the voltage limit rule: only evaluates when voltage_sensing == "per_string".
+        r4_thresh = 1.0 - float(cfg["r4_v_drop_pct"]) / 100.0
+        r4_series = [days.get(day - timedelta(days=k)) for k in range(int(cfg["r4_days"]))]
+        if (
+            "R4" in on
+            and today is not None
+            and today.voltage_sensing == "per_string"
+            and all(
+                x is not None
+                and x.voltage_sensing == "per_string"
+                and x.v_ratio_median is not None
+                and x.v_ratio_median < r4_thresh
+                for x in r4_series
+            )
+        ):
+            v_drop_pct = round((1.0 - float(today.v_ratio_median or 1.0)) * 100.0, 2)
+            out.append(
+                _finding(
+                    "R4",
+                    "P2",
+                    pid,
+                    day,
+                    sn,
+                    sno,
+                    today.lost_kwh_est,
+                    thb,
+                    v_ratio_median=today.v_ratio_median,
+                    v_drop_pct=v_drop_pct,
+                    days=int(cfg["r4_days"]),
+                    voltage_sensing=today.voltage_sensing,
+                )
+            )
+
         # R1 weak string: persistent, judged only on days with a verdict
         window = [days.get(day - timedelta(days=k)) for k in range(int(cfg["r1_days"]))]
         judged = [r for r in window if r is not None and r.low_min is not None]
@@ -238,6 +309,44 @@ def evaluate(
                 )
             )
             continue
+
+        # R6 PID / rapid string degradation: R_i falling more than r6_drop_pct_per_month (%/30 days)
+        r6_since = day - timedelta(days=int(cfg["r6_window_days"]) - 1)
+        r6_pts = sorted(
+            ((d - r6_since).days, float(r.ratio_median))
+            for d, r in days.items()
+            if d >= r6_since and r.ratio_median is not None
+        )
+        r6_fired = False
+        if "R6" in on and today and len(r6_pts) >= int(cfg["r6_min_days"]):
+            xs = [p[0] for p in r6_pts]
+            ys = [p[1] for p in r6_pts]
+            x_mean = statistics.mean(xs)
+            y_mean = statistics.mean(ys)
+            s_xx = sum((x - x_mean) ** 2 for x in xs)
+            if s_xx > 0:
+                slope_per_day = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / s_xx
+                drop_pct_per_month = -slope_per_day * 30.0 * 100.0
+                if drop_pct_per_month > float(cfg["r6_drop_pct_per_month"]):
+                    r6_fired = True
+                    out.append(
+                        _finding(
+                            "R6",
+                            "P2",
+                            pid,
+                            day,
+                            sn,
+                            sno,
+                            today.lost_kwh_est,
+                            thb,
+                            drop_pct_per_month=round(drop_pct_per_month, 2),
+                            ratio_median=today.ratio_median,
+                            days=len(r6_pts),
+                        )
+                    )
+        if r6_fired:
+            continue
+
         # R5 slow drift
         r5_since = day - timedelta(days=int(cfg["r5_window_days"]) - 1)
         ratios = [r.ratio_median for d, r in days.items() if d >= r5_since and r.ratio_median is not None]
@@ -248,7 +357,8 @@ def evaluate(
                                     ratio_median_window=round(med, 4), days=len(ratios)))
 
     ID = GrowattInverterDaily
-    q2 = select(ID).where(ID.day >= day - timedelta(days=int(cfg["r7_days"]) - 1), ID.day <= day)
+    inv_look = max(int(cfg["r7_days"]), int(cfg["r11_window_days"]) + int(cfg["r11_days"]))
+    q2 = select(ID).where(ID.day >= day - timedelta(days=inv_look - 1), ID.day <= day)
     if plant_ids is not None:
         q2 = q2.where(ID.plant_id.in_(list(plant_ids)))
     invs: Dict[tuple, Dict[date, GrowattInverterDaily]] = defaultdict(dict)
@@ -294,6 +404,108 @@ def evaluate(
             tier = "P2" if thb is not None and thb > line else "P3"
             out.append(_finding("R7", tier, pid, day, sn, None, kwh, thb,
                                 yf_vs_median_pct=[x.yf_vs_median_pct for x in series if x is not None]))
+
+        # R11 Inverter Ya - Yf conversion / BOS loss drift
+        if "R11" in on:
+            r11_days = int(cfg["r11_days"])
+            r11_win = int(cfg["r11_window_days"])
+            recent_r11 = [days.get(day - timedelta(days=k)) for k in range(r11_days)]
+            base_r11 = [
+                days.get(day - timedelta(days=k))
+                for k in range(r11_days, r11_days + r11_win)
+            ]
+            base_vals = [float(x.ya_minus_yf) for x in base_r11 if x is not None and x.ya_minus_yf is not None]
+            if (
+                len(base_vals) >= int(cfg["r11_min_days"])
+                and all(x is not None and x.ya_minus_yf is not None for x in recent_r11)
+            ):
+                base_med = statistics.median(base_vals)
+                thresh_gap = base_med + float(cfg["r11_gap_increase_h"])
+                if all(float(x.ya_minus_yf or 0.0) >= thresh_gap for x in recent_r11 if x is not None):
+                    gap_delta = float(r.ya_minus_yf or 0.0) - base_med
+                    kwh_loss = gap_delta * float(r.kwp) if r.kwp and gap_delta > 0 else None
+                    thb_loss = _thb(pr, pid, kwh_loss, None)
+                    out.append(
+                        _finding(
+                            "R11",
+                            "P3",
+                            pid,
+                            day,
+                            sn,
+                            None,
+                            kwh_loss,
+                            thb_loss,
+                            ya_minus_yf=r.ya_minus_yf,
+                            baseline_ya_minus_yf=round(base_med, 3),
+                            gap_increase_h=round(gap_delta, 3),
+                            days=r11_days,
+                        )
+                    )
+
+    # R10 Plant EPI control-chart anomaly (mu - 3*sigma for 1 day, or mu - 2*sigma for 3 days)
+    if "R10" in on:
+        PD = GrowattPlantDaily
+        r10_win = int(cfg["r10_window_days"])
+        r10_2s_days = int(cfg["r10_two_sigma_days"])
+        q_pd = select(PD).where(PD.day >= day - timedelta(days=r10_win + r10_2s_days), PD.day <= day)
+        if plant_ids is not None:
+            q_pd = q_pd.where(PD.plant_id.in_(list(plant_ids)))
+        p_days: Dict[int, Dict[date, GrowattPlantDaily]] = defaultdict(dict)
+        for pr_row in db.scalars(q_pd):
+            p_days[pr_row.plant_id][pr_row.day] = pr_row
+        for pid, p_map in p_days.items():
+            p_today = p_map.get(day)
+            if p_today is None or p_today.epi is None:
+                continue
+            # Baseline excludes the trailing 2-sigma persistence window so a multi-day dip doesn't corrupt mu/sigma
+            base_epis = [
+                float(r_ep.epi)
+                for d in (day - timedelta(days=k) for k in range(r10_2s_days, r10_2s_days + r10_win))
+                if (r_ep := p_map.get(d)) is not None and r_ep.epi is not None
+            ]
+            if len(base_epis) < int(cfg["r10_min_days"]):
+                # Fall back to prior days before `day` if history is shorter than r10_2s_days + r10_min_days
+                base_epis = [
+                    float(r_ep.epi)
+                    for d in (day - timedelta(days=k) for k in range(1, r10_win + 1))
+                    if (r_ep := p_map.get(d)) is not None and r_ep.epi is not None
+                ]
+            if len(base_epis) < int(cfg["r10_min_days"]):
+                continue
+            mu = statistics.mean(base_epis)
+            sigma = max(0.015, statistics.stdev(base_epis) if len(base_epis) >= 2 else 0.02)
+            thresh_3s = mu - 3.0 * sigma
+            thresh_2s = mu - 2.0 * sigma
+            recent_2s = [p_map.get(day - timedelta(days=k)) for k in range(r10_2s_days)]
+            hit_3s = float(p_today.epi) < thresh_3s
+            hit_2s = all(x is not None and x.epi is not None and float(x.epi) < thresh_2s for x in recent_2s)
+            if hit_3s or hit_2s:
+                tier = "P2" if hit_3s else "P3"
+                rule_mode = "3sigma_1d" if hit_3s else f"2sigma_{r10_2s_days}d"
+                shortfall_frac = max(0.0, (mu - float(p_today.epi)) / mu) if mu > 0 else 0.0
+                kwh_loss = (
+                    float(p_today.energy_kwh) * shortfall_frac / max(0.2, float(p_today.epi))
+                    if p_today.energy_kwh is not None and shortfall_frac > 0
+                    else None
+                )
+                thb_loss = _thb(pr, pid, kwh_loss, None)
+                out.append(
+                    _finding(
+                        "R10",
+                        tier,
+                        pid,
+                        day,
+                        None,
+                        None,
+                        kwh_loss,
+                        thb_loss,
+                        epi=round(float(p_today.epi), 3),
+                        epi_mu=round(mu, 3),
+                        epi_sigma=round(sigma, 3),
+                        trigger=rule_mode,
+                        pr_temp_corrected_pct=p_today.pr_temp_corrected_pct,
+                    )
+                )
 
     # alarm rules
     A = GrowattAlarm

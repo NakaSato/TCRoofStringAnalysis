@@ -41,6 +41,18 @@ def load_layout(db: Session, sns: Sequence[str], fleet_wp: bool = True) -> Layou
     }
 
 
+def load_layout_orientations(
+    db: Session, sns: Sequence[str]
+) -> Dict[Tuple[str, int], Tuple[Optional[float], Optional[float]]]:
+    """Orientation and tilt `(azimuth_deg, tilt_deg)` per string input for `sns`."""
+    if not sns:
+        return {}
+    return {
+        (r.device_sn, int(r.string_no)): (r.azimuth_deg, r.tilt_deg)
+        for r in db.scalars(select(GrowattStringLayout).where(GrowattStringLayout.device_sn.in_(list(sns))))
+    }
+
+
 WIRED_LOOKBACK = timedelta(days=30)
 WIRED_CACHE_S = 6 * 3600
 _wired_cache: Dict[Tuple[str, ...], Tuple[float, Dict[str, Set[int]]]] = {}
@@ -99,6 +111,7 @@ def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
     )
     sns = [inv.device_sn for inv in invs]
     layout = load_layout(db, sns, fleet_wp=False)
+    orientations = load_layout_orientations(db, sns)
     seen: Dict[Tuple[str, int], int] = {}
     latest = newest_string_ts(db, sns)
     if latest is not None:
@@ -121,6 +134,8 @@ def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
                         "mppt_no": seen.get((inv.device_sn, n), (n + 1) // 2),
                         "modules": layout[(inv.device_sn, n)][0] if (inv.device_sn, n) in layout else None,
                         "module_wp": layout[(inv.device_sn, n)][1] if (inv.device_sn, n) in layout else None,
+                        "azimuth_deg": orientations[(inv.device_sn, n)][0] if (inv.device_sn, n) in orientations else None,
+                        "tilt_deg": orientations[(inv.device_sn, n)][1] if (inv.device_sn, n) in orientations else None,
                         "active": (inv.device_sn, n) in seen,
                     }
                     for n in nos
@@ -149,7 +164,12 @@ def put_string_layout(db: Session, plant_id: int, entries: Iterable[Dict[str, An
         if key in rows:
             raise ValueError(f"Duplicate entry for {sn} string {key[1]}")
         rows[key] = GrowattStringLayout(
-            device_sn=sn, string_no=key[1], modules=int(e["modules"]), module_wp=e.get("module_wp")
+            device_sn=sn,
+            string_no=key[1],
+            modules=int(e["modules"]),
+            module_wp=e.get("module_wp"),
+            azimuth_deg=e.get("azimuth_deg"),
+            tilt_deg=e.get("tilt_deg"),
         )
     if sns:
         db.execute(delete(GrowattStringLayout).where(GrowattStringLayout.device_sn.in_(sns)))

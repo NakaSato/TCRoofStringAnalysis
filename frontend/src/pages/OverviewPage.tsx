@@ -113,7 +113,7 @@ export const OverviewPage: React.FC = () => {
   const recs: LiveInverter[] = useMemo(() => plantLive?.data?.inverters ?? [], [plantLive]);
   const liveAt = recs.reduce<string | null>((a, r) => (r.timestamp && (a == null || r.timestamp > a) ? r.timestamp : a), null);
   // the top card's period (stored data): the overview's day, or a picked day / range / time window
-  const pp = usePowerPeriod(ov, liveAt);
+  const pp = usePowerPeriod(ov, liveAt, recs);
 
   if (plantOverviewLoading && !ov) {
     return (

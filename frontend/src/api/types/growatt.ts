@@ -202,6 +202,8 @@ export interface GrowattLiveInverterLatest {
   diagnostics?: GrowattLiveDiagnostics;
   mppt_energy?: GrowattMpptEnergy[];
   strings: Array<{ string_no: number; mppt_no: number; voltage_v: number; current_a: number; power_w: number }>;
+  /** today's power from the same live answer, oldest first: [plant-local timestamp, pac W, ppv W]; memory only */
+  power?: Array<[string, number | null, number | null]>;
   /** true = Growatt refused this inverter just now; this is its last good record */
   stale?: boolean;
   fetched_at?: string;
@@ -301,15 +303,23 @@ export interface GrowattPlantOverview {
     current_power_kw: number | null;
     peak_power_kw: number | null;
     yield_today_kwh: number | null;
+    dc_yield_today_kwh?: number | null;
     total_yield_kwh: number | null;
     specific_yield_kwh_per_kwp: number | null;
+    ya_kwh_kwp?: number | null;
+    ya_minus_yf?: number | null;
     /** peer-relative string index (strings compared with each other), not IEC */
     plant_pr_pct: number | null;
     /** IEC 61724-1 PR from the plant's weather sensor; null without one or with poor coverage */
     iec_pr_pct?: number | null;
+    /** Temperature-corrected PR' = PR / [1 + gamma*(T_mod - 25 °C)] */
+    iec_pr_temp_corrected_pct?: number | null;
+    /** Energy Performance Index (measured / modelled energy over filtered slots) */
+    epi?: number | null;
     insolation_kwh_m2?: number | null;
     peak_irradiance_wm2?: number | null;
     avg_module_temp_c?: number | null;
+    irradiance_weighted_module_temp_c?: number | null;
     avg_ambient_temp_c?: number | null;
     target_pr_pct: number;
     conversion_efficiency_pct: number | null;
@@ -355,8 +365,11 @@ export interface GrowattPlantOverview {
     peak_dc_kw: number | null;
     yield_today_kwh: number | null;
     period_energy_kwh: number | null;
+    dc_energy_kwh?: number | null;
     total_yield_kwh: number | null;
     specific_yield: number | null;
+    ya_kwh_kwp?: number | null;
+    ya_minus_yf?: number | null;
     efficiency_pct: number | null;
     pr_pct: number | null;
     avg_temp_c: number | null;
@@ -476,6 +489,8 @@ export interface GrowattStringLayoutEntry {
   string_no: number;
   modules: number;
   module_wp?: number | null;
+  azimuth_deg?: number | null;
+  tilt_deg?: number | null;
 }
 
 /** Result of mirroring a saved registry change to the summary sink (Firestore or JSON files). */
@@ -499,6 +514,10 @@ export interface FleetModule {
   temp_coeff_pmax_pct: number | null;
   temp_coeff_voc_pct: number | null;
   temp_coeff_isc_pct: number | null;
+  rs_ohm?: number | null;
+  kappa_ohm_per_k?: number | null;
+  first_year_lid_pct?: number | null;
+  annual_degradation_pct?: number | null;
   bifacial_factor_pct: number | null;
   datasheet_url: string | null;
 }
@@ -525,10 +544,140 @@ export interface GrowattStringLayout {
       mppt_no: number;
       modules: number | null;
       module_wp: number | null;
+      azimuth_deg?: number | null;
+      tilt_deg?: number | null;
       /** carried current in the last 7 days of stored history */
       active: boolean;
     }>;
   }>;
+}
+
+export interface IvCurveParameters {
+  i_sc_a: number;
+  v_oc_v: number;
+  i_mp_a: number;
+  v_mp_v: number;
+  p_max_w: number;
+  fill_factor: number;
+  slope_voc_ohm: number;
+  slope_isc_ohm: number;
+  steps_count: number;
+}
+
+export interface IvSingleDiodeFit {
+  i_l_a: number;
+  i_o_a: number;
+  r_s_ohm: number;
+  r_sh_ohm: number;
+  n_ns_vth_v: number;
+}
+
+export interface IvSweep {
+  id: number;
+  plant_id: number;
+  device_sn: string | null;
+  string_no: number | null;
+  module_no: number | null;
+  level: "string" | "module";
+  source: "upload" | "inverter_scan";
+  swept_at: string;
+  irradiance_wm2: number;
+  module_temp_c: number;
+  irradiance_change_pct: number | null;
+  reference_cell_tech: string | null;
+  modules: number;
+  quality_gate_passed: boolean;
+  gate_reasons: string[];
+  iec60891: {
+    procedure: number;
+    g1_wm2: number;
+    t1_c: number;
+    g2_wm2: number;
+    t2_c: number;
+    alpha_a_per_k: number;
+    beta_v_per_k: number;
+    r_s_ohm: number;
+    kappa_ohm_per_k: number;
+  };
+  measured: {
+    parameters: IvCurveParameters;
+    single_diode_fit: IvSingleDiodeFit;
+    points: Array<{ v: number; i: number; p: number }>;
+  };
+  stc: {
+    parameters: IvCurveParameters;
+    single_diode_fit: IvSingleDiodeFit;
+    points: Array<{ v: number; i: number; p: number }>;
+    reference_points: Array<{ v: number; i: number; p: number }>;
+  };
+  classification: {
+    signature: string;
+    observation: string;
+    likely_cause: string;
+    recommended_action: string;
+    is_finding: boolean;
+    in_dead_band: boolean;
+    dead_band_pct: number;
+    ticket_recommended: boolean;
+    warranty: {
+      below_warranted_power: boolean;
+      ir_confirmed: boolean;
+      timeseries_trend_confirmed: boolean;
+      second_source: string | null;
+      warranty_claim_ready: boolean;
+      nameplate_w: number;
+      expected_pmax_stc_w: number;
+      warranted_retention_pct: number;
+      first_year_lid_pct: number;
+      annual_degradation_pct: number;
+      system_age_years: number;
+    };
+    deviations_pct: {
+      p_max_vs_expected_pct: number;
+      v_oc_vs_stc_pct: number;
+      i_sc_vs_stc_pct: number;
+      ff_vs_stc_pct: number;
+    };
+  };
+  p_max_stc_w: number | null;
+  expected_pmax_stc_w: number | null;
+  pmax_dev_pct: number | null;
+  signature: string | null;
+  is_finding: boolean;
+  ticket_recommended: boolean;
+  ir_confirmed: boolean;
+  timeseries_trend_confirmed: boolean;
+  warranty_claim_ready: boolean;
+  note: string | null;
+  created_by: string | null;
+  created_at: string | null;
+}
+
+export interface IvSweepCreate {
+  device_sn?: string | null;
+  string_no?: number | null;
+  module_no?: number | null;
+  level?: "string" | "module";
+  source?: "upload" | "inverter_scan";
+  swept_at: string;
+  irradiance_wm2: number;
+  module_temp_c: number;
+  irradiance_change_pct?: number | null;
+  reference_cell_tech?: string | null;
+  modules?: number | null;
+  points?: Array<{ v: number; i: number }>;
+  csv_text?: string | null;
+  dead_band_pct?: number;
+  near_negative_pole?: boolean;
+  low_irradiance_worse?: boolean;
+  ir_confirmed?: boolean;
+  note?: string | null;
+}
+
+export interface IvSweepList {
+  plant_id: number;
+  sweeps: IvSweep[];
+  meta: { source: "db" };
 }
 
 export interface GrowattStringDetail {

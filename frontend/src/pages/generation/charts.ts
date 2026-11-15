@@ -28,18 +28,23 @@ export const prTone = (v: number | null, target: number) =>
 export const powerSpec = (
   ov: Overview,
   now: string | null,
-  o: { extra?: boolean; growatt?: PowerCurve["growatt"] } = {}
+  o: {
+    extra?: boolean;
+    /** the curve to draw instead of `ov.timeseries` (e.g. with a live tail) */ ts?: PowerCurve["ts"];
+    growatt?: PowerCurve["growatt"];
+  } = {}
 ): PanelChartSpec | null => {
   if (!ov.meta.day) return null;
   // rated AC: only a full sum, a partial one would draw the limit too low
   const rated = ov.inverters.map((i) => i.nominal_power_kw ?? null);
   const ratedKw = rated.length && rated.every((v) => v != null && v > 0) ? rated.reduce<number>((a, v) => a + (v ?? 0), 0) : null;
-  return powerCurveSpec({ ts: ov.timeseries, day: ov.meta.day, inverters: ov.inverters.length, ratedKw, growatt: o.growatt }, now, o);
+  return powerCurveSpec({ ts: o.ts ?? ov.timeseries, day: ov.meta.day, inverters: ov.inverters.length, ratedKw, growatt: o.growatt }, now, o);
 };
 
 /** A stored plant curve over one day or a day range, optionally a time-of-day window on every day. */
 export interface PowerCurve {
-  ts: Array<Omit<Overview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c">>;
+  /** `live`: summed from the live records past the newest stored slot (memory only, not stored yet) */
+  ts: Array<Omit<Overview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c"> & { live?: boolean }>;
   day: string;
   /** last day of a range (null / same = one day) */
   endDay?: string | null;
@@ -87,6 +92,9 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
     markers.push({ x: now, label: `Now ${now.slice(11, 16)}` });
     if (now < end) bands.push({ from: now, to: end, label: "Later today", kind: "muted" });
   }
+  // the slots drawn from the live records: shaded and named, so they read as not stored yet
+  const liveTs = ts.filter((r) => r.live);
+  if (liveTs.length) bands.push({ from: liveTs[0].timestamp, to: liveTs[liveTs.length - 1].timestamp, label: "Live · not stored yet", kind: "live" });
   const refLines: RefLine[] = ratedKw ? [{ y: ratedKw, label: `Rated AC ${fmt(ratedKw, 0)} kW`, color: SERIES.reference }] : [];
   // nothing stored in the range: still the frame (axes, rated AC), so the card keeps its shape
   if (!ts.length)
@@ -182,6 +190,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
     tipExtra: (i) => {
       const r = ts[i];
       const rows: Array<{ label: string; value: string }> = [];
+      if (r.live) rows.push({ label: "Source", value: "Live records (not stored yet)" });
       if (r.expected_kw != null && r.expected_kw > 0 && r.pac_kw > 0) rows.push({ label: "AC of clear-sky (modelled)", value: pct(r.pac_kw, r.expected_kw) });
       // DC → AC only with real input: near dawn / dusk the ratio is noise
       if (r.ppv_kw > 0 && r.pac_kw > 0 && (!ratedKw || r.ppv_kw >= ratedKw * 0.05)) rows.push({ label: "DC → AC", value: pct(r.pac_kw, r.ppv_kw) });

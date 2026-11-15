@@ -141,14 +141,23 @@ export const GenerationPrPage: React.FC = () => {
                 <Stat
                   label={iec != null ? "PR · IEC 61724" : "PR · peer-relative"}
                   hint={
-                    prDelta != null
-                      ? `${prDelta >= 0 ? "+" : ""}${fmt(prDelta, 1)} pts vs target ${fmt(target, 0)} %`
-                      : undefined
+                    k.iec_pr_temp_corrected_pct != null
+                      ? `PR' ${fmt(k.iec_pr_temp_corrected_pct, 1)} % (temp-corrected${k.irradiance_weighted_module_temp_c != null ? ` at ${fmt(k.irradiance_weighted_module_temp_c, 1)} °C` : ""})${k.epi != null ? ` · EPI ${fmt(k.epi, 2)} (modelled)` : ""}`
+                      : prDelta != null
+                        ? `${prDelta >= 0 ? "+" : ""}${fmt(prDelta, 1)} pts vs target ${fmt(target, 0)} %`
+                        : undefined
                   }
                 >
                   <span className={cn(target != null && prTone(pr, target))}>{fmt(pr, 1)}</span> <Unit>%</Unit>
                 </Stat>
-                <Stat label="DC→AC efficiency" hint="energy-weighted">
+                <Stat
+                  label="DC→AC efficiency"
+                  hint={
+                    k.ya_minus_yf != null
+                      ? `Ya − Yf ${fmt(k.ya_minus_yf, 2)} h/d · energy-weighted`
+                      : "energy-weighted"
+                  }
+                >
                   {fmt(k.conversion_efficiency_pct, 2)} <Unit>%</Unit>
                 </Stat>
                 <Stat label="Inverter temp" hint={hottest ? `avg / max (${invName(hottest)})` : "avg / max"}>

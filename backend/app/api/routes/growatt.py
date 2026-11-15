@@ -34,7 +34,14 @@ from app.auth import (
 from app.config import settings
 from app.db.models import GrowattInverter, GrowattPlant, SyncRun, User
 from app.db.session import get_db
-from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry, IssueAction, Tariff
+from app.schemas.api_schemas import (
+    FleetModule,
+    GrowattStringLayoutEntry,
+    IssueAction,
+    IvSweepCreate,
+    IvSweepPatch,
+    Tariff,
+)
 from app.services import fleet_settings
 from app.services import growatt_alarms
 from app.services import growatt_sensors
@@ -812,17 +819,125 @@ def plant_rule_daily(
         rows = db.scalars(
             select(SD).where(SD.plant_id == plant_id, SD.device_sn == sn, SD.string_no == string_no, SD.day >= start, SD.day <= end).order_by(SD.day)
         )
-        cols = ["gated_slots", "ratio_median", "low_min", "severe_min", "open_min", "v_ratio_median", "energy_kwh", "lost_kwh_est"]
+        cols = [
+            "gated_slots", "ratio_median", "low_min", "severe_min", "open_min",
+            "v_ratio_median", "voltage_sensing", "energy_kwh", "lost_kwh_est",
+        ]
     else:
         rows = db.scalars(select(ID).where(ID.plant_id == plant_id, ID.device_sn == sn, ID.day >= start, ID.day <= end).order_by(ID.day))
         cols = [
             "daylight_min", "producing_min", "fault_min", "off_min", "standby_min", "limited_min", "no_data_min",
-            "energy_kwh", "kwp", "yf_kwh_kwp", "yf_vs_median_pct", "plant_kwp_share_pct",
+            "energy_kwh", "dc_energy_kwh", "kwp", "ya_kwh_kwp", "yf_kwh_kwp", "ya_minus_yf",
+            "yf_vs_median_pct", "plant_kwp_share_pct",
             "lost_fault_kwh_est", "lost_off_kwh_est", "lost_standby_kwh_est", "lost_no_data_kwh_est",
         ]
     data = [{"day": r.day.isoformat(), **{c: getattr(r, c) for c in cols}} for r in rows]
     return {"plant_id": plant_id, "device_sn": sn, "string_no": string_no, "start": start.isoformat(), "end": end.isoformat(),
             "days": data, "meta": {"source": "db", "estimated": [c for c in cols if c.endswith("_est")]}}
+
+
+@router.get("/plants/{plant_id}/kpi-daily")
+def plant_kpi_daily(
+    plant_id: int,
+    days: int = Query(30, ge=1, le=365),
+    day: Optional[date] = DAY_QUERY,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Plant-level daily KPIs (PR, temperature-corrected PR', EPI, Ya, Yf, Ya - Yf, filter counts)
+    from `growatt_plant_daily` over the last `days` days up to `day`."""
+    from app.db.models import GrowattPlantDaily as PD
+
+    end = day or jobs._today()
+    start = end - timedelta(days=days - 1)
+    rows = db.scalars(
+        select(PD).where(PD.plant_id == plant_id, PD.day >= start, PD.day <= end).order_by(PD.day)
+    )
+    cols = [
+        "capacity_kwp", "energy_kwh", "dc_energy_kwh", "modelled_energy_kwh", "yr_h",
+        "ya_kwh_kwp", "yf_kwh_kwp", "ya_minus_yf", "pr_pct", "pr_temp_corrected_pct", "epi",
+        "irradiance_weighted_tmod_c", "filtered_slots", "stale_masked_slots",
+        "clipped_masked_slots", "curtailed_masked_slots",
+    ]
+    data = [{"day": r.day.isoformat(), **{c: getattr(r, c) for c in cols}} for r in rows]
+    return {
+        "plant_id": plant_id,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "days": data,
+        "meta": {"source": "db", "modelled": ["modelled_energy_kwh", "epi"]},
+    }
+
+
+# --------------------------------------------------------------------------- I-V curve sweeps
+
+
+@router.get("/plants/{plant_id}/iv-sweeps")
+def list_plant_iv_sweeps(
+    plant_id: int,
+    sn: Optional[str] = Query(None, max_length=64),
+    string_no: Optional[int] = Query(None, ge=1, le=64),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Stored I–V curve sweeps for a plant (optionally narrowed to one inverter/string),
+    including IEC 60891 Procedure 1 STC translation, extracted parameters, fault signature,
+    and two-source warranty status."""
+    from app.services import growatt_iv
+
+    try:
+        sweeps = growatt_iv.list_iv_sweeps(db, plant_id, device_sn=sn, string_no=string_no, limit=limit)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"plant_id": plant_id, "sweeps": sweeps, "meta": {"source": "db"}}
+
+
+@router.post("/plants/{plant_id}/iv-sweeps", status_code=201)
+def create_plant_iv_sweep(
+    plant_id: int,
+    payload: IvSweepCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_plant_write),
+) -> Dict[str, Any]:
+    """Upload and analyze a measured I–V curve sweep (string or module level).
+    Requires irradiance_wm2 (G), module_temp_c (T), and swept_at timestamp with every curve."""
+    from app.services import growatt_iv
+
+    who = user.username or user.email
+    try:
+        out = growatt_iv.create_iv_sweep(db, plant_id, payload.model_dump(), who)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    audit.info("%s uploaded I-V sweep #%s for plant %s (%s)", who, out["id"], plant_id, out["signature"])
+    return out
+
+
+@router.patch("/plants/{plant_id}/iv-sweeps/{sweep_id}")
+def patch_plant_iv_sweep(
+    plant_id: int,
+    sweep_id: int,
+    payload: IvSweepPatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_plant_write),
+) -> Dict[str, Any]:
+    """Update IR confirmation (`ir_confirmed`) or notes on an I–V sweep and recompute two-source
+    warranty agreement."""
+    from app.services import growatt_iv
+
+    who = user.username or user.email
+    try:
+        out = growatt_iv.patch_iv_sweep(
+            db, plant_id, sweep_id, ir_confirmed=payload.ir_confirmed, note=payload.note
+        )
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    audit.info("%s updated I-V sweep #%s for plant %s", who, sweep_id, plant_id)
+    return out
 
 
 @router.get("/tariff")

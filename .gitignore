@@ -25,6 +25,7 @@ secrets/
 # Local tooling
 .codegraph/
 .claude/settings.local.json
+.agents/skills/review-claude-code/logs/
 
 # Growatt registry exports (regenerated from the API; contain plant GPS & serials)
 data/*.csv

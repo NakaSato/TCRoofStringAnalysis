@@ -307,6 +307,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
                 "peak_ac_kw": _round(pac_max / 1000.0, 2) if pac_max is not None else None,
                 "peak_dc_kw": _round(ppv_max / 1000.0, 2) if ppv_max is not None else None,
                 "period_energy_kwh": round(ac_kwh, 2),
+                "dc_energy_kwh": round(dc_kwh, 2),
                 "yield_today_kwh": _round(eac_today if eac_today is not None else ac_kwh, 2),
                 "total_yield_kwh": _round(eac_total, 2),
                 "avg_temp_c": _round(t_avg, 1),
@@ -388,6 +389,14 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         m = inv_metrics.get(sn, {})
         mppt_info = latest_mppt.get(sn, {})
         yield_kwh = m.get("yield_today_kwh")
+        dc_kwh = m.get("dc_energy_kwh")
+        yf_inv = round(yield_kwh / inv_cap_kwp, 2) if yield_kwh is not None and inv_cap_kwp else None
+        ya_inv = round(dc_kwh / inv_cap_kwp, 2) if dc_kwh is not None and inv_cap_kwp else None
+        ya_minus_yf_inv = (
+            round((dc_kwh - yield_kwh) / inv_cap_kwp, 3)
+            if dc_kwh is not None and yield_kwh is not None and inv_cap_kwp and dc_kwh >= yield_kwh
+            else None
+        )
         inverters_out.append(
             {
                 **inverter_out(inv),
@@ -398,8 +407,11 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
                 "peak_dc_kw": m.get("peak_dc_kw"),
                 "yield_today_kwh": yield_kwh,
                 "period_energy_kwh": m.get("period_energy_kwh"),
+                "dc_energy_kwh": dc_kwh,
                 "total_yield_kwh": m.get("total_yield_kwh"),
-                "specific_yield": round(yield_kwh / inv_cap_kwp, 2) if yield_kwh is not None and inv_cap_kwp else None,
+                "specific_yield": yf_inv,
+                "ya_kwh_kwp": ya_inv,
+                "ya_minus_yf": ya_minus_yf_inv,
                 "efficiency_pct": m.get("efficiency_pct"),
                 "pr_pct": _round(_mean(inv_pr_list.get(sn, [])), 1),
                 "avg_temp_c": m.get("avg_temp_c"),
@@ -419,6 +431,15 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     avg_health = _round(_mean(s["health_score"] for s in strings_summary), 1)
     inv_yields = [i["yield_today_kwh"] for i in inverters_out if i["yield_today_kwh"] is not None]
     yield_today_kwh = round(sum(inv_yields), 2) if inv_yields else None
+    inv_dc_yields = [i["dc_energy_kwh"] for i in inverters_out if i.get("dc_energy_kwh") is not None]
+    dc_yield_today_kwh = round(sum(inv_dc_yields), 2) if inv_dc_yields else None
+    yf_kwh_kwp = round(yield_today_kwh / cap_kwp, 2) if yield_today_kwh is not None and cap_kwp else None
+    ya_kwh_kwp = round(dc_yield_today_kwh / cap_kwp, 2) if dc_yield_today_kwh is not None and cap_kwp else None
+    ya_minus_yf = (
+        round((dc_yield_today_kwh - yield_today_kwh) / cap_kwp, 3)
+        if dc_yield_today_kwh is not None and yield_today_kwh is not None and cap_kwp and dc_yield_today_kwh >= yield_today_kwh
+        else None
+    )
     inv_totals = [i["total_yield_kwh"] for i in inverters_out if i["total_yield_kwh"] is not None]
     total_yield_kwh = _round(sum(inv_totals) if inv_totals else None, 2)
     peak_power_kw = _round(_max(r["pac_kw"] for r in timeseries), 2)
@@ -426,6 +447,11 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     max_temp_c = _round(_max(i["max_temp_c"] for i in inverters_out), 1)
     avg_freq_hz = _round(_mean(i["avg_freq_hz"] for i in inverters_out), 2)
     avg_eff_pct = _round(_mean(i["efficiency_pct"] for i in inverters_out), 2)
+
+    from app.services import fleet_settings
+
+    mod = fleet_settings.get_fleet_module(db)
+    gamma_pct = float(mod.get("temp_coeff_pmax_pct") or growatt_weather.DEFAULT_GAMMA_PCT_PER_K)
 
     # Weather sensor (measured irradiance / temperatures) for the same day, merged onto the
     # 5-minute curve, and the IEC 61724-1 PR it allows. Null where the plant has no sensor.
@@ -437,9 +463,43 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         r["module_temp_c"] = wx.get("module_temp_c")
         r["ambient_temp_c"] = wx.get("ambient_temp_c")
     pr = growatt_weather.iec_pr(
-        yield_today_kwh, cap_kwp, weather, [r["timestamp"] for r in timeseries if r["pac_kw"] > 0]
+        yield_today_kwh, cap_kwp, weather, [r["timestamp"] for r in timeseries if r["pac_kw"] > 0], gamma_pct
     )
     wk = weather["kpis"]
+
+    # EPI (Energy Performance Index = measured AC energy / modelled AC energy from POA & T_mod)
+    # over POA-filtered (200-1200 W/m²), non-stale, non-clipped slots.
+    epi: Optional[float] = None
+    if pr["pr_pct"] is not None and cap_kwp:
+        stale_ts = growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2")
+        rated_ac_kw = (plant_rated_ac_w(db, [plant_id]).get(plant_id) or 0.0) / 1000.0
+        meas_kw_sum = 0.0
+        mod_kw_sum = 0.0
+        valid_epi_slots = 0
+        fallback_tmod = wk.get("irradiance_weighted_module_temp_c") or wk.get("avg_module_temp_daylight_c")
+        for r in timeseries:
+            ts_str = r["timestamp"]
+            g = r.get("irradiance_wm2")
+            pac_kw = r.get("pac_kw") or 0.0
+            if (
+                g is None
+                or ts_str in stale_ts
+                or not (growatt_weather.POA_FILTER_MIN_WM2 <= g <= growatt_weather.POA_FILTER_MAX_WM2)
+                or (rated_ac_kw > 0 and pac_kw >= 0.98 * rated_ac_kw)
+            ):
+                continue
+            t_mod = r.get("module_temp_c")
+            if t_mod is None:
+                t_mod = fallback_tmod if fallback_tmod is not None else 25.0
+            temp_factor = max(0.5, 1.0 + (gamma_pct / 100.0) * (float(t_mod) - 25.0))
+            p_mod_kw = cap_kwp * (float(g) / 1000.0) * temp_factor * 0.985
+            if p_mod_kw > 0:
+                meas_kw_sum += pac_kw
+                mod_kw_sum += p_mod_kw
+                valid_epi_slots += 1
+        if valid_epi_slots >= 3 and mod_kw_sum > 0:
+            epi = round(meas_kw_sum / mod_kw_sum, 3)
+    pr["epi"] = epi
 
     # Loss waterfall — a modelled breakdown; only built when every input is measured. With a
     # weather sensor the reference is the measured POA insolation × kWp (IEC reference yield)
@@ -507,15 +567,21 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "current_power_kw": None,  # realtime: the UI overlays /growatt/live/*
             "peak_power_kw": peak_power_kw,
             "yield_today_kwh": yield_today_kwh,
+            "dc_yield_today_kwh": dc_yield_today_kwh,
             "total_yield_kwh": total_yield_kwh,
-            "specific_yield_kwh_per_kwp": round(yield_today_kwh / cap_kwp, 2) if yield_today_kwh is not None and cap_kwp else None,
+            "specific_yield_kwh_per_kwp": yf_kwh_kwp,
+            "ya_kwh_kwp": ya_kwh_kwp,
+            "ya_minus_yf": ya_minus_yf,
             # peer-relative string index (not IEC: compares strings with each other)
             "plant_pr_pct": plant_pr_pct,
             # IEC 61724-1 PR from the weather sensor's measured irradiance (null without one)
             "iec_pr_pct": pr["pr_pct"],
+            "iec_pr_temp_corrected_pct": pr.get("pr_temp_corrected_pct"),
+            "epi": epi,
             "insolation_kwh_m2": wk["insolation_kwh_m2"],
             "peak_irradiance_wm2": wk["peak_irradiance_wm2"],
             "avg_module_temp_c": wk["avg_module_temp_daylight_c"],
+            "irradiance_weighted_module_temp_c": wk.get("irradiance_weighted_module_temp_c"),
             "avg_ambient_temp_c": wk["avg_ambient_temp_c"],
             "target_pr_pct": 85.0,
             "conversion_efficiency_pct": avg_eff_pct,

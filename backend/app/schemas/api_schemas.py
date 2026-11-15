@@ -297,6 +297,8 @@ class GrowattStringLayoutEntry(BaseModel):
     string_no: int = Field(ge=1, le=64)
     modules: int = Field(ge=1, le=60)
     module_wp: Optional[float] = Field(default=None, ge=50, le=1500)
+    azimuth_deg: Optional[float] = Field(default=None, ge=0, le=360)
+    tilt_deg: Optional[float] = Field(default=None, ge=0, le=90)
 
 
 class FleetModule(BaseModel):
@@ -314,7 +316,46 @@ class FleetModule(BaseModel):
     temp_coeff_voc_pct: Optional[float] = Field(default=None, ge=-2, le=2)
     temp_coeff_isc_pct: Optional[float] = Field(default=None, ge=-2, le=2)
     bifacial_factor_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    rs_ohm: Optional[float] = Field(default=0.22, gt=0, le=10)
+    kappa_ohm_per_k: Optional[float] = Field(default=0.0012, ge=0, le=1)
+    first_year_lid_pct: Optional[float] = Field(default=1.0, ge=0, le=10)
+    annual_degradation_pct: Optional[float] = Field(default=0.45, ge=0, le=5)
     datasheet_url: Optional[str] = Field(default=None, max_length=500)
+
+
+class IvPointIn(BaseModel):
+    v: float = Field(ge=0, le=2000)
+    i: float = Field(ge=0, le=100)
+
+
+class IvSweepCreate(BaseModel):
+    """Upload or ingest one measured I-V curve sweep (string or module level) with its measurement conditions."""
+
+    device_sn: Optional[str] = Field(default=None, max_length=64)
+    string_no: Optional[int] = Field(default=None, ge=1, le=64)
+    module_no: Optional[int] = Field(default=None, ge=1, le=60)
+    level: str = Field(default="string", pattern="^(string|module)$")
+    source: str = Field(default="upload", pattern="^(upload|inverter_scan)$")
+    swept_at: str = Field(min_length=10, max_length=40, description="Plant-local timestamp YYYY-MM-DD HH:MM:SS or ISO")
+    irradiance_wm2: float = Field(gt=0, le=1500, description="Measured POA irradiance G₁ (W/m²)")
+    module_temp_c: float = Field(ge=-40, le=120, description="Measured back-of-module temperature T₁ (°C)")
+    irradiance_change_pct: Optional[float] = Field(default=None, ge=0, le=100, description="Irradiance change during sweep (%)")
+    reference_cell_tech: Optional[str] = Field(default=None, max_length=64)
+    modules: Optional[int] = Field(default=None, ge=1, le=60)
+    dead_band_pct: float = Field(default=4.0, ge=1.0, le=10.0)
+    near_negative_pole: bool = False
+    low_irradiance_worse: bool = False
+    ir_confirmed: bool = False
+    points: Optional[List[IvPointIn]] = None
+    csv_text: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class IvSweepPatch(BaseModel):
+    """Confirm or clear IR agreement / note on a stored I-V sweep for the two-source warranty rule."""
+
+    ir_confirmed: Optional[bool] = None
+    note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class PlantRate(BaseModel):

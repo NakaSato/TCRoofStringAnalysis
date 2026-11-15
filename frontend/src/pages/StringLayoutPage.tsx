@@ -20,7 +20,8 @@ import { Input } from "@/components/ui/input";
 import { pick, useUrlState } from "@/lib/useUrlState";
 
 /** `wp` blank = the fleet module's rating (global setting), so a fleet change applies everywhere. */
-type Draft = { modules: string; wp: string };
+type Draft = { modules: string; wp: string; azimuth: string; tilt: string };
+const EMPTY_DRAFT: Draft = { modules: "", wp: "", azimuth: "", tilt: "" };
 const FILTERS = ["all", "incomplete", "mismatch"] as const;
 type Filter = (typeof FILTERS)[number];
 const keyOf = (sn: string, no: number) => `${sn}|${no}`;
@@ -35,6 +36,8 @@ const draftFrom = (l: GrowattStringLayout) => {
       d[keyOf(inv.device_sn, s.string_no)] = {
         modules: s.modules != null ? String(s.modules) : "",
         wp: s.module_wp != null ? String(s.module_wp) : "",
+        azimuth: s.azimuth_deg != null ? String(s.azimuth_deg) : "",
+        tilt: s.tilt_deg != null ? String(s.tilt_deg) : "",
       };
   return d;
 };
@@ -86,11 +89,16 @@ export const StringLayoutPage: React.FC = () => {
 
   const fleetWp = fleetModule?.wp ?? layout?.fleet_module_wp ?? null;
   const set = (k: string, field: keyof Draft, value: string) =>
-    setDraft((d) => ({ ...d, [k]: { ...(d[k] ?? { modules: "", wp: "" }), [field]: value } }));
+    setDraft((d) => ({ ...d, [k]: { ...(d[k] ?? EMPTY_DRAFT), [field]: value } }));
   const isDirty = (k: string) => {
-    const a = draft[k] ?? { modules: "", wp: "" };
-    const b = baseline[k] ?? { modules: "", wp: "" };
-    return a.modules.trim() !== b.modules.trim() || a.wp.trim() !== b.wp.trim();
+    const a = draft[k] ?? EMPTY_DRAFT;
+    const b = baseline[k] ?? EMPTY_DRAFT;
+    return (
+      a.modules.trim() !== b.modules.trim() ||
+      a.wp.trim() !== b.wp.trim() ||
+      a.azimuth.trim() !== b.azimuth.trim() ||
+      a.tilt.trim() !== b.tilt.trim()
+    );
   };
 
   // per-inverter view model
@@ -99,7 +107,7 @@ export const StringLayoutPage: React.FC = () => {
       (layout?.inverters ?? []).map((inv) => {
         const rows = inv.strings.map((s) => {
           const k = keyOf(inv.device_sn, s.string_no);
-          const d = draft[k] ?? { modules: "", wp: "" };
+          const d = draft[k] ?? EMPTY_DRAFT;
           const m = toInt(d.modules);
           const wp = toNum(d.wp) ?? fleetWp;
           return { s, k, d, m, kwp: m != null && wp != null ? (m * wp) / 1000 : null, invalid: d.modules.trim() !== "" && m == null };
@@ -161,7 +169,14 @@ export const StringLayoutPage: React.FC = () => {
         const d = draft[keyOf(inv.device_sn, s.string_no)];
         const m = toInt(d?.modules ?? "");
         if (m == null) continue;
-        entries.push({ device_sn: inv.device_sn, string_no: s.string_no, modules: m, module_wp: toNum(d?.wp ?? "") });
+        entries.push({
+          device_sn: inv.device_sn,
+          string_no: s.string_no,
+          modules: m,
+          module_wp: toNum(d?.wp ?? ""),
+          azimuth_deg: toNum(d?.azimuth ?? ""),
+          tilt_deg: toNum(d?.tilt ?? ""),
+        });
       }
     setSaving(true);
     setMsg(null);
@@ -391,6 +406,32 @@ export const StringLayoutPage: React.FC = () => {
                                           onChange={(e) => set(k, "wp", e.target.value)}
                                         />
                                         <span className="text-[11px] text-slate-500">Wp</span>
+                                      </label>
+                                    </div>
+                                    <div className="mt-1.5 flex items-center gap-2">
+                                      <label className="flex flex-1 items-center gap-1.5" title="Array azimuth in degrees (0–360°), used to group same-orientation peers">
+                                        <Input
+                                          className="num h-6 w-full min-w-0 px-2 text-[11px]"
+                                          inputMode="decimal"
+                                          placeholder="Az°"
+                                          aria-label={`${inv.device_sn} ${strLabel(s.string_no)} azimuth degrees`}
+                                          value={d.azimuth}
+                                          disabled={!canEdit}
+                                          onChange={(e) => set(k, "azimuth", e.target.value)}
+                                        />
+                                        <span className="text-[10px] text-slate-500">az°</span>
+                                      </label>
+                                      <label className="flex flex-1 items-center gap-1.5" title="Array tilt in degrees (0–90°), used to group same-tilt peers">
+                                        <Input
+                                          className="num h-6 w-full min-w-0 px-2 text-[11px]"
+                                          inputMode="decimal"
+                                          placeholder="Tilt°"
+                                          aria-label={`${inv.device_sn} ${strLabel(s.string_no)} tilt degrees`}
+                                          value={d.tilt}
+                                          disabled={!canEdit}
+                                          onChange={(e) => set(k, "tilt", e.target.value)}
+                                        />
+                                        <span className="text-[10px] text-slate-500">tilt°</span>
                                       </label>
                                     </div>
                                   </div>

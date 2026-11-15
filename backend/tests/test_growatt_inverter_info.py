@@ -149,6 +149,34 @@ def test_fleet_reads_info_oldest_first_and_stops_at_rate_limit(tmp_path):
         assert acct.info_calls == ["B", "A"]  # never-read B first, then stale A
 
 
+def test_live_latest_row_carries_power_tail_oldest_first(monkeypatch):
+    from app.services import growatt_live
+
+    page = [
+        {**REC, "time": "2026-11-12 10:10:00", "pac": 900, "ppv": 950},
+        {**REC, "time": "2026-11-12 10:05:00", "pac": 800, "ppv": None},
+        {**REC, "time": "2026-11-12 10:00:00", "pac": 700, "ppv": 720},
+    ]
+    seen = {}
+
+    def fake(c, sn, day, n=1):
+        seen["n"] = n
+        return page[:n]
+
+    monkeypatch.setattr(growatt_live, "newest_max_records", fake)
+    row = _latest_row(None, "EPHHDXB00M", date(2026, 11, 12))  # type: ignore[arg-type]
+    assert row is not None
+    assert seen["n"] == growatt_live.POWER_TAIL_RECORDS
+    assert row["timestamp"] == "2026-11-12 10:10:00"
+    # missing power stays null, never 0
+    assert row["power"] == [
+        ["2026-11-12 10:00:00", 700.0, 720.0],
+        ["2026-11-12 10:05:00", 800.0, None],
+        ["2026-11-12 10:10:00", 900.0, 950.0],
+    ]
+    assert len(row["previous_strings"]) == 2
+
+
 # --------------------------------------------------------------------------- readPower (power limit)
 
 

@@ -134,6 +134,7 @@ export interface StringRuleDay {
   severe_min: number | null;
   open_min: number;
   v_ratio_median: number | null;
+  voltage_sensing?: "per_string" | "shared_mppt" | null;
   energy_kwh: number | null;
   lost_kwh_est: number | null;
 }
