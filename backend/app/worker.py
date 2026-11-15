@@ -9,7 +9,7 @@ several API workers would each start a scheduler and multiply Growatt calls.
 
 Schedule (plant-local time, Asia/Bangkok):
     history            every WORKER_HISTORY_INTERVAL_MIN (30) min  incremental max_data pull,
-                       and at 09:25 / 13:25 / 17:25 so each PWA check's readings are in
+                       and at 08:47 / 12:47 / 16:47 so each PWA check's readings are in
     backfill           02:00   re-read the previous two days (late uploads)
     fleet              05:30   plant / inverter registry
     power_limits       10:40   each inverter's active power limit (readPower; daylight only:
@@ -19,14 +19,15 @@ Schedule (plant-local time, Asia/Bangkok):
     energy_backfill    not scheduled: plant/energy for the last HISTORY_RETENTION_DAYS (queue once)
     publish_yesterday  06:00   finalize yesterday's daily summaries
     pwa_sheet          06:05   PWA Report Google Sheet: today's tab (skipped without PWA_SHEET_ID)
-    publish_today      09:30 / 13:30 / 17:30   today so far, after each PWA check (09/13/17);
-                               also fills those checks into the PWA Report sheet
+    publish_today      08:50 / 12:50 / 16:50   today so far, with each PWA check (09/13/17, a
+                               snapshot at hh:00 − CHECK_OFFSET_MIN, check_slots.py); also fills
+                               those checks into the PWA Report sheet (when PWA_SHEET_ID is set)
                        19:30   publish today after sunset
     retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
     google_weather     18:15   Google Maps Weather: today's 06–17 h hourly (13 h lookback), one call per
                                plant cell; then re-publishes yesterday's daily docs
     alarms             every WORKER_ALARMS_TICK_MIN (10) min, WORKER_ALARMS_START_H..END_H (05–20),
-                               not 09:20–09:31 / 13:20–13:31 / 17:20–17:31 (PWA history + publish):
+                               not 08:42–08:51 / 12:42–12:51 / 16:42–16:51 (PWA history + publish):
                                today's alarm_data → SQL (Active Alarm page) for the inverters due
                                by tier: hot 10 min, warm 30 min, cold 60 min (growatt_alarms.Tiers)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
@@ -61,7 +62,8 @@ from app.logging_db import setup_logging
 from app.db.models import GrowattInverter, GrowattPlant
 from app.db.session import SessionLocal, ensure_schema
 from app.services import jobs
-from app.services.pwa_sheet import CHECK_HOURS as PWA_CHECK_HOURS, PUBLISH_MIN as PWA_PUBLISH_MIN
+from app.services import check_slots
+from app.services.check_slots import CHECK_HOURS as PWA_CHECK_HOURS
 
 log = logging.getLogger("worker")
 
@@ -75,7 +77,6 @@ UNTAGGED_RETRY = timedelta(hours=6)  # bounded: a plant no account lists stays u
 # after a `fleet` run that did not finish ok (an account failed, e.g. Growatt 10012, or the run was
 # abandoned): its plants keep a stale registry and no weather sensors until fleet succeeds
 FLEET_RETRY = timedelta(hours=6)
-PWA_HISTORY_LEAD_MIN = 5  # history pull this many minutes before each check's publish
 ALARMS_PWA_GAP_MIN = 5  # no `alarms` start this many minutes before a PWA history pull
 
 
@@ -116,9 +117,10 @@ def default_schedule() -> List[Schedule]:
         Schedule("history", every=timedelta(minutes=settings.worker_history_interval_min)),
         Schedule("backfill", at=dtime(2, 0)),
         Schedule("publish_yesterday", at=dtime(6, 0)),
-        # each PWA check: fresh history at hh:25, then publish today so far (and fill the sheet) at hh:30
-        *(Schedule("history", at=dtime(h, PWA_PUBLISH_MIN - PWA_HISTORY_LEAD_MIN)) for h in PWA_CHECK_HOURS),
-        *(Schedule("publish_today", at=dtime(h, PWA_PUBLISH_MIN)) for h in PWA_CHECK_HOURS),
+        # each PWA check is a snapshot at hh:00 − CHECK_OFFSET_MIN (08:50): fresh history
+        # PWA_HISTORY_LEAD_MIN before it (08:47), then publish today so far (and fill the sheet) at 08:50
+        *(Schedule("history", at=check_slots.history_clock(h)) for h in PWA_CHECK_HOURS),
+        *(Schedule("publish_today", at=check_slots.publish_clock(h)) for h in PWA_CHECK_HOURS),
         Schedule("publish_today", at=dtime(19, 30)),
         Schedule("pwa_sheet", at=dtime(6, 5)),
         Schedule("retention", at=dtime(3, 0)),
@@ -129,9 +131,12 @@ def default_schedule() -> List[Schedule]:
             "alarms",
             every=timedelta(minutes=settings.worker_alarms_tick_min),
             between=(settings.worker_alarms_start_h, settings.worker_alarms_end_h),
-            # keep the worker free for each PWA check's history pull (hh:25) and publish (hh:30)
+            # keep the worker free for each PWA check's history pull (08:47) and publish (08:50)
             skip=tuple(
-                (dtime(h, PWA_PUBLISH_MIN - PWA_HISTORY_LEAD_MIN - ALARMS_PWA_GAP_MIN), dtime(h, PWA_PUBLISH_MIN + 1))
+                (
+                    check_slots.clock(h, timedelta(minutes=settings.pwa_history_lead_min + ALARMS_PWA_GAP_MIN)),
+                    check_slots.clock(h, timedelta(minutes=-1)),
+                )
                 for h in PWA_CHECK_HOURS
             ),
         ),

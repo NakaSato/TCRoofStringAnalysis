@@ -41,13 +41,14 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                                   alarms today 30 min, none 60 min; yesterday in full at 00:30) ─► SQL ─► /growatt/alarms (Active Alarm)
 API + worker logging ─► app_logs (SQL, redacted, 14 days) ─► /system/logs (admin: System → Logs)
 Google Maps Weather ─┬─ current ─► backend memory cache (30 min per cell) ─► /growatt/live/plants/{id}/google-weather
-  (modelled)         └─ history/hours ─► growatt-worker (18:15 daily) ─► SQL ─► daily summaries (rain at 09/12/17) ─► Firestore
+  (modelled)         ├─ current at each PWA check (08:50/12:50/16:50, every cell) ─► growatt-worker ─► frozen check slot ─► sheet สภาพอากาศ
+                     └─ history/hours ─► growatt-worker (18:15 daily) ─► SQL ─► daily summaries (rain at 09/12/17) ─► Firestore
 ```
 
 Rules for every layer:
 
 1. **Never store realtime values.** Live data stays in memory only: the API process, mirrored in Redis on the VM (`REDIS_URL`; no persistence, every key expires, `services/live_store.py`) so a Cloud Run cold start stays warm. SQL gets only source-timestamped history (Growatt records, Google Weather hours).
-2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 1,250 writes (about 250 per publish of today: at 09:30, 13:30 and 17:30 for the PWA report checks and at 19:30, plus about 235 when `google_weather` re-publishes yesterday), capped at `PUBLISH_DAILY_WRITE_BUDGET`.
+2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 1,250 writes (about 250 per publish of today: at 08:50, 12:50 and 16:50 for the PWA report checks and at 19:30, plus about 235 when `google_weather` re-publishes yesterday), capped at `PUBLISH_DAILY_WRITE_BUDGET`.
 3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (grid import, load; irradiance only where a plant has a weather sensor), and label modelled values as modelled.
 4. **The Growatt tokens and the Google Weather key stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
 
@@ -80,10 +81,10 @@ Rules for every layer:
 - `PUBLISH_DAILY_WRITE_BUDGET`
 - `WORKER_HISTORY_INTERVAL_MIN`
 - `HISTORY_RETENTION_DAYS` (90)
-- `WORKER_ALARMS_TICK_MIN` (10), `WORKER_ALARMS_HOT_MIN` / `_WARM_MIN` / `_COLD_MIN` (10 / 30 / 60), `WORKER_ALARMS_START_H` / `_END_H` (5 / 20): alarm log sync. Each tick reads only the inverters due by tier (hot = open alarm or fault status, warm = alarms today, cold = none); skipped 09/13/17:20–:31 for the PWA checks
+- `WORKER_ALARMS_TICK_MIN` (10), `WORKER_ALARMS_HOT_MIN` / `_WARM_MIN` / `_COLD_MIN` (10 / 30 / 60), `WORKER_ALARMS_START_H` / `_END_H` (5 / 20): alarm log sync. Each tick reads only the inverters due by tier (hot = open alarm or fault status, warm = alarms today, cold = none); skipped 08/12/16:42–:51 for the PWA checks
 - `WORKER_ENV_INTERVAL_MIN` (10, 0 = off), `WORKER_ENV_START_H` / `_END_H` (5 / 20): `env_history`, weather-sensor history between `history` runs
 - `APP_ENV` (`dev` | `prod`), `ADMIN_USERNAME`, `ADMIN_PASSWORD`
-- `GOOGLE_WEATHER_API_KEY` (Secret Manager `tcroof-google-weather-key`), `GOOGLE_WEATHER_MONTHLY_BUDGET` (10000): Google Maps Weather uses its whole free tier; each day gets what is left of the month ÷ days left. `GOOGLE_WEATHER_DAY_START_H` / `_END_H` (6 / 18): daytime-only hours stored and fetched live
+- `GOOGLE_WEATHER_API_KEY` (Secret Manager `tcroof-google-weather-key`), `GOOGLE_WEATHER_MONTHLY_BUDGET` (30000; PWA checks 687 + history 229 calls/day ≈ 28.4k/month, over the 10k free tier); each day gets what is left of the month ÷ days left. `GOOGLE_WEATHER_DAY_START_H` / `_END_H` (6 / 18): daytime-only hours stored and fetched live
 - `AI_API_KEY` (Secret Manager `tcroof-ai-api-key`; empty = off), `AI_BASE_URL` (Qwen Cloud Singapore, Anthropic-compatible), `AI_MODEL` (`qwen3.7-plus`), `AI_THINKING` (false; Qwen thinks by default and takes 30–90 s), `AI_MONTHLY_BUDGET_USD` (5), `AI_USER_DAILY_QUESTIONS` (15), `AI_ENABLED_ROLES`, `AI_PRICE_*`: AI Assistant (`/assistant/*`, docs/plans/ai-assistant.md). Conversations stay in the browser; only token counts and cost go to SQL `ai_usage`
 
 Firebase CLI config is in `firebase.json`, `.firebaserc` and `firestore.rules`. The rules deny all browser access; the backend writes through the Admin SDK. Use `bunx firebase-tools`.

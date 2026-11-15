@@ -1,31 +1,24 @@
-"""Inverter state at the daily O&M check times (09:00 / 13:00 / 17:00) for the PWA report.
+"""Inverter state at the daily O&M checks of the PWA report (09 / 13 / 17).
 
-Per check, from stored Growatt history only (never realtime):
-- `offline`: inverters with no record within CHECK_NEAREST of hh:00 (datalogger / inverter silent)
-- `fault`:   inverters whose nearest record has Growatt status 3 (fault)
-- `alarms`:  "<INV> <message>" for Growatt alarm-log entries open at that time
+The checks are snapshots taken CHECK_OFFSET_MIN before the hour (08:50 / 12:50 / 16:50); what a
+slot holds is defined in one place, `services/check_slots.py`. This module keeps the inverter
+naming helpers and `build_checks`, a thin wrapper over that definition.
 
 Inverters named as replaced in Growatt ("INV 1 old", "GKLNF3901P(old)") are left out: they stay
 listed under the plant but never report again, so they would read "offline" every day.
-
-Published in the Firestore daily plant doc as `checks`; the report's Note column is built from it.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, time
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import date
+from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattAlarm, GrowattInverter, GrowattInverterReading
-from app.services.growatt_weather import CHECK_HOURS, CHECK_NEAREST
+from app.db.models import GrowattInverter, GrowattPlant
 
-FAULT_STATUS = 3  # Growatt MAX inverter status: 0 waiting, 1 normal, 3 fault
-# Growatt's placeholder text for an unmapped code; it says nothing an engineer can act on
-SKIP_ALARMS = {"undown error"}
 REPLACED = re.compile(r"\bold\b", re.IGNORECASE)
 
 
@@ -47,44 +40,12 @@ def _sort_key(label: str) -> Tuple[int, str]:
 
 
 def build_checks(db: Session, plant_id: int, day: date) -> Optional[Dict[str, Dict[str, Any]]]:
-    """{"09": {"inverters", "offline", "fault", "alarms"}, "13": …, "17": …}; None without inverters."""
+    """Every check slot of `day` built from stored history now (not frozen, not readiness-gated);
+    None without inverters. See check_slots.compute_slots for the fields."""
+    from app.services.check_slots import CHECK_HOURS, compute_slots
+
+    plant = db.get(GrowattPlant, plant_id)
     invs = [i for i in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id)) if not is_replaced(i)]
-    if not invs:
+    if plant is None or not invs:
         return None
-    label = {i.device_sn: inverter_label(i) for i in invs}
-    sns = list(label)
-    times = {h: datetime.combine(day, time(h)) for h in CHECK_HOURS}
-
-    windows = [and_(GrowattInverterReading.timestamp >= t - CHECK_NEAREST, GrowattInverterReading.timestamp <= t + CHECK_NEAREST) for t in times.values()]
-    nearest: Dict[Tuple[int, str], Tuple[datetime, Optional[int]]] = {}
-    for sn, ts, status in db.execute(
-        select(GrowattInverterReading.device_sn, GrowattInverterReading.timestamp, GrowattInverterReading.status)
-        .where(GrowattInverterReading.device_sn.in_(sns), or_(*windows))
-    ):
-        for h, t in times.items():
-            if abs(ts - t) <= CHECK_NEAREST:
-                best = nearest.get((h, sn))
-                if best is None or abs(ts - t) < abs(best[0] - t):
-                    nearest[(h, sn)] = (ts, status)
-
-    alarms = list(
-        db.scalars(
-            select(GrowattAlarm).where(GrowattAlarm.plant_id == plant_id, GrowattAlarm.day == day, GrowattAlarm.start_time.is_not(None))
-        )
-    )
-
-    out: Dict[str, Dict[str, Any]] = {}
-    for h, t in times.items():
-        offline = sorted({label[sn] for sn in sns if (h, sn) not in nearest}, key=_sort_key)
-        fault = sorted({label[sn] for sn in sns if (h, sn) in nearest and nearest[(h, sn)][1] == FAULT_STATUS}, key=_sort_key)
-        open_now: List[str] = []
-        for a in sorted(alarms, key=lambda a: (_sort_key(label.get(a.device_sn) or a.device_sn), a.start_time or t)):
-            msg = (a.alarm_message or a.alarm_code or "").strip()
-            if not msg or msg.lower() in SKIP_ALARMS:
-                continue
-            if a.start_time is not None and a.start_time <= t and (a.end_time is None or a.end_time >= t):
-                text = f"{label.get(a.device_sn) or a.device_sn} {msg}"
-                if text not in open_now:
-                    open_now.append(text)
-        out[f"{h:02d}"] = {"inverters": len(sns), "offline": offline, "fault": fault, "alarms": open_now}
-    return out
+    return compute_slots(db, plant, day, CHECK_HOURS)

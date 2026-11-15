@@ -1,9 +1,12 @@
 """Monitoring PWA Report Google Sheet, filled by the worker through the Google Sheets API.
 
-Replaces the bound Apps Script (`Monitoring Report/apps-script/Code.gs`), which Google blocks
-("This app is blocked") for unverified scripts. No user signs in: the worker writes as a
-service account (FIREBASE_CREDENTIALS_FILE, or PWA_SHEET_CREDENTIALS_FILE), so the sheet must be
-shared with that account's client_email as Editor, and the Sheets API must be enabled in the project.
+An alternative to the bound Apps Script (`Monitoring Report/apps-script/Code.gs`, the usual
+writer), for when Google blocks unverified scripts. Off unless PWA_SHEET_ID is set. No user signs
+in: the worker writes as a service account (FIREBASE_CREDENTIALS_FILE, or
+PWA_SHEET_CREDENTIALS_FILE), so the sheet must be shared with that account's client_email as
+Editor, and the Sheets API must be enabled in the project. It follows the Apps Script's rules: a
+check cell is written only while empty, a check not published yet is skipped, and only the cells
+it changes are written, so running both never overwrites what the other wrote.
 
 Sheet: one tab per day named DD.MM. Rows 3+, B = plant name, C = datalogger SN. Columns are found
 from the header rows (see `layout`), so both layouts work:
@@ -11,16 +14,22 @@ from the header rows (see `layout`), so both layouts work:
     new: weather Status | per check: Status, ค่าแสง, สภาพอากาศ, DATA LOG (Fault log)
 
 Source: the published daily docs (Firestore daily/{day}/plants/{id}) + the plant registry, i.e.
-`pwa_report.build`. Nothing is made up; no source = "—":
-    Status      hourly_kw[9|13|17] + checks.{hh}          real Growatt power; inverters offline/fault
-    DATA LOG    checks.{hh}: "online", "offline", or the faults
+`pwa_report.build`. Each check is a snapshot at hh:00 − CHECK_OFFSET_MIN (check_slots.py).
+Nothing is made up; no source = "—":
+    Status      checks.{hh}.kw + offline / fault           real Growatt power at the slot time
+    DATA LOG    checks.{hh}: "online", "offline", or the faults: offline / fault-status inverters +
+                `errors`, the plant's Fault Error log of that day up to the check (Growatt alarm
+                log, fault_type "Error"; open or closed)
     Note        "INV ทำงานปกติ ค่าแสง 584 (ฝนตก)" …          (old layout)
-    ค่าแสง       weather.slots.{hh}.irradiance_wm2           Growatt weather sensor
-    สภาพอากาศ    sky class from that irradiance vs clear-sky; no sensor reading ->
-                google_weather.slots.{hh}.condition + " (Google)"  (modelled)
+    ค่าแสง       checks.{hh}.irradiance_wm2                  Growatt weather sensor
+    สภาพอากาศ    checks.{hh}.google.condition + " (Google)"  (modelled, at the slot time);
+                no Google value -> sky class from that irradiance vs clear-sky
+    weather Status  "Normal" (sensor reported at every check so far) / "Abnormal"
+    Firmware    the row's datalogger's inverters' firmware (innerVersion, else fwVersion, ", "-joined),
+                written only while empty or "—"
 
-Schedule (worker): `pwa_sheet` at 06:05 creates today's tab; `publish_today` (09:30 / 13:30 /
-17:30 / 19:30, each check's history pulled at hh:25) fills the checks published so far right after publishing.
+Schedule (worker): `pwa_sheet` at 06:05 creates today's tab; `publish_today` (08:50 / 12:50 /
+16:50 / 19:30, each check's history pulled 3 min before) fills the checks published so far.
 """
 
 from __future__ import annotations
@@ -30,18 +39,18 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.services import pwa_report
+from app.services import check_slots, pwa_report
+from app.services.check_slots import CHECK_HOURS
 
 log = logging.getLogger(__name__)
 
-CHECK_HOURS = (9, 13, 17)
-PUBLISH_MIN = 30  # publish_today runs at hh:30 after each check (scheduled in app.worker)
+WX_NORMAL, WX_ABNORMAL = "Normal", "Abnormal"  # the only two weather Status values
 FIRST_ROW = 3  # 1-based
 DASH = "—"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -52,6 +61,10 @@ GOOGLE_TH = {
     "MOSTLY_CLOUDY": "เมฆมาก", "CLOUDY": "ฟ้าครึ้ม", "CHANCE_OF_SHOWERS": "อาจมีฝน",
     "LIGHT_RAIN": "ฝนตกเล็กน้อย", "RAIN": "ฝนตก", "RAIN_SHOWERS": "ฝนตก",
     "SCATTERED_THUNDERSTORMS": "ฝนฟ้าคะนอง", "THUNDERSTORM": "ฝนฟ้าคะนอง",
+    "WINDY": "ลมแรง", "WIND_AND_RAIN": "ฝนตก ลมแรง", "SCATTERED_SHOWERS": "ฝนตกบางพื้นที่",
+    "LIGHT_RAIN_SHOWERS": "ฝนตกเล็กน้อย", "HEAVY_RAIN_SHOWERS": "ฝนตกหนัก", "LIGHT_TO_MODERATE_RAIN": "ฝนตก",
+    "MODERATE_TO_HEAVY_RAIN": "ฝนตกหนัก", "HEAVY_RAIN": "ฝนตกหนัก", "RAIN_PERIODICALLY_HEAVY": "ฝนตกหนักเป็นช่วง",
+    "ISOLATED_THUNDERSTORMS": "ฝนฟ้าคะนองบางพื้นที่", "HEAVY_THUNDERSTORM": "ฝนฟ้าคะนองรุนแรง",
 }
 
 
@@ -60,9 +73,10 @@ def sheet_name(day: date) -> str:
 
 
 def published_hours(now: datetime) -> List[int]:
-    """Check hours whose publish slot (hh:30, plant-local `now`) has passed."""
-    hm = now.hour * 60 + now.minute
-    return [h for h in CHECK_HOURS if hm >= h * 60 + PUBLISH_MIN]
+    """Check hours whose snapshot time (hh:00 − CHECK_OFFSET_MIN, plant-local `now`) has passed.
+    Whether a check is also published in full is said by the data (`checks_ready`)."""
+    local = now.replace(tzinfo=None)
+    return [h for h in CHECK_HOURS if local >= check_slots.slot_time(local.date(), h)]
 
 
 # --------------------------------------------------------------------------- layout
@@ -87,6 +101,7 @@ class Layout:
     first: int
     last: int
     yield_kwh: int = 0  # optional "Yield (kWh)" column in row 1: energy so far that day
+    firmware: int = 0  # optional "Firmware" column in row 1 (outside first..last): by datalogger SN
 
 
 def _cell(rows: Sequence[Sequence[Any]], r: int, c: int) -> Any:
@@ -134,7 +149,8 @@ def layout(rows: Sequence[Sequence[Any]], title: str = "") -> Layout:
     yield_kwh = next((k + 1 for k, v in enumerate(r1) if re.search(r"yield", v, re.I) or "พลังงาน" in v), 0)
     cols = [weather, yield_kwh] + [c for b in blocks for c in (b.status, b.note, b.irr, b.wx, b.log, b.kw, b.inv) if c]
     cols = [c for c in cols if c]
-    return Layout(weather, blocks, min(cols), max(cols), yield_kwh)
+    firmware = next((k + 1 for k, v in enumerate(r1) if re.search(r"firmware", v, re.I)), 0)
+    return Layout(weather, blocks, min(cols), max(cols), yield_kwh, firmware)
 
 
 # --------------------------------------------------------------------------- cell values
@@ -177,6 +193,8 @@ def _check(c: Any) -> Optional[Dict[str, Any]]:
         "offline": list(c.get("offline") or []),
         "fault": list(c.get("fault") or []),
         "alarms": list(c.get("alarms") or []),
+        # the day's Fault Error log up to the check (check slots since 15.11); None = older slot
+        "errors": list(c["errors"]) if isinstance(c.get("errors"), list) else None,
     }
 
 
@@ -200,11 +218,14 @@ def note(kw: Optional[float], c: Optional[Dict[str, Any]], irr: Optional[int], h
 
 
 def data_log(kw: Optional[float], c: Optional[Dict[str, Any]]) -> str:
+    """DATA LOG (Fault log): offline inverters, inverters in fault status, then the plant's Fault
+    Error log of the day up to the check (`errors`; older slots: the alarms open at the check)."""
     if kw is None or (c and len(c["offline"]) >= c["inverters"]):
-        return "offline"
+        return "offline" + (": " + ", ".join(c["errors"]) if c and c["errors"] else "")
     if not c:
         return "online"
-    faults = [f"{x} Offline" for x in c["offline"]] + [f"{x} Fault" for x in c["fault"]] + c["alarms"]
+    log = c["errors"] if c["errors"] is not None else c["alarms"]
+    faults = [f"{x} Offline" for x in c["offline"]] + [f"{x} Fault" for x in c["fault"]] + log
     return ", ".join(faults) if faults else "online"
 
 
@@ -212,11 +233,24 @@ def data_log(kw: Optional[float], c: Optional[Dict[str, Any]]) -> str:
 CELL_COLUMNS = ("status", "note", "irr", "wx", "log", "kw", "inv")
 
 
-def plant_cells(day: date, doc: Dict[str, Any], info: Dict[str, Any], hours: Sequence[int]) -> Dict[str, Any]:
+def plant_cells(
+    day: date,
+    doc: Dict[str, Any],
+    info: Dict[str, Any],
+    hours: Sequence[int],
+    ready: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
     """The sheet's values for one plant: `checks` {"09": [status, note, irr, wx, log, kw, inv]}
-    (CELL_COLUMNS), `weather_status` and `yield_kwh`. `doc` = the published daily doc ({} = not
-    published), `info` = registry {name, latitude, longitude}. `sources` says where each check's
-    sky class came from ("growatt" / "google" / None). Nothing is made up; no source = "—"."""
+    (CELL_COLUMNS), `weather_status` ("Normal" / "Abnormal"), `weather_detail` and `yield_kwh`.
+    `doc` = the published daily doc ({} = not published), `info` = registry {name, latitude,
+    longitude}, `ready` = check hours published in full ("09", ...; None = all, for days published
+    before check slots). A check not ready is "—" in every column, for every plant: the sheet's
+    readiness gate. `sources` says where each check's sky class came from ("growatt" / "google" /
+    None). Nothing is made up; no source = "—".
+
+    A check slot (check_slots.py) carries its own `kw`, `irradiance_wm2` and `google`, all at the
+    slot time (08:50 for "09"). Older docs fall back to `hourly_kw[hh]`, `weather.slots` and
+    `google_weather.slots`."""
     hourly = doc.get("hourly_kw") or []
     weather = doc.get("weather") or {}
     has_sensor = bool(weather.get("has_sensor"))
@@ -224,15 +258,28 @@ def plant_cells(day: date, doc: Dict[str, Any], info: Dict[str, Any], hours: Seq
     google_slots = (doc.get("google_weather") or {}).get("slots") or {}
     checks = doc.get("checks") or {}
     out: Dict[str, Any] = {"checks": {}, "sources": {}}
-    sensor_hit: List[bool] = []
+    sensor_hit: List[Tuple[int, bool]] = []
     for hour in hours:
         hh = f"{hour:02d}"
-        kw = hourly[hour] if hour < len(hourly) else None
-        c = _check(checks.get(hh))
-        s = sensor_slots.get(hh) or {}
-        irr = round(s["irradiance_wm2"]) if s.get("irradiance_wm2") is not None else None
-        sensor_hit.append(irr is not None)
-        g = google_slots.get(hh)
+        if ready is not None and hh not in ready:
+            out["checks"][hh] = [DASH] * len(CELL_COLUMNS)
+            out["sources"][hh] = None
+            continue
+        raw = checks.get(hh)
+        c = _check(raw)
+        at_h, at_m = hour, 0
+        if isinstance(raw, dict) and "kw" in raw:  # check slot
+            kw = raw.get("kw")
+            irr_v = raw.get("irradiance_wm2")
+            g = raw.get("google")
+            if isinstance(raw.get("at"), str) and re.fullmatch(r"\d{2}:\d{2}", raw["at"]):
+                at_h, at_m = int(raw["at"][:2]), int(raw["at"][3:])
+        else:
+            kw = hourly[hour] if hour < len(hourly) else None
+            irr_v = (sensor_slots.get(hh) or {}).get("irradiance_wm2")
+            g = google_slots.get(hh)
+        irr = round(irr_v) if irr_v is not None else None
+        sensor_hit.append((hour, irr is not None))
         rain = bool(g and g.get("raining"))
 
         ok = kw is not None and kw > 0 and not (c and (c["offline"] or c["fault"]))
@@ -240,13 +287,14 @@ def plant_cells(day: date, doc: Dict[str, Any], info: Dict[str, Any], hours: Seq
 
         sky = None
         if irr is not None and info.get("latitude") is not None and info.get("longitude") is not None:
-            sky = sky_th(irr, clear_sky(info["latitude"], info["longitude"], day, hour))
+            sky = sky_th(irr, clear_sky(info["latitude"], info["longitude"], day, at_h, at_m))
+        # สภาพอากาศ = Google (modelled, labelled); the sensor's sky class only when Google has none
         wx, src = DASH, None
-        if sky:
+        if g and g.get("condition"):
+            text = GOOGLE_TH.get(g["condition"]) or g["condition"]
+            wx, src = text + (" (ฝนตก)" if rain and "ฝน" not in text else "") + " (Google)", "google"
+        elif sky:
             wx, src = sky + (" (ฝนตก)" if rain else ""), "growatt"
-        elif g:
-            cond = g.get("condition")
-            wx, src = (GOOGLE_TH.get(cond) or cond or DASH) + " (Google)", "google"
 
         inv = f"{c['inverters'] - len(c['offline'])}/{c['inverters']}" if c and c["inverters"] else DASH
         out["checks"][hh] = [
@@ -261,13 +309,18 @@ def plant_cells(day: date, doc: Dict[str, Any], info: Dict[str, Any], hours: Seq
         out["sources"][hh] = src
 
     if not doc:
-        out["weather_status"] = DASH
+        detail = DASH
     elif not has_sensor:
-        out["weather_status"] = "ไม่มีเซนเซอร์"
-    elif all(sensor_hit):
-        out["weather_status"] = "normal"
+        detail = "ไม่มีเซนเซอร์"
+    elif not sensor_hit:
+        detail = DASH  # no check published yet
+    elif all(hit for _, hit in sensor_hit):
+        detail = "normal"
     else:
-        out["weather_status"] = "loss (" + ", ".join(f"{h:02d}:00" for h, hit in zip(hours, sensor_hit) if not hit) + ")"
+        detail = "loss (" + ", ".join(f"{h:02d}:00" for h, hit in sensor_hit if not hit) + ")"
+    # only two values in the sheet: Normal = the sensor reported at every check so far
+    out["weather_status"] = WX_NORMAL if detail == "normal" else WX_ABNORMAL
+    out["weather_detail"] = detail
     y = doc.get("yield_kwh")
     out["yield_kwh"] = DASH if y is None else round(y, 1)
     return out
@@ -292,8 +345,16 @@ class FillStats:
     wx_growatt: int = 0
     wx_google: int = 0
     unmatched: int = 0
+    written: int = 0  # check cells written (they were empty)
+    kept: int = 0  # check cells left as they were (already filled)
     published_plants: int = 0
+    firmware: int = 0  # Firmware cells written with a version
     hours: List[int] = field(default_factory=list)
+    skipped_hours: List[int] = field(default_factory=list)  # not published yet: nothing written
+
+
+def _empty(v: Any) -> bool:
+    return v is None or v == ""
 
 
 def fill_rows(
@@ -304,12 +365,29 @@ def fill_rows(
     hours: Optional[Sequence[int]] = None,
 ) -> FillStats:
     """Fills `rows` (the sheet's values, 0-based, header rows included) in place for the check
-    blocks in `hours` (default all). Cells of other checks are left as they are."""
+    blocks in `hours` (default all). Same rules as the Apps Script (Code.gs):
+
+    - a check cell is written only while it is empty, so the first published value stays;
+    - a check not published yet (`data["checks_ready"]`, or every plant "—") is skipped;
+    - weather Status ("Normal" / "Abnormal") and Yield are kept up to date;
+    - Firmware (by the row's datalogger SN, `data["firmware"]`) is written only while empty or "—";
+      an SN without a version gets "—". Without the map the column is left as it is;
+    - cells of other checks are left as they are."""
     blocks = [b for b in lay.blocks if hours is None or b.hour in hours]
     by_plant: Dict[str, Any] = data.get("days") or {}
     plant_info: Dict[str, Any] = data.get("plants") or {}
+    ready = data.get("checks_ready")
     names = {p: d.get("name") for p, d in plant_info.items()}
-    stats = FillStats(published_plants=len(by_plant), hours=[b.hour for b in blocks])
+    firmware: Optional[Dict[str, str]] = data.get("firmware")
+    stats = FillStats(published_plants=len(by_plant))
+    asked = [b.hour for b in blocks]
+    cells_of = {pid: plant_cells(day, by_plant.get(pid) or {}, info, asked, ready=ready) for pid, info in plant_info.items()}
+    live = [
+        b for b in blocks
+        if any(any(v != DASH for v in c["checks"][f"{b.hour:02d}"]) for c in cells_of.values())
+    ]
+    stats.hours = [b.hour for b in live]
+    stats.skipped_hours = [b.hour for b in blocks if b not in live]
 
     for i in range(FIRST_ROW - 1, len(rows)):
         row = rows[i]
@@ -324,18 +402,29 @@ def fill_rows(
         sn = str(_cell(rows, i, 2)).strip()
         if not sn:
             continue
+        if lay.firmware and firmware is not None and str(_cell(rows, i, lay.firmware - 1)).strip() in ("", DASH):
+            v = firmware.get(sn)
+            put(lay.firmware, v or DASH)
+            stats.firmware += 1 if v else 0
         pid = match_plant(sn, str(_cell(rows, i, 1)).strip(), data.get("loggers") or {}, names)
         if not pid:
             stats.unmatched += 1
-            put(lay.weather, "ไม่พบในระบบ")
+            put(lay.weather, WX_ABNORMAL)
             continue
         stats.rows += 1
-        cells = plant_cells(day, by_plant.get(pid) or {}, plant_info.get(pid) or {}, [b.hour for b in blocks])
-        for b in blocks:
+        cells = cells_of[pid]
+        for b in live:
             hh = f"{b.hour:02d}"
             vals = dict(zip(CELL_COLUMNS, cells["checks"][hh]))
             for col in CELL_COLUMNS:
-                put(getattr(b, col), vals[col])
+                c = getattr(b, col)
+                if not c:
+                    continue
+                if _empty(_cell(rows, i, c - 1)):
+                    put(c, vals[col])
+                    stats.written += 1
+                else:
+                    stats.kept += 1
             if vals["kw"] == DASH:
                 stats.no_power += 1
             elif vals["status"] == "normal":
@@ -421,6 +510,14 @@ class SheetsClient:
         self._call("PUT", f"/values/{quote(rng, safe='')}", params={"valueInputOption": "RAW"},
                    json={"range": rng, "majorDimension": "ROWS", "values": rows})
 
+    def write_cells(self, cells: List[Tuple[str, Any]]) -> None:
+        """One call: each (A1 cell, value). Only these cells are touched."""
+        if cells:
+            self._call("POST", "/values:batchUpdate", json={
+                "valueInputOption": "RAW",
+                "data": [{"range": rng, "majorDimension": "ROWS", "values": [[v]]} for rng, v in cells],
+            })
+
 
 DAY_TAB = re.compile(r"^\d{2}\.\d{2}")
 
@@ -467,13 +564,22 @@ def fill_day(
         out["skipped"] = "no plant rows"
         return out
     lay = layout(rows, name)
+    before = [list(r) for r in rows]
     stats = fill_rows(day, lay, rows, data, hours)
-    block = [
-        [_cell(rows, i, c - 1) for c in range(lay.first, lay.last + 1)]
+    # only the cells this fill changed: a cell someone else (the Apps Script) wrote since the read
+    # above is never overwritten by a stale copy of the whole block
+    cols = list(range(lay.first, lay.last + 1))
+    if lay.firmware and lay.firmware not in cols:
+        cols.append(lay.firmware)
+    changed = [
+        (_a1(name, f"{col_letter(c)}{i + 1}"), _cell(rows, i, c - 1))
         for i in range(FIRST_ROW - 1, len(rows))
+        for c in cols
+        if _cell(rows, i, c - 1) != _cell(before, i, c - 1)
     ]
-    client.write(_a1(name, f"{col_letter(lay.first)}{FIRST_ROW}:{col_letter(lay.last)}{len(rows)}"), block)
+    client.write_cells(changed)
     out.update(stats.__dict__)
+    out["cells_written"] = len(changed)
     log.info("PWA sheet %s: %s", name, out)
     return out
 

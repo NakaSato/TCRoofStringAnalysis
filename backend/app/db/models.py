@@ -796,6 +796,23 @@ class PublishWriteCount(Base):
     writes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
+class PwaCheckSlot(Base):
+    """One PWA report check slot of one plant, frozen when it was first fully built.
+
+    Built from stored, source-timestamped history only (services/check_slots.py), never from
+    realtime values. Later publishes reuse it, so a slot the sheet has already shown never
+    changes, even when late uploads would change a recomputation. Pruned with the raw history.
+    """
+
+    __tablename__ = "pwa_check_slots"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    hour: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # 9 / 13 / 17
+    slot_json: Mapped[Any] = mapped_column(JSON, nullable=False)
+    built_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
 class GoogleWeatherHourly(Base):
     """Hourly weather from the Google Maps Weather API (`history/hours`), per grid cell.
 

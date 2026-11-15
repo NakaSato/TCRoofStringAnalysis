@@ -67,32 +67,41 @@ def test_interval_and_daily_due_rules():
     assert daily.is_due(datetime(2026, 11, 12, 12, 30, tzinfo=timezone.utc), None)
 
 
-def test_publish_today_runs_after_each_check_and_after_sunset():
+def test_publish_today_runs_at_each_check_snapshot_and_after_sunset():
     slots = [s for s in default_schedule() if s.job == "publish_today"]
-    assert [s.at for s in slots] == [dtime(9, 30), dtime(13, 30), dtime(17, 30), dtime(19, 30)]
+    assert [s.at for s in slots] == [dtime(8, 50), dtime(12, 50), dtime(16, 50), dtime(19, 30)]
 
     def due(h, m, last):
         now = datetime(2026, 11, 12, h, m, tzinfo=BKK)
         return any(s.is_due(now, last) for s in slots)
 
     yesterday = datetime(2026, 11, 11, 19, 31, tzinfo=BKK)
-    assert not due(9, 29, yesterday)
-    assert due(9, 30, yesterday)
-    at_0930 = datetime(2026, 11, 12, 9, 31, tzinfo=BKK)
-    assert not due(12, 0, at_0930)  # once per slot
-    assert due(13, 30, at_0930)
-    at_1730 = datetime(2026, 11, 12, 17, 31, tzinfo=BKK)
-    assert not due(19, 29, at_1730)
-    assert due(19, 30, at_1730)
+    assert not due(8, 49, yesterday)
+    assert due(8, 50, yesterday)
+    at_0850 = datetime(2026, 11, 12, 8, 51, tzinfo=BKK)
+    assert not due(11, 0, at_0850)  # once per slot
+    assert due(12, 50, at_0850)
+    at_1650 = datetime(2026, 11, 12, 16, 51, tzinfo=BKK)
+    assert not due(19, 29, at_1650)
+    assert due(19, 30, at_1650)
 
 
 def test_history_pulled_before_each_check_publish():
     slots = [s.at for s in default_schedule() if s.job == "history" and s.at]
-    assert slots == [dtime(9, 25), dtime(13, 25), dtime(17, 25)]
-    pull = next(s for s in default_schedule() if s.job == "history" and s.at == dtime(9, 25))
-    # an interval pull at 09:10 does not cover 09:00 well enough: pull again at 09:25
-    assert pull.is_due(datetime(2026, 11, 12, 9, 25, tzinfo=BKK), datetime(2026, 11, 12, 9, 10, tzinfo=BKK))
-    assert not pull.is_due(datetime(2026, 11, 12, 9, 40, tzinfo=BKK), datetime(2026, 11, 12, 9, 26, tzinfo=BKK))
+    assert slots == [dtime(8, 47), dtime(12, 47), dtime(16, 47)]
+    pull = next(s for s in default_schedule() if s.job == "history" and s.at == dtime(8, 47))
+    # an interval pull at 08:30 does not cover 08:50 well enough: pull again at 08:47
+    assert pull.is_due(datetime(2026, 11, 12, 8, 47, tzinfo=BKK), datetime(2026, 11, 12, 8, 30, tzinfo=BKK))
+    assert not pull.is_due(datetime(2026, 11, 12, 9, 0, tzinfo=BKK), datetime(2026, 11, 12, 8, 48, tzinfo=BKK))
+
+
+def test_alarms_keep_out_of_the_check_pull_and_publish():
+    alarms = next(s for s in default_schedule() if s.job == "alarms")
+    assert alarms.skip[0] == (dtime(8, 42), dtime(8, 51))
+    at = lambda h, m: datetime(2026, 11, 12, h, m, tzinfo=BKK)
+    long_ago = at(6, 0)
+    assert not alarms.is_due(at(8, 45), long_ago)
+    assert alarms.is_due(at(8, 51), long_ago)
 
 
 def _seed_registry(factory) -> None:

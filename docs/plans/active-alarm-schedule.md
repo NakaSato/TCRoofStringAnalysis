@@ -27,8 +27,8 @@ reads only the inverters that are due:
 - A fault that `history` stores makes an inverter hot on the next tick.
 - Growatt never leaves `end_time` empty. An ongoing alarm is re-reported every ~5 min, each record
   with end = start. That is why "hot" uses how recent the last report is, not `end_time IS NULL`.
-- No `alarms` run starts at 09/13/17:20–:31, which keeps the worker free for each PWA check's
-  history pull (hh:25) and publish (hh:30).
+- No `alarms` run starts at 08/12/16:42–:51, which keeps the worker free for each PWA check's
+  history pull (08:47) and publish (08:50). (Before 15 Nov 2026: 09/13/17:20–:31, hh:25 / hh:30.)
 - After 20:00 inverters are off. `alarms_yesterday` (00:30) still reads the whole previous day,
   including any alarms after 20:00.
 
