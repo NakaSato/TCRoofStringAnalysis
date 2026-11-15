@@ -39,6 +39,14 @@ def test_parse_max_info():
     assert info["export_limit_rate_pct"] == 100
     empty = parse_max_info({"alias": "", "normalPower": 0})
     assert all(v is None for v in empty.values())  # missing settings stay null
+    # real answer (EPHHDXB00L, 2026-11-15, producing 78 kW of 80 kW): every setting 0 = not read
+    zeros = parse_max_info({
+        "alias": "INV 3", "normalPower": 80000, "status": 1, "activeRate": 0, "reactiveRate": 0, "pf": 0,
+        "pfModel": 0, "exportLimit": 0, "exportLimitPowerRate": 0, "onOff": 0, "voltageHighLimit": 0,
+    })
+    assert zeros["nominal_power_w"] == 80000.0 and zeros["alias"] == "INV 3"
+    for k in ("active_rate_pct", "reactive_rate_pct", "pf_setting", "pf_model", "export_limit", "export_limit_rate_pct", "on_off"):
+        assert zeros[k] is None, k
 
 
 def test_parse_grid_and_diagnostics():

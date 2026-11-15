@@ -341,12 +341,7 @@ def parse_max_info(m: Dict[str, Any]) -> Dict[str, Any]:
     power = _f(m.get("normalPower"))
     num = lambda k: _f(m.get(k)) if m.get(k) not in (None, "") else None
     integer = lambda k: int(v) if (v := num(k)) is not None else None
-    return {
-        "alias": text("alias"),
-        "nominal_power_w": power if power else None,  # 0 = not reported
-        "fw_version": text("fwVersion"),
-        "inner_version": text("innerVersion"),
-        # settings as configured on the inverter (not measurements)
+    settings = {
         "active_rate_pct": num("activeRate"),  # active power limit, % of rated; < 100 = curtailed
         "reactive_rate_pct": num("reactiveRate"),
         "pf_setting": num("pf"),
@@ -354,6 +349,19 @@ def parse_max_info(m: Dict[str, Any]) -> Dict[str, Any]:
         "export_limit": integer("exportLimit"),  # export limitation enabled flag / mode as reported
         "export_limit_rate_pct": num("exportLimitPowerRate"),
         "on_off": integer("onOff"),  # 1 = on, 0 = switched off
+    }
+    # The OpenAPI often answers the whole settings block as 0 (activeRate, pf, onOff, voltage and
+    # frequency limits) for inverters producing at full power: settings not read, not configured
+    # at 0. pf 0 is impossible, so a block with activeRate and pf both 0 is stored as unknown.
+    if not settings["active_rate_pct"] and not settings["pf_setting"]:
+        settings = dict.fromkeys(settings)
+    return {
+        "alias": text("alias"),
+        "nominal_power_w": power if power else None,  # 0 = not reported
+        "fw_version": text("fwVersion"),
+        "inner_version": text("innerVersion"),
+        # settings as configured on the inverter (not measurements)
+        **settings,
     }
 
 
