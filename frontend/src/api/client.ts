@@ -180,6 +180,13 @@ export const api = {
     apiFetch<GrowattInverterTimeseries>(
       `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/timeseries${day ? `?day=${day}` : ""}`
     ),
+  /** Every Growatt field of one inverter's stored records for a day (as reported; kept 30 days). */
+  getGrowattInverterRaw: (plantId: number, deviceSn: string, day?: string) =>
+    apiFetch<{
+      meta: { plant_id: number; device_sn: string; day: string | null; source: string; records: number };
+      fields: string[];
+      records: Array<Record<string, unknown>>;
+    }>(`/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/raw${day ? `?day=${day}` : ""}`),
   getGrowattInverterDaily: (plantId: number, deviceSn: string, days = 30, day?: string) =>
     apiFetch<GrowattInverterDaily>(
       `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/daily?days=${days}${day ? `&day=${day}` : ""}`

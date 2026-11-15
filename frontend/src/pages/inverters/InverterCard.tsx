@@ -16,6 +16,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { GroupLabel, HOT_C, KPI_ROW, LOW_PCT, LiveBadge, Row, Stat, Unit, hhmm, invName, isSwitchedOff, limitPct } from "./shared";
 import type { Anomaly, LiveState, OverviewInverter } from "./shared";
 import type { GrowattLiveDatalogger } from "../../api/types/growatt";
+import { RawExportButton } from "./RawExportButton";
+import { useAppContext } from "../../context/AppContext";
 
 /** Growatt's live word on the inverter's datalogger: its `lost` flag and last upload (never stored). */
 const dataloggerNow = (dl: GrowattLiveDatalogger | null | undefined): string | null => {
@@ -58,6 +60,7 @@ export const InverterCard: React.FC<{
   onTab: (tab: "strings" | "grid") => void;
 }> = ({ inv, state, datalogger, day, pct, anomalies, inactiveCount, index, count, onStep, onTab }) => {
   const [open, setOpen] = useState(false);
+  const { selectedGrowattPlantId } = useAppContext();
   const rec = state.kind === "live" ? state.rec : null;
   const d = rec?.diagnostics;
   const codes = activeCodes(d);
@@ -111,7 +114,8 @@ export const InverterCard: React.FC<{
             .filter(Boolean)
             .join(" · ")}
         </CardDescription>
-        <CardAction>
+        <CardAction className="flex items-center gap-2">
+          <RawExportButton key={`${inv.device_sn}:${day}`} plantId={selectedGrowattPlantId} deviceSn={inv.device_sn} day={day} />
           <ButtonGroup aria-label="Step through inverters">
             <Button variant="outline" size="icon-sm" onClick={() => onStep(-1)} disabled={count < 2} aria-label="Previous inverter">
               <ChevronLeft />
@@ -202,7 +206,7 @@ export const InverterCard: React.FC<{
               <Stat label="Energy today" hint="Growatt's day counter">
                 {fmt(rec?.eac_today_kwh, 1)} <Unit>kWh</Unit>
               </Stat>
-              <Stat label="Temperature" hint={d ? `IPM ${fmt(d.ipm_temperature_c, 0)} · boost ${fmt(d.boost_temperature_c, 0)} °C` : undefined}>
+              <Stat label="Temperature" hint={d ? `AMTemp1 · INVTemp ${fmt(d.ipm_temperature_c, 0)} · BTTemp ${fmt(d.boost_temperature_c, 0)} °C` : "AMTemp1"}>
                 <span className={cn(rec?.temperature_c != null && rec.temperature_c >= HOT_C && "text-amber-300")}>{fmt(rec?.temperature_c, 1)}</span>{" "}
                 <Unit>°C</Unit>
               </Stat>

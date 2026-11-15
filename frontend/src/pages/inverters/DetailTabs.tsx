@@ -356,7 +356,7 @@ export const GridFaultCards: React.FC<{ state: LiveState }> = ({ state }) => {
                 <Row label="AFCI level PV1 / PV2">{(d.afci_pv ?? []).map((v) => v ?? "—").join(" / ") || "—"}</Row>
                 <Row label="GFCI (leakage)">{fmt(d.gfci, 1)}</Row>
                 <Row label="DCI R / S / T">{(d.dci ?? []).map((v) => fmt(v, 1)).join(" / ") || "—"}</Row>
-                <Row label="Temp inverter / IPM / boost">
+                <Row label="AMTemp1 / INVTemp / BTTemp" title="Growatt temperature / temperature2 / temperature3, named as in Growatt's history export">
                   {fmt(d.temperature_c, 1)} / {fmt(d.ipm_temperature_c, 1)} / {fmt(d.boost_temperature_c, 1)} °C
                 </Row>
               </div>

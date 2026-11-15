@@ -132,7 +132,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
     - Not merged, because nothing in the app is missing what they give: `plant/sn_plant` (the plant of a serial: the registry has it), `device/check/sn` (confirms a datalogger serial; its model is already in `device/datalogger/list`), `user/c_user_list` (the Growatt account's users). `readMaxParam`, `new-api/getWiFiSignalByDevice` and `new-api/queryDfcData` answered an error / no data on every account and were dropped from the probe script.
   - `/live/plants/{id}/latest` also returns, from the newest `max_data` record:
     - `grid`: phase/line V, A, `pf`, `reactPower`.
-    - `diagnostics`: `faultType`, `faultCode1/2`, `warnCode1`, `warningValue1-3`, `pidFaultCode` and `StrBreak`; `pvIso`, where 65530 = no reading → null; `temperature2/3`, assumed to be IPM/boost; `afciStatus` and `afciPv1/2`; `gfci`; `r/s/tDci`; `timeTotal` in seconds → `time_total_h`.
+    - `diagnostics`: `faultType`, `faultCode1/2`, `warnCode1`, `warningValue1-3`, `pidFaultCode` and `StrBreak`; `pvIso`, where 65530 = no reading → null; `temperature` / `temperature2` / `temperature3` = AMTemp1 / INVTemp / BTTemp of Growatt's history export (checked on one inverter, 13 Nov 2026; `temperature5` = AMTemp2; the stored `temperature_c` is AMTemp1, and the API keys `ipm_temperature_c` / `boost_temperature_c` keep their old names); `afciStatus` and `afciPv1/2`; `gfci`; `r/s/tDci`; `timeTotal` in seconds → `time_total_h`.
     - `mppt_energy`: `epv{n}Today/Total`, kWh.
     These are live only and never stored. Units of GFCI/DCI/AFCI are Growatt's own and are shown as reported.
 - **Timestamps:**

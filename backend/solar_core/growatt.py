@@ -757,6 +757,9 @@ def parse_max_diagnostics(r: Dict[str, Any]) -> Dict[str, Any]:
         "gfci": _f(r.get("gfci")),
         "dci": [_f(r.get("rDci")), _f(r.get("sDci")), _f(r.get("tDci"))],
         "time_total_h": _round_h(_f(r.get("timeTotal"))),
+        # Matched against Growatt's own history export (GKLRF6R00G, 13 Nov 2026): temperature =
+        # AMTemp1, temperature2 = INVTemp, temperature3 = BTTemp (temperature5 = AMTemp2). The
+        # "ipm" key name was a guess and is kept only so the API does not change.
         "temperature_c": _f(r.get("temperature")),
         "ipm_temperature_c": _f(r.get("temperature2")),
         "boost_temperature_c": _f(r.get("temperature3")),

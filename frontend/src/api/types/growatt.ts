@@ -180,8 +180,11 @@ export interface GrowattLiveDiagnostics {
   /** Growatt string-break bit field, 0 = none */
   str_break: number | null;
   pv_iso_kohm: number | null;
+  /** Growatt `temperature` = AMTemp1 of its history export (also the stored `temperature_c`) */
   temperature_c: number | null;
+  /** Growatt `temperature2` = the export's INVTemp (the key's "ipm" was a guess, kept for compatibility) */
   ipm_temperature_c: number | null;
+  /** Growatt `temperature3` = the export's BTTemp */
   boost_temperature_c: number | null;
   /** arc-fault detection status code and level per AFCI channel, as reported */
   afci_status?: number | null;
