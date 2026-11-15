@@ -5,13 +5,14 @@ with a shared key, so the Apps Script needs no Google Cloud permission of its ow
 locations and datalogger serials come from the SQL registry.
 
 SQL fallback: a check slot frozen in `pwa_check_slots` but missing from Firestore (the publish hit
-PUBLISH_DAILY_WRITE_BUDGET, or PUBLISH_SINK=json) is filled in from SQL. It is the same frozen
+PUBLISH_DAILY_WRITE_BUDGET, or Firestore could not be read) is filled in from SQL. It is the same frozen
 snapshot the publish would have written, so Firestore and SQL never disagree; Firestore wins when
 both have it. Nothing else comes from SQL (no yield, no hourly curve): missing stays "—".
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from datetime import date
@@ -22,6 +23,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import GrowattEnvSensor, GrowattInverter, GrowattPlant, PwaCheckSlot
+
+log = logging.getLogger(__name__)
 
 # Only what the sheet uses (Firestore reads stay one per plant doc either way)
 DAY_FIELDS = ["hourly_kw", "yield_kwh", "checks", "weather.has_sensor", "weather.slots", "google_weather.slots"]
@@ -185,9 +188,17 @@ def build(db: Session, day: date, day_docs: Optional[DayDocs] = None) -> Dict[st
     filled in from SQL (_sql_checks). `day_docs` given (tests, the worker's own reader) = no
     caching."""
     plants, loggers, by_plant, firmware = _registry(db, cache=day_docs is None)
-    docs = dict(cached_day_docs(day) if day_docs is None else {pid: doc for pid, doc in day_docs(day)})
+    firestore_error: Optional[str] = None
+    try:
+        docs = dict(cached_day_docs(day) if day_docs is None else {pid: doc for pid, doc in day_docs(day)})
+    except Exception as exc:  # Firestore down / quota / no credentials: serve what SQL has
+        log.warning("PWA report %s: Firestore read failed, using SQL check slots only: %s", day, exc)
+        firestore_error = type(exc).__name__
+        docs = {}
     head = docs.pop(DAY_KEY, None) or {}
     ready = head.get("checks_ready") if isinstance(head.get("checks_ready"), list) else None
+    if firestore_error:
+        ready = []  # never "all count" without the fleet doc: only hours SQL has for every plant
     docs, ready, fallback = _sql_checks(db, day, docs, ready)
     return {
         "day": day.isoformat(),
@@ -200,6 +211,8 @@ def build(db: Session, day: date, day_docs: Optional[DayDocs] = None) -> Dict[st
         "days": docs,
         # plants (no Firestore doc) and checks taken from SQL `pwa_check_slots`
         "sql_fallback": fallback,
+        # exception class name when Firestore could not be read (then only SQL slots are served)
+        "firestore_error": firestore_error,
     }
 
 
@@ -226,6 +239,7 @@ def cells(db: Session, day: date, hours: Sequence[int], day_docs: Optional[DayDo
         "checks_ready": [f"{h:02d}" for h in hours if ready is None or f"{h:02d}" in ready],
         "published_plants": len(docs),
         "sql_fallback": data["sql_fallback"],
+        "firestore_error": data["firestore_error"],
         "loggers": data["loggers"],
         "names": {pid: info["name"] for pid, info in data["plants"].items()},
         "plants": plants,

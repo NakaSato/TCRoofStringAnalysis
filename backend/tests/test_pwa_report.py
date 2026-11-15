@@ -225,3 +225,18 @@ def test_no_frozen_slots_leaves_firestore_as_is(client):
     body = client.get("/api/report/pwa/2026-11-13/cells?hours=9", headers={"X-Report-Key": "s3cret"}).json()
     assert body["sql_fallback"] == {"plants": 0, "checks": 0}
     assert body["checks_ready"] == ["09"]  # older day without checks_ready: unchanged
+
+
+def test_firestore_failure_serves_sql_slots_only(client):
+    """A failed Firestore read is not a 500: frozen SQL slots are served, and nothing else is ready."""
+    def boom(day):
+        raise RuntimeError("quota")
+
+    h = {"X-Report-Key": "s3cret"}
+    client.app.dependency_overrides[report.get_day_docs] = lambda: boom
+    body = client.get("/api/report/pwa/2026-11-13/cells?hours=9", headers=h).json()
+    assert body["firestore_error"] == "RuntimeError"
+    assert body["checks_ready"] == [] and body["plants"]["7"]["checks"]["09"] == ["—"] * 7
+    _freeze(client, [(7, 9, SLOT)])
+    body = client.get("/api/report/pwa/2026-11-13/cells?hours=9", headers=h).json()
+    assert body["checks_ready"] == ["09"] and body["plants"]["7"]["checks"]["09"][5] == 4.2
