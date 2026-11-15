@@ -174,3 +174,69 @@ def test_water_plants_sharing_a_name_match_by_datalogger(tmp_path):
     assert match_plant("DYDDG1X03H", "สถานีผลิตน้ำศูนย์ราชการ", data["loggers"], names) == "11192895"
     assert data["plants"]["11140629"]["datalogger_sn"] == ["DYDDG1X02W"]
     assert data["plants"]["11192895"]["datalogger_sn"] == ["DYDDG1X03H"]
+
+
+SLOT = {"at": "08:50", "inverters": 2, "offline": [], "fault": [], "alarms": [], "errors": [], "kw": 4.2,
+        "irradiance_wm2": None, "google": None}
+
+
+def _freeze(client, rows):
+    from app.db.models import PwaCheckSlot
+
+    with next(client.app.dependency_overrides[get_db]()) as db:
+        for pid, hour, slot in rows:
+            db.add(PwaCheckSlot(day=date(2026, 11, 13), plant_id=pid, hour=hour, slot_json=slot))
+        db.commit()
+
+
+def test_sql_fallback_fills_a_plant_missing_from_firestore(client):
+    """#34: a check frozen in SQL but not in Firestore (write budget, json sink) still reaches the sheet."""
+    h = {"X-Report-Key": "s3cret"}
+    client.app.dependency_overrides[report.get_day_docs] = lambda: (lambda day: [(pwa_report.DAY_KEY, {})])
+    _freeze(client, [(7, 9, SLOT)])
+    body = client.get("/api/report/pwa/2026-11-13/cells?hours=9,13", headers=h).json()
+    assert body["checks_ready"] == ["09"]  # 13 not frozen for every plant: still gated
+    assert body["sql_fallback"] == {"plants": 1, "checks": 1}
+    p = body["plants"]["7"]
+    assert p["checks"]["09"][5] == 4.2 and p["checks"]["09"][6] == "2/2"
+    assert p["checks"]["13"] == ["—"] * 7
+    assert p["yield_kwh"] == "—"  # never taken from SQL: no source there
+    assert p["weather_detail"] == "ไม่มีเซนเซอร์"
+
+
+def test_sql_fallback_adds_missing_hours_and_firestore_wins(client):
+    h = {"X-Report-Key": "s3cret"}
+    fs = {"checks": {"09": {**SLOT, "kw": 9.9}}, "yield_kwh": 30.0}
+    client.app.dependency_overrides[report.get_day_docs] = lambda: (
+        lambda day: [(pwa_report.DAY_KEY, {"checks_ready": ["09"]}), ("7", fs)]
+    )
+    _freeze(client, [(7, 9, SLOT), (7, 13, {**SLOT, "at": "12:50", "kw": 6.0})])
+    body = client.get("/api/report/pwa/2026-11-13/cells?hours=9,13", headers=h).json()
+    assert body["checks_ready"] == ["09", "13"]
+    assert body["sql_fallback"] == {"plants": 0, "checks": 1}
+    p = body["plants"]["7"]
+    assert p["checks"]["09"][5] == 9.9  # Firestore's value, not SQL's
+    assert p["checks"]["13"][5] == 6.0
+    assert p["yield_kwh"] == 30.0
+    assert "13" not in fs["checks"]  # the (cached) Firestore doc is not changed in place
+
+
+def test_no_frozen_slots_leaves_firestore_as_is(client):
+    body = client.get("/api/report/pwa/2026-11-13/cells?hours=9", headers={"X-Report-Key": "s3cret"}).json()
+    assert body["sql_fallback"] == {"plants": 0, "checks": 0}
+    assert body["checks_ready"] == ["09"]  # older day without checks_ready: unchanged
+
+
+def test_firestore_failure_serves_sql_slots_only(client):
+    """A failed Firestore read is not a 500: frozen SQL slots are served, and nothing else is ready."""
+    def boom(day):
+        raise RuntimeError("quota")
+
+    h = {"X-Report-Key": "s3cret"}
+    client.app.dependency_overrides[report.get_day_docs] = lambda: boom
+    body = client.get("/api/report/pwa/2026-11-13/cells?hours=9", headers=h).json()
+    assert body["firestore_error"] == "RuntimeError"
+    assert body["checks_ready"] == [] and body["plants"]["7"]["checks"]["09"] == ["—"] * 7
+    _freeze(client, [(7, 9, SLOT)])
+    body = client.get("/api/report/pwa/2026-11-13/cells?hours=9", headers=h).json()
+    assert body["checks_ready"] == ["09"] and body["plants"]["7"]["checks"]["09"][5] == 4.2
