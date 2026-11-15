@@ -31,6 +31,9 @@ def build_engine(database_url: str | None = None):
 # migrations add the same columns and skip them when already present.
 # (table, column, DDL type, index DDL or None)
 _ADDED_COLUMNS = [
+    ("growatt_string_daily", "lost_on_peak_kwh_est", "FLOAT", None),
+    ("growatt_inverter_daily", "lost_down_on_peak_kwh_est", "FLOAT", None),
+    ("growatt_inverter_daily", "lost_no_data_on_peak_kwh_est", "FLOAT", None),
     ("growatt_plants", "phase", "INTEGER", "CREATE INDEX IF NOT EXISTS ix_growatt_plants_phase ON growatt_plants (phase)"),
     ("users", "username", "VARCHAR(64)", "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)"),
     ("growatt_inverters", "alias", "VARCHAR(64)", None),
