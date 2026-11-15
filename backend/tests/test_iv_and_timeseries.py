@@ -961,3 +961,65 @@ def test_low_shunt_curve_with_lowered_voc_is_not_read_as_a_structural_fault():
     cls = _run_sweep(pts, modules=10)["classification"]
     assert cls["deviations_pct"]["v_oc_vs_stc_pct"] < -2.0  # Voc really is low
     assert cls["signature"] == "low_shunt_resistance"
+
+
+def test_iv_shadow_issue_is_not_a_second_source(tmp_path):
+    """Audit #33: an uncalibrated shadow-mode issue must not confirm a time-series trend."""
+    client, hdr = _iv_client(tmp_path, strings=(1,))
+    from fastapi import FastAPI
+
+    from app.services import growatt_iv
+
+    app = client.app
+    assert isinstance(app, FastAPI)
+    with next(app.dependency_overrides[get_db]()) as db:
+        db.add(
+            GrowattIssue(
+                plant_id=101, device_sn="INV101", string_no=1, rule="R6", tier="P2", safety=False,
+                opened_day=date(2026, 11, 9), last_seen_day=date(2026, 11, 10), days_seen=2,
+                status="open", shadow=True,
+            )
+        )
+        db.commit()
+        assert growatt_iv._has_timeseries_trend(db, 101, "INV101", 1) is False
+
+    body = _post_sweep(client, hdr, 1, _synth_stc_curve(modules=10, isc_scale=0.84), "2026-11-10T11:00:00")
+    assert body["timeseries_trend_confirmed"] is False
+    assert body["module_test_candidate"] is False
+
+
+def test_iv_unknown_module_count_is_rejected_not_inferred(tmp_path):
+    """Audit #33: no String Layout and no `modules` = 422; never guess the count from Voc."""
+    client, hdr = _iv_client(tmp_path, strings=(1,))
+    # string 2 has no layout; a 9-module string (one missing) would be inferred as 9 and look normal
+    r = client.post(
+        "/growatt/plants/101/iv-sweeps",
+        headers=hdr,
+        json={
+            "device_sn": "INV101",
+            "string_no": 2,
+            "swept_at": "2026-11-10T11:00:00",
+            "irradiance_wm2": 1000.0,
+            "module_temp_c": 25.0,
+            "points": _synth_stc_curve(modules=9),
+        },
+    )
+    assert r.status_code == 422 and "String Layout" in r.text
+    # an explicit count in the request still works, and the missing module shows up
+    body = _post_sweep(client, hdr, 2, _synth_stc_curve(modules=10, voc_offset_v=-SPEC.voc_stc), "2026-11-10T11:05:00", modules=10)
+    assert body["modules"] == 10 and body["signature"] == "miswiring_or_module_count"
+
+
+def test_iv_per_string_wp_keeps_the_datasheet_fill_factor():
+    """Audit #33: a per-string module Wp scales Isc/Imp too, so the reference FF is unchanged."""
+    from app.services.growatt_iv import _spec_for_wp
+
+    fm = {"wp": 660.0, "voc_stc": 45.6, "isc_stc": 18.4, "vmp_stc": 38.1, "imp_stc": 17.33}
+    base = ModuleStcSpec.from_dict(fm)
+    got = ModuleStcSpec.from_dict(_spec_for_wp(fm, 550.0))
+    assert got.wp == 550.0
+    assert got.voc_stc == base.voc_stc and got.vmp_stc == base.vmp_stc
+    assert got.isc_stc == pytest.approx(18.4 * 550 / 660)
+    ff = lambda s: s.wp / (s.voc_stc * s.isc_stc)  # noqa: E731
+    assert ff(got) == pytest.approx(ff(base))
+    assert _spec_for_wp(fm, None) == fm
