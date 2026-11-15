@@ -114,9 +114,11 @@ $$P_{\text{expected,STC}} = P_{\text{nameplate}} \times \left(1 - \text{LID}_1 -
   1. `quality_gate_passed` is `True`,
   2. the curve has no steps (the STC power of a stepped curve is for comparison only; `stc_comparison_valid = False`),
   3. $P_{\text{max,STC}} < P_{\text{expected,STC}} \times (1 - \text{dead\_band})$, and
-  4. A second independent source confirms the finding: either **IR thermography** (`ir_confirmed = True`) or **an active time-series performance issue** on the same string (`timeseries_trend_confirmed = True`, auto-linked from open `R1`/`R4`/`R5`/`R6` issues).
+  4. A second independent source confirms the finding: either **IR thermography** (`ir_confirmed = True`) or **an active time-series performance issue** on the same string (`timeseries_trend_confirmed = True`, auto-linked from open `R1`/`R4`/`R5`/`R6` issues; shadow-mode issues do not count).
 
   The SQL column keeps its old name `warranty_claim_ready`; the API field is `module_test_candidate`.
+
+- **Module count and per-string Wp**: a string sweep needs its module count from String Layout or `modules` in the request; without one the upload is rejected (422). The count is never inferred from the measured $V_{\text{oc}}$, which would make expected $V_{\text{oc}}$ match by construction and hide `miswiring_or_module_count` / `bypass_diode_shorted`. A per-string `module_wp` scales the fleet module's $I_{\text{sc}}$ and $I_{\text{mp}}$ with it ($V_{\text{oc}}$, $V_{\text{mp}}$ kept), so the reference $\text{FF}_{\text{STC}}$ stays the datasheet value (`growatt_iv._spec_for_wp`).
 
 ### 2.7 Peer and Baseline Comparison (`growatt_iv._with_comparison`)
 

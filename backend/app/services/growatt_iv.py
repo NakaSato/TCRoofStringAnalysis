@@ -47,6 +47,22 @@ def _plant_age_years(plant: GrowattPlant, on_day: date) -> float:
     return max(0.0, (on_day - created).days / 365.25)
 
 
+def _spec_for_wp(fm: Dict[str, Any], module_wp: Optional[float]) -> Dict[str, Any]:
+    """Fleet module spec adjusted to a per-string module Wp. Overriding only `wp` would leave the
+    fleet module's Isc/Imp and distort the reference fill factor, so the currents scale with Wp
+    (same cell voltage, so Voc/Vmp and the fill factor stay as on the datasheet)."""
+    spec = dict(fm)
+    if not module_wp:
+        return spec
+    base = ModuleStcSpec.from_dict(fm)
+    spec["wp"] = float(module_wp)
+    if base.wp > 0:
+        k = float(module_wp) / base.wp
+        spec["isc_stc"] = base.isc_stc * k
+        spec["imp_stc"] = base.imp_stc * k
+    return spec
+
+
 def _has_timeseries_trend(db: Session, plant_id: int, device_sn: Optional[str], string_no: Optional[int]) -> bool:
     """True when the string has an active time-series degradation/drift/underperformance issue
     (R5, R6, R1, or R4) in `growatt_issues` — the second source for a module-test candidate."""
@@ -60,6 +76,8 @@ def _has_timeseries_trend(db: Session, plant_id: int, device_sn: Optional[str], 
             GrowattIssue.string_no == string_no,
             GrowattIssue.status.in_(growatt_issues.ACTIVE),
             GrowattIssue.rule.in_(("R1", "R4", "R5", "R6")),
+            # shadow-mode rules are uncalibrated and hidden from engineers: not a second source
+            GrowattIssue.shadow.is_(False),
         )
         .limit(1)
     )
@@ -331,15 +349,13 @@ def create_iv_sweep(
             if (device_sn, int(string_no)) in lay:
                 modules, module_wp_override = lay[(device_sn, int(string_no))]
         if modules is None:
-            # Infer approximate module count from measured Voc and datasheet Voc if layout is absent
-            v_max = max(p["v"] for p in pts_raw)
-            voc_mod = float(fm.get("voc_stc") or 51.1)
-            modules = max(1, round(v_max / (voc_mod * 0.92)))
+            # Never infer the count from the measured Voc: that makes expected Voc match measured Voc
+            # by construction and hides a missing module or shorted bypass diodes.
+            raise ValueError(
+                "Module count for this string is unknown: set it in String Layout or send `modules` with the sweep"
+            )
 
-    spec_dict = dict(fm)
-    if module_wp_override:
-        spec_dict["wp"] = module_wp_override
-    spec = ModuleStcSpec.from_dict(spec_dict)
+    spec = ModuleStcSpec.from_dict(_spec_for_wp(fm, module_wp_override))
 
     # per sweep, else the fleet module setting when it has one; unknown stays unknown
     cell_technology = (str(payload.get("cell_technology") or fm.get("cell_technology") or "").strip().lower()) or None
