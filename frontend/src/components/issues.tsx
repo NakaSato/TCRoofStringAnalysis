@@ -80,17 +80,25 @@ export const evidenceText = (i: Issue): string => {
   const e = i.evidence;
   switch (i.rule) {
     case "R1":
-      return `${fmtInt(num(e.low_min))} min below 85 % of peers (median ratio ${fmt(num(e.ratio_median), 2)}), ${fmtInt(num(e.days_hit))} of ${fmtInt(num(e.days_judged))} days`;
+      return `${fmtInt(num(e.low_min))} min below 80 % of peers (median ratio ${fmt(num(e.ratio_median), 2)}), ${fmtInt(num(e.days_hit))} of ${fmtInt(num(e.days_judged))} days`;
     case "R2":
       return `${fmtInt(num(e.open_min))} min at ~0 A while its peers carried current`;
+    case "R4":
+      return `String voltage ${fmt(num(e.v_drop_pct), 2)} % below peer voltage for ${fmtInt(num(e.days))} days (per-string MPPT)`;
     case "R5":
       return `Median ratio ${fmt(num(e.ratio_median_window), 3)} over ${fmtInt(num(e.days))} days`;
+    case "R6":
+      return `Peer ratio falling ${fmt(num(e.drop_pct_per_month), 2)} %/month over ${fmtInt(num(e.days))} days (PID / rapid degradation)`;
     case "R7": {
       const p = Array.isArray(e.yf_vs_median_pct) ? (e.yf_vs_median_pct as number[]) : [];
       return `Specific yield vs the plant's other inverters: ${p.map((x) => `${fmt(x, 1)} %`).join(", ")}`;
     }
     case "R8":
       return `Down ${fmtInt((num(e.fault_min) ?? 0) + (num(e.off_min) ?? 0) + (num(e.standby_min) ?? 0))} min (fault ${fmtInt(num(e.fault_min))}, off ${fmtInt(num(e.off_min))}, standby ${fmtInt(num(e.standby_min))}) · ${fmt(num(e.kwp_share_pct), 0)} % of plant kWp`;
+    case "R10":
+      return `EPI ${fmt(num(e.epi), 3)} vs baseline μ=${fmt(num(e.epi_mu), 3)} (σ=${fmt(num(e.epi_sigma), 3)}, ${String(e.trigger ?? "")})`;
+    case "R11":
+      return `Ya − Yf loss ${fmt(num(e.ya_minus_yf), 2)} h vs baseline ${fmt(num(e.baseline_ya_minus_yf), 2)} h (+${fmt(num(e.gap_increase_h), 2)} h for ${fmtInt(num(e.days))} days)`;
     case "R17":
       return `No data ${fmtInt(num(e.no_data_min))} of ${fmtInt(num(e.daylight_min))} daylight min`;
     case "R18":

@@ -25,14 +25,20 @@ export interface GrowattWeatherKpis {
   avg_ambient_temp_c: number | null;
   max_ambient_temp_c: number | null;
   avg_module_temp_daylight_c: number | null;
+  irradiance_weighted_module_temp_c?: number | null;
   max_module_temp_c: number | null;
   avg_humidity_pct: number | null;
   avg_wind_speed_ms: number | null;
   max_wind_speed_ms: number | null;
+  stale_irradiance_slots?: number;
+  poa_filtered_slots?: number;
 }
 
 export interface GrowattIecPr {
   pr_pct: number | null;
+  pr_temp_corrected_pct?: number | null;
+  irradiance_weighted_module_temp_c?: number | null;
+  epi?: number | null;
   reference_yield_h: number | null;
   final_yield_h: number | null;
   coverage_pct: number | null;

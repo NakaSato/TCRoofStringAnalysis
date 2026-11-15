@@ -32,10 +32,11 @@ from app.db.models import (
     GrowattInverter,
     GrowattInverterDaily,
     GrowattPlant,
+    GrowattPlantDaily,
     GrowattStringDaily,
 )
 from app.services.growatt_common import INACTIVE_MAX_A, R, S, _bucket, _day_bounds, _integrate_kwh, capacity_check
-from app.services.growatt_layout import load_layout
+from app.services.growatt_layout import load_layout, load_layout_orientations
 from app.services.tariff import Pricer, pricer as load_pricer
 from solar_core.sun import sun_times
 
@@ -50,12 +51,13 @@ DAYLIGHT_MARGIN = timedelta(minutes=30)
 # string gate (report §2; the live check's 3 A median gate)
 GATE_MEDIAN_A = 3.0
 GATE_IRRADIANCE_WM2 = 400.0
+MAX_IRR_VARIABILITY = 0.15  # max 15 % step change |G_t - G_{t-1}| / G_t for low irradiance variability gate
 CLIP_FRACTION = 0.98  # AC power at or above 98 % of the (limited) nameplate = clipped slot
 MIN_PEERS = 3  # wired strings reporting in the slot
 # The median includes every wired string: with ≥ 3 peers one open string cannot pull it down, while
 # leaving 0 A strings out would keep it high when most strings drop together (inverter event).
 MIN_GATED_SLOTS = 12  # 1 h of gated data, else no verdict
-LOW_RATIO = 0.85
+LOW_RATIO = 0.80
 SEVERE_RATIO = 0.60
 OPEN_A = 0.3
 OPEN_MEDIAN_A = 2.0  # an open string counts only while its peers carry at least this
@@ -237,14 +239,17 @@ def compute_plant_day(
     lo, hi = _day_bounds(day)
     db.execute(delete(GrowattStringDaily).where(GrowattStringDaily.plant_id == plant.plant_id, GrowattStringDaily.day == day))
     db.execute(delete(GrowattInverterDaily).where(GrowattInverterDaily.plant_id == plant.plant_id, GrowattInverterDaily.day == day))
+    db.execute(delete(GrowattPlantDaily).where(GrowattPlantDaily.plant_id == plant.plant_id, GrowattPlantDaily.day == day))
     if not sns:
         return {"strings": 0, "inverters": 0}
 
     # inverter records → 5-min slots; daily yield = the day's last eac_today
     inv_slots: Dict[str, Dict[datetime, InvSlot]] = defaultdict(dict)
     eac_points: Dict[str, List[Tuple[datetime, float]]] = defaultdict(list)
-    for sn, ts, status, pac, eac in db.execute(
-        select(R.device_sn, R.timestamp, R.status, R.pac_w, R.eac_today_kwh)
+    ppv_points: Dict[str, List[Tuple[datetime, float]]] = defaultdict(list)
+    pac_points: Dict[str, List[Tuple[datetime, float]]] = defaultdict(list)
+    for sn, ts, status, pac, ppv, eac in db.execute(
+        select(R.device_sn, R.timestamp, R.status, R.pac_w, R.ppv_w, R.eac_today_kwh)
         .where(R.device_sn.in_(sns), R.timestamp >= lo, R.timestamp < hi)
         .order_by(R.device_sn, R.timestamp)
     ):
@@ -252,6 +257,9 @@ def compute_plant_day(
         slot.status = status
         if pac is not None:
             slot.pac.append(float(pac))
+            pac_points[sn].append((ts, float(pac)))
+        if ppv is not None:
+            ppv_points[sn].append((ts, float(ppv)))
         if eac is not None:
             eac_points[sn].append((ts, float(eac)))
 
@@ -276,11 +284,13 @@ def compute_plant_day(
     alarms = _error_alarms(db, plant.plant_id, day)
     wired = _wired(db, plant.plant_id, day, sns, seen_today)
     layout = load_layout(db, sns)
+    orientations = load_layout_orientations(db, sns)
     plant_kwp, _ = capacity_check(db, plant)
     kwp = _inverter_kwp(invs, wired, layout, plant_kwp)
 
-    n_str = _strings_day(db, plant.plant_id, day, by_sn, inv_slots, str_slots, str_power, wired, layout, irr, pr)
-    n_inv = _inverters_day(db, plant, day, invs, inv_slots, eac_points, alarms, kwp, until, pr)
+    n_str = _strings_day(db, plant.plant_id, day, by_sn, inv_slots, str_slots, str_power, wired, layout, orientations, irr, pr)
+    n_inv = _inverters_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, alarms, kwp, until, pr)
+    _plant_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, plant_kwp)
     return {"strings": n_str, "inverters": n_inv}
 
 
@@ -294,15 +304,43 @@ def _strings_day(
     str_power: Dict[Tuple[str, int], List[Tuple[datetime, float]]],
     wired: Dict[str, Set[int]],
     layout: Dict[Tuple[str, int], Tuple[int, Optional[float]]],
+    orientations: Dict[Tuple[str, int], Tuple[Optional[float], Optional[float]]],
     irr: Dict[datetime, float],
     pr: Pricer,
 ) -> int:
     n = 0
+    # Precompute unstable irradiance slots (> MAX_IRR_VARIABILITY step change between adjacent 5-min slots)
+    unstable_irr_slots: Set[datetime] = set()
+    sorted_irr = sorted(irr.items())
+    for idx in range(1, len(sorted_irr)):
+        ts_prev, g_prev = sorted_irr[idx - 1]
+        ts_curr, g_curr = sorted_irr[idx]
+        if (ts_curr - ts_prev) <= timedelta(minutes=SLOT_MIN * 2) and max(g_prev, g_curr) > 0:
+            if abs(g_curr - g_prev) / max(g_prev, g_curr) > MAX_IRR_VARIABILITY:
+                unstable_irr_slots.add(ts_curr)
+
     for sn, inv in by_sn.items():
         strings = sorted(wired.get(sn) or ())
         if not strings:
             continue
         per_module = all((sn, s) in layout for s in strings)
+        # Peer group key: (modules, azimuth_deg, tilt_deg) when layout exists
+        peer_group_key: Dict[int, Tuple[Optional[int], Optional[float], Optional[float]]] = {}
+        for s in strings:
+            mods = layout[(sn, s)][0] if (sn, s) in layout else None
+            az, tilt = orientations.get((sn, s), (None, None))
+            peer_group_key[s] = (mods, az, tilt)
+
+        # Determine voltage sensing capability per string:
+        # Growatt string `s` sits on MPPT `(s + 1) // 2`. If another wired string shares that MPPT,
+        # they report the same MPPT voltage (`shared_mppt`), so bypass-diode voltage rule cannot isolate a string.
+        mppt_counts: Dict[int, int] = defaultdict(int)
+        for s in strings:
+            mppt_counts[(s + 1) // 2] += 1
+        v_sensing: Dict[int, str] = {
+            s: ("per_string" if mppt_counts[(s + 1) // 2] == 1 else "shared_mppt") for s in strings
+        }
+
         ratios: Dict[int, List[float]] = defaultdict(list)
         v_ratios: Dict[int, List[float]] = defaultdict(list)
         open_slots: Dict[int, int] = defaultdict(int)
@@ -323,24 +361,51 @@ def _strings_day(
             med = _median(i for _, i in present.values()) or 0.0
             clipped = _clipped(inv, rec.pac_w)
             on_peak = pr.is_on_peak(slot)
+
+            # Peer median per string (matching orientation, tilt, and module count when >= 2 peers exist in group)
+            def peer_med_for(s_target: int) -> float:
+                gk = peer_group_key.get(s_target)
+                if gk and gk[0] is not None:
+                    same_group = [i_val for s_other, (_v_val, i_val) in present.items() if peer_group_key.get(s_other) == gk]
+                    if len(same_group) >= 2:
+                        return _median(same_group) or med
+                return med
+
             for s, (v, i) in present.items():
-                if i <= OPEN_A and med >= OPEN_MEDIAN_A:
+                s_med = peer_med_for(s)
+                if i <= OPEN_A and s_med >= OPEN_MEDIAN_A:
                     open_slots[s] += 1
-                if not clipped and med >= LOST_MEDIAN_A and i < LOW_RATIO * med:
-                    kwh = (med - i) * v * SLOT_H / 1000.0
+                if not clipped and s_med >= LOST_MEDIAN_A and i < LOW_RATIO * s_med:
+                    kwh = (s_med - i) * v * SLOT_H / 1000.0
                     lost_kwh[s] += kwh
                     if on_peak:
                         lost_on[s] += kwh
             slot_irr = irr.get(slot)
-            if med < GATE_MEDIAN_A or clipped or (slot_irr is not None and slot_irr < GATE_IRRADIANCE_WM2):
+            if (
+                med < GATE_MEDIAN_A
+                or clipped
+                or (slot_irr is not None and slot_irr < GATE_IRRADIANCE_WM2)
+                or slot in unstable_irr_slots
+            ):
                 continue
             gated += 1
             for s, (_v, i) in present.items():
-                ratios[s].append(i / med)
+                s_med = peer_med_for(s)
+                if s_med > 0:
+                    ratios[s].append(i / s_med)
             if per_module:
                 vpm = {s: v / layout[(sn, s)][0] for s, (v, _) in present.items() if layout[(sn, s)][0] > 0}
                 for s, x in vpm.items():
-                    peer = _median(y for t, y in vpm.items() if t != s)
+                    gk = peer_group_key.get(s)
+                    same_grp_Peers = [y for t, y in vpm.items() if t != s and peer_group_key.get(t) == gk]
+                    peer = _median(same_grp_Peers if same_grp_Peers else [y for t, y in vpm.items() if t != s])
+                    if peer:
+                        v_ratios[s].append(x / peer)
+            else:
+                # When module counts are uniform/unspecified, compare raw string voltage against peers
+                v_raw = {s: v for s, (v, _) in present.items() if v > 0}
+                for s, x in v_raw.items():
+                    peer = _median(y for t, y in v_raw.items() if t != s)
                     if peer:
                         v_ratios[s].append(x / peer)
         for s in strings:
@@ -358,6 +423,7 @@ def _strings_day(
                     severe_min=sum(1 for r in rs if r < SEVERE_RATIO) * SLOT_MIN if verdict else None,
                     open_min=open_slots.get(s, 0) * SLOT_MIN,
                     v_ratio_median=round(statistics.median(v_ratios[s]), 4) if verdict and v_ratios.get(s) else None,
+                    voltage_sensing=v_sensing.get(s, "shared_mppt"),
                     energy_kwh=round(_integrate_kwh(str_power[(sn, s)]), 3) if str_power.get((sn, s)) else None,
                     lost_kwh_est=round(lost_kwh.get(s, 0.0), 3),
                     lost_on_peak_kwh_est=round(lost_on.get(s, 0.0), 3),
@@ -375,6 +441,8 @@ def _inverters_day(
     invs: Sequence[GrowattInverter],
     inv_slots: Dict[str, Dict[datetime, InvSlot]],
     eac_points: Dict[str, List[Tuple[datetime, float]]],
+    ppv_points: Dict[str, List[Tuple[datetime, float]]],
+    pac_points: Dict[str, List[Tuple[datetime, float]]],
     alarms: Dict[str, List[Tuple[datetime, datetime]]],
     kwp: Dict[str, Optional[float]],
     until: Optional[datetime] = None,
@@ -465,8 +533,16 @@ def _inverters_day(
         flush_gap()
 
         pts = eac_points.get(sn, [])
-        energy = pts[-1][1] if pts else None
+        energy = pts[-1][1] if pts else (_integrate_kwh(pac_points[sn]) if pac_points.get(sn) else None)
+        dc_kwh = _integrate_kwh(ppv_points[sn]) if ppv_points.get(sn) else None
         own = kwp.get(sn)
+        yf_val = round(energy / own, 3) if energy is not None and own else None
+        ya_val = round(dc_kwh / own, 3) if dc_kwh is not None and dc_kwh > 0 and own else None
+        ya_minus_yf_val = (
+            round((dc_kwh - energy) / own, 3)
+            if dc_kwh is not None and energy is not None and own and dc_kwh >= energy
+            else None
+        )
         rows[sn] = GrowattInverterDaily(
             device_sn=sn,
             day=day,
@@ -479,8 +555,11 @@ def _inverters_day(
             limited_min=mins["limited"],
             no_data_min=mins["no_data"],
             energy_kwh=round(energy, 3) if energy is not None else None,
+            dc_energy_kwh=round(dc_kwh, 3) if dc_kwh is not None and dc_kwh > 0 else None,
             kwp=round(own, 2) if own else None,
-            yf_kwh_kwp=round(energy / own, 3) if energy is not None and own else None,
+            ya_kwh_kwp=ya_val,
+            yf_kwh_kwp=yf_val,
+            ya_minus_yf=ya_minus_yf_val,
             lost_fault_kwh_est=_r(lost.get("fault", 0.0)),
             lost_off_kwh_est=_r(lost.get("off", 0.0)),
             lost_standby_kwh_est=_r(lost.get("standby", 0.0)),
@@ -498,6 +577,127 @@ def _inverters_day(
             row.plant_kwp_share_pct = round(float(kwp[sn] or 0) / total_kwp * 100, 1)
         db.add(row)
     return len(rows)
+
+
+def _plant_day(
+    db: Session,
+    plant: GrowattPlant,
+    day: date,
+    invs: Sequence[GrowattInverter],
+    inv_slots: Dict[str, Dict[datetime, InvSlot]],
+    eac_points: Dict[str, List[Tuple[datetime, float]]],
+    ppv_points: Dict[str, List[Tuple[datetime, float]]],
+    pac_points: Dict[str, List[Tuple[datetime, float]]],
+    plant_kwp: Optional[float],
+) -> None:
+    """Populate `GrowattPlantDaily` for `day`, applying POA 200–1200 W/m², stale-value, clipping,
+    and curtailment masks before computing PR, PR', and EPI."""
+    from app.services import fleet_settings, growatt_weather
+
+    inv_energies: List[float] = []
+    inv_dc_energies: List[float] = []
+    for inv in invs:
+        sn = inv.device_sn
+        pts = eac_points.get(sn, [])
+        e_ac = pts[-1][1] if pts else (_integrate_kwh(pac_points[sn]) if pac_points.get(sn) else None)
+        if e_ac is not None:
+            inv_energies.append(e_ac)
+        if ppv_points.get(sn):
+            e_dc = _integrate_kwh(ppv_points[sn])
+            if e_dc > 0:
+                inv_dc_energies.append(e_dc)
+
+    energy_kwh = round(sum(inv_energies), 3) if inv_energies else None
+    dc_energy_kwh = round(sum(inv_dc_energies), 3) if inv_dc_energies else None
+    yf_kwh_kwp = round(energy_kwh / plant_kwp, 3) if energy_kwh is not None and plant_kwp else None
+    ya_kwh_kwp = round(dc_energy_kwh / plant_kwp, 3) if dc_energy_kwh is not None and plant_kwp else None
+    ya_minus_yf = (
+        round((dc_energy_kwh - energy_kwh) / plant_kwp, 3)
+        if dc_energy_kwh is not None and energy_kwh is not None and plant_kwp and dc_energy_kwh >= energy_kwh
+        else None
+    )
+
+    weather = growatt_weather.build_weather_day(db, plant.plant_id, day, latest_if_none=False)
+    wk = weather["kpis"]
+    mod = fleet_settings.get_fleet_module(db)
+    gamma_pct = float(mod.get("temp_coeff_pmax_pct") or growatt_weather.DEFAULT_GAMMA_PCT_PER_K)
+
+    # Sum AC power per 5-min slot
+    plant_pac_by_slot: Dict[datetime, float] = defaultdict(float)
+    clipped_slots_set: Set[datetime] = set()
+    curtailed_slots_set: Set[datetime] = set()
+    for inv in invs:
+        sn = inv.device_sn
+        for slot, rec in inv_slots.get(sn, {}).items():
+            if rec.pac_w > 0:
+                plant_pac_by_slot[slot] += rec.pac_w
+                if _clipped(inv, rec.pac_w):
+                    clipped_slots_set.add(slot)
+                if _limited(inv):
+                    curtailed_slots_set.add(slot)
+
+    producing_slots = [slot.strftime("%Y-%m-%d %H:%M:%S") for slot, p in sorted(plant_pac_by_slot.items()) if p > 0]
+    pr_res = growatt_weather.iec_pr(energy_kwh, plant_kwp, weather, producing_slots, gamma_pct)
+
+    stale_ts = growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2")
+    wx_by_slot: Dict[datetime, Dict[str, Any]] = {}
+    for p in weather["series"]:
+        try:
+            wx_by_slot[datetime.strptime(p["timestamp"], "%Y-%m-%d %H:%M:%S")] = p
+        except ValueError:
+            continue
+
+    valid_slots = 0
+    meas_kw_sum = 0.0
+    mod_kw_sum = 0.0
+    fallback_tmod = wk.get("irradiance_weighted_module_temp_c") or wk.get("avg_module_temp_daylight_c")
+
+    if plant_kwp and weather["has_sensor"]:
+        for slot, wx in sorted(wx_by_slot.items()):
+            ts_str = wx["timestamp"]
+            g = wx.get("irradiance_wm2")
+            if g is None or ts_str in stale_ts:
+                continue
+            if not (growatt_weather.POA_FILTER_MIN_WM2 <= g <= growatt_weather.POA_FILTER_MAX_WM2):
+                continue
+            if slot in clipped_slots_set or slot in curtailed_slots_set:
+                continue
+            pac_kw = plant_pac_by_slot.get(slot, 0.0) / 1000.0
+            t_mod = wx.get("module_temp_c")
+            if t_mod is None:
+                t_mod = fallback_tmod if fallback_tmod is not None else 25.0
+            temp_factor = max(0.5, 1.0 + (gamma_pct / 100.0) * (float(t_mod) - 25.0))
+            p_mod_kw = plant_kwp * (float(g) / 1000.0) * temp_factor * 0.985
+            if p_mod_kw > 0:
+                valid_slots += 1
+                meas_kw_sum += pac_kw
+                mod_kw_sum += p_mod_kw
+
+    epi = round(meas_kw_sum / mod_kw_sum, 4) if valid_slots >= 6 and mod_kw_sum > 0 else None
+    modelled_energy_kwh = round(mod_kw_sum * SLOT_H, 3) if valid_slots >= 6 and mod_kw_sum > 0 else None
+
+    db.add(
+        GrowattPlantDaily(
+            plant_id=plant.plant_id,
+            day=day,
+            capacity_kwp=round(plant_kwp, 2) if plant_kwp else None,
+            energy_kwh=energy_kwh,
+            dc_energy_kwh=dc_energy_kwh,
+            modelled_energy_kwh=modelled_energy_kwh,
+            yr_h=wk.get("insolation_kwh_m2"),
+            ya_kwh_kwp=ya_kwh_kwp,
+            yf_kwh_kwp=yf_kwh_kwp,
+            ya_minus_yf=ya_minus_yf,
+            pr_pct=pr_res.get("pr_pct"),
+            pr_temp_corrected_pct=pr_res.get("pr_temp_corrected_pct"),
+            epi=epi,
+            irradiance_weighted_tmod_c=wk.get("irradiance_weighted_module_temp_c"),
+            filtered_slots=valid_slots,
+            stale_masked_slots=len(stale_ts),
+            clipped_masked_slots=len(clipped_slots_set),
+            curtailed_masked_slots=len(curtailed_slots_set),
+        )
+    )
 
 
 def _r(v: Optional[float]) -> Optional[float]:

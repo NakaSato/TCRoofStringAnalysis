@@ -28,6 +28,10 @@ DEFAULT_FLEET_MODULE: Dict[str, Any] = {
     "temp_coeff_voc_pct": -0.25,
     "temp_coeff_isc_pct": 0.046,
     "bifacial_factor_pct": 80.0,
+    "rs_ohm": 0.22,
+    "kappa_ohm_per_k": 0.0012,
+    "first_year_lid_pct": 1.0,
+    "annual_degradation_pct": 0.45,
     "datasheet_url": "https://solarpvpros.com/content/Products/ZNShine/ZXM7-UHLDD144-580W.pdf",
 }
 
@@ -37,6 +41,7 @@ def get_fleet_module(db: Session) -> Dict[str, Any]:
     if row is None:
         return {**DEFAULT_FLEET_MODULE, "source": "default", "updated_by": None, "updated_at": None}
     return {
+        **DEFAULT_FLEET_MODULE,
         **row.value,
         "source": "saved",
         "updated_by": row.updated_by,

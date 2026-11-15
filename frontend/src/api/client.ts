@@ -17,7 +17,7 @@ export type * from "./types/assistant";
 export type * from "./types/issues";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
-import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
+import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
@@ -206,6 +206,25 @@ export const api = {
     apiFetch<GrowattStringLayout & { published?: PublishResult }>(`/growatt/plants/${plantId}/string-layout`, {
       method: "PUT",
       body: JSON.stringify(entries),
+    }),
+
+  listIvSweeps: (plantId: number, opts: { sn?: string; stringNo?: number; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.sn) q.set("sn", opts.sn);
+    if (opts.stringNo != null) q.set("string_no", String(opts.stringNo));
+    if (opts.limit != null) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return apiFetch<IvSweepList>(`/growatt/plants/${plantId}/iv-sweeps${qs ? `?${qs}` : ""}`);
+  },
+  createIvSweep: (plantId: number, payload: IvSweepCreate) =>
+    apiFetch<IvSweep>(`/growatt/plants/${plantId}/iv-sweeps`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  patchIvSweep: (plantId: number, sweepId: number, payload: { ir_confirmed?: boolean; note?: string | null }) =>
+    apiFetch<IvSweep>(`/growatt/plants/${plantId}/iv-sweeps/${sweepId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
     }),
 
   getFleetAlarms: (day?: string) => apiFetch<FleetAlarmDay>(`/growatt/alarms${day ? `?day=${day}` : ""}`),

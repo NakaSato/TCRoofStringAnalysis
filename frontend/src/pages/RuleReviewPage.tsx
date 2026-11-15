@@ -26,10 +26,14 @@ import { Textarea } from "@/components/ui/textarea";
 const THRESHOLDS: { rule: string; fields: [key: string, label: string][] }[] = [
   { rule: "R1", fields: [["r1_low_min", "Low minutes / day"], ["r1_days", "Window (days)"], ["r1_days_hit", "Days that must hit"]] },
   { rule: "R2", fields: [["r2_open_min", "Open minutes / day"]] },
+  { rule: "R4", fields: [["r4_v_drop_pct", "Voltage drop below peers (%)"], ["r4_days", "Days in a row"]] },
   { rule: "R5", fields: [["r5_window_days", "Window (days)"], ["r5_min_days", "Min. days with a verdict"], ["r5_ratio", "Median ratio below"]] },
+  { rule: "R6", fields: [["r6_window_days", "Window (days)"], ["r6_min_days", "Min. days with a verdict"], ["r6_drop_pct_per_month", "Slope drop above (%/month)"]] },
   { rule: "R7", fields: [["r7_pct", "Yield vs peers below (%)"], ["r7_days", "Days in a row"], ["r7_max_gap_pct", "Skip days with downtime above (%)"]] },
   { rule: "R8", fields: [["r8_min_down_min", "Down at least (min)"], ["r8_p1_share_pct", "P1 above share of plant kWp (%)"]] },
   { rule: "R9", fields: [["r9_events", "Trips"], ["r9_window_days", "Within (days)"]] },
+  { rule: "R10", fields: [["r10_window_days", "Baseline window (days)"], ["r10_min_days", "Min. baseline days"], ["r10_two_sigma_days", "2σ persistence (days)"]] },
+  { rule: "R11", fields: [["r11_window_days", "Baseline window (days)"], ["r11_min_days", "Min. baseline days"], ["r11_days", "Days in a row"], ["r11_gap_increase_h", "Ya − Yf increase (h)"]] },
   { rule: "R17", fields: [["r17_pct", "No data above (% of daylight)"]] },
   { rule: "Tiers", fields: [["p1_thb_per_day", "THB/day line (R2 → P1, R7 → P2)"]] },
 ];

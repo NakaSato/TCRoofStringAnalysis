@@ -29,6 +29,10 @@ E = GrowattEnvReading
 
 FIELDS = ("irradiance_wm2", "ambient_temp_c", "module_temp_c", "humidity_pct", "wind_speed_ms", "wind_dir_deg")
 DAYLIGHT_WM2 = 50.0  # irradiance above which a slot counts as daylight (module-temperature mean)
+POA_FILTER_MIN_WM2 = 200.0  # KPI filter lower bound (W/m²)
+POA_FILTER_MAX_WM2 = 1200.0  # KPI filter upper bound (W/m²)
+STALE_RUN_LEN = 3  # >= 3 consecutive identical non-zero readings = stale sensor reading
+DEFAULT_GAMMA_PCT_PER_K = -0.30  # default Pmax temperature coefficient (%/°C, ZNShine 570 W)
 MIN_PR_COVERAGE = 0.9  # share of producing slots that must have an irradiance sample for IEC PR
 # Daily O&M check times (plant-local hour) of the PWA monitoring report; Firestore daily plant
 # docs carry the sensor irradiance and Google's weather at these hours (`check_slots`).
@@ -216,9 +220,56 @@ def build_weather_day(
     return _result(day, sensors, out_sensors, series, _kpis(series), start_time, end_time, sensor)
 
 
+def _stale_timestamps(series: Sequence[Dict[str, Any]], field: str = "irradiance_wm2") -> set[str]:
+    """Timestamps in `series` where `field` is non-zero and identical for `STALE_RUN_LEN` or more
+    consecutive samples (logger forward-fill / frozen sensor)."""
+    stale: set[str] = set()
+    run: List[str] = []
+    last_val: Optional[float] = None
+    for p in series:
+        v = p.get(field)
+        ts = p.get("timestamp")
+        if v is None or v <= 0 or not ts:
+            if len(run) >= STALE_RUN_LEN:
+                stale.update(run)
+            run = []
+            last_val = None
+            continue
+        fv = round(float(v), 2)
+        if last_val is not None and fv == last_val:
+            run.append(ts)
+        else:
+            if len(run) >= STALE_RUN_LEN:
+                stale.update(run)
+            run = [ts]
+            last_val = fv
+    if len(run) >= STALE_RUN_LEN:
+        stale.update(run)
+    return stale
+
+
 def _kpis(series: List[Dict[str, Any]]) -> Dict[str, Any]:
     irr = [(datetime.strptime(p["timestamp"], "%Y-%m-%d %H:%M:%S"), p["irradiance_wm2"]) for p in series if p["irradiance_wm2"] is not None]
     day_pts = [p for p in series if (p["irradiance_wm2"] or 0) >= DAYLIGHT_WM2]
+    stale_ts = _stale_timestamps(series, "irradiance_wm2")
+    filtered_pts = [
+        p
+        for p in series
+        if p["irradiance_wm2"] is not None
+        and POA_FILTER_MIN_WM2 <= float(p["irradiance_wm2"]) <= POA_FILTER_MAX_WM2
+        and p["timestamp"] not in stale_ts
+    ]
+    # Irradiance-weighted module temperature: sum(G * T_mod) / sum(G)
+    weighted_pairs = [
+        (float(p["irradiance_wm2"]), float(p["module_temp_c"]))
+        for p in (filtered_pts or day_pts)
+        if p.get("irradiance_wm2") and p.get("module_temp_c") is not None
+    ]
+    irr_weighted_tmod = (
+        sum(g * t for g, t in weighted_pairs) / sum(g for g, _ in weighted_pairs)
+        if weighted_pairs and sum(g for g, _ in weighted_pairs) > 0
+        else None
+    )
 
     def col(name: str, pts: Sequence[Dict[str, Any]] = series) -> List[float]:
         return [p[name] for p in pts if p[name] is not None]
@@ -229,10 +280,13 @@ def _kpis(series: List[Dict[str, Any]]) -> Dict[str, Any]:
         "avg_ambient_temp_c": _round(_mean(col("ambient_temp_c")), 1),
         "max_ambient_temp_c": _round(max(col("ambient_temp_c"), default=None), 1) if col("ambient_temp_c") else None,
         "avg_module_temp_daylight_c": _round(_mean(col("module_temp_c", day_pts)), 1),
+        "irradiance_weighted_module_temp_c": _round(irr_weighted_tmod, 1),
         "max_module_temp_c": _round(max(col("module_temp_c"), default=None), 1) if col("module_temp_c") else None,
         "avg_humidity_pct": _round(_mean(col("humidity_pct")), 0),
         "avg_wind_speed_ms": _round(_mean(col("wind_speed_ms")), 1),
         "max_wind_speed_ms": _round(max(col("wind_speed_ms"), default=None), 1) if col("wind_speed_ms") else None,
+        "stale_irradiance_slots": len(stale_ts),
+        "poa_filtered_slots": len(filtered_pts),
     }
 
 
@@ -252,10 +306,13 @@ def _result(
         "avg_ambient_temp_c": None,
         "max_ambient_temp_c": None,
         "avg_module_temp_daylight_c": None,
+        "irradiance_weighted_module_temp_c": None,
         "max_module_temp_c": None,
         "avg_humidity_pct": None,
         "avg_wind_speed_ms": None,
         "max_wind_speed_ms": None,
+        "stale_irradiance_slots": 0,
+        "poa_filtered_slots": 0,
     }
     data_until = max((s["last_reading"] for s in out_sensors if s["last_reading"]), default=None)
     return {
@@ -312,16 +369,20 @@ def iec_pr(
     capacity_kwp: Optional[float],
     weather: Dict[str, Any],
     producing_slots: Sequence[str],
+    gamma_pct_per_k: float = DEFAULT_GAMMA_PCT_PER_K,
 ) -> Dict[str, Any]:
     """IEC 61724-1 performance ratio from measured irradiance, with the coverage it rests on.
 
     `producing_slots` are the 5-minute slots (timestamps) in which the plant produced AC power.
     PR is null (with a `reason`) without a sensor, capacity or yield, or when the sensor covers
     less than `MIN_PR_COVERAGE` of the producing slots (a gap would inflate PR).
+    Also computes temperature-corrected PR' = PR / [1 + gamma * (T_mod - 25 °C)] using
+    irradiance-weighted module temperature.
     """
     irr_slots = {p["timestamp"] for p in weather["series"] if p["irradiance_wm2"] is not None}
     coverage = (sum(1 for t in producing_slots if t in irr_slots) / len(producing_slots)) if producing_slots else None
     h = weather["kpis"]["insolation_kwh_m2"]
+    t_mod_w = weather["kpis"].get("irradiance_weighted_module_temp_c")
     reason: Optional[str] = None
     if not weather["has_sensor"]:
         reason = "no weather sensor"
@@ -334,10 +395,18 @@ def iec_pr(
     elif coverage is None or coverage < MIN_PR_COVERAGE:
         reason = f"irradiance covers {0 if coverage is None else round(coverage * 100)}% of producing time"
     pr = None
+    pr_temp_corrected = None
     if reason is None and yield_kwh is not None and capacity_kwp and h:
-        pr = round(yield_kwh / capacity_kwp / h * 100.0, 1)
+        raw_pr = yield_kwh / capacity_kwp / h * 100.0
+        pr = round(raw_pr, 1)
+        if t_mod_w is not None:
+            temp_factor = 1.0 + (gamma_pct_per_k / 100.0) * (float(t_mod_w) - 25.0)
+            if temp_factor > 0.2:
+                pr_temp_corrected = round(raw_pr / temp_factor, 1)
     return {
         "pr_pct": pr,
+        "pr_temp_corrected_pct": pr_temp_corrected,
+        "irradiance_weighted_module_temp_c": t_mod_w,
         "reference_yield_h": _round(h, 3),  # Yr = H / 1 kW/m², hours at STC irradiance
         "final_yield_h": _round(yield_kwh / capacity_kwp, 3) if yield_kwh is not None and capacity_kwp else None,
         "coverage_pct": _round(coverage * 100.0 if coverage is not None else None, 0),

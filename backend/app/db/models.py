@@ -534,7 +534,9 @@ class GrowattStringLayout(Base):
 
     Growatt does not report how many modules each string has. Strings on one inverter can
     differ (e.g. 16 vs 18 modules), so peer comparisons normalize by this count when every
-    string of the inverter has one. No FK on device_sn: the registry outlives inverter re-syncs.
+    string of the inverter has one. Optional `azimuth_deg` and `tilt_deg` group peers by
+    orientation and tilt so East and West strings are not compared against each other.
+    No FK on device_sn: the registry outlives inverter re-syncs.
     """
 
     __tablename__ = "growatt_string_layouts"
@@ -543,6 +545,8 @@ class GrowattStringLayout(Base):
     string_no: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     modules: Mapped[int] = mapped_column(Integer, nullable=False)
     module_wp: Mapped[Optional[float]] = mapped_column(Float)  # null = not recorded
+    azimuth_deg: Mapped[Optional[float]] = mapped_column(Float)  # 0..360; null = default/same group
+    tilt_deg: Mapped[Optional[float]] = mapped_column(Float)  # 0..90; null = default/same group
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 
@@ -550,10 +554,11 @@ class GrowattStringDaily(Base):
     """One wired string's day, computed from stored 5-min readings by `services/growatt_daily.py`
     (decision rules, docs/plans/decision-rules.md §3.1). Kept indefinitely (`retention` skips it).
 
-    Ratios compare the string with the median current of its inverter's wired strings in the
-    same 5-min slot, only in **gated** slots (inverter normal, median ≥ 3 A, not clipped or
-    limited, irradiance ≥ 400 W/m² where the plant's sensor reads). Fewer than
-    `MIN_GATED_SLOTS` gated slots = no verdict: the ratio columns stay null.
+    Ratios compare the string with the median current of its matched peer group (same orientation,
+    tilt and module count on the inverter) in the same 5-min slot, only in **gated** slots
+    (inverter normal, median ≥ 3 A, not clipped or limited, irradiance ≥ 400 W/m² with low
+    irradiance variability where the plant's sensor reads). Fewer than `MIN_GATED_SLOTS` gated
+    slots = no verdict: the ratio columns stay null.
     """
 
     __tablename__ = "growatt_string_daily"
@@ -565,10 +570,11 @@ class GrowattStringDaily(Base):
     plant_id: Mapped[int] = mapped_column(Integer, nullable=False)
     gated_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ratio_median: Mapped[Optional[float]] = mapped_column(Float)
-    low_min: Mapped[Optional[int]] = mapped_column(Integer)  # gated minutes with ratio < 0.85
+    low_min: Mapped[Optional[int]] = mapped_column(Integer)  # gated minutes with ratio < 0.80
     severe_min: Mapped[Optional[int]] = mapped_column(Integer)  # gated minutes with ratio < 0.60
     open_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # ≤ 0.3 A while median ≥ 2 A
     v_ratio_median: Mapped[Optional[float]] = mapped_column(Float)  # per module; null without a full layout
+    voltage_sensing: Mapped[Optional[str]] = mapped_column(String(16))  # "per_string" | "shared_mppt"
     energy_kwh: Mapped[Optional[float]] = mapped_column(Float)
     lost_kwh_est: Mapped[Optional[float]] = mapped_column(Float)  # estimated, vs the peer median
     lost_on_peak_kwh_est: Mapped[Optional[float]] = mapped_column(Float)  # part of it in the tariff's on-peak hours
@@ -577,8 +583,9 @@ class GrowattStringDaily(Base):
 
 class GrowattInverterDaily(Base):
     """One inverter's day: minutes per state over the plant's daylight, energy, specific yield
-    vs the plant's other inverters and estimated lost energy by cause (`services/growatt_daily.py`,
-    docs/plans/decision-rules.md §3.2). Kept indefinitely (`retention` skips it).
+    vs the plant's other inverters, BOS/inverter loss (Ya − Yf) and estimated lost energy by cause
+    (`services/growatt_daily.py`, docs/plans/decision-rules.md §3.2). Kept indefinitely
+    (`retention` skips it).
 
     Lost kWh is **estimated** from the specific yield of the plant's producing inverters in the
     same slots; null where no other inverter of the plant produced (nothing to compare with).
@@ -598,8 +605,11 @@ class GrowattInverterDaily(Base):
     limited_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     no_data_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     energy_kwh: Mapped[Optional[float]] = mapped_column(Float)  # last eac_today of the day
+    dc_energy_kwh: Mapped[Optional[float]] = mapped_column(Float)  # integrated ppv_w over filtered slots
     kwp: Mapped[Optional[float]] = mapped_column(Float)  # DC capacity used for the specific yield
-    yf_kwh_kwp: Mapped[Optional[float]] = mapped_column(Float)
+    ya_kwh_kwp: Mapped[Optional[float]] = mapped_column(Float)  # array yield Ya = E_DC / P0
+    yf_kwh_kwp: Mapped[Optional[float]] = mapped_column(Float)  # final yield Yf = E_AC / P0
+    ya_minus_yf: Mapped[Optional[float]] = mapped_column(Float)  # BOS & inverter conversion loss (Ya − Yf)
     yf_vs_median_pct: Mapped[Optional[float]] = mapped_column(Float)  # vs median of the plant's other inverters
     plant_kwp_share_pct: Mapped[Optional[float]] = mapped_column(Float)  # this inverter's share of the plant kWp
     lost_fault_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
@@ -610,6 +620,77 @@ class GrowattInverterDaily(Base):
     lost_down_on_peak_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
     lost_no_data_on_peak_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattPlantDaily(Base):
+    """One plant's daily time-series performance KPIs over quality-filtered 5-min slots
+    (POA 200–1200 W/m², with stale-value, clipping and curtailment masks applied):
+    raw PR, temperature-corrected PR', EPI (measured ÷ modelled energy), and Ya − Yf.
+    Kept indefinitely (`retention` skips it).
+    """
+
+    __tablename__ = "growatt_plant_daily"
+
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    capacity_kwp: Mapped[Optional[float]] = mapped_column(Float)
+    energy_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    dc_energy_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    modelled_energy_kwh: Mapped[Optional[float]] = mapped_column(Float)  # modelled from filtered POA & T_mod
+    yr_h: Mapped[Optional[float]] = mapped_column(Float)  # reference yield Yr (kWh/m²)
+    ya_kwh_kwp: Mapped[Optional[float]] = mapped_column(Float)  # array yield Ya = E_DC / P0
+    yf_kwh_kwp: Mapped[Optional[float]] = mapped_column(Float)  # final yield Yf = E_AC / P0
+    ya_minus_yf: Mapped[Optional[float]] = mapped_column(Float)  # Ya − Yf (inverter + BOS loss)
+    pr_pct: Mapped[Optional[float]] = mapped_column(Float)  # raw IEC 61724-1 PR (reporting only)
+    pr_temp_corrected_pct: Mapped[Optional[float]] = mapped_column(Float)  # PR' = PR / [1 + γ(T_mod − 25 °C)]
+    epi: Mapped[Optional[float]] = mapped_column(Float)  # E_measured / E_modelled over filtered slots
+    irradiance_weighted_tmod_c: Mapped[Optional[float]] = mapped_column(Float)
+    filtered_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stale_masked_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    clipped_masked_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    curtailed_masked_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattIvSweep(Base):
+    """Measured I-V curve sweep (string or module level) from a field tracer or inverter smart scan,
+    translated to STC via IEC 60891 Procedure 1 and classified against fault signatures.
+    """
+
+    __tablename__ = "growatt_iv_sweeps"
+    __table_args__ = (Index("ix_growatt_iv_sweeps_plant_sn", "plant_id", "device_sn", "string_no"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plant_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    device_sn: Mapped[Optional[str]] = mapped_column(String(64))
+    string_no: Mapped[Optional[int]] = mapped_column(Integer)
+    module_no: Mapped[Optional[int]] = mapped_column(Integer)
+    level: Mapped[str] = mapped_column(String(16), nullable=False, default="string")  # "string" | "module"
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="upload")  # "upload" | "inverter_scan"
+    swept_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)  # naive plant-local time
+    irradiance_wm2: Mapped[float] = mapped_column(Float, nullable=False)
+    module_temp_c: Mapped[float] = mapped_column(Float, nullable=False)
+    irradiance_change_pct: Mapped[Optional[float]] = mapped_column(Float)
+    reference_cell_tech: Mapped[Optional[str]] = mapped_column(String(64))
+    modules: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    quality_gate_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    gate_reasons_json: Mapped[Optional[Any]] = mapped_column(JSON)
+    iec60891_json: Mapped[Optional[Any]] = mapped_column(JSON)
+    measured_json: Mapped[Optional[Any]] = mapped_column(JSON)
+    stc_json: Mapped[Optional[Any]] = mapped_column(JSON)
+    classification_json: Mapped[Optional[Any]] = mapped_column(JSON)
+    p_max_stc_w: Mapped[float] = mapped_column(Float, nullable=False)
+    expected_pmax_stc_w: Mapped[float] = mapped_column(Float, nullable=False)
+    pmax_dev_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    signature: Mapped[str] = mapped_column(String(48), nullable=False)
+    is_finding: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ticket_recommended: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ir_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    timeseries_trend_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    warranty_claim_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class GrowattIssue(Base):

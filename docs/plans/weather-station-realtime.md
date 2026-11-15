@@ -136,6 +136,9 @@ _Code done 2026-11-13; trial and prod switch-on open. The worker runs jobs one a
 - [x] `CLAUDE.md`: data-flow diagram (env history every 10 min, daytime) and Config keys
 - [x] Deploy backend + worker (VM) and frontend (2026-11-14, `deploy/gcp.sh all`, revision `tcroof-api-00024-pl7`)
 - [ ] Verify on prod: open a plant with a sensor at midday; a new point appears on the chart within 6 min; badge shows the sensor time; DB series catches up within 15 min
+  - [x] New point within 6 min (2026-11-15, API check, sensor `DYDDF6K01J:3`, สถานีผลิตน้ำปราณบุรี): `/api/growatt/live/sensors/DYDDF6K01J/3/today` at 12:33:48 Bangkok → 151 slots, newest 12:30; at 12:39:56 → 152 slots, newest 12:35 (irradiance 1006 W/m²), `stale: false`, `refresh_in_s` 300
+  - [ ] Badge shows the sensor time: UI only, not checked (API check only)
+  - [ ] DB series within 15 min: **not met** on 2026-11-15 with `ENV_INTERVAL_MIN=15`. Newest stored reading was 12:15:57 (from `env_history` 12:15–12:16) until the 12:30 `history` run finished at 12:37:35, which stored up to 12:35:50 (checked 12:40:03, lag 4 min). The 12:30 `env_history` tick is covered by the `history` start, and `history` takes ~7 min to reach the sensors, so the stored series lagged the sensor by up to ≈ 20 min (12:35 record, stored 12:37:35; stored 12:15:57 at 12:34 = 18 min behind the clock). A 10-min interval, or running env before inverters inside `history`, would be needed to stay ≤ 15 min
 
 ## 8. Acceptance criteria
 

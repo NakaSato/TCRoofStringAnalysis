@@ -1015,14 +1015,16 @@ def _local_ts(v: Any) -> Optional[str]:
 
 
 PREVIOUS_RECORDS = 5  # with the newest: 6 records ≈ 30 min a string fault must last
+POWER_TAIL_RECORDS = 100  # the first page of `max_data`: today's newest ≈ 8 h at 5-min records
 
 
 def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str, Any]]:
     # same single call either way (first page = 100 records); the older ones let the live string
     # check require a fault to persist instead of flagging one passing cloud shadow
-    recs = newest_max_records(client, sn, day, n=1 + PREVIOUS_RECORDS)
-    if not recs:
+    page = newest_max_records(client, sn, day, n=POWER_TAIL_RECORDS)
+    if not page:
         return None
+    recs = page[: 1 + PREVIOUS_RECORDS]
     inv_rows, str_rows = parse_max_records(sn, recs[:1])
     previous = []
     for rec in recs[1:]:
@@ -1054,7 +1056,20 @@ def _latest_row(client: GrowattClient, sn: str, day: date) -> Optional[Dict[str,
         ],
         # older records, newest first: input to the live string check only (the route drops it)
         "previous_strings": previous,
+        # today's power from the same page, oldest first: [timestamp, pac_w, ppv_w]. Lets the
+        # overview chart draw past the newest stored record; memory only, never stored
+        "power": _power_tail(page),
     }
+
+
+def _power_tail(recs: List[Dict[str, Any]]) -> List[List[Any]]:
+    out = []
+    for rec in recs:
+        ts = _record_ts(rec)
+        if ts is not None:
+            out.append([ts.strftime("%Y-%m-%d %H:%M:%S"), _f(rec.get("pac")), _f(rec.get("ppv"))])
+    out.sort(key=lambda r: r[0])
+    return out
 
 
 def _record_ts(rec: Dict[str, Any]) -> Optional[datetime]:
