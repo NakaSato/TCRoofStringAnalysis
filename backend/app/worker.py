@@ -25,6 +25,9 @@ Schedule (plant-local time, Asia/Bangkok):
                                today's alarm_data → SQL (Active Alarm page) for the inverters due
                                by tier: hot 10 min, warm 30 min, cold 60 min (growatt_alarms.Tiers)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
+    rules_yesterday    00:45   daily string / inverter rows for yesterday + decision rules (counts only)
+    rules_today        every WORKER_HISTORY_INTERVAL_MIN (30) min, 06–20: the same for today so far
+    rules_backfill     not scheduled: daily rows for every stored day (queue once after deploy)
     env_history        every WORKER_ENV_INTERVAL_MIN (10) min, WORKER_ENV_START_H..END_H (05–20)
                                weather-sensor env_data only (0 = off); a `history` start counts as
                                one, since `history` syncs the sensors too
@@ -123,6 +126,9 @@ def default_schedule() -> List[Schedule]:
             ),
         ),
         Schedule("alarms_yesterday", at=dtime(0, 30)),
+        Schedule("rules_yesterday", at=dtime(0, 45)),
+        # right behind `history` in the list: when both are due in a tick, the rules see the new records
+        Schedule("rules_today", every=timedelta(minutes=settings.worker_history_interval_min), between=(6, 20)),
         *(
             [
                 Schedule(

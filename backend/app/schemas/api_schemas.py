@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -315,3 +315,56 @@ class FleetModule(BaseModel):
     temp_coeff_isc_pct: Optional[float] = Field(default=None, ge=-2, le=2)
     bifacial_factor_pct: Optional[float] = Field(default=None, ge=0, le=100)
     datasheet_url: Optional[str] = Field(default=None, max_length=500)
+
+
+class PlantRate(BaseModel):
+    """Flat price for one plant (e.g. its PPA), used instead of the TOU rates."""
+
+    thb_per_kwh: float = Field(gt=0, le=50)
+    basis: Optional[str] = Field(default=None, max_length=32)
+
+
+class Tariff(BaseModel):
+    """Electricity tariff that prices estimated lost energy (decision rules) and revenue."""
+
+    on_peak_thb: float = Field(gt=0, le=50)
+    off_peak_thb: float = Field(gt=0, le=50)
+    ft_thb: float = Field(ge=-5, le=5)
+    on_peak_days: List[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    on_peak_start: str = Field(default="09:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    on_peak_end: str = Field(default="22:00", pattern=r"^([01]\d|2[0-4]):[0-5]\d$")
+    holidays: List[str] = Field(default_factory=list)
+    valid_from: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    plant_rates: Dict[str, PlantRate] = Field(default_factory=dict)
+
+    @field_validator("on_peak_days")
+    @classmethod
+    def _days(cls, v: List[int]) -> List[int]:
+        if any(d < 0 or d > 6 for d in v):
+            raise ValueError("on_peak_days are 0 (Monday) … 6 (Sunday)")
+        return sorted(set(v))
+
+    @field_validator("holidays")
+    @classmethod
+    def _holidays(cls, v: List[str]) -> List[str]:
+        from datetime import date as _date
+
+        try:
+            return sorted({_date.fromisoformat(d.strip()).isoformat() for d in v if d.strip()})
+        except ValueError as exc:
+            raise ValueError(f"holidays must be YYYY-MM-DD dates ({exc})") from exc
+
+    @field_validator("plant_rates")
+    @classmethod
+    def _plant_ids(cls, v: Dict[str, "PlantRate"]) -> Dict[str, "PlantRate"]:
+        if any(not k.isdigit() for k in v):
+            raise ValueError("plant_rates keys are plant ids")
+        return v
+
+
+class IssueAction(BaseModel):
+    """Acknowledge / resolve / dismiss / reopen an issue, or only update its note or feedback."""
+
+    action: Literal["acknowledge", "resolve", "dismiss", "reopen", "note"]
+    note: Optional[str] = Field(default=None, max_length=2000)
+    feedback: Optional[Literal["confirmed", "false_alarm"]] = None

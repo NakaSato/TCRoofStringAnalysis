@@ -14,6 +14,7 @@ export type * from "./types/weather";
 export type * from "./types/sensors";
 export type * from "./types/systemLogs";
 export type * from "./types/assistant";
+export type * from "./types/issues";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
@@ -21,6 +22,7 @@ import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWea
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
+import type { Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut } from "./types/issues";
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -360,6 +362,25 @@ export const api = {
   // AI Assistant (the chat itself streams: see api/assistant.ts)
   getAssistantStatus: () => apiFetch<AssistantStatus>("/assistant/status"),
   getAssistantUsage: () => apiFetch<AssistantUsage>("/assistant/usage"),
+
+  // ---- decision rules / Issues queue (DB only; kWh and baht are estimates)
+  listIssues: (q: IssueQuery = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<IssueList>(`/growatt/issues${qs ? `?${qs}` : ""}`);
+  },
+  patchIssue: (id: number, body: IssueActionBody) =>
+    apiFetch<Issue>(`/growatt/issues/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  getRules: (sinceDays = 90) => apiFetch<RulesOut>(`/growatt/rules?since_days=${sinceDays}`),
+  putRules: (patch: RulesPatch) =>
+    apiFetch<{ settings: RuleSettings }>("/growatt/rules", { method: "PUT", body: JSON.stringify(patch) }),
+  getTariff: () => apiFetch<TariffOut>("/growatt/tariff"),
+  putTariff: (t: Tariff) => apiFetch<TariffOut>("/growatt/tariff", { method: "PUT", body: JSON.stringify(t) }),
+  getStringRuleDaily: (plantId: number, sn: string, stringNo: number, days = 30, day?: string) =>
+    apiFetch<RuleDaily<StringRuleDay>>(
+      `/growatt/plants/${plantId}/rules/daily?sn=${encodeURIComponent(sn)}&string_no=${stringNo}&days=${days}${day ? `&day=${day}` : ""}`
+    ),
 
   // File URLs (need the session token: download with downloadApiFile)
   sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,

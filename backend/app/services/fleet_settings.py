@@ -57,6 +57,8 @@ def put_fleet_module(db: Session, value: Dict[str, Any], username: Optional[str]
 
 def config_docs(db: Session) -> List[Tuple[str, Dict[str, Any]]]:
     """Firestore `config/*` documents (the timestamp is left out so unchanged content is skipped)."""
+    from app.services import tariff
+
     m = get_fleet_module(db)
     m.pop("updated_at", None)
-    return [(f"config/{FLEET_MODULE_KEY}", m)]
+    return [(f"config/{FLEET_MODULE_KEY}", m), tariff.config_doc(db)]

@@ -20,6 +20,8 @@ import {
   Gauge,
   Map as MapIcon,
   Sparkles,
+  ListChecks,
+  Scale,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
@@ -55,6 +57,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: "Operations",
     items: [
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
+      { to: "/issues", label: "Issues", icon: ListChecks, description: "What to fix first, ranked by estimated baht lost per day" },
       { to: "/she", label: "Safety (SH&E)", icon: ShieldAlert, description: "Permit-to-work, LOTO & ISO 45001 compliance" },
     ],
   },
@@ -65,6 +68,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { to: "/users", label: "Users & Access", icon: Users, description: "Accounts, roles & plant assignments" },
       { to: "/logs", label: "Logs", icon: ScrollText, description: "Backend and worker logs, errors & job runs" },
       { to: "/ai-usage", label: "AI Usage", icon: Sparkles, description: "AI Assistant spend against the monthly cap, per user" },
+      { to: "/rules", label: "Rule review", icon: Scale, description: "Calibrate the decision rules, thresholds & tariff" },
     ],
   },
 ];

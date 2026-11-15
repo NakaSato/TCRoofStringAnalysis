@@ -36,6 +36,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Link } from "react-router-dom";
 import { WeatherCard } from "./overview/WeatherCard";
 import { SensorTodayCard } from "./overview/SensorTodayCard";
+import { IssuesCard } from "./overview/IssuesCard";
 import { InvertersOnlineTile, StringHealthTile } from "./overview/SummaryCards";
 import { IconStat, IconStats } from "./overview/IconStat";
 
@@ -375,6 +376,7 @@ export const OverviewPage: React.FC = () => {
             liveWx={liveWx}
             liveWxFailed={liveWxFailed}
           />
+          <IssuesCard plantId={plant.plant_id} />
         </div>
       </div>
 

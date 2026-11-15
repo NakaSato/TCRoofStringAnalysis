@@ -195,7 +195,7 @@ def test_fleet_module_default_save_and_publish(client, export_dir):
 
     saved = client.put("/api/growatt/fleet-module", json={**body, "wp": 575, "vmp_stc": 42.6}, headers=admin).json()
     assert saved["source"] == "saved" and saved["wp"] == 575 and saved["updated_by"] == "admin"
-    assert saved["published"] == {"sink": "json", "written": 1, "deferred": False}
+    assert saved["published"] == {"sink": "json", "written": 2, "deferred": False}  # fleet_module + tariff (first time)
     doc = json.loads((out / "config" / "fleet_module.json").read_text())
     assert doc["wp"] == 575 and doc["schema"] == ds.SCHEMA_VERSION and "updated_at" not in doc
 

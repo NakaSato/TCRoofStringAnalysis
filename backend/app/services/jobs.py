@@ -288,6 +288,50 @@ def job_google_weather(db: Session) -> Tuple[str, Dict[str, Any]]:
     return status, detail
 
 
+def _rules(db: Session, day: date, close: bool = True) -> Tuple[str, Dict[str, Any]]:
+    """Daily string / inverter rows for `day`, the decision rules over them, then the Issues
+    queue (docs/plans/decision-rules.md §3.4, §4.2). `close`: auto-close issues whose rule stayed
+    quiet (past days only; today is partial). Nothing is published."""
+    from app.services import growatt_daily, growatt_issues, growatt_rules, tariff
+
+    pr = tariff.pricer(db)
+    detail = growatt_daily.compute_day(db, day)
+    findings = growatt_rules.evaluate(db, day, pricer=pr)
+    detail["rules"] = growatt_rules.summarize(findings)
+    detail["issues"] = growatt_issues.sync(db, day, findings, close=close)
+    return ("partial" if detail["failed"] else "ok"), detail
+
+
+def job_rules_today(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Today so far, after each `history` pull, so an open string or a down inverter shows the same day."""
+    return _rules(db, _today(), close=False)
+
+
+def job_rules_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Yesterday in full, after `alarms_yesterday` (00:30) stored its late alarms."""
+    return _rules(db, _today() - timedelta(days=1))
+
+
+def job_rules_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Daily rows for every day of stored history, then the rules and issues day by day, oldest
+    first (not scheduled; queue it once, or use the CLI)."""
+    from app.services import growatt_daily, growatt_issues, growatt_rules, tariff
+
+    end = _today() - timedelta(days=1)
+    detail = growatt_daily.backfill(db, end)
+    first, _ = growatt_daily.stored_days(db)
+    pr = tariff.pricer(db)
+    opened = closed = 0
+    d = first
+    while d is not None and d <= end:
+        r = growatt_issues.sync(db, d, growatt_rules.evaluate(db, d, pricer=pr))
+        opened += r["opened"]
+        closed += r["closed"]
+        d += timedelta(days=1)
+    detail["issues"] = {"opened": opened, "closed": closed}
+    return ("partial" if detail["failed"] else "ok"), detail
+
+
 JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "history": job_history,
     "env_history": job_env_history,
@@ -300,6 +344,9 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "alarms": job_alarms,
     "alarms_yesterday": job_alarms_yesterday,
     "pwa_sheet": job_pwa_sheet,
+    "rules_today": job_rules_today,
+    "rules_yesterday": job_rules_yesterday,
+    "rules_backfill": job_rules_backfill,
 }
 
 

@@ -220,6 +220,26 @@ def _plant_curve(raw: Sequence[Any], cap_kwp: Optional[float]) -> List[Dict[str,
     return out
 
 
+def _day_rate(db: Session, plant_id: int, day: Optional[date], timeseries: List[Dict[str, Any]]) -> float:
+    """THB/kWh of the day's generation: each slot's tariff rate weighted by its AC power. With no
+    generation: the rate at noon (so revenue of 0 kWh stays 0, and the tile still shows a rate)."""
+    from app.services import tariff
+
+    pr = tariff.pricer(db)
+    pts: List[Tuple[datetime, float]] = []
+    for r in timeseries:
+        ts = r.get("timestamp")
+        try:
+            t = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts))
+        except ValueError:
+            continue
+        pts.append((t, float(r.get("pac_kw") or 0.0)))
+    rate = pr.energy_weighted_rate(plant_id, pts)
+    if rate is None:
+        rate = pr.rate_at(plant_id, datetime.combine(day or date.today(), time(12, 0)))
+    return round(rate, 4)
+
+
 def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None) -> Dict[str, Any]:
     """Single-plant overview for one day (default: latest day with data)."""
     """Single-plant overview for one day from persisted max_data history.
@@ -505,7 +525,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "strings_with_module_count": sum(1 for s in strings_summary if s["modules"] is not None),
             "strings_normalized": sum(1 for s in strings_summary if s["peer_basis"] != "raw"),
             "avg_health_score": avg_health,
-            "tariff_thb_per_kwh": 4.2,
+            # the day's generation priced slot by slot with the tariff (TOU + Ft, or the plant's flat rate)
+            "tariff_thb_per_kwh": _day_rate(db, plant_id, day, timeseries),
         },
         "inverters": inverters_out,
         "timeseries": timeseries,

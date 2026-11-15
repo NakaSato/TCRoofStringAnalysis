@@ -486,6 +486,118 @@ class GrowattStringLayout(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 
+class GrowattStringDaily(Base):
+    """One wired string's day, computed from stored 5-min readings by `services/growatt_daily.py`
+    (decision rules, docs/plans/decision-rules.md §3.1). Kept indefinitely (`retention` skips it).
+
+    Ratios compare the string with the median current of its inverter's wired strings in the
+    same 5-min slot, only in **gated** slots (inverter normal, median ≥ 3 A, not clipped or
+    limited, irradiance ≥ 400 W/m² where the plant's sensor reads). Fewer than
+    `MIN_GATED_SLOTS` gated slots = no verdict: the ratio columns stay null.
+    """
+
+    __tablename__ = "growatt_string_daily"
+    __table_args__ = (Index("ix_growatt_str_daily_plant_day", "plant_id", "day"),)
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    string_no: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    gated_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ratio_median: Mapped[Optional[float]] = mapped_column(Float)
+    low_min: Mapped[Optional[int]] = mapped_column(Integer)  # gated minutes with ratio < 0.85
+    severe_min: Mapped[Optional[int]] = mapped_column(Integer)  # gated minutes with ratio < 0.60
+    open_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # ≤ 0.3 A while median ≥ 2 A
+    v_ratio_median: Mapped[Optional[float]] = mapped_column(Float)  # per module; null without a full layout
+    energy_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    lost_kwh_est: Mapped[Optional[float]] = mapped_column(Float)  # estimated, vs the peer median
+    lost_on_peak_kwh_est: Mapped[Optional[float]] = mapped_column(Float)  # part of it in the tariff's on-peak hours
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattInverterDaily(Base):
+    """One inverter's day: minutes per state over the plant's daylight, energy, specific yield
+    vs the plant's other inverters and estimated lost energy by cause (`services/growatt_daily.py`,
+    docs/plans/decision-rules.md §3.2). Kept indefinitely (`retention` skips it).
+
+    Lost kWh is **estimated** from the specific yield of the plant's producing inverters in the
+    same slots; null where no other inverter of the plant produced (nothing to compare with).
+    """
+
+    __tablename__ = "growatt_inverter_daily"
+    __table_args__ = (Index("ix_growatt_inv_daily_plant_day", "plant_id", "day"),)
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    daylight_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    producing_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fault_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    off_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    standby_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # record, no power, no fault, peers produce
+    limited_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    no_data_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    energy_kwh: Mapped[Optional[float]] = mapped_column(Float)  # last eac_today of the day
+    kwp: Mapped[Optional[float]] = mapped_column(Float)  # DC capacity used for the specific yield
+    yf_kwh_kwp: Mapped[Optional[float]] = mapped_column(Float)
+    yf_vs_median_pct: Mapped[Optional[float]] = mapped_column(Float)  # vs median of the plant's other inverters
+    plant_kwp_share_pct: Mapped[Optional[float]] = mapped_column(Float)  # this inverter's share of the plant kWp
+    lost_fault_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
+    lost_off_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
+    lost_standby_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
+    lost_no_data_kwh_est: Mapped[Optional[float]] = mapped_column(Float)  # only what eac_today did not recover
+    # on-peak part (tariff on-peak hours at compute time) of fault + off + standby, and of no data
+    lost_down_on_peak_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
+    lost_no_data_on_peak_kwh_est: Mapped[Optional[float]] = mapped_column(Float)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattIssue(Base):
+    """One problem found by a decision rule on one entity (plant inverter or string), from the day
+    it first fired until it closes (docs/plans/decision-rules.md §4.2, `services/growatt_issues.py`).
+
+    At most one open issue per (plant, inverter, string, rule): `status` open / acknowledged. It
+    closes itself (`close_reason = auto`) when its rule has a verdict and does not fire for 2 days
+    in a row; engineers resolve or dismiss it. `daily` holds each day it fired: {day: {kwh, thb}},
+    estimated. `shadow` issues (rule still being calibrated) are shown to admins in Rule review only.
+    """
+
+    __tablename__ = "growatt_issues"
+    __table_args__ = (
+        Index("ix_growatt_issues_plant_status", "plant_id", "status"),
+        Index("ix_growatt_issues_key", "plant_id", "device_sn", "string_no", "rule"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    device_sn: Mapped[Optional[str]] = mapped_column(String(64))
+    string_no: Mapped[Optional[int]] = mapped_column(Integer)
+    rule: Mapped[str] = mapped_column(String(8), nullable=False)
+    tier: Mapped[str] = mapped_column(String(8), nullable=False)
+    safety: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer)  # the inverter's open issue, for string issues
+    opened_day: Mapped[date] = mapped_column(Date, nullable=False)
+    last_seen_day: Mapped[date] = mapped_column(Date, nullable=False)
+    days_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    lost_kwh_est: Mapped[Optional[float]] = mapped_column(Float)  # mean of the last 3 days it fired
+    thb_per_day_est: Mapped[Optional[float]] = mapped_column(Float)  # mean of the last 3 days it fired
+    lost_kwh_total_est: Mapped[Optional[float]] = mapped_column(Float)
+    thb_total_est: Mapped[Optional[float]] = mapped_column(Float)
+    evidence: Mapped[Optional[dict]] = mapped_column(JSON)  # the last day's finding evidence
+    daily: Mapped[Optional[dict]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    ack_by: Mapped[Optional[str]] = mapped_column(String(64))
+    ack_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    feedback: Mapped[Optional[str]] = mapped_column(String(16))  # confirmed / false_alarm
+    shadow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    close_reason: Mapped[Optional[str]] = mapped_column(String(16))  # auto / resolved / dismissed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
 class UserPlantAssignment(Base):
     """Growatt plants an admin assigned to an engineer.
 

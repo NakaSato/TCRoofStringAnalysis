@@ -8,7 +8,7 @@ import type { UserProfile } from "../api/client";
 export const isAdmin = (user: UserProfile | null | undefined): boolean => user?.role === "admin";
 
 /** Pages on the legacy O&M modules or user management: admin only. */
-export const ADMIN_ONLY_PATHS = ["/maintenance", "/she", "/users", "/logs", "/ai-usage"];
+export const ADMIN_ONLY_PATHS = ["/maintenance", "/she", "/users", "/logs", "/ai-usage", "/rules"];
 
 /** Plant pages (`/plant/:id/<page>`) that are admin only. */
 export const ADMIN_ONLY_PLANT_PAGES: readonly string[] = ["maintenance"];
