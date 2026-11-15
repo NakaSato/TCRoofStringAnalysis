@@ -69,7 +69,7 @@ export const useFleetDirectory = () => {
       const c = out.get(r.plant_id) ?? { normal: 0, fault: 0, silent: 0, other: 0, answered: 0 };
       c.answered += 1;
       // an old record (a silent inverter) is never read as its current status
-      if (r.lost || !r.record_time || r.record_time.slice(0, 10) !== day) c.silent += 1;
+      if (!r.record_time || r.record_time.slice(0, 10) !== day) c.silent += 1;
       else if (r.status === 3) c.fault += 1;
       else if (r.status === 1) c.normal += 1;
       else c.other += 1;

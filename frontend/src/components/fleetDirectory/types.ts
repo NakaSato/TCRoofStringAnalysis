@@ -2,8 +2,8 @@
 import type { StatusLevel } from "../ui";
 
 /** Inverters of a plant by their newest record (snapshot): `normal` / `fault` = a record from today
- *  with that status; `silent` = Growatt marks it lost, or its newest record is older than today;
- *  `answered` = how many Growatt has answered for so far. */
+ *  with that status; `silent` = its newest record is older than today (`maxs_data`'s `lost` is true on
+ *  every inverter, so it is not used); `answered` = how many Growatt has answered for so far. */
 export interface InverterLiveCounts {
   normal: number;
   fault: number;

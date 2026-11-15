@@ -40,8 +40,9 @@ first; it does **not** share `max_data`'s per-inverter window. So:
   (300), at most `INVERTER_SNAPSHOT_SWEEP_PER_REQUEST` (4) chunks refreshed per request, swept like
   `/live/sensors/status` (oldest first, `refresh_in_s` short until complete).
 - Per inverter: record time (its own, plant-local), status, AC/DC power, today's kWh (null when the record is
-  not from today), temperature, fault/warning codes, `lost`. Old records (e.g. June 2025 from a silent
-  inverter) are served with their own time, never as current.
+  not from today), temperature, fault/warning codes, `lost` (true on all 629 inverters on 15 Nov, also those
+  uploading that minute, so the UI ignores it and judges by record time). Old records (e.g. June 2025 from a
+  silent inverter) are served with their own time, never as current.
 - It does not replace `max_data` where several records are needed (live string check, chart tail).
 
 ## API
@@ -79,6 +80,8 @@ curves (3 plant-days answered no points), 430 / 430 inverter days.
 
 - [x] tests (client parsing, sweeps skip stored days and stop on 10012, today never stored, snapshot chunks, `records=false`): 309 pass (15 Nov 2026)
 - [x] frontend lint + build; `/power?records=false` checked on the local API (14 Nov: 288 points, 2,092 kWh; 13 Nov: withheld)
+- [x] UI in a browser (local, 15 Nov): Growatt curve + "Growatt 2,092 kWh" on 14 Nov, "withheld" on 13 Nov; directory
+      564 online · 4 fault · 56 silent (after dropping `lost`); inverter card falls back to `model` until `fleet` reads the param
 - [x] local phase 1 run ok, no rate limit (above)
 - [ ] after deploy: `growatt_energy` run ok on all accounts; stored `plant/energy` vs our integrated kWh within a few % on
       plants with full records

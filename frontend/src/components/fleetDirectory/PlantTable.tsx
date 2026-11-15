@@ -201,7 +201,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                     {p.invLive && (
                       <div
                         className="text-[10px]"
-                        title={`Live newest records (maxs_data, not stored): ${p.invLive.normal} online, ${p.invLive.fault} fault, ${p.invLive.silent} silent (lost / no record today)${p.invLive.other ? `, ${p.invLive.other} other` : ""}; ${p.invLive.answered}${p.invertersCount != null ? ` of ${p.invertersCount}` : ""} answered`}
+                        title={`Live newest records (maxs_data, not stored): ${p.invLive.normal} online, ${p.invLive.fault} fault, ${p.invLive.silent} silent (no record today)${p.invLive.other ? `, ${p.invLive.other} other` : ""}; ${p.invLive.answered}${p.invertersCount != null ? ` of ${p.invertersCount}` : ""} answered`}
                       >
                         <span className="text-emerald-300">{p.invLive.normal} on</span>
                         {p.invLive.fault > 0 && <span className="text-red-300"> · {p.invLive.fault} fault</span>}
