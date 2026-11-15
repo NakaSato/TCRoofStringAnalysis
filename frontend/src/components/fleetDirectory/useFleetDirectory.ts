@@ -5,17 +5,18 @@
  * Realtime only for status, power and today's energy: status / power / total from the fleet live
  * poll, Yield today from `/growatt/live/plants/today` (Growatt `plant/data`, swept by the backend a
  * batch of plants per request), polled here while the directory is open. A plant not checked yet
- * shows "—", never the stored day's yield.
+ * shows "—", never the stored day's yield. Inverter status per plant from
+ * `/growatt/live/inverters/snapshot` (`maxs_data`, 50 inverters per call, swept the same way).
  */
 import { useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { GrowattLive, GrowattLivePlantsToday } from "../../api/client";
+import type { GrowattInverterSnapshot, GrowattLive, GrowattLivePlantsToday } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
 import { useLivePoll } from "../../context/useLivePoll";
 import { plantToday, useAlarmLog } from "../../context/alarmLogStore";
 import { LOADING_STATUS } from "../ui";
 import type { StatusLevel } from "../ui";
-import type { UnifiedPlantItem } from "./types";
+import type { InverterLiveCounts, UnifiedPlantItem } from "./types";
 
 export const useFleetDirectory = () => {
   const {
@@ -45,6 +46,37 @@ export const useFleetDirectory = () => {
     () => setLiveTodayFailed(true)
   );
   const todayByPlant = liveToday?.data.plants;
+
+  // newest record of every inverter (realtime, backend memory only; never stored)
+  const [snap, setSnap] = useState<GrowattLive<GrowattInverterSnapshot> | null>(null);
+  const [snapFailed, setSnapFailed] = useState(false);
+  useLivePoll(
+    true,
+    "inverter-snapshot",
+    () => api.getGrowattInverterSnapshot(),
+    (r) => {
+      setSnap(r);
+      setSnapFailed(false);
+    },
+    () => setSnapFailed(true)
+  );
+  const invByPlant = useMemo(() => {
+    const out = new Map<number, InverterLiveCounts>();
+    if (!snap) return out;
+    const day = snap.data.day;
+    for (const r of Object.values(snap.data.inverters)) {
+      if (r.plant_id == null) continue;
+      const c = out.get(r.plant_id) ?? { normal: 0, fault: 0, silent: 0, other: 0, answered: 0 };
+      c.answered += 1;
+      // an old record (a silent inverter) is never read as its current status
+      if (!r.record_time || r.record_time.slice(0, 10) !== day) c.silent += 1;
+      else if (r.status === 3) c.fault += 1;
+      else if (r.status === 1) c.normal += 1;
+      else c.other += 1;
+      out.set(r.plant_id, c);
+    }
+    return out;
+  }, [snap]);
   const [loadingCloud, setLoadingCloud] = useState(false);
   const [cloudNotice, setCloudNotice] = useState<string | null>(null);
 
@@ -125,6 +157,7 @@ export const useFleetDirectory = () => {
         stringsCount: invCnt,
         modulesCount: null,
         invertersCount: invCnt,
+        invLive: invByPlant.get(gp.plant_id) ?? null,
         // the plant list carries no inverter serials: the ID filter matches the Growatt plant id
         deviceSnList: [String(gp.plant_id)],
         deviceType: "Growatt MAX Inverter",
@@ -134,7 +167,7 @@ export const useFleetDirectory = () => {
     }
 
     return items;
-  }, [growattPlants, todayByPlant]);
+  }, [growattPlants, todayByPlant, invByPlant]);
 
   // Compute Fleet KPIs, Plant Status breakdown, and Active Alarms breakdown for the 3-column Hero Banner
   const heroMetrics = useMemo(() => {
@@ -168,6 +201,20 @@ export const useFleetDirectory = () => {
       stale: Boolean(liveToday?.stale) || liveTodayFailed,
       loading: !liveToday && !liveTodayFailed,
     };
+    const sw = snap?.data.sweep ?? null;
+    const sum = (k: keyof InverterLiveCounts) => [...invByPlant.values()].reduce((a, c) => a + c[k], 0);
+    const invLive = {
+      normal: sum("normal"),
+      fault: sum("fault"),
+      silent: sum("silent"),
+      other: sum("other"),
+      answered: sw?.answered ?? 0,
+      total: sw?.inverters ?? null,
+      complete: sw != null && sw.checked >= sw.total,
+      fetchedAt: snap?.fetched_at ?? null,
+      stale: Boolean(snap?.stale) || snapFailed,
+      loading: !snap && !snapFailed,
+    };
     const faultCount = countLevel("crit");
     const warningCount = countLevel("warn");
     const otherCount = rows ? rows.length - (faultCount ?? 0) - (warningCount ?? 0) : null;
@@ -190,10 +237,11 @@ export const useFleetDirectory = () => {
       openCount,
       totalAlarms,
       yieldLive,
+      invLive,
       /** newest worker read of today's alarm log (UTC ISO); null = not synced today */
       alarmSyncedAt: alarmLog?.syncedAt ?? null,
     };
-  }, [unifiedPlants, activePlant, analysisRun, alarmLog, liveToday, liveTodayFailed]);
+  }, [unifiedPlants, activePlant, analysisRun, alarmLog, liveToday, liveTodayFailed, snap, snapFailed, invByPlant]);
 
   // Filter & Sort plants for the table
   const filteredPlants = useMemo(() => {

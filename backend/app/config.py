@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # Today's energy per plant for the plant directory (`plant/data`, one call per plant, memory only)
     plant_today_ttl_s: int = 300  # how long one plant's answer is reused
     plant_today_sweep_per_request: int = 40  # max plants refreshed per /live/plants/today request
+    # fleet inverter snapshot (`maxs_data`, 50 inverters per call, memory only): Growatt allows an
+    # account about 4 calls, then 10012 until ≈ 5 min after the first (measured 2026-11-15)
+    inverter_snapshot_ttl_s: int = 300  # how long one 50-inverter chunk is reused
+    inverter_snapshot_sweep_per_request: int = 4  # max chunks refreshed per /live/inverters/snapshot request
     sensor_late_min: int = 15  # last upload older than this = late
     sensor_offline_min: int = 60  # older than this (or Growatt says lost) = offline
     sensor_alarm_coverage_pct: float = 80.0

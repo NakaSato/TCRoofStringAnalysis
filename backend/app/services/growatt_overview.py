@@ -18,7 +18,10 @@ from sqlalchemy.orm import Session
 from app.services import growatt_weather
 from app.db.models import (
     GrowattInverter,
+    GrowattInverterEnergyDay,
     GrowattPlant,
+    GrowattPlantEnergyDay,
+    GrowattPlantPower,
 )
 
 from app.services.growatt_common import GrowattNotFound, INACTIVE_MAX_A, MAX_DC_AC_RATIO, MAX_GAP_H, R, S, SAMPLE_H, _bucket, _day_bounds, _expected_kw, _fmt_ts, _get_plant, _integrate_kwh, _latest_reading, _max, _mean, _round, capacity_check, inverter_out, newest_inverter_ts, plant_coords, plant_phase, plant_rated_ac_w, plausible_capacity_kwp  # noqa: F401 (re-export)
@@ -493,6 +496,11 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "total_energy_kwh": total_yield_kwh,
             "status": None,  # realtime: the UI overlays /growatt/live/plants
             "create_date": plant.create_date,
+            # from Growatt `plant/details` (registry, weekly)
+            "timezone": plant.timezone,
+            "address": plant.address,
+            "growatt_inverter_count": plant.growatt_inverter_count,
+            "growatt_datalogger_count": plant.growatt_datalogger_count,
         },
         "kpis": {
             "capacity_kwp": cap_kwp,
@@ -548,6 +556,9 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     }
 
 
+MAX_GROWATT_KWH_PER_KWP_DAY = 10.0  # Thailand's best days are ≈ 5–6 kWh/kWp; above this is a Growatt glitch
+
+
 def build_plant_power(
     db: Session,
     plant_id: int,
@@ -555,10 +566,13 @@ def build_plant_power(
     end_day: Optional[date] = None,
     start_time: Optional[time] = None,
     end_time: Optional[time] = None,
+    include_records: bool = True,
 ) -> Dict[str, Any]:
     """The plant's stored 5-minute AC / DC curve for `day`..`end_day` (both inclusive, at most
     MAX_RANGE_DAYS), optionally narrowed to a plant-local time-of-day window on every day. DB only.
-    `daily` = each day's AC energy integrated from the records (null for a day with none)."""
+    `daily` = each day's AC energy integrated from the records (null for a day with none).
+    `include_records=False`: only Growatt's own figures (curve, daily kWh); `timeseries` is empty
+    and `energy_kwh` null (a page that already holds the day's overview)."""
     plant = _get_plant(db, plant_id)
     last_day = end_day if end_day is not None and end_day > day else day
     if (last_day - day).days + 1 > MAX_RANGE_DAYS:
@@ -567,7 +581,7 @@ def build_plant_power(
     cap_kwp, _ = capacity_check(db, plant)
     rated_w = plant_rated_ac_w(db, [plant_id]).get(plant_id)
     raw: List[Any] = []
-    if sns:
+    if sns and include_records:
         start, _ = _day_bounds(day)
         _, end = _day_bounds(last_day)
         raw = list(
@@ -585,11 +599,58 @@ def build_plant_power(
     per_day: Dict[date, Dict[str, List[Tuple[datetime, Any]]]] = {}
     for r in raw:
         per_day.setdefault(r[1].date(), {}).setdefault(r[0], []).append((r[1], r[2]))
+    g_start, _ = _day_bounds(day)
+    _, g_end = _day_bounds(last_day)
+    g_raw = [
+        (ts, w)
+        for ts, w in db.execute(
+            select(GrowattPlantPower.timestamp, GrowattPlantPower.power_w)
+            .where(GrowattPlantPower.plant_id == plant_id, GrowattPlantPower.timestamp >= g_start, GrowattPlantPower.timestamp < g_end)
+            .order_by(GrowattPlantPower.timestamp)
+        ).all()
+        if start_time is None and end_time is None
+        or (start_time or time.min) <= ts.time() <= (end_time or time.max)
+    ]
+    g_energy = dict(
+        db.execute(
+            select(GrowattPlantEnergyDay.day, GrowattPlantEnergyDay.energy_kwh).where(
+                GrowattPlantEnergyDay.plant_id == plant_id, GrowattPlantEnergyDay.day >= day, GrowattPlantEnergyDay.day <= last_day
+            )
+        ).all()
+    )
+    g_inv: Dict[date, Tuple[float, int]] = {}
+    for d_, kwh, n in db.execute(
+        select(GrowattInverterEnergyDay.day, func.sum(GrowattInverterEnergyDay.energy_kwh), func.count(GrowattInverterEnergyDay.energy_kwh))
+        .where(GrowattInverterEnergyDay.plant_id == plant_id, GrowattInverterEnergyDay.day >= day, GrowattInverterEnergyDay.day <= last_day)
+        .group_by(GrowattInverterEnergyDay.day)
+    ).all():
+        if n and kwh is not None:
+            g_inv[d_] = (float(kwh), int(n))
+    # Growatt's day figures are stored as reported but only shown when physically possible:
+    # e.g. two serials of one plant answered 22,259 kWh each for 13 Nov 2026 (≈ 71 kWh/kWp)
+    max_day_kwh = cap_kwp * MAX_GROWATT_KWH_PER_KWP_DAY if cap_kwp else None
+
+    def plausible(v: Optional[float]) -> Optional[float]:
+        return None if v is None or (max_day_kwh is not None and v > max_day_kwh) else v
+
     daily = []
     d = day
     while d <= last_day:
         inv = per_day.get(d)
-        daily.append({"day": d.isoformat(), "energy_kwh": round(sum(_integrate_kwh(v) for v in inv.values()), 2) if inv else None})
+        gi = g_inv.get(d)
+        g_raw_day, gi_raw = g_energy.get(d), gi[0] if gi else None
+        daily.append(
+            {
+                "day": d.isoformat(),
+                "energy_kwh": round(sum(_integrate_kwh(v) for v in inv.values()), 2) if inv else None,
+                # Growatt's own figures for the day (finished days only; null = not read)
+                "growatt_energy_kwh": _round(plausible(g_raw_day), 2),
+                "growatt_inverters_kwh": _round(plausible(gi_raw), 2),
+                "growatt_inverters_reported": gi[1] if gi else 0,
+                # a Growatt figure above MAX_GROWATT_KWH_PER_KWP_DAY × kWp was withheld (shown as null)
+                "growatt_implausible": plausible(g_raw_day) != g_raw_day or plausible(gi_raw) != gi_raw,
+            }
+        )
         d += timedelta(days=1)
     return {
         "meta": {
@@ -602,5 +663,7 @@ def build_plant_power(
         "inverter_count": len(sns),
         "rated_ac_kw": _round(rated_w / 1000.0, 1) if rated_w else None,
         "timeseries": _plant_curve(raw, cap_kwp),
+        # Growatt's own 5-minute plant AC curve (`plant/power`, stored for finished days)
+        "growatt_timeseries": [{"timestamp": _fmt_ts(ts), "pac_kw": round(w / 1000.0, 2)} for ts, w in g_raw],
         "daily": daily,
     }

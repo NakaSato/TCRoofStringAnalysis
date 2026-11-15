@@ -27,6 +27,10 @@ export interface PeriodFigures {
   specificKwhKwp: number | null;
   /** the day's tariff (energy-weighted, from that day's overview); null for a range / window */
   tariffThbPerKwh: number | null;
+  /** Growatt's own kWh for the period (`plant/energy`, finished whole days only); null otherwise */
+  growattKwh?: number | null;
+  /** a Growatt day figure of the period was withheld as impossible (> 10 kWh/kWp) */
+  growattImplausible?: boolean;
 }
 
 type Loaded = { key: string; ov?: GrowattPlantOverview; power?: GrowattPlantPower; error?: string };
@@ -74,23 +78,59 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
     };
   }, [key, mode, plantId, day, endDay, start, end, live]);
 
+  // a finished single day shown from an overview: Growatt's own curve and kWh read alongside
+  // (`records=false`: no stored records read twice). Today has none (finished days only).
+  const gKey = mode !== "curve" && day && day < today && plantId != null ? `${plantId}|${day}` : null;
+  const [gRes, setGRes] = useState<{ key: string; power: GrowattPlantPower | null } | null>(null);
+  useEffect(() => {
+    if (!gKey || !day || plantId == null) return;
+    let cancelled = false;
+    api
+      .getGrowattPlantPower(plantId, { day, records: "false" })
+      .then((p) => !cancelled && setGRes({ key: gKey, power: p }))
+      .catch(() => !cancelled && setGRes({ key: gKey, power: null }));
+    return () => {
+      cancelled = true;
+    };
+  }, [gKey, plantId, day]);
+
   const got = res?.key === key ? res : null;
   const dayOv = mode === "own" ? ov : (got?.ov ?? null);
   const power = got?.power ?? null;
+  // Growatt's own figures of the shown period: from /power in curve mode, else the side request
+  const gPower = mode === "curve" ? power : gRes?.key === gKey ? gRes.power : null;
+  const growattTs = windowed ? undefined : gPower?.growatt_timeseries;
 
   const answered = mode === "own" || got != null;
   const spec = useMemo<PanelChartSpec | null>(() => {
     const ratedKw = power?.rated_ac_kw ?? null;
     // answered without a curve (error, or a day the backend has no records for): the empty frame
     const frame = () => (day ? powerCurveSpec({ ts: [], day, endDay, start, end, inverters: 0, ratedKw }, liveAt) : null);
-    if (dayOv) return powerSpec(dayOv, liveAt, { extra: true }) ?? frame();
+    if (dayOv) return powerSpec(dayOv, liveAt, { extra: true, growatt: growattTs }) ?? frame();
     if (!power) return answered ? frame() : null;
     return powerCurveSpec(
-      { ts: power.timeseries, day: power.meta.day, endDay: power.meta.end_day, start, end, inverters: power.inverter_count, ratedKw: power.rated_ac_kw },
+      {
+        ts: power.timeseries,
+        day: power.meta.day,
+        endDay: power.meta.end_day,
+        start,
+        end,
+        inverters: power.inverter_count,
+        ratedKw: power.rated_ac_kw,
+        growatt: growattTs,
+      },
       liveAt,
       { extra: true }
     );
-  }, [dayOv, power, liveAt, start, end, day, endDay, answered]);
+  }, [dayOv, power, liveAt, start, end, day, endDay, answered, growattTs]);
+
+  // Growatt's figure covers whole days: only without a time window, and only when every day has one
+  const gDaily = gPower?.daily ?? null;
+  const growattKwh = useMemo(() => {
+    const gs = (gDaily ?? []).map((d) => d.growatt_energy_kwh ?? null);
+    return !windowed && gs.length && gs.every((v) => v != null) ? gs.reduce<number>((a, v) => a + (v ?? 0), 0) : null;
+  }, [gDaily, windowed]);
+  const growattImplausible = Boolean(gDaily?.some((d) => d.growatt_implausible));
 
   const figures = useMemo<PeriodFigures | null>(() => {
     const ts = dayOv?.timeseries ?? power?.timeseries;
@@ -107,6 +147,8 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
         peakAt: pk?.timestamp ?? null,
         specificKwhKwp: k.specific_yield_kwh_per_kwp,
         tariffThbPerKwh: k.tariff_thb_per_kwh,
+        growattKwh,
+        growattImplausible,
       };
     }
     const es = power!.daily.map((d) => d.energy_kwh).filter((v): v is number => v != null);
@@ -120,8 +162,10 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
       peakAt: pk?.timestamp ?? null,
       specificKwhKwp: energy != null && kwp ? energy / kwp : null,
       tariffThbPerKwh: null,
+      growattKwh,
+      growattImplausible,
     };
-  }, [dayOv, power, ov]);
+  }, [dayOv, power, ov, growattKwh, growattImplausible]);
 
   const multi = Boolean(endDay);
   const win = windowText(period);

@@ -5,12 +5,9 @@ import {
   Building2,
   Coins,
   ExternalLink,
-  Gauge,
-  Leaf,
   MapPin,
   PanelsTopLeft,
   Sun,
-  TrendingUp,
   Zap,
 } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
@@ -42,9 +39,6 @@ import { IconStat, IconStats } from "./overview/IconStat";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
-
-/** Thailand grid emission factor (TGO), kg CO2e per kWh. */
-const GRID_EF_KG_PER_KWH = 0.4999;
 
 const kw = (w: number | null) => fmt(w == null ? null : w / 1000, 1);
 
@@ -151,10 +145,7 @@ export const OverviewPage: React.FC = () => {
 
   // Now: summed over the inverters' newest live records
   const acW = sumOrNull(recs.map((r) => r.pac_w));
-  const dcW = sumOrNull(recs.map((r) => r.ppv_w));
-  const etaNow = acW != null && dcW != null && dcW > 500 ? Math.min(100, (acW / dcW) * 100) : null;
   const ofKwp = acW != null && k.capacity_kwp ? (acW / 1000 / k.capacity_kwp) * 100 : null;
-  const wx = liveWx?.data.sensors[0] ?? null;
 
   // The top card's period: today by default, or what the picker chose
   const f = pp.figures;
@@ -163,13 +154,11 @@ export const OverviewPage: React.FC = () => {
   const energy = f?.energyKwh ?? null;
   // the period's own day rate when it is one day; a range / window uses today's rate (estimate, "≈")
   const revenue = energy != null ? energy * (f?.tariffThbPerKwh ?? k.tariff_thb_per_kwh) : null;
-  const co2t = energy != null ? (energy * GRID_EF_KG_PER_KWH) / 1000 : null;
   const hasLocation = plant.latitude != null && plant.longitude != null;
 
   const night = isNight(liveAt);
   // the overview's own day keeps "Today"; a picked period is named as picked
   const periodCap = pp.mode === "own" ? (day ? (behind ? dayText : "Today") : "Today") : pp.label;
-  const peakAt = f?.peakAt ? (pp.multi ? `${dayLabel(f.peakAt.slice(0, 10))} ${hhmm(f.peakAt)}` : hhmm(f.peakAt)) : null;
 
 
   // KPI strip: inverters online = reporting in the live answer (status not 0); string health of the stored day
@@ -269,7 +258,15 @@ export const OverviewPage: React.FC = () => {
                   value={pp.loading && !f ? "…" : fmt(energy, energy != null && energy < 100 ? 1 : 0)}
                   unit="kWh"
                   tone="text-energy-300"
-                  sub={revenue != null ? `≈ ฿${fmt(revenue, 0)}` : undefined}
+                  sub={
+                    [
+                      revenue != null ? `≈ ฿${fmt(revenue, 0)}` : null,
+                      f?.growattKwh != null ? `Growatt ${fmt(f.growattKwh, 0)} kWh` : null,
+                      f?.growattImplausible ? "Growatt figure withheld (impossible)" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined
+                  }
                 />
                 <Headline
                   label={`PR · ${periodCap}`}
@@ -294,27 +291,6 @@ export const OverviewPage: React.FC = () => {
                 onBrush={pp.multi || !pp.day ? undefined : (lo, hi) => pp.setPeriod({ ...pp.period, day: pp.day, start: slotTime(lo, pp.day!, false), end: slotTime(hi, pp.day!, true) })}
               />
 
-              <IconStats cols={hasSensor ? "grid-cols-2 sm:grid-cols-5" : "grid-cols-2 sm:grid-cols-4"}>
-                <IconStat
-                  icon={Zap}
-                  label="DC input now"
-                  value={kw(dcW)}
-                  unit="kW"
-                  hint={etaNow != null ? `${fmt(etaNow, 1)}% converted to AC` : undefined}
-                />
-                {hasSensor && (
-                  <IconStat icon={Sun} label="Irradiance now" value={fmt(wx?.irradiance_wm2, 0)} unit="W/m²" hint="Plant weather sensor" />
-                )}
-                <IconStat
-                  icon={TrendingUp}
-                  label="Peak power"
-                  value={fmt(f?.peakKw, 1)}
-                  unit="kW"
-                  hint={peakAt ? `at ${peakAt} · ${periodCap}` : periodCap}
-                />
-                <IconStat icon={Gauge} label="Specific yield" value={fmt(f?.specificKwhKwp, 2)} unit="kWh/kWp" hint={periodCap} />
-                <IconStat icon={Leaf} label="CO₂ avoided" value={fmt(co2t, 2)} unit="t" hint={`${periodCap} · TGO grid factor`} />
-              </IconStats>
             </CardContent>
           </Card>
         </div>

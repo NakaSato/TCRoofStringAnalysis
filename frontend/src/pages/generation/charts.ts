@@ -25,12 +25,16 @@ export const prTone = (v: number | null, target: number) =>
  *
  * `extra`: grid frequency in the tooltip. No load or consumption: the plants have no meter, so nothing measures it.
  */
-export const powerSpec = (ov: Overview, now: string | null, o: { extra?: boolean } = {}): PanelChartSpec | null => {
+export const powerSpec = (
+  ov: Overview,
+  now: string | null,
+  o: { extra?: boolean; growatt?: PowerCurve["growatt"] } = {}
+): PanelChartSpec | null => {
   if (!ov.meta.day) return null;
   // rated AC: only a full sum, a partial one would draw the limit too low
   const rated = ov.inverters.map((i) => i.nominal_power_kw ?? null);
   const ratedKw = rated.length && rated.every((v) => v != null && v > 0) ? rated.reduce<number>((a, v) => a + (v ?? 0), 0) : null;
-  return powerCurveSpec({ ts: ov.timeseries, day: ov.meta.day, inverters: ov.inverters.length, ratedKw }, now, o);
+  return powerCurveSpec({ ts: ov.timeseries, day: ov.meta.day, inverters: ov.inverters.length, ratedKw, growatt: o.growatt }, now, o);
 };
 
 /** A stored plant curve over one day or a day range, optionally a time-of-day window on every day. */
@@ -44,6 +48,8 @@ export interface PowerCurve {
   end?: string;
   inverters: number;
   ratedKw: number | null;
+  /** Growatt's own 5-min plant AC curve (`plant/power`, finished days only): drawn dashed on its own x */
+  growatt?: Array<{ timestamp: string; pac_kw: number }>;
 }
 
 /** `powerSpec` for any stored period: the x axis spans the window (default 05:00–19:00) of the first to the last day. */
@@ -59,6 +65,22 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
   // only the shown range: the stored day starts at 00:00 with night zeros, which would widen the axis
   const inRange = c.ts.filter((r) => r.timestamp >= begin && r.timestamp <= end);
   const ts = inRange;
+  const gw = (c.growatt ?? []).filter((r) => r.timestamp >= begin && r.timestamp <= end);
+  const growattSeries = gw.length
+    ? [
+        {
+          key: "growatt",
+          name: "Growatt curve (plant/power)",
+          type: "line" as const,
+          dash: "dash" as const,
+          width: 1.5,
+          color: SERIES.secondary,
+          x: gw.map((r) => r.timestamp),
+          y: gw.map((r) => r.pac_kw),
+          unit: "kW",
+        },
+      ]
+    : [];
   const markers: XMarker[] = [];
   const bands: XBand[] = [];
   if (now && now.slice(0, 10) >= day && now.slice(0, 10) <= last) {
@@ -86,6 +108,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
             { key: "ref", name: "Clear-sky envelope (modelled)", type: "line", dash: "dot", color: SERIES.reference, y: [null, null], unit: "kW" },
             { key: "dc", name: "DC input", type: "line", color: SERIES.dc, y: [null, null], unit: "kW" },
             { key: "ac", name: "AC output", type: "line", color: SERIES.ac, y: [null, null], unit: "kW" },
+            ...growattSeries,
           ],
         },
       ],
@@ -125,6 +148,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
           },
           { key: "dc", name: "DC input", type: "line", color: SERIES.dc, y: ts.map((r) => r.ppv_kw), unit: "kW" },
           { key: "ac", name: "AC output", type: "line", area: true, color: SERIES.ac, y: ts.map((r) => r.pac_kw), unit: "kW" },
+          ...growattSeries,
           ...(partial.some((v) => v != null)
             ? [
                 {

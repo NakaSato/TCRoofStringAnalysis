@@ -47,3 +47,6 @@ Monitoring Report/*.xlsx
 
 # Firebase CLI deploy cache
 .firebase/
+
+# Growatt endpoint probe replies (backend/scripts/probe_growatt_endpoints.py)
+data/growatt_probe/

@@ -178,9 +178,20 @@ def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
         "nominal_power_kw": round(inv.nominal_power_w / 1000, 1) if inv.nominal_power_w else None,
         "fw_version": inv.fw_version,
         "inner_version": inv.inner_version,
-        # configured settings (as read at info_synced_at), not measurements
+        # from Growatt `queryDeviceInfoParam` (registry, monthly)
+        "device_model": inv.device_model,
+        "datalogger_model": inv.datalogger_model,
+        "rated_power_kw": round(inv.rated_power_w / 1000, 1) if inv.rated_power_w else None,
+        # configured settings (as read at info_synced_at), not measurements. The power limit
+        # comes from readPower when it was read (max_data_info answers it as 0 = unknown)
         "settings": {
-            "active_rate_pct": inv.active_rate_pct,
+            "active_rate_pct": inv.active_limit_pct,
+            "active_rate_source": (
+                "read_power" if inv.power_limit_pct is not None
+                else "max_data_info" if inv.active_rate_pct is not None
+                else None
+            ),
+            "power_limit_read_at": inv.power_limit_read_at.isoformat() if inv.power_limit_read_at else None,
             "reactive_rate_pct": inv.reactive_rate_pct,
             "pf_setting": inv.pf_setting,
             "pf_model": inv.pf_model,

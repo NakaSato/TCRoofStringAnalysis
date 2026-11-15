@@ -147,3 +147,151 @@ def test_fleet_reads_info_oldest_first_and_stops_at_rate_limit(tmp_path):
         acct.info_calls.clear()
         growatt_sync.sync_fleet(db, acct, pause_s=0, phase=1)  # type: ignore[arg-type]
         assert acct.info_calls == ["B", "A"]  # never-read B first, then stale A
+
+
+# --------------------------------------------------------------------------- readPower (power limit)
+
+
+class _Resp:
+    def __init__(self, body):
+        self._body = body
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._body
+
+
+def test_read_power_parses_new_api_reply():
+    from solar_core.growatt import GrowattClient
+
+    c = GrowattClient(token="t")
+    seen = {}
+
+    def post(url, params=None, timeout=None, **kw):
+        seen.update(url=url, params=params, data=kw.get("data"))
+        return _Resp({"code": 0, "data": 10, "message": "success"})
+
+    c.session.post = post  # type: ignore[method-assign]
+    assert c.read_power("BUFUEXB009") == 10.0
+    assert seen["url"].endswith("/v1/new-api/readPower")
+    assert seen["params"] == {"deviceSn": "BUFUEXB009", "deviceType": "max"} and seen["data"] is None
+
+    for body, code in (
+        ({"code": 18, "data": None, "message": "READ_DEVICE_PARAM_FAIL"}, 18),
+        ({"code": 5, "data": None, "message": "DEVICE_OFFLINE"}, 5),
+        ({"error_code": 10012, "error_msg": "error_frequently_access", "data": ""}, 10012),
+        ({"code": 0, "data": None, "message": "SUCCESSFUL_OPERATION"}, 0),  # ok without a value: not a reading
+    ):
+        c.session.post = lambda *a, body=body, **k: _Resp(body)  # type: ignore[method-assign]
+        try:
+            c.read_power("X")
+        except GrowattAPIError as exc:
+            assert exc.error_code == code
+        else:
+            raise AssertionError(f"{body} should raise")
+
+
+class _PowerAcct:
+    def __init__(self, answers):
+        self.answers = answers  # sn -> value | GrowattAPIError
+        self.calls: list = []
+
+    def read_power(self, sn):
+        self.calls.append(sn)
+        a = self.answers[sn]
+        if isinstance(a, Exception):
+            raise a
+        return a
+
+
+def _power_db(tmp_path):
+    from app.db.models import GrowattPlant
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'p.db'}")
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    db = Session()
+    db.add_all([GrowattPlant(plant_id=1, name="P1", phase=1), GrowattPlant(plant_id=2, name="P2", phase=2)])
+    db.add_all([
+        GrowattInverter(device_sn=sn, plant_id=pid, nominal_power_w=60000.0)
+        for sn, pid in (("A", 1), ("B", 1), ("C", 1), ("D", 1), ("Z", 2))
+    ])
+    db.commit()
+    return db
+
+
+def test_power_limit_sweep_stores_reads_and_keeps_old_value_on_refusal(tmp_path):
+    db = _power_db(tmp_path)
+    acct = _PowerAcct({
+        "A": 100.0,
+        "B": 10.0,
+        "C": GrowattAPIError("READ_DEVICE_PARAM_FAIL", error_code=18),
+        "D": GrowattAPIError("DEVICE_OFFLINE", error_code=5),
+    })
+    out = growatt_sync.sync_power_limits(db, acct, phase=1, pause_s=0)  # type: ignore[arg-type]
+    assert acct.calls == ["A", "B", "C", "D"]  # phase 1 only, never phase 2's Z
+    assert (out["power_limits_read"], out["power_limited"], out["power_limit_unreadable"]) == (2, 1, 2)
+    assert out["power_limit_errors"] == {"18": 1, "5": 1} and out["failed"] == []
+    b = db.get(GrowattInverter, "B")
+    assert b.power_limit_pct == 10.0 and b.power_limit_read_at is not None
+    c = db.get(GrowattInverter, "C")
+    assert c.power_limit_pct is None and c.power_limit_read_at is None  # refused: unknown, never 100
+
+    # next run: read ones are fresh; the unread ones are asked first
+    acct.calls.clear()
+    growatt_sync.sync_power_limits(db, acct, phase=1, pause_s=0)  # type: ignore[arg-type]
+    assert acct.calls == ["C", "D"]
+
+    # a day later B is read again and refused: the old reading stays, with its read time
+    stamp = b.power_limit_read_at
+    b.power_limit_read_at = datetime.now(timezone.utc) - timedelta(hours=growatt_sync.POWER_LIMIT_REFRESH_HOURS + 1)
+    db.commit()
+    acct.answers["B"] = GrowattAPIError("DEVICE_OFFLINE", error_code=5)
+    acct.calls.clear()
+    growatt_sync.sync_power_limits(db, acct, phase=1, pause_s=0)  # type: ignore[arg-type]
+    assert acct.calls == ["C", "D", "B"]
+    assert db.get(GrowattInverter, "B").power_limit_pct == 10.0
+    assert stamp is not None
+
+
+def test_power_limit_sweep_stops_after_rate_limits(tmp_path):
+    db = _power_db(tmp_path)
+    limited = GrowattAPIError("frequently access", error_code=10012)
+    acct = _PowerAcct({"A": limited, "B": limited, "C": limited, "D": 100.0})
+    out = growatt_sync.sync_power_limits(db, acct, phase=1, pause_s=0)  # type: ignore[arg-type]
+    assert acct.calls == ["A", "B", "C"]  # 3 in a row end the sweep; D waits for the next run
+    assert out["failed"] and out["power_limits_read"] == 0 and out["power_limit_unreadable"] == 0
+
+
+def test_power_limit_from_read_power_wins_over_max_data_info(tmp_path):
+    from app.services import growatt_daily
+
+    db = _power_db(tmp_path)
+    inv = db.get(GrowattInverter, "A")
+    assert inv.active_limit_pct is None and not growatt_daily._limited(inv)
+    assert growatt_daily._limit_w(inv) == 60000.0  # unknown limit: nameplate (never curtailed by guess)
+    out = inverter_out(inv)["settings"]
+    assert out["active_rate_pct"] is None and out["active_rate_source"] is None
+
+    inv.active_rate_pct = 100.0  # as max_data_info would report it
+    assert inverter_out(inv)["settings"]["active_rate_source"] == "max_data_info"
+
+    inv.power_limit_pct = 10.0
+    inv.power_limit_read_at = datetime(2026, 11, 15, 3, 40, tzinfo=timezone.utc)
+    assert inv.active_limit_pct == 10.0 and growatt_daily._limited(inv)
+    assert growatt_daily._limit_w(inv) == 6000.0
+    out = inverter_out(inv)["settings"]
+    assert out["active_rate_pct"] == 10.0 and out["active_rate_source"] == "read_power"
+    assert out["power_limit_read_at"].startswith("2026-11-15T03:40")
+
+
+def test_power_limits_job_scheduled_in_daylight():
+    from app import worker
+
+    s = [x for x in worker.default_schedule() if x.job == "power_limits"]
+    assert len(s) == 1 and s[0].at is not None and 9 <= s[0].at.hour <= 11
+    from app.services.jobs import JOBS
+
+    assert "power_limits" in JOBS

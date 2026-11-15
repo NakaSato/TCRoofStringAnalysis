@@ -423,6 +423,9 @@ export const PanelChart: React.FC<{
       if (spec.xKind === "time" && i != null) {
         snapPx = xPos(spec.x[i]);
         heading = spec.xTipLabel ? spec.xTipLabel(spec.x[i]) : tipTime(toDate(spec.x[i]), spansDays(xc));
+      } else if (spec.xKind === "time") {
+        // no shared x near the cursor (e.g. only series with their own x): name the cursor's time
+        heading = tipTime(new Date(xv), spansDays(xc));
       } else {
         heading = spec.xTipNumber ? spec.xTipNumber(xv) : fmt(xv, 0);
       }

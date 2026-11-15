@@ -155,12 +155,14 @@ def _limit_w(inv: GrowattInverter) -> Optional[float]:
     """AC power the inverter may deliver: nameplate × active power limit; None if unknown."""
     if not inv.nominal_power_w:
         return None
-    rate = inv.active_rate_pct if inv.active_rate_pct is not None else 100.0
+    limit = inv.active_limit_pct
+    rate = limit if limit is not None else 100.0
     return float(inv.nominal_power_w) * min(rate, 100.0) / 100.0
 
 
 def _limited(inv: GrowattInverter) -> bool:
-    return inv.active_rate_pct is not None and inv.active_rate_pct < 100
+    limit = inv.active_limit_pct
+    return limit is not None and limit < 100
 
 
 def _clipped(inv: GrowattInverter, pac_w: float) -> bool:

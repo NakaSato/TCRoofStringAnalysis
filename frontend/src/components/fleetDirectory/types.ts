@@ -1,6 +1,17 @@
 /** Plant directory row (fleet home page), built from the Growatt plant list and its live overlay. */
 import type { StatusLevel } from "../ui";
 
+/** Inverters of a plant by their newest record (snapshot): `normal` / `fault` = a record from today
+ *  with that status; `silent` = its newest record is older than today (`maxs_data`'s `lost` is true on
+ *  every inverter, so it is not used); `answered` = how many Growatt has answered for so far. */
+export interface InverterLiveCounts {
+  normal: number;
+  fault: number;
+  silent: number;
+  other: number;
+  answered: number;
+}
+
 export interface UnifiedPlantItem {
   uid: string;
   source: "local" | "growatt";
@@ -27,6 +38,8 @@ export interface UnifiedPlantItem {
   stringsCount: number | null;
   modulesCount: number | null;
   invertersCount: number | null;
+  /** live inverter status from the fleet snapshot (`maxs_data`, memory only); null until any answered */
+  invLive: InverterLiveCounts | null;
   deviceSnList: string[];
   deviceType: string;
   batteryStatus: string;

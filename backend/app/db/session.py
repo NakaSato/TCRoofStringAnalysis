@@ -48,6 +48,17 @@ _ADDED_COLUMNS = [
     ("growatt_inverters", "export_limit", "INTEGER", None),
     ("growatt_inverters", "export_limit_rate_pct", "FLOAT", None),
     ("growatt_inverters", "on_off", "INTEGER", None),
+    ("growatt_inverters", "power_limit_pct", "FLOAT", None),
+    ("growatt_inverters", "power_limit_read_at", "TIMESTAMP WITH TIME ZONE", None),
+    ("growatt_inverters", "device_model", "VARCHAR(64)", None),
+    ("growatt_inverters", "datalogger_model", "VARCHAR(64)", None),
+    ("growatt_inverters", "rated_power_w", "FLOAT", None),
+    ("growatt_inverters", "param_synced_at", "TIMESTAMP WITH TIME ZONE", None),
+    ("growatt_plants", "timezone", "VARCHAR(32)", None),
+    ("growatt_plants", "address", "VARCHAR(255)", None),
+    ("growatt_plants", "growatt_inverter_count", "INTEGER", None),
+    ("growatt_plants", "growatt_datalogger_count", "INTEGER", None),
+    ("growatt_plants", "details_synced_at", "TIMESTAMP WITH TIME ZONE", None),
 ]
 
 

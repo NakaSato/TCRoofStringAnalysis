@@ -32,7 +32,7 @@ from app.auth import (
     require_write_access,
 )
 from app.config import settings
-from app.db.models import GrowattPlant, SyncRun, User
+from app.db.models import GrowattInverter, GrowattPlant, SyncRun, User
 from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry, IssueAction, Tariff
 from app.services import fleet_settings
@@ -95,6 +95,46 @@ def live_plants_today(
         return live.plant_today(plants, coords=ov.plant_coords(db))
     except LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+
+
+@router.get("/live/inverters/snapshot")
+def live_inverter_snapshot(
+    plant_id: Optional[int] = Query(None, description="Only this plant's inverters"),
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Newest record (status, AC/DC power, today's kWh, temperature) of every inverter the user may
+    see, from `maxs_data` (50 inverters per call, memory only; never written to SQL). Swept like
+    `/live/sensors/status`: each request refreshes at most `INVERTER_SNAPSHOT_SWEEP_PER_REQUEST`
+    chunks and serves the rest from the shared cache (`INVERTER_SNAPSHOT_TTL_S`). Each record
+    carries its own `record_time` (plant-local): a silent inverter's record can be months old.
+    `data.inverters` is keyed by serial, with `plant_id` from the registry."""
+    allowed = allowed_plant_ids(db, user)
+    if plant_id is not None and allowed is not None and plant_id not in allowed:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    rows = db.execute(
+        select(GrowattInverter.device_sn, GrowattInverter.plant_id, GrowattPlant.phase).join(
+            GrowattPlant, GrowattPlant.plant_id == GrowattInverter.plant_id
+        )
+    ).all()
+    plant_of = {sn: int(pid) for sn, pid, _ph in rows}
+    wanted: Optional[Set[str]] = None
+    if plant_id is not None:
+        wanted = {sn for sn, pid, _ph in rows if pid == plant_id}
+    elif allowed is not None:
+        wanted = {sn for sn, pid, _ph in rows if pid in allowed}
+    try:
+        out = live.inverter_snapshot(
+            [(sn, ph) for sn, _pid, ph in rows],
+            wanted=wanted,
+            coords=ov.plant_coords(db, plant_id),
+        )
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
+    for sn, row in out["data"]["inverters"].items():
+        row["plant_id"] = plant_of.get(sn)
+    return out
 
 
 @router.get("/live/plants/{plant_id}/inverters")
@@ -415,6 +455,7 @@ def get_growatt_plant_power(
     end_day: Optional[date] = Query(None, description="Last day of a day range starting at `day` (inclusive, at most 31 days)"),
     start: Optional[time] = Query(None, description="Plant-local start time (HH:MM, inclusive) on every day"),
     end: Optional[time] = Query(None, description="Plant-local end time (HH:MM, inclusive) on every day"),
+    records: bool = Query(True, description="false = only Growatt's own figures (no records read)"),
     db: Session = Depends(get_db),
     _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
@@ -424,7 +465,7 @@ def get_growatt_plant_power(
     if end_day is not None and end_day < day:
         raise HTTPException(status_code=422, detail="end_day must not be before day")
     try:
-        return ov.build_plant_power(db, plant_id, day, end_day=end_day, start_time=start, end_time=end)
+        return ov.build_plant_power(db, plant_id, day, end_day=end_day, start_time=start, end_time=end, include_records=records)
     except ov.GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
