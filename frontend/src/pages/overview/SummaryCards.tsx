@@ -1,28 +1,24 @@
 /** Plant Overview KPI strip: the Inverters Online and String Health tiles, each linking to its tab. */
 import React, { useMemo } from "react";
-import { Link } from "react-router-dom";
-import { Activity, Cable, Cpu, Flame, HeartPulse, Thermometer, TrendingDown } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { GrowattPlantOverview } from "../../api/client";
-import { KpiTile, Led, fmt } from "../../components/ui";
+import { Led, fmt } from "../../components/ui";
+import { Meter, StatTile } from "./StatTile";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { HOT_C, LOW_PCT, invName, isSwitchedOff, limitPct } from "../inverters/shared";
 import type { LiveInverter } from "../inverters/shared";
 
 const Count: React.FC<{ level: "ok" | "warn" | "crit" | "off"; n: number; label: string }> = ({ level, n, label }) => (
-  <span className="inline-flex items-center gap-1.5">
+  <span className="inline-flex items-center gap-1" title={label || undefined}>
     <Led level={level} />
     <span className="num font-semibold text-foreground">{n}</span>
-    <span className="text-muted-foreground">{label}</span>
+    {label && <span className="text-muted-foreground">{label}</span>}
   </span>
 );
 
-/** A small figure of the Inverters Online tile: icon + value + unit, the label as tooltip. */
-const Mini: React.FC<{ icon: LucideIcon; label: string; value: string; unit: string; tone?: string }> = ({ icon: Icon, label, value, unit, tone }) => (
+/** A small figure in a tile's footer: value + unit, the full label as tooltip. */
+const Mini: React.FC<{ label: string; value: string; unit: string; tone?: string }> = ({ label, value, unit, tone }) => (
   <span className="inline-flex items-center gap-1" title={label} aria-label={`${label}: ${value} ${unit}`}>
-    <Icon className="size-3 text-muted-foreground" />
     <span className={cn("num font-semibold", tone ?? "text-foreground")}>{value}</span>
     <span className="text-muted-foreground">{unit}</span>
   </span>
@@ -68,67 +64,51 @@ export const InvertersOnlineTile: React.FC<{
   const fault = recs.filter((r) => r.status === 3).length;
   const other = recs.length - normal - offline - fault;
   const noRecord = Math.max(0, inverters.length - recs.length);
+  const total = normal + offline + fault + other + noRecord;
   const lowWarn = s.lowestPct != null && s.lowestPct < LOW_PCT;
   const hot = kpis.max_temp_c != null && kpis.max_temp_c >= HOT_C;
 
   return (
-    <Link to={href} aria-label="Open Inverters" title="Open Inverters" className="block rounded-xl outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring">
-      <KpiTile
-        label="Inverters Online"
-        icon={Cpu}
-        tone="ok"
-        accentBar={false}
-        className="h-full"
-        value={`${online ?? "—"} / ${kpis.inverter_count ?? "—"}`}
-        hint={
-          <div className="flex flex-col gap-1.5">
-            <div className="flex min-h-4 flex-wrap items-center gap-x-3 gap-y-1">
-              {liveLoading && !recs.length ? (
-                <Spinner className="size-3" />
-              ) : (
-                <>
-                  <Count level="ok" n={normal} label="normal" />
-                  {offline > 0 && <Count level="off" n={offline} label="offline" />}
-                  {fault > 0 && <Count level="crit" n={fault} label="fault" />}
-                  {other > 0 && <Count level="warn" n={other} label="other" />}
-                  {noRecord > 0 && <Count level="off" n={noRecord} label="no record" />}
-                </>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Mini icon={Activity} label="DC→AC efficiency (stored day)" value={fmt(kpis.conversion_efficiency_pct, 1)} unit="%" />
-              <Mini icon={Thermometer} label="Average inverter temperature (stored day)" value={fmt(kpis.avg_temp_c, 1)} unit="°C" />
-              <Mini
-                icon={Flame}
-                label={`Hottest inverter (stored day)${s.hottest ? ` · ${invName(s.hottest)}` : ""}`}
-                value={fmt(kpis.max_temp_c, 1)}
-                unit="°C"
-                tone={hot ? "text-amber-300" : undefined}
-              />
-            </div>
-            {(lowWarn || s.limited > 0 || s.off > 0) && (
-              <div className="flex flex-wrap gap-1">
-                {lowWarn && s.lowest && (
-                  <Badge variant="warn" className="num" title={`${fmt(s.lowest.yield_today_kwh, 1)} kWh, ${fmt(s.lowestPct, 0)}% of the plant average`}>
-                    Low · {invName(s.lowest)} {fmt(s.lowestPct, 0)}%
-                  </Badge>
-                )}
-                {s.limited > 0 && (
-                  <Badge variant="warn" className="num" title="Active power rate below 100 %">
-                    Power-limited · {s.limited}
-                  </Badge>
-                )}
-                {s.off > 0 && (
-                  <Badge variant="crit" className="num" title="Switched off in the inverter settings">
-                    Off · {s.off}
-                  </Badge>
-                )}
-              </div>
+    <StatTile
+      label="Inverters online"
+      href={href}
+      linkLabel="Open Inverters"
+      tag={liveLoading && !recs.length ? "Live…" : recs.length ? "Live" : undefined}
+      value={`${online ?? "—"} / ${kpis.inverter_count ?? "—"}`}
+      tone={fault > 0 ? "text-red-300" : online != null && kpis.inverter_count && online < kpis.inverter_count ? "text-amber-300" : "text-emerald-300"}
+      meter={
+        total > 0 ? (
+          <Meter
+            segments={[
+              { pct: (normal / total) * 100, className: "bg-emerald-400", title: `${normal} normal` },
+              { pct: (other / total) * 100, className: "bg-amber-400", title: `${other} other` },
+              { pct: (fault / total) * 100, className: "bg-red-500", title: `${fault} fault` },
+              { pct: ((offline + noRecord) / total) * 100, className: "bg-slate-500", title: `${offline + noRecord} offline / no record` },
+            ]}
+          />
+        ) : undefined
+      }
+      footer={
+        liveLoading && !recs.length ? (
+          <Spinner className="size-3" />
+        ) : (
+          <>
+            {fault > 0 && <Count level="crit" n={fault} label="fault" />}
+            {offline + noRecord > 0 && <Count level="off" n={offline + noRecord} label="offline" />}
+            {other > 0 && <Count level="warn" n={other} label="other" />}
+            {fault + offline + noRecord + other === 0 && normal > 0 && <span>all normal</span>}
+            {lowWarn && s.lowest && (
+              <span className="num text-amber-300" title={`${fmt(s.lowest.yield_today_kwh, 1)} kWh, ${fmt(s.lowestPct, 0)}% of the plant average (stored day)`}>
+                low {invName(s.lowest)} {fmt(s.lowestPct, 0)}%
+              </span>
             )}
-          </div>
-        }
-      />
-    </Link>
+            {s.limited > 0 && <span className="num text-amber-300" title="Active power rate below 100 %">{s.limited} limited</span>}
+            {s.off > 0 && <span className="num text-red-300" title="Switched off in the inverter settings">{s.off} off</span>}
+            {hot && <Mini label={`Hottest inverter (stored day)${s.hottest ? ` · ${invName(s.hottest)}` : ""}`} value={fmt(kpis.max_temp_c, 0)} unit="°C" tone="text-amber-300" />}
+          </>
+        )
+      }
+    />
   );
 };
 
@@ -140,48 +120,37 @@ export const StringHealthTile: React.FC<{ ov: GrowattPlantOverview; href: string
   const { kpis, strings } = ov;
   const loss = strings.reduce((a, s) => a + (s.energy_loss_kwh ?? 0), 0);
   const total = kpis.string_count || 0;
-  const pct = (n: number) => `${(n / total) * 100}%`;
   const critical = kpis.critical_strings ?? 0;
   const warning = kpis.warning_strings ?? 0;
 
   return (
-    <Link
-      to={href}
-      aria-label="Open String Diagnostics"
-      title="Open String Diagnostics"
-      className="block rounded-xl outline-none transition hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <KpiTile
-        label="String Health"
-        icon={HeartPulse}
-        tone={critical > 0 ? "crit" : warning > 0 ? "warn" : "ok"}
-        accentBar={false}
-        className="h-full"
-        value={fmt(kpis.avg_health_score, 1)}
-        unit="/ 100"
-        hint={
-          <div className="flex flex-col gap-1.5">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Mini icon={Cable} label={`Strings${kpis.inactive_strings ? ` · ${kpis.inactive_strings} inputs idle` : ""}`} value={String(total)} unit="strings" />
-              <Mini icon={TrendingDown} label="Estimated loss vs peers (modelled, stored day)" value={strings.length ? fmt(loss, 1) : "—"} unit="kWh" />
-            </div>
-            <div className="flex h-1.5 gap-px overflow-hidden rounded-full bg-white/[0.05]">
-              {total > 0 && (
-                <>
-                  <div style={{ width: pct(kpis.healthy_strings) }} className="bg-emerald-400" />
-                  <div style={{ width: pct(warning) }} className="bg-amber-400" />
-                  <div style={{ width: pct(critical) }} className="bg-red-500" />
-                </>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Count level="ok" n={kpis.healthy_strings} label="healthy" />
-              <Count level="warn" n={warning} label="warning" />
-              <Count level="crit" n={critical} label="critical" />
-            </div>
-          </div>
-        }
-      />
-    </Link>
+    <StatTile
+      label="String health"
+      href={href}
+      linkLabel="Open String Diagnostics"
+      tag={ov.meta.day ? new Date(`${ov.meta.day}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : undefined}
+      value={fmt(kpis.avg_health_score, 1)}
+      unit="/ 100"
+      tone={critical > 0 ? "text-red-300" : warning > 0 ? "text-amber-300" : "text-emerald-300"}
+      meter={
+        total > 0 ? (
+          <Meter
+            segments={[
+              { pct: (kpis.healthy_strings / total) * 100, className: "bg-emerald-400", title: `${kpis.healthy_strings} healthy` },
+              { pct: (warning / total) * 100, className: "bg-amber-400", title: `${warning} warning` },
+              { pct: (critical / total) * 100, className: "bg-red-500", title: `${critical} critical` },
+            ]}
+          />
+        ) : undefined
+      }
+      footer={
+        <>
+          <Count level="ok" n={kpis.healthy_strings} label="" />
+          <Count level="warn" n={warning} label="" />
+          <Count level="crit" n={critical} label="" />
+          <Mini label="Estimated loss vs peers (modelled, stored day)" value={strings.length ? fmt(loss, 1) : "—"} unit="kWh loss" />
+        </>
+      }
+    />
   );
 };

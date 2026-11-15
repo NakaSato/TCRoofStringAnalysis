@@ -20,7 +20,7 @@ export const FillChart: React.FC<Props> = ({ minHeight = 240, ...props }) => {
     const i = inner.current;
     if (!b || !i) return;
     const fit = () => {
-      // everything above the plot (legend) = rendered height − the plot height we asked for
+      // everything besides the plot (legend, above or below) = rendered height − the plot height we asked for
       const extra = Math.max(0, i.scrollHeight - hRef.current);
       const next = Math.max(minHeight, Math.floor(b.clientHeight - extra));
       if (Math.abs(next - hRef.current) > 1) setH(next);

@@ -489,6 +489,51 @@ class GrowattEnvReading(Base):
     wind_dir_deg: Mapped[Optional[float]] = mapped_column(Float)
 
 
+class GrowattMeter(Base):
+    """Energy meter on a plant's datalogger, from `device/ammeter/meter_list` (keyed like a
+    weather sensor: device/list names every meter "meter"). Online state is realtime, not stored."""
+
+    __tablename__ = "growatt_meters"
+
+    datalogger_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    address: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    plant_id: Mapped[int] = mapped_column(Integer, ForeignKey("growatt_plants.plant_id", ondelete="CASCADE"), index=True, nullable=False)
+    device_name: Mapped[Optional[str]] = mapped_column(String(64))  # e.g. CHNT_THREE
+    device_type: Mapped[Optional[str]] = mapped_column(String(16))
+    history_synced_until: Mapped[Optional[datetime]] = mapped_column(DateTime)  # latest reading stored
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattMeterReading(Base):
+    """5-minute meter record from `device/ammeter/meter_data` (timestamp is plant-local time),
+    values as reported (see `solar_core.growatt.METER_FIELDS` for what each one is known to be)."""
+
+    __tablename__ = "growatt_meter_readings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["datalogger_sn", "address"],
+            ["growatt_meters.datalogger_sn", "growatt_meters.address"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_growatt_meter_ts", "timestamp"),
+    )
+
+    datalogger_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    address: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    active_power_w: Mapped[Optional[float]] = mapped_column(Float)
+    active_power_l1_w: Mapped[Optional[float]] = mapped_column(Float)
+    active_power_l2_w: Mapped[Optional[float]] = mapped_column(Float)
+    active_power_l3_w: Mapped[Optional[float]] = mapped_column(Float)
+    reactive_power_var: Mapped[Optional[float]] = mapped_column(Float)
+    power_factor: Mapped[Optional[float]] = mapped_column(Float)
+    frequency_hz: Mapped[Optional[float]] = mapped_column(Float)
+    import_counter_kwh: Mapped[Optional[float]] = mapped_column(Float)  # lifetime energy drawn from the grid
+    forward_today_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    rever_active_power_raw: Mapped[Optional[float]] = mapped_column(Float)  # meaning not confirmed
+    reverse_today_kwh: Mapped[Optional[float]] = mapped_column(Float)
+
+
 class GrowattAlarm(Base):
     """Alarm / fault record from `device/max/alarm_data` (one inverter-day per call), synced by the
     worker's `alarms` jobs.

@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     # Sync the Growatt accounts (one per phase) in parallel threads. Growatt rate-limits per
     # token, so this cuts a fleet pass ~3x; set false if Growatt starts limiting per IP.
     worker_parallel_accounts: bool = True
+    # Energy-meter history (`device/ammeter/meter_data`, the grid-point meter on each datalogger):
+    # synced with `history` / `backfill` into `growatt_meter_readings`; false skips it.
+    meter_history_enabled: bool = True
     # Raw 1–5 min Growatt readings older than this are deleted daily (`retention` job). Daily
     # summaries in Firestore are kept. ~0.35–0.5 MB per inverter-day: 629 inverters x 90 days ≈ 30–45 GB.
     history_retention_days: int = 90

@@ -412,6 +412,55 @@ class GrowattClient:
         data = self._request("GET", "device/env/env_last_data", {"datalog_sn": datalogger_sn, "address": address})
         return data if isinstance(data, dict) and data.get("timeText") else None
 
+    # Energy meters ("ammeter"): device/list shows each as a type-3 device with `device_sn`
+    # "meter"; `device/ammeter/meter_list` on its datalogger gives the bus address (e.g. 36 for
+    # the CHNT three-phase meter at the grid connection point). Addressed like weather sensors.
+
+    def list_meters(self, datalogger_sn: str, refresh: bool = False) -> List[Dict[str, Any]]:
+        """Meters on one datalogger (`device/ammeter/meter_list`): address, device_name, device_type, lost."""
+        meters: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            data = self._get("device/ammeter/meter_list", use_cache=not refresh, datalog_sn=datalogger_sn, page=page, perpage=100) or {}
+            batch = data.get("meters") or []
+            meters.extend(batch)
+            if not batch or len(meters) >= int(data.get("count") or 0):
+                return meters
+            page += 1
+
+    def meter_history(
+        self, datalogger_sn: str, address: int, start_date: date, end_date: date, stop_before: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """Meter records between two dates (inclusive), newest first, 100 per page (about 245 a day).
+
+        `stop_before` stops paging once a page reaches records older than it (incremental sync).
+        """
+        if (end_date - start_date).days > 6:
+            raise ValueError("Growatt meter_data date range must not exceed 7 days")
+        records: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            data = self._request(
+                "GET",
+                "device/ammeter/meter_data",
+                {
+                    "datalog_sn": datalogger_sn,
+                    "address": address,
+                    "start_date": start_date.strftime("%Y-%m-%d"),
+                    "end_date": end_date.strftime("%Y-%m-%d"),
+                    "page": page,
+                    "perpage": 100,
+                },
+            ) or {}
+            batch = data.get("meter_data") or []
+            records.extend(batch)
+            if not batch or len(records) >= int(data.get("count") or 0):
+                return records
+            oldest = _env_time(batch[-1])
+            if stop_before is not None and oldest is not None and oldest < stop_before:
+                return records
+            page += 1
+
 
     def max_alarms(self, device_sn: str, day: date, perpage: int = 100, max_pages: int = 10) -> List[Dict[str, Any]]:
         """Alarm / fault log of one MAX inverter for one plant-local day (`device/max/alarm_data`, POST).
@@ -473,6 +522,42 @@ def parse_env_records(datalogger_sn: str, address: int, records: List[Dict[str, 
             "address": int(address),
             "timestamp": ts,
             **{col: _f(r.get(key)) for key, col in ENV_FIELDS.items()},
+        }
+    return list(rows.values())
+
+
+# Meter fields kept → column, under Growatt's own meaning (probed 15 Nov 2026 on a CHNT_THREE at
+# the grid connection point). `activePower` read 260 kW at night with PV at 0 (the site's draw
+# from the grid) and `posiActivePower` (= `activeEnergy`) rose by the energy drawn: the import
+# counter. Whether `activePower` turns negative while exporting, and which reverse field is
+# export energy, is not confirmed yet; they are stored raw and not shown as export.
+METER_FIELDS: Dict[str, str] = {
+    "activePower": "active_power_w",
+    "activePowerL1": "active_power_l1_w",
+    "activePowerL2": "active_power_l2_w",
+    "activePowerL3": "active_power_l3_w",
+    "reactivePower": "reactive_power_var",
+    "powerFactor": "power_factor",
+    "frequency": "frequency_hz",
+    "posiActivePower": "import_counter_kwh",
+    "positiveActiveTodayEnergy": "forward_today_kwh",
+    "reverActivePower": "rever_active_power_raw",
+    "reverseActiveTodayEnergy": "reverse_today_kwh",
+}
+
+
+def parse_meter_records(datalogger_sn: str, address: int, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """`meter_data` records → `growatt_meter_readings` rows (one per timestamp, values as reported)."""
+    rows: Dict[datetime, Dict[str, Any]] = {}
+    for r in records:
+        ts = _env_time(r)
+        if ts is None:
+            continue
+        rows[ts] = {
+            "datalogger_sn": datalogger_sn,
+            "address": int(address),
+            "timestamp": ts,
+            **{col: _f(r.get(key)) for key, col in METER_FIELDS.items()},
         }
     return list(rows.values())
 
