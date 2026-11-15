@@ -17,7 +17,7 @@ export type * from "./types/assistant";
 export type * from "./types/issues";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
-import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
+import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
@@ -167,7 +167,8 @@ export const api = {
   listGrowattInverters: (plantId: number) => apiFetch<GrowattInverter[]>(`/growatt/plants/${plantId}/inverters`),
   getGrowattPlantOverview: (plantId: number, day?: string) =>
     apiFetch<GrowattPlantOverview>(`/growatt/plants/${plantId}/overview${day ? `?day=${day}` : ""}`),
-  getGrowattPlantPower: (plantId: number, q: { day: string; end_day?: string | null; start?: string; end?: string }) =>
+  /** `records: "false"`: only Growatt's own figures (curve, daily kWh), no stored records read */
+  getGrowattPlantPower: (plantId: number, q: { day: string; end_day?: string | null; start?: string; end?: string; records?: "false" }) =>
     apiFetch<GrowattPlantPower>(
       `/growatt/plants/${plantId}/power?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`
     ),
@@ -229,6 +230,11 @@ export const api = {
   getGrowattLivePlants: () => apiFetch<GrowattLive<GrowattLivePlant[]>>("/growatt/live/plants"),
   /** today's energy per plant (`plant/data`, swept a batch per request; poll on refresh_in_s) */
   getGrowattLivePlantsToday: () => apiFetch<GrowattLive<GrowattLivePlantsToday>>("/growatt/live/plants/today"),
+  /** newest record per inverter (`maxs_data`, memory only); poll on `refresh_in_s` until `sweep.checked == sweep.total` */
+  getGrowattInverterSnapshot: (plantId?: number) =>
+    apiFetch<GrowattLive<GrowattInverterSnapshot>>(
+      `/growatt/live/inverters/snapshot${plantId != null ? `?plant_id=${plantId}` : ""}`,
+    ),
   getGrowattLiveInverters: (plantId: number) =>
     apiFetch<GrowattLive<GrowattInverter[]>>(`/growatt/live/plants/${plantId}/inverters`),
   getGrowattLivePlantLatest: (plantId: number) =>

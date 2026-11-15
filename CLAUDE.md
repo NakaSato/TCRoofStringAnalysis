@@ -29,8 +29,12 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                  │              (only while the plant directory is open; never stored)
                  ├─ env_list sensor status ─► memory sweep (12 dataloggers/request, 300 s) ─► /growatt/live/sensors/status
                  │              (only while Weather Sensors / Active Alarm is open; never stored)
+                 ├─ maxs_data newest record (50 inverters/call) ─► memory sweep (300 s) ─► /growatt/live/inverters/snapshot
+                 │              (only while a page polls it; never stored)
                  ├─ max_data history ─► growatt-worker (every 30 min) ─► SQL ─► /growatt/plants* (DB only)
                  │                                                       └─► daily summaries ─► Firestore
+                 ├─ plant/energy, plant/power, inverter day_energy (finished days) ─► growatt-worker (00:50) ─► SQL
+                 ├─ plant/details, queryDeviceInfoParam ─► growatt-worker (fleet 05:30, weekly / monthly) ─► registry
                  ├─ env_data today (one sensor) ─► backend memory cache (300 s) ─► /growatt/live/sensors/{dl}/{addr}/today ─► sensor page chart (today only)
                  ├─ env_data sensor history ─► growatt-worker (every 30 min with history; also every 10 min, 05–20) ─► SQL
                  └─ alarm_data log ─► growatt-worker (10-min tick, 05–20, per inverter by tier: fault/open 10 min,
@@ -69,6 +73,7 @@ Rules for every layer:
 - `REDIS_URL` (empty = memory only): Redis mirror of the live caches and Growatt / Google cooldowns
 - `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open); `SENSOR_ALARM_COVERAGE_PCT` (80): Active Alarm, past day: stored daylight coverage below this = data gap
 - `PLANT_TODAY_TTL_S` (300), `PLANT_TODAY_SWEEP_PER_REQUEST` (40): plant directory Yield today (`plant/data` per plant, memory only, swept only while the directory is open)
+- `INVERTER_SNAPSHOT_TTL_S` (300), `INVERTER_SNAPSHOT_SWEEP_PER_REQUEST` (4): fleet inverter snapshot (`maxs_data`, 50 inverters per call, memory only)
 - `LOG_DB_ENABLED` (true), `LOG_DB_LEVEL` (INFO), `LOG_RETENTION_DAYS` (14), `LOG_MAX_ROWS` (500000), `LOG_FLUSH_INTERVAL_S` (5), `LOG_BUFFER_MAX` (5000), `LOG_SLOW_REQUEST_MS` (5000): System → Logs (`app_logs`)
 - `FIREBASE_PROJECT_ID` and `FIREBASE_CREDENTIALS_FILE`
 - `PUBLISH_SINK` (`json` | `firestore`)

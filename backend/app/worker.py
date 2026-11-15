@@ -12,6 +12,11 @@ Schedule (plant-local time, Asia/Bangkok):
                        and at 09:25 / 13:25 / 17:25 so each PWA check's readings are in
     backfill           02:00   re-read the previous two days (late uploads)
     fleet              05:30   plant / inverter registry
+    power_limits       10:40   each inverter's active power limit (readPower; daylight only:
+                               it is read from the inverter through the datalogger)
+    growatt_energy     00:50   Growatt's own figures for finished days: plant/energy (last 7 days),
+                               plant/power curve and inverter day_energy (days not stored yet)
+    energy_backfill    not scheduled: plant/energy for the last HISTORY_RETENTION_DAYS (queue once)
     publish_yesterday  06:00   finalize yesterday's daily summaries
     pwa_sheet          06:05   PWA Report Google Sheet: today's tab (skipped without PWA_SHEET_ID)
     publish_today      09:30 / 13:30 / 17:30   today so far, after each PWA check (09/13/17);
@@ -62,6 +67,9 @@ log = logging.getLogger("worker")
 
 GRACE = timedelta(hours=3)
 TICK_S = 60
+# `power_limits` (readPower) needs the inverters running: mid-morning, and with GRACE it can
+# still start up to 13:40 when the worker was busy, all in daylight
+POWER_LIMITS_AT = (10, 40)
 REGISTRY_RETRY = timedelta(minutes=15)
 UNTAGGED_RETRY = timedelta(hours=6)  # bounded: a plant no account lists stays untagged
 # after a `fleet` run that did not finish ok (an account failed, e.g. Growatt 10012, or the run was
@@ -115,6 +123,8 @@ def default_schedule() -> List[Schedule]:
         Schedule("pwa_sheet", at=dtime(6, 5)),
         Schedule("retention", at=dtime(3, 0)),
         Schedule("google_weather", at=dtime(18, 15)),
+        # daylight, between the 10:30 history pull and 11:00; not near a PWA check (hh:20–hh:31)
+        Schedule("power_limits", at=dtime(*POWER_LIMITS_AT)),
         Schedule(
             "alarms",
             every=timedelta(minutes=settings.worker_alarms_tick_min),
@@ -127,6 +137,8 @@ def default_schedule() -> List[Schedule]:
         ),
         Schedule("alarms_yesterday", at=dtime(0, 30)),
         Schedule("rules_yesterday", at=dtime(0, 45)),
+        # Growatt's own figures for yesterday, after its late alarms / rules; done long before 05:30 fleet
+        Schedule("growatt_energy", at=dtime(0, 50)),
         # right behind `history` in the list: when both are due in a tick, the rules see the new records
         Schedule("rules_today", every=timedelta(minutes=settings.worker_history_interval_min), between=(6, 20)),
         *(

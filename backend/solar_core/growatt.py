@@ -180,6 +180,148 @@ class GrowattClient:
         m = data.get("max")
         return parse_max_info(m if isinstance(m, dict) else data)
 
+    def _new_api(self, path: str, params: Dict[str, Any]) -> Any:
+        """POST to a `new-api/*` endpoint (query parameters). These reply `{code, data, message}`
+        instead of `{error_code, data, error_msg}`; returns `data`, raises GrowattAPIError
+        (`error_code` = Growatt's code) on any refusal."""
+        try:
+            resp = self.session.post(self.base_url + path, params=params, timeout=self.timeout)
+            resp.raise_for_status()
+            body = resp.json()
+        except requests.RequestException as exc:
+            raise GrowattAPIError(f"Growatt request {path} failed: {exc}") from exc
+        except ValueError as exc:
+            raise GrowattAPIError(f"Growatt request {path} returned non-JSON response") from exc
+        if not isinstance(body, dict):
+            raise GrowattAPIError(f"Growatt {path} returned an unexpected reply: {_snippet(body)}")
+        code = body.get("code", body.get("error_code"))
+        if code != 0:
+            msg = body.get("message") or body.get("error_msg") or _snippet(body)
+            raise GrowattAPIError(f"Growatt {path} error {code}: {msg}", error_code=code)
+        return body.get("data")
+
+    def read_power(self, device_sn: str) -> float:
+        """Active power limit of one MAX inverter, % of rated (`new-api/readPower`).
+
+        Read from the inverter itself through its datalogger, so it answers only while the
+        inverter is reachable (daylight): code 5 DEVICE_OFFLINE, code 18 READ_DEVICE_PARAM_FAIL
+        (some dataloggers never pass it on). Unlike `max_data_info`, which answers the setting
+        as 0 for every inverter, this returns the configured limit (checked 15 Nov 2026: 487 of
+        488 answering inverters 100, one 10 while producing 10 % of its rating).
+        """
+        path = "new-api/readPower"
+        value = _f(self._new_api(path, {"deviceSn": device_sn, "deviceType": "max"}))
+        if value is None:
+            raise GrowattAPIError(f"Growatt {path} answered no value", error_code=0)
+        return value
+
+    def device_info_param(self, device_sn: str) -> Dict[str, Any]:
+        """Model text, datalogger model and nominal power of one MAX inverter
+        (`new-api/queryDeviceInfoParam`), e.g. "MAX 80KTL3 LV", "ShineMaster", 80000 W.
+        Empty text and a non-positive power are None."""
+        data = self._new_api("new-api/queryDeviceInfoParam", {"deviceSn": device_sn, "deviceType": "max"})
+        d = data if isinstance(data, dict) else {}
+        power = _f(d.get("norminalPower", d.get("nominalPower")))  # sic: Growatt's spelling
+        return {
+            "device_model": _text(d.get("deviceModel")),
+            "datalogger_model": _text(d.get("dataloggerModel")),
+            "rated_power_w": power if power and power > 0 else None,
+        }
+
+    # ------------------------------------------------------------------ Growatt's own energy / curves
+    def plant_energy_days(self, plant_id: int, start_date: date, end_date: date) -> List[Tuple[date, Optional[float]]]:
+        """Growatt's daily energy (kWh) of a plant (`plant/energy`, time_unit=day), both dates
+        inclusive, at most 31 days per call. A day Growatt lists without a number is None."""
+        if (end_date - start_date).days > 30:
+            raise ValueError("plant/energy range must not exceed 31 days")
+        out: List[Tuple[date, Optional[float]]] = []
+        page = 1
+        while True:
+            data = self._get(
+                "plant/energy",
+                use_cache=False,
+                plant_id=plant_id,
+                start_date=start_date.isoformat(),
+                end_date=end_date.isoformat(),
+                time_unit="day",
+                page=page,
+                perpage=100,
+            ) or {}
+            batch = data.get("energys") or []
+            for row in batch:
+                try:
+                    d = date.fromisoformat(str(row.get("date"))[:10])
+                except ValueError:
+                    continue
+                out.append((d, _f(row.get("energy"))))
+            if not batch or len(out) >= int(data.get("count") or 0):
+                return out
+            page += 1
+
+    def plant_power_day(self, plant_id: int, day: date) -> List[Tuple[datetime, float]]:
+        """Growatt's 5-minute AC power curve (W) of a plant for one day (`plant/power`), oldest
+        first, plant-local naive times. Slots Growatt answers as null (no upload, the future)
+        are left out, never 0."""
+        data = self._get("plant/power", use_cache=False, plant_id=plant_id, date=day.isoformat()) or {}
+        out: List[Tuple[datetime, float]] = []
+        for row in data.get("powers") or []:
+            w = _f(row.get("power"))
+            if w is None:
+                continue
+            try:
+                ts = datetime.strptime(str(row.get("time")), "%Y-%m-%d %H:%M")
+            except ValueError:
+                continue
+            out.append((ts, w))
+        return sorted(out)
+
+    def inverter_day_energy(self, device_sn: str, day: date) -> Optional[float]:
+        """Growatt's energy (kWh) of one inverter for one day (`device/inverter/day_energy`)."""
+        return _f(self._get("device/inverter/day_energy", use_cache=False, device_sn=device_sn, date=day.isoformat()))
+
+    def plant_details(self, plant_id: int) -> Dict[str, Any]:
+        """Static plant fields from `plant/details` worth keeping (most of its 51 are empty in
+        this fleet): time zone, street address, Growatt's own inverter / datalogger counts."""
+        d = self._get("plant/details", use_cache=False, plant_id=plant_id) or {}
+        if not isinstance(d, dict):
+            d = {}
+
+        def count(rows: Any, key: str) -> Optional[int]:
+            if not isinstance(rows, list):
+                return None
+            vals = [int(n) for r in rows if isinstance(r, dict) and (n := _f(r.get(key))) is not None]
+            return sum(vals) if vals else None
+
+        address = ", ".join(t for t in (_text(d.get("address1")), _text(d.get("address2"))) if t) or None
+        return {
+            "timezone": _text(d.get("timezone")),
+            "address": address,
+            "growatt_inverter_count": count(d.get("maxs"), "max_num"),
+            "growatt_datalogger_count": count(d.get("dataloggers"), "datalogger_num"),
+        }
+
+    MAXS_PAGE = 50  # `device/max/maxs_data` answers about 50 serials per page (measured 15 Nov 2026)
+
+    def maxs_latest(self, device_sns: List[str], max_pages: int = 10) -> Dict[str, Dict[str, Any]]:
+        """Newest record of several MAX inverters in one call (`device/max/maxs_data`, POST),
+        {serial: record}; the record has the same fields as `max_data` (`time` is plant-local)
+        plus `dataloggerSn`. Realtime: callers must not store it. Rate limited per account
+        (about 4 calls, then 10012 until ≈ 5 min after the first)."""
+        out: Dict[str, Dict[str, Any]] = {}
+        wanted = set(device_sns)
+        for page in range(1, max_pages + 1):
+            data = self._request("POST", "device/max/maxs_data", {"maxs": ",".join(device_sns), "pageNum": page})
+            batch = data if isinstance(data, dict) else {}
+            for sn, v in batch.items():
+                if not isinstance(v, dict):
+                    continue
+                rec = v.get(sn)
+                if isinstance(rec, dict):
+                    out[sn] = {**rec, "dataloggerSn": v.get("dataloggerSn")}
+            if not batch or wanted <= set(out) or len(batch) < self.MAXS_PAGE:
+                break
+        return out
+
     def max_history(
         self, device_sn: str, start_date: date, end_date: date, stop_before: Optional[datetime] = None
     ) -> List[Dict[str, Any]]:
@@ -444,9 +586,14 @@ def _record_time(r: Dict[str, Any]) -> Optional[datetime]:
 
 def _f(v: Any) -> Optional[float]:
     try:
-        return None if v is None else float(v)
+        return None if v is None or v == "" else float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _text(v: Any) -> Optional[str]:
+    t = str(v).strip() if v is not None else ""
+    return t or None
 
 
 def parse_max_records(

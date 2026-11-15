@@ -21,6 +21,11 @@ export interface GrowattPlant {
   /** realtime: always null from the DB, filled by the live overlay */
   status: number | null;
   create_date: string | null;
+  /** from Growatt plant/details (weekly; overview only): time zone ("GMT+7"), address, counts as entered in Growatt */
+  timezone?: string | null;
+  address?: string | null;
+  growatt_inverter_count?: number | null;
+  growatt_datalogger_count?: number | null;
   energy_date?: string | null;
   synced_at?: string | null;
 }
@@ -166,8 +171,12 @@ export interface GrowattMpptEnergy {
 
 /** Inverter settings as configured (read daily by the fleet job), not measurements. */
 export interface GrowattInverterSettings {
-  /** active power limit, % of rated: < 100 = curtailed */
+  /** active power limit, % of rated: < 100 = curtailed; null = unknown */
   active_rate_pct: number | null;
+  /** where the limit comes from: `read_power` (read from the inverter, daily) or `max_data_info` */
+  active_rate_source?: "read_power" | "max_data_info" | null;
+  /** when readPower last answered (UTC ISO); the limit may be older than `read_at` */
+  power_limit_read_at?: string | null;
   reactive_rate_pct: number | null;
   pf_setting: number | null;
   pf_model: number | null;
@@ -331,6 +340,10 @@ export interface GrowattPlantOverview {
     nominal_power_kw?: number | null;
     fw_version?: string | null;
     inner_version?: string | null;
+    /** from Growatt queryDeviceInfoParam (monthly): model text, datalogger model, rating as listed */
+    device_model?: string | null;
+    datalogger_model?: string | null;
+    rated_power_kw?: number | null;
     settings?: GrowattInverterSettings;
     status: number | null;
     status_label: string | null;
@@ -586,6 +599,10 @@ export interface GrowattInverter {
   nominal_power_kw?: number | null;
   fw_version?: string | null;
   inner_version?: string | null;
+  /** from Growatt queryDeviceInfoParam (monthly): model text, datalogger model, rating as listed */
+  device_model?: string | null;
+  datalogger_model?: string | null;
+  rated_power_kw?: number | null;
   settings?: GrowattInverterSettings;
 }
 
@@ -597,6 +614,44 @@ export interface GrowattPlantPower {
   /** sum of the inverters' nameplate AC; null unless every inverter has one */
   rated_ac_kw: number | null;
   timeseries: Omit<GrowattPlantOverview["timeseries"][number], "irradiance_wm2" | "module_temp_c" | "ambient_temp_c">[];
-  /** AC energy per day integrated from the records (in the time window); null = no records */
-  daily: Array<{ day: string; energy_kwh: number | null }>;
+  /** Growatt's own 5-min plant AC curve (`plant/power`), stored for finished days only */
+  growatt_timeseries?: Array<{ timestamp: string; pac_kw: number }>;
+  /** AC energy per day integrated from the records (in the time window); null = no records.
+   *  `growatt_*`: Growatt's own figures for the whole day (finished days only; null = not read) */
+  daily: Array<{
+    day: string;
+    energy_kwh: number | null;
+    growatt_energy_kwh?: number | null;
+    growatt_inverters_kwh?: number | null;
+    growatt_inverters_reported?: number;
+    /** a Growatt figure above 10 kWh/kWp was withheld (null), as a Growatt glitch */
+    growatt_implausible?: boolean;
+  }>;
+}
+
+/** /growatt/live/inverters/snapshot — newest record of every visible inverter (`maxs_data`, memory only). */
+export interface GrowattInverterSnapshotRow {
+  plant_id: number | null;
+  /** plant-local time of this record (can be months old for a silent inverter) */
+  record_time: string | null;
+  status: number | null;
+  status_label: string | null;
+  pac_w: number | null;
+  ppv_w: number | null;
+  /** null unless the record is from today */
+  eac_today_kwh: number | null;
+  temperature_c: number | null;
+  fault_type: number | null;
+  warn_code: number | null;
+  lost: boolean | null;
+  datalogger_sn: string | null;
+  fetched_at: string;
+  stale: boolean;
+}
+
+export interface GrowattInverterSnapshot {
+  day: string;
+  inverters: Record<string, GrowattInverterSnapshotRow>;
+  errors: Record<string, string>;
+  sweep: { fresh: number; checked: number; total: number; oldest_age_s: number; inverters: number; answered: number };
 }

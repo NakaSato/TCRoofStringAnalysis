@@ -56,7 +56,16 @@ export const InverterCard: React.FC<{
   const st = inv.settings;
   const settingRows = (
     [
-      ["Active power limit", st?.active_rate_pct == null ? null : `${fmt(st.active_rate_pct, 0)} %`],
+      [
+        "Active power limit",
+        st?.active_rate_pct == null
+          ? null
+          : `${fmt(st.active_rate_pct, 0)} %${
+              st.active_rate_source === "read_power" && st.power_limit_read_at
+                ? ` · read ${new Date(st.power_limit_read_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}`
+                : ""
+            }`,
+      ],
       ["On / Off", st?.on_off == null ? null : st.on_off === 0 ? "Off" : "On"],
       ["PF setting", st?.pf_setting == null ? null : `${fmt(st.pf_setting, 2)}${st.pf_model != null ? ` · mode ${st.pf_model}` : ""}`],
       ["Reactive power", st?.reactive_rate_pct == null ? null : `${fmt(st.reactive_rate_pct, 0)} %`],
@@ -218,15 +227,18 @@ export const InverterCard: React.FC<{
             <div className="mt-2 grid gap-x-8 rounded-lg border border-white/[0.06] px-4 py-2 md:grid-cols-2">
               <div>
                 <Row label="Serial">{inv.device_sn}</Row>
-                <Row label="Model">{inv.model || "—"}</Row>
-                <Row label="Rated AC">{fmt(inv.nominal_power_kw, 0)} kW</Row>
+                <Row label="Model">{inv.device_model || inv.model || "—"}</Row>
+                <Row label="Rated AC">{fmt(inv.nominal_power_kw ?? inv.rated_power_kw, 0)} kW</Row>
                 <Row label="DC capacity">{fmt(inv.capacity_kwp, 2)} kWp</Row>
                 <Row label="Strings">{inv.string_count}</Row>
                 <Row label="Firmware">
                   {inv.fw_version || "—"}
                   {inv.inner_version ? ` · ${inv.inner_version}` : ""}
                 </Row>
-                <Row label="Datalogger">{inv.datalogger_sn || "—"}</Row>
+                <Row label="Datalogger">
+                  {inv.datalogger_sn || "—"}
+                  {inv.datalogger_model ? ` · ${inv.datalogger_model}` : ""}
+                </Row>
               </div>
               <div>
                 <Row label="Lifetime energy">{fmt(inv.total_yield_kwh == null ? null : inv.total_yield_kwh / 1000, 1)} MWh</Row>

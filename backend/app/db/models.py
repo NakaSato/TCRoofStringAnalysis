@@ -312,6 +312,12 @@ class GrowattPlant(Base):
     longitude: Mapped[Optional[float]] = mapped_column(Float)
     peak_power_kwp: Mapped[Optional[float]] = mapped_column(Float)
     create_date: Mapped[Optional[str]] = mapped_column(String(32))
+    # from `plant/details` (fleet job, every growatt_sync.DETAILS_REFRESH_DAYS)
+    timezone: Mapped[Optional[str]] = mapped_column(String(32))  # e.g. "GMT+7"
+    address: Mapped[Optional[str]] = mapped_column(String(255))
+    growatt_inverter_count: Mapped[Optional[int]] = mapped_column(Integer)  # as entered in Growatt, not counted
+    growatt_datalogger_count: Mapped[Optional[int]] = mapped_column(Integer)
+    details_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
     inverters: Mapped[List["GrowattInverter"]] = relationship(back_populates="plant", cascade="all, delete-orphan")
@@ -344,10 +350,25 @@ class GrowattInverter(Base):
     export_limit_rate_pct: Mapped[Optional[float]] = mapped_column(Float)
     on_off: Mapped[Optional[int]] = mapped_column(Integer)  # 1 = on, 0 = switched off
     info_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # active power limit read from the inverter (`new-api/readPower`, daytime `power_limits` job);
+    # max_data_info answers its activeRate as 0, so this is the one that counts when set
+    power_limit_pct: Mapped[Optional[float]] = mapped_column(Float)
+    power_limit_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # from `new-api/queryDeviceInfoParam` (fleet job, every growatt_sync.PARAM_REFRESH_DAYS)
+    device_model: Mapped[Optional[str]] = mapped_column(String(64))  # e.g. "MAX 80KTL3 LV"
+    datalogger_model: Mapped[Optional[str]] = mapped_column(String(64))  # e.g. "ShineMaster"
+    rated_power_w: Mapped[Optional[float]] = mapped_column(Float)  # nominal power as Growatt lists the model
+    param_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     history_synced_until: Mapped[Optional[datetime]] = mapped_column(DateTime)  # latest reading stored
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
     plant: Mapped[GrowattPlant] = relationship(back_populates="inverters")
+
+    @property
+    def active_limit_pct(self) -> Optional[float]:
+        """Configured active power limit, % of rated: `readPower` when read, else `max_data_info`'s
+        activeRate (usually unknown); None = unknown, never assumed 100."""
+        return self.power_limit_pct if self.power_limit_pct is not None else self.active_rate_pct
 
 
 class GrowattInverterReading(Base):
@@ -367,6 +388,45 @@ class GrowattInverterReading(Base):
     temperature_c: Mapped[Optional[float]] = mapped_column(Float)
     fac_hz: Mapped[Optional[float]] = mapped_column(Float)
     mppt_json: Mapped[Optional[Any]] = mapped_column(JSON)  # [{"mppt": n, "v": .., "i": .., "p": ..}]
+
+
+class GrowattPlantEnergyDay(Base):
+    """Growatt's own daily energy of a plant (`plant/energy`), finished days only (today's value
+    is realtime). A cross-check on the energy integrated from stored records, and a figure for
+    days without records. Kept indefinitely (`retention` skips it)."""
+
+    __tablename__ = "growatt_plant_energy_days"
+
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    energy_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattInverterEnergyDay(Base):
+    """Growatt's own daily energy of one inverter (`device/inverter/day_energy`), finished days
+    only. Kept indefinitely (`retention` skips it)."""
+
+    __tablename__ = "growatt_inverter_energy_days"
+    __table_args__ = (Index("ix_growatt_inv_energy_plant_day", "plant_id", "day"),)
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    energy_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattPlantPower(Base):
+    """Growatt's own 5-minute AC power curve of a plant (`plant/power`; timestamp plant-local),
+    finished days only. Slots Growatt answers as null are not stored. Deleted with the raw
+    readings after HISTORY_RETENTION_DAYS."""
+
+    __tablename__ = "growatt_plant_power"
+
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    power_w: Mapped[float] = mapped_column(Float, nullable=False)
 
 
 class GrowattStringReading(Base):

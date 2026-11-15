@@ -158,6 +158,42 @@ def job_env_history(db: Session) -> Tuple[str, Dict[str, Any]]:
     )
 
 
+def job_power_limits(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Each inverter's active power limit (`readPower`), once a day in daylight: the read goes
+    through the datalogger to the inverter, which answers only while it is running."""
+    from app.services.growatt_sync import sync_power_limits
+
+    return _per_phase(
+        db, lambda db, c, phase, untagged: sync_power_limits(db, c, phase=phase, include_untagged=untagged)
+    )
+
+
+def job_growatt_energy(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Growatt's own figures for finished days: each plant's daily kWh (`plant/energy`, last
+    7 days), its 5-minute curve (`plant/power`) and each inverter's kWh (`day_energy`) for the
+    days not stored yet. Never today (realtime)."""
+    from app.services.growatt_energy import sync_growatt_energy
+
+    today = _today()
+    return _per_phase(
+        db, lambda db, c, phase, untagged: sync_growatt_energy(db, c, today, phase=phase, include_untagged=untagged)
+    )
+
+
+def job_energy_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Growatt's daily kWh (`plant/energy`) for the last HISTORY_RETENTION_DAYS finished days of
+    every plant missing some (not scheduled: queue once after deploy)."""
+    from app.services.growatt_energy import backfill_plant_energy
+
+    today = _today()
+    return _per_phase(
+        db,
+        lambda db, c, phase, untagged: backfill_plant_energy(
+            db, c, today, days=settings.history_retention_days, phase=phase, include_untagged=untagged
+        ),
+    )
+
+
 def job_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Re-read the previous two full days to catch uploads that arrived late."""
     from app.services.growatt_sync import sync_all_history, sync_env_all
@@ -264,11 +300,13 @@ def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     from app.services.system_logs import prune_logs
     from app.services import google_weather
     from app.services.growatt_alarms import prune_alarms
+    from app.services.growatt_energy import prune_plant_power
     from app.services.growatt_sync import prune_history
 
     detail = prune_history(db, _today(), settings.history_retention_days)
     detail["google_weather_rows"] = google_weather.prune(db, _today(), settings.history_retention_days)
     detail["alarm_rows"] = prune_alarms(db, _today(), settings.history_retention_days)
+    detail["growatt_power_rows"] = prune_plant_power(db, _today(), settings.history_retention_days)
     detail["log_rows"] = prune_logs(db, datetime.now(timezone.utc), settings.log_retention_days, settings.log_max_rows)
     return "ok", detail
 
@@ -337,6 +375,9 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "env_history": job_env_history,
     "backfill": job_backfill,
     "fleet": job_fleet,
+    "power_limits": job_power_limits,
+    "growatt_energy": job_growatt_energy,
+    "energy_backfill": job_energy_backfill,
     "publish_today": job_publish_today,
     "publish_yesterday": job_publish_yesterday,
     "retention": job_retention,

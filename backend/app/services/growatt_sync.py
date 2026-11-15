@@ -190,6 +190,13 @@ def sync_fleet(
     except Exception as exc:  # never break the registry over it
         db.rollback()
         log.error("phase %s inverter info sweep failed: %s", phase, exc)
+    for label, sweep in (("plant details", _sync_plant_details), ("inverter model", _sync_device_params)):
+        try:
+            n = sweep(db, client, pids, now, pause_s)
+            log.info("phase %s: %s read for %d", phase, label, n)
+        except Exception as exc:  # never break the registry over it
+            db.rollback()
+            log.error("phase %s %s sweep failed: %s", phase, label, exc)
     return list(
         db.scalars(
             select(GrowattInverter)
@@ -244,6 +251,178 @@ def _sync_inverter_info(
         done += 1
         time.sleep(pause_s)
     return done
+
+
+DETAILS_REFRESH_DAYS = 7  # plant/details: static, rarely edited in Growatt
+PARAM_REFRESH_DAYS = 30  # queryDeviceInfoParam: the model does not change
+REGISTRY_MAX_RATE_LIMITED = 3
+
+
+def _due(last: Optional[datetime], cutoff: datetime) -> bool:
+    return last is None or (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) <= cutoff
+
+
+def _registry_sweep(
+    db: Session,
+    rows: Sequence[Any],
+    read: Callable[[Any], Dict[str, Any]],
+    stamp: str,
+    label: str,
+    now: datetime,
+    pause_s: float,
+) -> int:
+    """Read `read(row)` for each due row (never read / oldest first), set its fields and `stamp`.
+    REGISTRY_MAX_RATE_LIMITED 10012s in a row end the sweep; other refusals skip the row."""
+    done = 0
+    in_a_row = 0
+    asked = 0
+    for row in rows:
+        if asked:
+            time.sleep(pause_s)
+        asked += 1
+        try:
+            fields = read(row)
+        except GrowattAPIError as exc:
+            if exc.error_code == RATE_LIMIT_CODE:
+                in_a_row += 1
+                if in_a_row >= REGISTRY_MAX_RATE_LIMITED:
+                    log.warning("%s rate limited after %d reads; the rest wait for the next run", label, done)
+                    break
+                continue
+            in_a_row = 0
+            log.debug("%s failed: %s", label, exc)
+            continue
+        except Exception as exc:
+            in_a_row = 0
+            log.warning("%s failed: %s", label, exc)
+            continue
+        in_a_row = 0
+        for k, v in fields.items():
+            if v is not None:  # a blank answer never erases a value read before
+                setattr(row, k, v)
+        setattr(row, stamp, now)
+        db.commit()
+        done += 1
+    return done
+
+
+def _sync_plant_details(
+    db: Session, client: GrowattClient, plant_ids: Sequence[int], now: datetime, pause_s: float = 0.5
+) -> int:
+    """`plant/details` (time zone, address, Growatt's inverter / datalogger counts) for the plants
+    never read or read more than DETAILS_REFRESH_DAYS ago, oldest first."""
+    now = now.astimezone(timezone.utc)
+    cutoff = now - timedelta(days=DETAILS_REFRESH_DAYS)
+    plants = [
+        p
+        for p in db.scalars(
+            select(GrowattPlant)
+            .where(GrowattPlant.plant_id.in_(plant_ids))
+            .order_by(GrowattPlant.details_synced_at.is_not(None), GrowattPlant.details_synced_at, GrowattPlant.plant_id)
+        )
+        if _due(p.details_synced_at, cutoff)
+    ]
+    return _registry_sweep(
+        db, plants, lambda p: client.plant_details(p.plant_id), "details_synced_at", "plant/details", now, pause_s
+    )
+
+
+def _sync_device_params(
+    db: Session, client: GrowattClient, plant_ids: Sequence[int], now: datetime, pause_s: float = 0.5
+) -> int:
+    """`queryDeviceInfoParam` (model text, datalogger model, rated power) for the inverters never
+    read or read more than PARAM_REFRESH_DAYS ago, oldest first."""
+    now = now.astimezone(timezone.utc)
+    cutoff = now - timedelta(days=PARAM_REFRESH_DAYS)
+    invs = [
+        i
+        for i in db.scalars(
+            select(GrowattInverter)
+            .where(GrowattInverter.plant_id.in_(plant_ids))
+            .order_by(GrowattInverter.param_synced_at.is_not(None), GrowattInverter.param_synced_at, GrowattInverter.device_sn)
+        )
+        if _due(i.param_synced_at, cutoff)
+    ]
+    return _registry_sweep(
+        db, invs, lambda i: client.device_info_param(i.device_sn), "param_synced_at", "queryDeviceInfoParam", now, pause_s
+    )
+
+
+POWER_LIMIT_REFRESH_HOURS = 20  # one read per inverter per day (the job runs daily)
+POWER_LIMIT_PAUSE_S = 2.0  # between calls: a full account at this pace hit no 10012 (15 Nov 2026)
+
+
+def sync_power_limits(
+    db: Session,
+    client: GrowattClient,
+    phase: Optional[int] = None,
+    include_untagged: bool = False,
+    now: Optional[datetime] = None,
+    pause_s: float = POWER_LIMIT_PAUSE_S,
+    max_rate_limited: int = 3,
+) -> Dict[str, Any]:
+    """Read each inverter's active power limit (`readPower`) and store it as `power_limit_pct`.
+
+    Inverters never read / read longest ago first, skipping ones read within
+    POWER_LIMIT_REFRESH_HOURS. The read goes through the datalogger to the inverter, so it runs
+    in daylight; refusals (offline inverter, a datalogger that doesn't pass it on: about 1 in 5)
+    leave the stored value and its `power_limit_read_at` as they were, never write a default.
+    `max_rate_limited` 10012s in a row end the sweep (the run is `partial`).
+    """
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    cutoff = now - timedelta(hours=POWER_LIMIT_REFRESH_HOURS)
+    q = _inverters_query(phase, include_untagged).order_by(None).order_by(
+        GrowattInverter.power_limit_read_at.is_not(None), GrowattInverter.power_limit_read_at, GrowattInverter.device_sn
+    )
+    out: Dict[str, Any] = {"power_limits_read": 0, "power_limited": 0, "power_limit_unreadable": 0, "failed": []}
+    errors: Dict[str, int] = {}
+    in_a_row = 0
+    asked = 0
+    for inv in list(db.scalars(q)):
+        last = inv.power_limit_read_at
+        if last is not None and (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) > cutoff:
+            continue
+        if asked:
+            time.sleep(pause_s)
+        asked += 1
+        try:
+            pct = client.read_power(inv.device_sn)
+        except GrowattAPIError as exc:
+            if exc.error_code == RATE_LIMIT_CODE:
+                in_a_row += 1
+                if in_a_row >= max_rate_limited:
+                    log.warning("readPower rate limited %d times in a row; the rest wait for the next run", in_a_row)
+                    out["failed"].append(f"phase {phase}: readPower rate limited")
+                    break
+                continue
+            in_a_row = 0
+            out["power_limit_unreadable"] += 1
+            key = str(exc.error_code)
+            errors[key] = errors.get(key, 0) + 1
+            log.debug("inverter %s readPower refused: %s", inv.device_sn, exc)
+            continue
+        except Exception as exc:  # network etc.: skip this inverter
+            in_a_row = 0
+            out["power_limit_unreadable"] += 1
+            errors["error"] = errors.get("error", 0) + 1
+            log.warning("inverter %s readPower failed: %s", inv.device_sn, exc)
+            continue
+        in_a_row = 0
+        # a change of a known limit is worth a line; the first read of each inverter is not
+        if inv.power_limit_pct is not None and inv.power_limit_pct != pct:
+            log.info("inverter %s power limit %s -> %s %%", inv.device_sn, inv.power_limit_pct, pct)
+        inv.power_limit_pct = pct
+        inv.power_limit_read_at = now
+        db.commit()
+        out["power_limits_read"] += 1
+        if pct < 100:
+            out["power_limited"] += 1
+    out["power_limit_errors"] = errors
+    log.info(
+        "phase %s readPower: %d read (%d below 100 %%), %d refused %s",
+        phase, out["power_limits_read"], out["power_limited"], out["power_limit_unreadable"], errors,
+    )
+    return out
 
 
 def sync_env_sensors(db: Session, client: GrowattClient, plant_id: int, now: Optional[datetime] = None) -> int:

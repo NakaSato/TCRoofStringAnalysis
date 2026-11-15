@@ -20,12 +20,13 @@ plant's phase; `plants()` asks every account and merges the lists (tagged with `
 
 from __future__ import annotations
 
+import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import time
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
-from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Hashable, List, Optional, Sequence, Set, Tuple, Union
 from zoneinfo import ZoneInfo
 
 from app.config import settings
@@ -136,6 +137,8 @@ class GrowattLiveService:
         sensor_sweep: int = 12,
         plant_today_ttl_s: float = 300.0,
         plant_today_sweep: int = 40,
+        snapshot_ttl_s: float = 300.0,
+        snapshot_sweep: int = 4,
         redis: Optional[RedisLink] = None,
     ):
         """`client_factory(phase)` builds the client for one account; `phases` lists the accounts.
@@ -163,6 +166,10 @@ class GrowattLiveService:
         # `plant_today_sweep` plants refreshed per `plant_today` request.
         self.plant_today_ttl_s = plant_today_ttl_s
         self.plant_today_sweep = max(1, plant_today_sweep)
+        # Fleet inverter snapshot (`maxs_data`): chunks of SNAPSHOT_CHUNK inverters per account,
+        # each reused this long, at most `snapshot_sweep` chunks refreshed per request.
+        self.snapshot_ttl_s = snapshot_ttl_s
+        self.snapshot_sweep = max(1, snapshot_sweep)
         # key -> (clock_ts, wall_ts, data, ttl_s); memory, mirrored in Redis when configured
         self._cache: TieredDict = cache_map("growatt", redis, ttl_index=3)
         self._key_locks: Dict[Hashable, threading.Lock] = {}
@@ -570,6 +577,79 @@ class GrowattLiveService:
             )
         )
 
+    def inverter_snapshot(
+        self,
+        inverters: Sequence[Tuple[str, Optional[int]]],
+        wanted: Optional[Set[str]] = None,
+        coords: Optional[Coords] = None,
+    ) -> Dict[str, Any]:
+        """Newest record of every inverter in `inverters` ((serial, plant phase)) from `maxs_data`,
+        SNAPSHOT_CHUNK serials per call. Not persisted.
+
+        Each account's serials are cut into fixed sorted chunks, one cache key per chunk, swept
+        like `sensor_status` (at most `snapshot_sweep` expired chunks per request, oldest first).
+        `wanted` limits the reply (and the chunks swept) to those serials. Each record keeps its own
+        time: a silent inverter's newest record can be months old and is served as such;
+        `eac_today_kwh` is null unless the record is from today. It does not share `max_data`'s
+        per-inverter rate limit, so it never delays `/live/plants/{id}/latest`."""
+        if not self.phases:
+            raise LiveUnavailable("no Growatt token configured")
+        # untagged plants go with the first account; an account without a token keeps its phase,
+        # so its chunks fail one by one (reported in `errors`) instead of the whole snapshot
+        by_phase: Dict[int, List[str]] = {}
+        for sn, ph in inverters:
+            by_phase.setdefault(self.phases[0] if ph is None else ph, []).append(sn)
+        # chunk id "p<phase>#<n>:<digest>": short for `errors`, and the digest of its serials
+        # keeps a cached chunk from being reused for a different set after a registry change
+        chunks: Dict[str, Optional[int]] = {}
+        members: Dict[str, List[str]] = {}
+        for ph, sns in sorted(by_phase.items()):
+            sns = sorted(set(sns))
+            for k in range(0, len(sns), SNAPSHOT_CHUNK):
+                part = sns[k : k + SNAPSHOT_CHUNK]
+                if wanted is None or wanted.intersection(part):
+                    cid = f"p{ph}#{k // SNAPSHOT_CHUNK + 1}:{hashlib.sha1(','.join(part).encode()).hexdigest()[:10]}"
+                    chunks[cid] = ph
+                    members[cid] = part
+        ttl = lambda _rows: self._night(self.snapshot_ttl_s, coords)
+        sw = self._sweep(
+            chunks,
+            lambda cid: ("maxs", cid),
+            lambda cid: (lambda c: _maxs_rows(c, members[cid])),
+            ttl,
+            self.snapshot_sweep,
+            self.snapshot_ttl_s,
+        )
+        today = self._now_local().date().isoformat()
+        out: Dict[str, Dict[str, Any]] = {}
+        for _cid, (wall, rows, fresh) in sw.hits.items():
+            for sn, row in rows.items():
+                if wanted is not None and sn not in wanted:
+                    continue
+                rec_t = row.get("record_time")
+                is_today = bool(rec_t) and str(rec_t)[:10] == today
+                out[sn] = {
+                    **row,
+                    "eac_today_kwh": row.get("eac_today_kwh") if is_today else None,
+                    "fetched_at": wall.isoformat(),
+                    "stale": not fresh,
+                }
+        n_inv = sum(1 for sn, _ in inverters if wanted is None or sn in wanted)
+        return self._envelope(
+            _Result(
+                sw.wall,
+                {
+                    "day": today,
+                    "inverters": out,
+                    "errors": sw.errors,
+                    "sweep": {**sw.stats, "inverters": n_inv, "answered": len(out)},
+                },
+                stale=sw.stale,
+                error=sw.error,
+                refresh_in=sw.refresh,
+            )
+        )
+
     def _sweep(
         self,
         items: Dict[str, Optional[int]],
@@ -838,6 +918,32 @@ def _alarm_row(sn: str, a: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+SNAPSHOT_CHUNK = 50  # `maxs_data` answers about 50 serials per page; one call per chunk
+
+
+def _maxs_rows(client: GrowattClient, sns: List[str]) -> Dict[str, Dict[str, Any]]:
+    """`maxs_data` → {serial: the fields the fleet views use}; realtime, never stored. A serial
+    Growatt does not answer is absent (unknown), never filled in."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for sn, rec in client.maxs_latest(sns).items():
+        t = rec.get("time")
+        status = rec.get("status")
+        out[sn] = {
+            "record_time": str(t)[:19] if t else None,  # plant-local, the record's own time
+            "status": int(status) if isinstance(status, (int, float)) else None,
+            "status_label": rec.get("statusText") or None,
+            "pac_w": _f(rec.get("pac")),
+            "ppv_w": _f(rec.get("ppv")),
+            "eac_today_kwh": _f(rec.get("eacToday")),
+            "temperature_c": _f(rec.get("temperature")),
+            "fault_type": _f(rec.get("faultType")),
+            "warn_code": _f(rec.get("warnCode")),
+            "lost": _flag(rec.get("lost")),
+            "datalogger_sn": rec.get("dataloggerSn") or rec.get("dataLogSn") or None,
+        }
+    return out
+
+
 def _plant_data_row(client: GrowattClient, plant_id: int) -> Dict[str, Any]:
     """The `plant/data` fields the plant directory uses; `last_update_time` is plant-local."""
     d = client.plant_data(plant_id)
@@ -982,5 +1088,7 @@ def get_live_service() -> GrowattLiveService:
         sensor_sweep=settings.sensor_sweep_per_request,
         plant_today_ttl_s=settings.plant_today_ttl_s,
         plant_today_sweep=settings.plant_today_sweep_per_request,
+        snapshot_ttl_s=settings.inverter_snapshot_ttl_s,
+        snapshot_sweep=settings.inverter_snapshot_sweep_per_request,
         phases=tuple(accounts),
     )
