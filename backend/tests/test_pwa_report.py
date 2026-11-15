@@ -75,15 +75,16 @@ def test_cells_are_the_sheet_values(client):
     assert body["columns"] == ["status", "note", "irr", "wx", "log", "kw", "inv"]
     assert body["loggers"] == {"DL1": "7", "DL2": "7"} and body["names"] == {"7": "สถานี A"}
     p = body["plants"]["7"]
-    assert p["checks"] == {"09": ["normal", "INV ทำงานปกติ", "—", "—", "—", 12.5, "1/1"]}
+    assert p["checks"] == {"09": ["Normal", "INV ทำงานปกติ", "—", "—", "—", 12.5, "1/1"]}
     assert p["weather_status"] == "Abnormal" and p["weather_detail"] == "ไม่มีเซนเซอร์" and p["yield_kwh"] == "—"
     assert p["datalogger_sn"] == ["DL1", "DL2"]
-    # inverter firmware per datalogger: innerVersion, else fwVersion; replaced inverters left out
-    assert body["firmware"] == {"DL1": "TIAA25220401, TN1.0"}
+    # Growatt gives no datalogger firmware: the Firmware column gets nothing
+    assert body["firmware"] == {}
     # the datalogger itself: Growatt's model, null until read; inverters not marked as replaced
     assert body["dataloggers"] == {
-        "DL1": {"plant_id": "7", "model": "ShineMaster", "inverters": 2},
-        "DL2": {"plant_id": "7", "model": None, "inverters": 1},
+        # inverter_firmware: what older reports wrote into the Firmware column (replaced inverters left out)
+        "DL1": {"plant_id": "7", "model": "ShineMaster", "inverters": 2, "inverter_firmware": ["TI1.0, TN1.0", "TIAA25220401, TN1.0"]},
+        "DL2": {"plant_id": "7", "model": None, "inverters": 1, "inverter_firmware": []},
     }
     assert body["checks_ready"] == ["09"]  # an older day without `checks_ready`: what is there counts
 

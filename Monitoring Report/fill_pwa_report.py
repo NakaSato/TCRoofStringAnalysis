@@ -5,13 +5,13 @@ Columns per plant row (row 3+, matched by datalogger SN in column C, plant name 
     G/K/O  Status (normal/abnormal)    Firestore daily/{day}/plants/{id}.hourly_kw at 09/13/17 (real Growatt power)
     H/L/P  ค่าแสง                       Growatt sensor irradiance (W/m²), nearest reading within ±10 min
     I/M/Q  สภาพอากาศ                    Growatt: sky class from irradiance vs clear-sky;
-                                       no Growatt reading -> Google Maps Weather (modelled, marked "(Google)")
+                                       no Growatt reading -> Google Maps Weather (modelled; the cell is not marked)
     J/N/R  DATA LOG                    online / offline (plant uploaded data in that hour)
 
 No value is made up: anything without a source is "—".
 
 Local back-fill tool only. The scheduled fill is the worker (backend/app/services/pwa_sheet.py).
-Unlike it, this script ignores inverter offline/fault checks: Status is "normal" whenever power > 0.
+Unlike it, this script ignores inverter offline/fault checks: Status is "Normal" whenever power > 0.
 
 Usage (repo root):
     PYTHONPATH=backend uv run --with openpyxl python "Monitoring Report/fill_pwa_report.py" --day 2026-11-12
@@ -41,19 +41,8 @@ CHECKS = ((9, "G"), (13, "K"), (17, "O"))  # hour -> first column of its 4-colum
 NEAREST = timedelta(minutes=10)
 DASH = "—"
 
-GOOGLE_TH = {
-    "CLEAR": "ท้องฟ้าแจ่มใส",
-    "MOSTLY_CLEAR": "ท้องฟ้าโปร่ง",
-    "PARTLY_CLOUDY": "มีเมฆบางส่วน",
-    "MOSTLY_CLOUDY": "เมฆมาก",
-    "CLOUDY": "ฟ้าครึ้ม",
-    "CHANCE_OF_SHOWERS": "อาจมีฝน",
-    "LIGHT_RAIN": "ฝนตกเล็กน้อย",
-    "RAIN": "ฝนตก",
-    "RAIN_SHOWERS": "ฝนตก",
-    "SCATTERED_THUNDERSTORMS": "ฝนฟ้าคะนอง",
-    "THUNDERSTORM": "ฝนฟ้าคะนอง",
-}
+# สภาพอากาศ has only these three values
+SKY_CLEAR, SKY_CLOUD, SKY_RAIN = "ท้องฟ้าปลอดโปร่ง", "มีเมฆบางส่วน", "ฝนตก"
 
 
 def col(letter: str, offset: int) -> str:
@@ -80,14 +69,7 @@ def sky_th(irr: float, cs: float) -> Optional[str]:
     """Clearness (measured ÷ clear-sky) → Thai sky class; None when the sun is too low to judge."""
     if cs < 80:
         return None
-    k = irr / cs
-    if k >= 0.75:
-        return "ท้องฟ้าปลอดโปร่ง"
-    if k >= 0.45:
-        return "มีเมฆบางส่วน"
-    if k >= 0.2:
-        return "เมฆมาก"
-    return "ฟ้าครึ้ม/ฝน"
+    return SKY_CLEAR if irr / cs >= 0.75 else SKY_CLOUD
 
 
 # --------------------------------------------------------------------------- sources
@@ -171,7 +153,7 @@ def main() -> int:
         for hour, c0 in CHECKS:
             t = d0.replace(hour=hour)
             kw = hourly[hour]
-            ws[f"{c0}{row}"] = DASH if kw is None else ("normal" if kw > 0 else "abnormal")
+            ws[f"{c0}{row}"] = DASH if kw is None else ("Normal" if kw > 0 else "Abnormal")
             vals = [v for v in (nearest(env[d], t) for d in sensor_dls) if v is not None]
             irr = round(sum(vals) / len(vals)) if vals else None
             sensor_hits.append(irr is not None)
@@ -180,11 +162,15 @@ def main() -> int:
             g = gwh.get((cell[0], hour)) if cell else None
             g_rain = gw.is_raining(g.precip_mm, g.condition) if g else None
             sky = sky_th(irr, clear_sky_ghi(plant.latitude, plant.longitude, t)) if irr is not None and plant.latitude else None
-            if sky:
-                wx = sky + (" (ฝน: Google)" if g_rain else "")
+            g_cond = (g.condition or "").upper() if g else ""
+            if g_rain:  # rain comes from Google only (modelled)
+                wx = SKY_RAIN
+                stats["wx_google"] += 1
+            elif sky:
+                wx = sky
                 stats["wx_growatt"] += 1
-            elif g is not None:
-                wx = GOOGLE_TH.get(g.condition or "", g.condition or DASH) + " (Google)"
+            elif g_cond in ("CLEAR", "MOSTLY_CLEAR") or "CLOUD" in g_cond or g_cond.startswith("CHANCE_OF"):
+                wx = (SKY_CLEAR if g_cond in ("CLEAR", "MOSTLY_CLEAR") else SKY_CLOUD)
                 stats["wx_google"] += 1
             else:
                 wx = DASH
@@ -196,7 +182,7 @@ def main() -> int:
         if not had_sensor:
             ws[f"F{row}"] = "ไม่มีเซนเซอร์"
         elif all(sensor_hits):
-            ws[f"F{row}"] = "normal"
+            ws[f"F{row}"] = "Normal"
         else:
             missing = ", ".join(f"{h:02d}:00" for (h, _), ok in zip(CHECKS, sensor_hits) if not ok)
             ws[f"F{row}"] = f"loss ({missing})"

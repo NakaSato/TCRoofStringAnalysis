@@ -25,11 +25,13 @@ Nothing is made up; no source = "—":
                 under LOG_MAX (300) characters, cut at a whole entry with "…(+N)"
     Note        "INV ทำงานปกติ ค่าแสง 584 (ฝนตก)" …          (old layout)
     ค่าแสง       checks.{hh}.irradiance_wm2                  Growatt weather sensor
-    สภาพอากาศ    checks.{hh}.google.condition + " (Google)"  (modelled, at the slot time);
-                no Google value -> sky class from that irradiance vs clear-sky
+    สภาพอากาศ    one of ท้องฟ้าปลอดโปร่ง / มีเมฆบางส่วน / ฝนตก: checks.{hh}.google (`google_sky`,
+                modelled, at the slot time; the cell carries no "(Google)" mark, `sources` in the API does); no Google value -> ท้องฟ้าปลอดโปร่ง /
+                มีเมฆบางส่วน from that irradiance vs clear-sky (`sky_th`)
     weather Status  "Normal" (sensor reported at every check so far) / "Abnormal"
-    Firmware    the row's datalogger's inverters' firmware (innerVersion, else fwVersion, ", "-joined),
-                written only while empty or "—"
+    Firmware    the datalogger's own firmware: Growatt's API gives none, so the cell is left blank;
+                a "—" or an inverter version an older report wrote there is blanked, a version
+                typed by hand is kept
 
 Schedule (worker): `pwa_sheet` at 06:05 creates today's tab; `publish_today` (08:50 / 12:50 /
 16:50 / 19:30, each check's history pulled 3 min before) fills the checks published so far.
@@ -59,16 +61,26 @@ DASH = "—"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 API = "https://sheets.googleapis.com/v4/spreadsheets"
 
-GOOGLE_TH = {
-    "CLEAR": "ท้องฟ้าแจ่มใส", "MOSTLY_CLEAR": "ท้องฟ้าโปร่ง", "PARTLY_CLOUDY": "มีเมฆบางส่วน",
-    "MOSTLY_CLOUDY": "เมฆมาก", "CLOUDY": "ฟ้าครึ้ม", "CHANCE_OF_SHOWERS": "อาจมีฝน",
-    "LIGHT_RAIN": "ฝนตกเล็กน้อย", "RAIN": "ฝนตก", "RAIN_SHOWERS": "ฝนตก",
-    "SCATTERED_THUNDERSTORMS": "ฝนฟ้าคะนอง", "THUNDERSTORM": "ฝนฟ้าคะนอง",
-    "WINDY": "ลมแรง", "WIND_AND_RAIN": "ฝนตก ลมแรง", "SCATTERED_SHOWERS": "ฝนตกบางพื้นที่",
-    "LIGHT_RAIN_SHOWERS": "ฝนตกเล็กน้อย", "HEAVY_RAIN_SHOWERS": "ฝนตกหนัก", "LIGHT_TO_MODERATE_RAIN": "ฝนตก",
-    "MODERATE_TO_HEAVY_RAIN": "ฝนตกหนัก", "HEAVY_RAIN": "ฝนตกหนัก", "RAIN_PERIODICALLY_HEAVY": "ฝนตกหนักเป็นช่วง",
-    "ISOLATED_THUNDERSTORMS": "ฝนฟ้าคะนองบางพื้นที่", "HEAVY_THUNDERSTORM": "ฝนฟ้าคะนองรุนแรง",
-}
+# สภาพอากาศ has only these three values
+SKY_CLEAR, SKY_CLOUD, SKY_RAIN = "ท้องฟ้าปลอดโปร่ง", "มีเมฆบางส่วน", "ฝนตก"
+GOOGLE_CLEAR = {"CLEAR", "MOSTLY_CLEAR"}
+
+
+def google_sky(g: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Google's conditions as one of the three sky values: raining (`google_weather.is_raining`)
+    = ฝนตก; CLEAR / MOSTLY_CLEAR = ท้องฟ้าปลอดโปร่ง; a cloud condition or a mere chance of rain =
+    มีเมฆบางส่วน. None when Google gave nothing, or a condition that says nothing about the sky
+    (WINDY)."""
+    if not g:
+        return None
+    if g.get("raining"):
+        return SKY_RAIN
+    cond = str(g.get("condition") or "").upper()
+    if cond in GOOGLE_CLEAR:
+        return SKY_CLEAR
+    if "CLOUD" in cond or cond.startswith("CHANCE_OF"):
+        return SKY_CLOUD
+    return None
 
 
 def sheet_name(day: date) -> str:
@@ -175,17 +187,11 @@ def clear_sky(lat: float, lon: float, day: date, hour: int, minute: int = 0) -> 
 
 
 def sky_th(irr: float, cs: float) -> Optional[str]:
-    """Measured ÷ clear-sky → Thai sky class; None when the sun is too low to judge."""
+    """Measured ÷ clear-sky → ท้องฟ้าปลอดโปร่ง (≥ 0.75) or มีเมฆบางส่วน; None when the sun is too
+    low to judge. Irradiance alone never says ฝนตก: rain comes from Google only."""
     if cs < 80:
         return None
-    k = irr / cs
-    if k >= 0.75:
-        return "ท้องฟ้าปลอดโปร่ง"
-    if k >= 0.45:
-        return "มีเมฆบางส่วน"
-    if k >= 0.2:
-        return "เมฆมาก"
-    return "ฟ้าครึ้ม/ฝน"
+    return SKY_CLEAR if irr / cs >= 0.75 else SKY_CLOUD
 
 
 def _check(c: Any) -> Optional[Dict[str, Any]]:
@@ -341,18 +347,18 @@ def plant_cells(
         rain = bool(g and g.get("raining"))
 
         ok = kw is not None and kw > 0 and not (c and (c["offline"] or c["fault"]))
-        status = DASH if kw is None and not c else "normal" if ok else "abnormal"
+        status = DASH if kw is None and not c else "Normal" if ok else "Abnormal"
 
         sky = None
         if irr is not None and info.get("latitude") is not None and info.get("longitude") is not None:
             sky = sky_th(irr, clear_sky(info["latitude"], info["longitude"], day, at_h, at_m))
         # สภาพอากาศ = Google (modelled, labelled); the sensor's sky class only when Google has none
         wx, src = DASH, None
-        if g and g.get("condition"):
-            text = GOOGLE_TH.get(g["condition"]) or g["condition"]
-            wx, src = text + (" (ฝนตก)" if rain and "ฝน" not in text else "") + " (Google)", "google"
+        gsky = google_sky(g)
+        if gsky:
+            wx, src = gsky, "google"
         elif sky:
-            wx, src = sky + (" (ฝนตก)" if rain else ""), "growatt"
+            wx, src = sky, "growatt"
 
         inv = f"{c['inverters'] - len(c['offline'])}/{c['inverters']}" if c and c["inverters"] else DASH
         out["checks"][hh] = [
@@ -428,8 +434,11 @@ def fill_rows(
     - a check cell is written only while it is empty, so the first published value stays;
     - a check not published yet (`data["checks_ready"]`, or every plant "—") is skipped;
     - weather Status ("Normal" / "Abnormal") and Yield are kept up to date;
-    - Firmware (by the row's datalogger SN, `data["firmware"]`) is written only while empty or "—";
-      an SN without a version gets "—". Without the map the column is left as it is;
+    - Firmware (by the row's datalogger SN, `data["firmware"]`: the datalogger's own firmware, which
+      Growatt's API does not give) is written only while the cell is empty, "—" or holds an inverter
+      version an older report put there (`data["dataloggers"][sn]["inverter_firmware"]`); with no
+      version the cell is blanked. Anything else (typed by hand) is kept. Without the map the column
+      is left as it is;
     - cells of other checks are left as they are."""
     blocks = [b for b in lay.blocks if hours is None or b.hour in hours]
     by_plant: Dict[str, Any] = data.get("days") or {}
@@ -460,10 +469,14 @@ def fill_rows(
         sn = str(_cell(rows, i, 2)).strip()
         if not sn:
             continue
-        if lay.firmware and firmware is not None and str(_cell(rows, i, lay.firmware - 1)).strip() in ("", DASH):
-            v = firmware.get(sn)
-            put(lay.firmware, v or DASH)
-            stats.firmware += 1 if v else 0
+        if lay.firmware and firmware is not None:
+            cur = str(_cell(rows, i, lay.firmware - 1)).strip()
+            stale = ((data.get("dataloggers") or {}).get(sn) or {}).get("inverter_firmware") or []
+            if cur in ("", DASH) or cur in stale:
+                v = firmware.get(sn) or ""
+                if v != cur:
+                    put(lay.firmware, v)
+                stats.firmware += 1 if v else 0
         pid = match_plant(sn, str(_cell(rows, i, 1)).strip(), data.get("loggers") or {}, names)
         if not pid:
             stats.unmatched += 1
@@ -485,7 +498,7 @@ def fill_rows(
                     stats.kept += 1
             if vals["kw"] == DASH:
                 stats.no_power += 1
-            elif vals["status"] == "normal":
+            elif vals["status"] == "Normal":
                 stats.normal += 1
             else:
                 stats.abnormal += 1

@@ -103,15 +103,18 @@ def _registry(
     """(plants {id: {name, latitude, longitude}}, loggers {datalogger_sn: id}, each plant's
     current datalogger SNs {id: [sn, ...]}: those of its inverters not marked as replaced, else
     of all its inverters, firmware {datalogger_sn: version}, dataloggers {datalogger_sn:
-    {plant_id, model, inverters}}).
+    {plant_id, model, inverters, inverter_firmware}}).
 
     Dataloggers: `model` is Growatt's `dataloggerModel` ("ShineMaster", from
     `new-api/queryDeviceInfoParam`, stored on the inverter), null until that sync has read it;
     `inverters` counts the ones not marked as replaced.
 
-    Firmware is the inverters' own (`max_data_info` innerVersion, else fwVersion; Growatt gives no
-    datalogger firmware): the distinct versions of the datalogger's inverters not marked as
-    replaced, sorted and joined with ", ". A datalogger with no version read is left out."""
+    Firmware is the datalogger's own firmware version, for the sheet's Firmware column. Growatt's
+    API gives none, so the map is empty and the column stays blank (nothing is made up).
+    `inverter_firmware` lists what the report used to write there instead: the versions of the
+    datalogger's inverters not marked as replaced (`max_data_info` innerVersion else fwVersion,
+    and fwVersion alone), each sorted and joined with ", ". The sheet fillers blank a Firmware cell
+    that holds one of these; a version typed by hand is kept."""
     from app.services.daily_checks import is_replaced
 
     global _registry_cache
@@ -125,7 +128,7 @@ def _registry(
     loggers: Dict[str, str] = {}
     current: Dict[str, List[str]] = {}
     every: Dict[str, List[str]] = {}
-    versions: Dict[str, Set[str]] = {}
+    versions: Dict[Tuple[str, str], Set[str]] = {}
     models: Dict[str, Optional[str]] = {}
     counts: Dict[str, int] = {}
     for inv in db.scalars(select(GrowattInverter).where(GrowattInverter.datalogger_sn.is_not(None)).order_by(GrowattInverter.device_sn)):
@@ -140,12 +143,20 @@ def _registry(
         if not is_replaced(inv):
             if sn not in current.setdefault(pid, []):
                 current[pid].append(sn)
-            v = (inv.inner_version or inv.fw_version or "").strip()
-            if v:
-                versions.setdefault(sn, set()).add(v)
+            for kind, v in (("inner", inv.inner_version or inv.fw_version), ("fw", inv.fw_version)):
+                if (v or "").strip():
+                    versions.setdefault((sn, kind), set()).add(v.strip())
     by_plant = {pid: sorted(current.get(pid) or sns) for pid, sns in every.items()}
-    firmware = {sn: ", ".join(sorted(vs)) for sn, vs in sorted(versions.items())}
-    dataloggers = {sn: {"plant_id": loggers[sn], "model": models[sn], "inverters": counts[sn]} for sn in sorted(loggers)}
+    firmware: Dict[str, str] = {}  # datalogger firmware: Growatt's API has none
+    stale: Dict[str, List[str]] = {}
+    for (sn, _kind), vs in sorted(versions.items()):
+        text = ", ".join(sorted(vs))
+        if text not in stale.setdefault(sn, []):
+            stale[sn].append(text)
+    dataloggers = {
+        sn: {"plant_id": loggers[sn], "model": models[sn], "inverters": counts[sn], "inverter_firmware": stale.get(sn, [])}
+        for sn in sorted(loggers)
+    }
     if cache:
         _registry_cache = (now, plants, loggers, by_plant, firmware, dataloggers)
     return plants, loggers, by_plant, firmware, dataloggers
@@ -256,8 +267,10 @@ def cells(db: Session, day: date, hours: Sequence[int], day_docs: Optional[DayDo
         "loggers": data["loggers"],
         "names": {pid: info["name"] for pid, info in data["plants"].items()},
         "plants": plants,
-        # {datalogger_sn: inverter firmware}, for the sheet's Firmware column (see _registry)
+        # {datalogger_sn: the datalogger's firmware}, for the sheet's Firmware column: empty,
+        # Growatt gives no datalogger firmware, so the column stays blank (see _registry)
         "firmware": data["firmware"],
-        # {datalogger_sn: {plant_id, model, inverters}}; Growatt gives no datalogger firmware
+        # {datalogger_sn: {plant_id, model, inverters, inverter_firmware}}; `inverter_firmware` =
+        # the inverter versions older reports wrote into the Firmware column (blanked by the fill)
         "dataloggers": data["dataloggers"],
     }
