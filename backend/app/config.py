@@ -105,6 +105,12 @@ class Settings(BaseSettings):
     # Raw 1–5 min Growatt readings older than this are deleted daily (`retention` job). Daily
     # summaries in Firestore are kept. ~0.35–0.5 MB per inverter-day: 629 inverters x 90 days ≈ 30–45 GB.
     history_retention_days: int = 90
+    # Keep the whole `max_data` record of every inverter reading (`growatt_inverter_raw`, every
+    # field as Growatt reports it), not only the columns the app computes from. About 4 kB per
+    # record uncompressed: 629 inverters ≈ 0.7 GB/day before Postgres compression, so it has its
+    # own, shorter retention. false = store only the computed columns, as before.
+    history_store_raw: bool = True
+    history_raw_retention_days: int = 30
     # Google Maps Platform Weather API (modelled weather per plant; backend only, never sent to
     # the browser). 10,000 free calls/month, then $0.15 per 1,000. Plants within one grid cell
     # share a lookup. Every call (worker + API) is counted per billing day (US/Pacific) in SQL;
@@ -151,6 +157,18 @@ class Settings(BaseSettings):
     ai_price_in_per_m: float = 0.40
     ai_price_cached_per_m: float = 0.08
     ai_price_out_per_m: float = 1.60
+    # Alarm push notifications (Firebase Cloud Messaging, web push). The four web values are the
+    # Firebase web app's public config (they ship to every browser by design, not secrets); the
+    # API hands them to the UI, and push is off while any is empty. The worker sends with
+    # FIREBASE_CREDENTIALS_FILE after each `alarms` run; the API never sends.
+    firebase_web_api_key: str = ""
+    firebase_web_app_id: str = ""
+    firebase_messaging_sender_id: str = ""
+    firebase_vapid_key: str = ""  # Web Push certificate key pair (public key)
+    push_alarm_levels: str = "fault"  # comma list of fault, warning, info
+    push_alarm_max_age_min: int = 90  # an event last reported longer ago is old news: no push
+    push_alarm_repeat_min: int = 120  # the same inverter + code again: at most one push in this time
+    push_max_plants_per_user: int = 5  # more plants with new alarms in one run = one summary push
 
     model_config = SettingsConfigDict(
         env_file=".env",

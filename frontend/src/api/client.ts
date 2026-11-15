@@ -14,6 +14,7 @@ export type * from "./types/weather";
 export type * from "./types/sensors";
 export type * from "./types/systemLogs";
 export type * from "./types/assistant";
+export type * from "./types/push";
 export type * from "./types/issues";
 export type * from "./types/events";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
@@ -23,6 +24,7 @@ import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWea
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
+import type { PushStatus } from "./types/push";
 import type { SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
 import type { Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut } from "./types/issues";
 
@@ -396,6 +398,14 @@ export const api = {
   // AI Assistant (the chat itself streams: see api/assistant.ts)
   getAssistantStatus: () => apiFetch<AssistantStatus>("/assistant/status"),
   getAssistantUsage: () => apiFetch<AssistantUsage>("/assistant/usage"),
+
+  // Alarm push notifications (FCM): this user's devices; the worker sends
+  getPushStatus: () => apiFetch<PushStatus>("/push/status"),
+  registerPushToken: (token: string, label?: string) =>
+    apiFetch<{ devices: number }>("/push/tokens", { method: "POST", body: JSON.stringify({ token, label }) }),
+  removePushToken: (token: string) =>
+    apiFetch<{ devices: number }>("/push/tokens/remove", { method: "POST", body: JSON.stringify({ token }) }),
+  sendPushTest: () => apiFetch<{ queued: boolean; devices: number }>("/push/test", { method: "POST" }),
 
   // ---- decision rules / Issues queue (DB only; kWh and baht are estimates)
   listIssues: (q: IssueQuery = {}) => {

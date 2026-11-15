@@ -28,6 +28,7 @@ import { useAppContext } from "../context/AppContext";
 import { canAccessPath, isAdmin } from "../auth/access";
 import { api, type AssistantStatus } from "../api/client";
 import { AssistantDrawer } from "./assistant/AssistantDrawer";
+import { PushToggle } from "./PushToggle";
 import { parsePlantPath } from "../context/routes";
 import type { PlantPage } from "../context/routes";
 import { Led, LoadingState, fmt, fmtInt } from "./ui";
@@ -507,6 +508,8 @@ export const Layout: React.FC = () => {
                 <TooltipContent>AI Assistant (Ctrl/⌘ J)</TooltipContent>
               </Tooltip>
             )}
+
+            {user && <PushToggle user={user} />}
 
             <Tooltip>
               <TooltipTrigger asChild>

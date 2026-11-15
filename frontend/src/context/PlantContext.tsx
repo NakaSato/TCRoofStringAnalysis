@@ -7,8 +7,17 @@ import { overviewCache } from "./plantCache";
 
 const OVERVIEW_REFRESH_MS = 5 * 60_000; // DB history refresh (worker syncs every 10 min)
 
-/** Same names as the backend's solar_core.growatt.INVERTER_STATUS_NAMES. */
-export const INVERTER_STATUS_NAMES: Record<number, string> = { 0: "Offline", 1: "Normal", 3: "Fault" };
+/**
+ * Same names as the backend's solar_core.growatt.INVERTER_STATUS_NAMES. An inverter is Normal,
+ * Waiting or Offline (plus Fault when Growatt reports code 3). Offline is not a code: it is an
+ * inverter Growatt lost contact with, or one with no record today.
+ */
+export const INVERTER_STATUS_NAMES: Record<number, string> = { 0: "Waiting", 1: "Normal", 3: "Fault" };
+export const OFFLINE_LABEL = "Offline";
+
+/** Colour of an inverter status code: Normal ok, Waiting amber, Fault red, not reported neutral. */
+export const inverterStatusLevel = (st: number | null | undefined): "ok" | "warn" | "crit" | "neutral" =>
+  st === 1 ? "ok" : st === 3 ? "crit" : st == null ? "neutral" : "warn";
 
 
 export interface PlantContextValue {

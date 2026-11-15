@@ -36,6 +36,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+        // the push service worker (public/firebase-messaging-sw.js) is registered on its own scope
+        globIgnores: ["**/node_modules/**/*", "firebase-messaging-sw.js"],
         // the main chunk is ~0.6 MB; leave headroom so it is precached
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: "/index.html",

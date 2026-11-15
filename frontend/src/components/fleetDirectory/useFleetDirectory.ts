@@ -66,12 +66,13 @@ export const useFleetDirectory = () => {
     const day = snap.data.day;
     for (const r of Object.values(snap.data.inverters)) {
       if (r.plant_id == null) continue;
-      const c = out.get(r.plant_id) ?? { normal: 0, fault: 0, silent: 0, other: 0, answered: 0 };
+      const c = out.get(r.plant_id) ?? { normal: 0, waiting: 0, fault: 0, offline: 0, other: 0, answered: 0 };
       c.answered += 1;
-      // an old record (a silent inverter) is never read as its current status
-      if (!r.record_time || r.record_time.slice(0, 10) !== day) c.silent += 1;
+      // an old record (an offline inverter) is never read as its current status
+      if (!r.record_time || r.record_time.slice(0, 10) !== day) c.offline += 1;
       else if (r.status === 3) c.fault += 1;
       else if (r.status === 1) c.normal += 1;
+      else if (r.status === 0) c.waiting += 1;
       else c.other += 1;
       out.set(r.plant_id, c);
     }
@@ -206,7 +207,8 @@ export const useFleetDirectory = () => {
     const invLive = {
       normal: sum("normal"),
       fault: sum("fault"),
-      silent: sum("silent"),
+      waiting: sum("waiting"),
+      offline: sum("offline"),
       other: sum("other"),
       answered: sw?.answered ?? 0,
       total: sw?.inverters ?? null,

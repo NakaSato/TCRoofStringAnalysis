@@ -544,6 +544,22 @@ def get_growatt_inverter_timeseries(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/plants/{plant_id}/inverters/{device_sn}/raw")
+def get_growatt_inverter_raw(
+    plant_id: int,
+    device_sn: str,
+    day: Optional[date] = DAY_QUERY,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Every field of one inverter's stored `max_data` records for one day, exactly as Growatt
+    reported them (Growatt's field names). Kept `HISTORY_RAW_RETENTION_DAYS`; older days are empty."""
+    try:
+        return ov.build_inverter_raw(db, plant_id, device_sn, day)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/plants/{plant_id}/inverters/{device_sn}/daily")
 def get_growatt_inverter_daily(
     plant_id: int,

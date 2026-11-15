@@ -201,11 +201,12 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                     {p.invLive && (
                       <div
                         className="text-[10px]"
-                        title={`Live newest records (maxs_data, not stored): ${p.invLive.normal} online, ${p.invLive.fault} fault, ${p.invLive.silent} silent (no record today)${p.invLive.other ? `, ${p.invLive.other} other` : ""}; ${p.invLive.answered}${p.invertersCount != null ? ` of ${p.invertersCount}` : ""} answered`}
+                        title={`Live newest records (maxs_data, not stored): ${p.invLive.normal} normal, ${p.invLive.waiting} waiting, ${p.invLive.fault} fault, ${p.invLive.offline} offline (no record today)${p.invLive.other ? `, ${p.invLive.other} other` : ""}; ${p.invLive.answered}${p.invertersCount != null ? ` of ${p.invertersCount}` : ""} answered`}
                       >
-                        <span className="text-emerald-300">{p.invLive.normal} on</span>
+                        <span className="text-emerald-300">{p.invLive.normal} normal</span>
+                        {p.invLive.waiting > 0 && <span className="text-amber-300"> · {p.invLive.waiting} waiting</span>}
                         {p.invLive.fault > 0 && <span className="text-red-300"> · {p.invLive.fault} fault</span>}
-                        {p.invLive.silent > 0 && <span className="text-slate-400"> · {p.invLive.silent} silent</span>}
+                        {p.invLive.offline > 0 && <span className="text-slate-400"> · {p.invLive.offline} offline</span>}
                       </div>
                     )}
                   </td>

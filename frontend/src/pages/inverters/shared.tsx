@@ -1,7 +1,7 @@
 /** Inverters page: helpers and small pieces shared by its cards. */
 import React from "react";
 import type { GrowattLiveInverterLatest, GrowattPlantOverview, LiveStringCheck } from "../../api/client";
-import { INVERTER_STATUS_NAMES } from "../../context/PlantContext";
+import { INVERTER_STATUS_NAMES, OFFLINE_LABEL, inverterStatusLevel } from "../../context/PlantContext";
 import { LOADING_STATUS, StatusBadge } from "../../components/ui";
 import type { StatusLevel } from "../../components/ui";
 import { cn } from "@/lib/utils";
@@ -16,8 +16,8 @@ export type LiveCheck = LiveStringCheck["inverters"][string];
 
 /**
  * An inverter's state now, from its newest live record only (never from the stored day):
- * `waiting` while the first live answer is outstanding, `none` when the live answer has no
- * record for it.
+ * `waiting` while the first live answer is outstanding (not the inverter status Waiting),
+ * `none` when the live answer has no record for it today (= Offline, unless the live call failed).
  */
 export type LiveState =
   | { kind: "waiting" }
@@ -28,7 +28,7 @@ export const liveState = (rec: LiveInverter | undefined, loading: boolean, faile
   if (rec) {
     const st = rec.status;
     const label = st == null ? "Unknown" : INVERTER_STATUS_NAMES[st] ?? `Status ${st}`;
-    const level: StatusLevel = st === 1 ? "ok" : st === 0 ? "crit" : st == null ? "neutral" : "warn";
+    const level: StatusLevel = inverterStatusLevel(st);
     return { kind: "live", rec, label, level };
   }
   return loading ? { kind: "waiting" } : { kind: "none", failed };
@@ -103,14 +103,16 @@ export const Code: React.FC<{ v: number | null | undefined; tone?: "crit" | "war
     <span className={cn("font-semibold", tone === "crit" ? "text-red-300" : "text-amber-300")}>{v}</span>
   );
 
-/** Status badge of the live state: spinner while waiting, "No live record" when absent. */
+/** Status badge of the live state: spinner while waiting, Offline when it has no record today. */
 export const LiveBadge: React.FC<{ s: LiveState }> = ({ s }) =>
   s.kind === "live" ? (
     <StatusBadge status={s.rec.stale ? `${s.label} (stale)` : s.label} level={s.rec.stale ? "warn" : s.level} />
   ) : s.kind === "waiting" ? (
     <StatusBadge status={LOADING_STATUS} loading />
+  ) : s.failed ? (
+    <StatusBadge status="Live unavailable" level="neutral" dot={false} />
   ) : (
-    <StatusBadge status={s.failed ? "Live unavailable" : "No live record"} level="neutral" dot={false} />
+    <StatusBadge status={OFFLINE_LABEL} level="crit" />
   );
 
 /** Small heading above a group of figures ("Now · live 13:05"). */

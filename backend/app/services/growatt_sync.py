@@ -34,6 +34,7 @@ from app.db.models import (
     GrowattEnvReading,
     GrowattEnvSensor,
     GrowattInverter,
+    GrowattInverterRaw,
     GrowattInverterReading,
     GrowattMeter,
     GrowattMeterReading,
@@ -41,7 +42,14 @@ from app.db.models import (
     GrowattStringReading,
 )
 from app.db.session import SessionLocal, ensure_schema
-from solar_core.growatt import GrowattAPIError, GrowattClient, parse_env_records, parse_max_records, parse_meter_records
+from solar_core.growatt import (
+    GrowattAPIError,
+    GrowattClient,
+    parse_env_records,
+    parse_max_raw,
+    parse_max_records,
+    parse_meter_records,
+)
 
 RATE_LIMIT_CODE = 10012
 
@@ -895,6 +903,7 @@ def sync_inverter_history(
         inv_rows, str_rows = parse_max_records(inverter.device_sn, records)
         _upsert(db, GrowattInverterReading, inv_rows)
         _upsert(db, GrowattStringReading, str_rows)
+        _store_raw(db, inverter.device_sn, records)
         n_inv += len(inv_rows)
         n_str += len(str_rows)
     latest = db.scalar(
@@ -1018,6 +1027,7 @@ def _store_today(
     str_rows = [r for r in str_rows if r["timestamp"] >= since]
     _upsert(db, GrowattInverterReading, inv_rows)
     _upsert(db, GrowattStringReading, str_rows)
+    _store_raw(db, inv.device_sn, records, since)
     inv.history_synced_until = max(stored, max(times))
     db.commit()
     return len(inv_rows), len(str_rows)
@@ -1096,6 +1106,41 @@ def _sync_today_batched(
             count("batch_inverters")
             done.add(inv.device_sn)
     return done
+
+
+_RAW_BATCH = 200  # raw rows per statement (about 4 kB each)
+
+
+def _store_raw(db: Session, device_sn: str, records: Sequence[Dict[str, Any]], since: Optional[datetime] = None) -> int:
+    """Keep the whole `max_data` records (`growatt_inverter_raw`) when `HISTORY_STORE_RAW` is on;
+    the caller commits. `since`: only records from that time on."""
+    if not settings.history_store_raw:
+        return 0
+    rows = parse_max_raw(device_sn, list(records))
+    if since is not None:
+        rows = [r for r in rows if r["timestamp"] >= since]
+    for i in range(0, len(rows), _RAW_BATCH):
+        _upsert(db, GrowattInverterRaw, rows[i : i + _RAW_BATCH])
+    return len(rows)
+
+
+def prune_raw(db: Session, today: date, keep_days: int) -> int:
+    """Delete whole-record copies (`growatt_inverter_raw`) older than `keep_days` before `today`,
+    one day per transaction, oldest first. Returns rows deleted."""
+    if keep_days < 1:
+        raise ValueError("keep_days must be >= 1")
+    cutoff = datetime.combine(today - timedelta(days=keep_days), datetime.min.time())
+    oldest = db.scalar(select(func.min(GrowattInverterRaw.timestamp)))
+    if oldest is None:
+        return 0
+    n = 0
+    day = datetime.combine(oldest.date(), datetime.min.time())
+    while day < cutoff:
+        end = min(day + timedelta(days=1), cutoff)
+        n += db.execute(delete(GrowattInverterRaw).where(GrowattInverterRaw.timestamp >= day, GrowattInverterRaw.timestamp < end)).rowcount or 0
+        db.commit()
+        day = end
+    return n
 
 
 def prune_history(db: Session, today: date, keep_days: int) -> Dict[str, Any]:

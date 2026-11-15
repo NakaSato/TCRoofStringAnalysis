@@ -27,7 +27,7 @@ from app.db.models import (
 from app.services.growatt_common import GrowattNotFound, INACTIVE_MAX_A, MAX_DC_AC_RATIO, MAX_GAP_H, R, S, SAMPLE_H, _bucket, _day_bounds, _expected_kw, _fmt_ts, _get_plant, _integrate_kwh, _latest_reading, _max, _mean, _round, capacity_check, inverter_out, newest_inverter_ts, plant_coords, plant_phase, plant_rated_ac_w, plausible_capacity_kwp  # noqa: F401 (re-export)
 from app.services.growatt_layout import LAYOUT_SEEN_LOOKBACK, Layout, WIRED_CACHE_S, WIRED_LOOKBACK, _wired_cache, get_string_layout, load_layout, newest_string_ts, put_string_layout, wired_inputs  # noqa: F401 (re-export)
 from app.services.growatt_strings import MAX_RANGE_DAYS, DEAD_LOOKBACK, DEAD_PEER_MIN_A, _classify_strings, _split_inactive, _synthesize_iv_pv_curve, build_string_detail  # noqa: F401 (re-export)
-from app.services.growatt_inverter_history import MAX_TREND_DAYS, build_inverter_daily, build_inverter_timeseries  # noqa: F401 (re-export)
+from app.services.growatt_inverter_history import MAX_TREND_DAYS, build_inverter_daily, build_inverter_raw, build_inverter_timeseries  # noqa: F401 (re-export)
 
 
 def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> List[Dict[str, Any]]:

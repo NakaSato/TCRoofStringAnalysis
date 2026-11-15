@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -85,3 +86,14 @@ def test_normalize_coords(lat, lon, expected):
     from app.services.growatt_sync import normalize_coords
 
     assert normalize_coords(lat, lon) == expected
+
+
+def test_parse_max_raw_keeps_every_field_as_reported():
+    from solar_core.growatt import parse_max_raw
+
+    rec = {"time": "2026-11-13 00:03:45", "serialNum": "SN1", "calendar": {"x": 1}, "status": 0,
+           "temperature2": 23.2, "pvIso": 143, "debug1": "1，4，5", "isAgain": False}
+    rows = parse_max_raw("SN1", [rec, {"status": 1}])  # a record without a time is skipped
+
+    assert len(rows) == 1 and rows[0]["device_sn"] == "SN1" and rows[0]["timestamp"] == datetime(2026, 11, 13, 0, 3, 45)
+    assert rows[0]["data"] == {"status": 0, "temperature2": 23.2, "pvIso": 143, "debug1": "1，4，5", "isAgain": False}

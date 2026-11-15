@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import GrowattInverter, GrowattPlant, SyncRun
@@ -372,6 +372,38 @@ def test_prune_history_deletes_only_readings_older_than_keep_days(factory):
     assert left == left_str == [datetime(2026, 8, 14, 0, 0), datetime(2026, 11, 12, 9)]
     with factory() as db:
         assert prune_history(db, today, 90)["inverter_rows"] == 0  # idempotent
+
+
+def test_raw_records_are_stored_served_and_pruned(api, factory, monkeypatch):
+    from app.config import settings
+    from app.db.models import GrowattInverterRaw
+    from app.services import growatt_sync
+
+    rec = {"time": "2026-11-13 00:03:45", "serialNum": "I", "calendar": {}, "status": 0, "temperature2": 23.2, "pvIso": 143}
+    with factory() as db:
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.flush()
+        db.add(GrowattInverter(device_sn="I", plant_id=1))
+        db.commit()
+        monkeypatch.setattr(settings, "history_store_raw", False)
+        assert growatt_sync._store_raw(db, "I", [rec]) == 0
+        monkeypatch.setattr(settings, "history_store_raw", True)
+        assert growatt_sync._store_raw(db, "I", [rec]) == 1
+        assert growatt_sync._store_raw(db, "I", [rec]) == 1  # same record again: upsert, one row
+        db.commit()
+        assert db.scalar(select(func.count()).select_from(GrowattInverterRaw)) == 1
+
+    admin = _auth(api, "admin@tcroofsolar.com", "admin123")
+    assert api.get("/api/growatt/plants/1/inverters/I/raw").status_code == 401
+    body = api.get("/api/growatt/plants/1/inverters/I/raw?day=2026-11-13", headers=admin).json()
+    assert body["meta"]["records"] == 1 and body["fields"] == ["pvIso", "status", "temperature2"]
+    assert body["records"] == [{"time": "2026-11-13 00:03:45", "status": 0, "temperature2": 23.2, "pvIso": 143}]
+    assert api.get("/api/growatt/plants/1/inverters/I/raw?day=2026-11-12", headers=admin).json()["records"] == []
+    assert api.get("/api/growatt/plants/1/inverters/NOPE/raw", headers=admin).status_code == 404
+
+    with factory() as db:
+        assert growatt_sync.prune_raw(db, date(2026, 12, 12), 30) == 0  # cutoff 12 Nov: kept
+        assert growatt_sync.prune_raw(db, date(2026, 12, 14), 30) == 1
 
 
 def test_worker_health_needs_a_recent_finished_history_run(api, factory):

@@ -396,6 +396,21 @@ class GrowattInverterReading(Base):
     warn_code: Mapped[Optional[int]] = mapped_column(Integer)
 
 
+class GrowattInverterRaw(Base):
+    """The whole `device/max/max_data` record of an inverter reading, as Growatt reports it
+    (about 255 fields: PID, ISO, DCI, GFCI, CT, bus, all temperatures, debug words, per-MPPT
+    energy, ...). `data` keeps Growatt's own field names and values; nothing is derived.
+    `growatt_inverter_readings` stays the table the app computes from; this one is the full
+    copy for export and later use. Kept `HISTORY_RAW_RETENTION_DAYS` (it is about 4 kB a row)."""
+
+    __tablename__ = "growatt_inverter_raw"
+    __table_args__ = (Index("ix_growatt_inv_raw_ts", "timestamp"),)
+
+    device_sn: Mapped[str] = mapped_column(String(64), ForeignKey("growatt_inverters.device_sn", ondelete="CASCADE"), primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)  # plant-local, the record's `time`
+    data: Mapped[Any] = mapped_column(JSON, nullable=False)
+
+
 class GrowattPlantEnergyDay(Base):
     """Growatt's own daily energy of a plant (`plant/energy`), finished days only (today's value
     is realtime). A cross-check on the energy integrated from stored records, and a figure for
@@ -1015,3 +1030,38 @@ class AiUsage(Base):
     cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # ok | refused | error | timeout
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer)
+
+
+class PushToken(Base):
+    """A browser / installed app a user turned alarm notifications on for (FCM registration token).
+
+    Bookkeeping only. The token is an address, not a credential for this app, but it is never
+    logged or returned by the API. A token belongs to one user: the same browser signing in as
+    someone else and turning notifications on moves it. FCM reporting a token as gone deletes it.
+    """
+
+    __tablename__ = "push_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    token: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    label: Mapped[Optional[str]] = mapped_column(String(120))  # the browser's own description, for the user
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    # set by POST /push/test; the worker sends the test and clears it
+    test_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class AlarmPushMark(Base):
+    """The last alarm event of an inverter + code + day a notification went out for, so an alarm
+    Growatt re-reports every few minutes is pushed once. `event_start` is plant-local (naive, as
+    in `growatt_alarms`), `pushed_at` UTC. Pruned by `retention`."""
+
+    __tablename__ = "alarm_push_marks"
+    __table_args__ = (Index("ix_alarm_push_marks_day", "day"),)
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    alarm_code: Mapped[str] = mapped_column(String(32), primary_key=True)  # "" = Growatt gave no code
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    event_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    pushed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

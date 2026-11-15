@@ -58,6 +58,17 @@ class PlantAssignment(BaseModel):
     plant_ids: List[int]
 
 
+class PushTokenIn(BaseModel):
+    """This browser's FCM registration token (`/push/tokens`)."""
+
+    token: str = Field(min_length=20, max_length=512)
+    label: Optional[str] = Field(default=None, max_length=120)
+
+
+class PushTokenRemove(BaseModel):
+    token: str = Field(min_length=20, max_length=512)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

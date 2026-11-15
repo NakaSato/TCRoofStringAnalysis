@@ -189,3 +189,38 @@ def build_inverter_daily(
         "nominal_power_kw": round(inv.nominal_power_w / 1000, 1) if inv and inv.nominal_power_w else None,
         "daily": out,
     }
+
+
+RAW_MAX_ROWS = 400  # a day of 5-min records is about 290
+
+
+def build_inverter_raw(db: Session, plant_id: int, device_sn: str, day: Optional[date] = None) -> Dict[str, Any]:
+    """Every stored field of one inverter's `max_data` records for one day, exactly as Growatt
+    reported them (`growatt_inverter_raw`). `fields` = every field name seen that day. Empty
+    for days older than `HISTORY_RAW_RETENTION_DAYS` or stored before raw records were kept."""
+    from app.db.models import GrowattInverterRaw
+
+    _get_plant(db, plant_id)
+    inv = db.scalar(
+        select(GrowattInverter).where(GrowattInverter.plant_id == plant_id, GrowattInverter.device_sn == device_sn)
+    )
+    if inv is None:
+        raise GrowattNotFound(f"Inverter {device_sn} not found on plant {plant_id}")
+    if day is None:
+        latest = db.scalar(select(func.max(GrowattInverterRaw.timestamp)).where(GrowattInverterRaw.device_sn == device_sn))
+        day = latest.date() if latest else None
+    rows = []
+    if day is not None:
+        d_start, d_end = _day_bounds(day)
+        rows = db.execute(
+            select(GrowattInverterRaw.timestamp, GrowattInverterRaw.data)
+            .where(GrowattInverterRaw.device_sn == device_sn, GrowattInverterRaw.timestamp >= d_start, GrowattInverterRaw.timestamp < d_end)
+            .order_by(GrowattInverterRaw.timestamp)
+            .limit(RAW_MAX_ROWS)
+        ).all()
+    fields = sorted({k for _, data in rows for k in (data or {})})
+    return {
+        "meta": {"plant_id": plant_id, "device_sn": device_sn, "day": day.isoformat() if day else None, "source": "growatt max_data, as reported", "records": len(rows)},
+        "fields": fields,
+        "records": [{"time": ts.strftime("%Y-%m-%d %H:%M:%S"), **(data or {})} for ts, data in rows],
+    }

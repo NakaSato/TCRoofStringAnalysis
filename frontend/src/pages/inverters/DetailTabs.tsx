@@ -20,7 +20,7 @@ import type { InactiveString, LiveCheck, LiveState, OverviewInverter, PlantStrin
 const NoLive: React.FC<{ state: LiveState; what: string }> = ({ state, what }) => (
   <Empty className="border border-dashed border-white/[0.08] py-8">
     <EmptyHeader>
-      <EmptyTitle>{state.kind === "waiting" ? "Asking Growatt…" : "No live record for this inverter"}</EmptyTitle>
+      <EmptyTitle>{state.kind === "waiting" ? "Asking Growatt…" : "Offline: no live record for this inverter today"}</EmptyTitle>
       <EmptyDescription>{what} come only from the newest live record; nothing is stored.</EmptyDescription>
     </EmptyHeader>
   </Empty>

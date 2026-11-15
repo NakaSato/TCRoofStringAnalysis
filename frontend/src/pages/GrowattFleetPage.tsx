@@ -3,6 +3,7 @@ import { Radio, RefreshCw, Search, Zap, Gauge, AlertTriangle, Cpu } from "lucide
 import { api } from "../api/client";
 import type { GrowattInverter } from "../api/client";
 import { useAppContext } from "../context/AppContext";
+import { OFFLINE_LABEL, inverterStatusLevel } from "../context/PlantContext";
 import { PageHeader, Panel, KpiTile, StatusBadge, EmptyState, LoadingState, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ const plantStatus = (s: number | null): { label: string; level: StatusLevel; loa
     : PLANT_STATUS[s] ?? { label: `Status ${s}`, level: "warn" };
 
 const inverterLevel = (inv: GrowattInverter): StatusLevel =>
-  inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
+  inv.lost ? "crit" : inverterStatusLevel(inv.status);
 
 const sumKnown = (vals: Array<number | null>, div = 1): number | null => {
   const known = vals.filter((v): v is number => v != null);
@@ -239,7 +240,7 @@ export const GrowattFleetPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <StatusBadge
-                              status={inv.lost ? "Lost" : inv.status_label ?? LOADING_STATUS}
+                              status={inv.lost ? OFFLINE_LABEL : inv.status_label ?? LOADING_STATUS}
                               level={inverterLevel(inv)}
                               loading={!inv.lost && inv.status_label == null}
                             />

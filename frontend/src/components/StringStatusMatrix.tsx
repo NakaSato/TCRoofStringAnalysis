@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Grid3x3 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
+import { inverterStatusLevel } from "../context/PlantContext";
 import { Panel, Led, Meter, statusLevel, fmt } from "./ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
@@ -183,8 +184,9 @@ export const StringStatusMatrix: React.FC = () => {
       {groupByInverter ? (
         <div className="space-y-4">
           {stringGroups.map(({ inv, mppts, active, inactive, crit, warn }) => {
-            const lvl =
-              inv.lost || inv.status === 0 ? "crit" : inv.status === 1 ? "ok" : inv.status == null ? "neutral" : "warn";
+            // Offline = Growatt answered live and has no record of it today (or says it lost it)
+            const offline = Boolean(inv.lost) || (inv.status == null && selectedPlantOverview.live != null);
+            const lvl = offline ? "crit" : inverterStatusLevel(inv.status);
             return (
               <section key={inv.device_sn} className="rounded-xl border border-white/[0.06] bg-white/[0.015] p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
@@ -204,10 +206,17 @@ export const StringStatusMatrix: React.FC = () => {
                     {inv.device_sn}
                   </button>
                   <span className="num text-slate-500">{inv.model}</span>
-                  {inv.status == null && !inv.lost && !plantLiveLoading && (
-                    <span className="text-slate-500" title="The live answer has no record of this inverter today (asleep, offline or not reporting yet)">
-                      No live record
+                  {offline ? (
+                    <span className="text-red-300" title="Growatt has no record of this inverter today">
+                      Offline
                     </span>
+                  ) : inv.status === 0 ? (
+                    <span className="text-amber-300" title="Growatt status 0: waiting to start (not producing)">
+                      Waiting
+                    </span>
+                  ) : (
+                    inv.status == null &&
+                    !plantLiveLoading && <span className="text-slate-500">Live unavailable</span>
                   )}
                   <span className="num text-sky-300">{active} active</span>
                   {inactive > 0 && <span className="num text-slate-500">{inactive} not active</span>}

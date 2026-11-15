@@ -3,6 +3,7 @@ import { api, UserProfile, getStoredToken, getStoredUser, clearAuthSession, AUTH
 import { clearAlarmLogs } from "./alarmLogStore";
 import { clearPlantCache } from "./plantCache";
 import { clearAssistantThreads } from "../components/assistant/useAssistantChat";
+import { releasePush } from "../lib/push";
 
 export interface AuthContextValue {
   user: UserProfile | null;
@@ -45,6 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const onExpired = () => {
       clearAssistantThreads();
+      void releasePush(false); // the session is gone: only this browser's subscription can be dropped
       setUser(null);
     };
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
@@ -57,6 +59,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(() => {
+    // before the token is cleared: alarm notifications of this user's plants stop on this browser
+    void releasePush(true);
     clearAuthSession();
     // the next user may see other plants
     clearAlarmLogs();

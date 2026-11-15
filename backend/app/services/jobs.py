@@ -242,7 +242,29 @@ def _alarms(db: Session, day: date, tiered: bool = False) -> Tuple[str, Dict[str
 def job_alarms(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Today's Growatt alarm log → SQL (replaces each inverter-day), only the inverters due by
     tier: hot (open alarm / fault status) often, cold (no alarms today) rarely."""
-    return _alarms(db, _today(), tiered=True)
+    started = datetime.now(timezone.utc)
+    status, detail = _alarms(db, _today(), tiered=True)
+    detail["push"] = _push(db, lambda push: {**push.notify_new_alarms(db, _today(), started), **push.send_tests(db)})
+    return status, detail
+
+
+def _push(db: Session, fn: Callable[[Any], Dict[str, Any]]) -> Dict[str, Any]:
+    """Alarm push notifications (services/push.py). Trouble there is reported in the run detail
+    and never fails the job it follows."""
+    from app.services import push
+
+    try:
+        return fn(push)
+    except Exception as exc:  # noqa: BLE001 - FCM / credentials trouble must not undo a sync
+        db.rollback()
+        log.exception("push notifications failed")
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def job_push_test(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Test notifications asked for from the UI (POST /push/test queues this)."""
+    detail = _push(db, lambda push: push.send_tests(db))
+    return ("partial" if "error" in detail or detail.get("failed") else "ok"), detail
 
 
 def job_alarms_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
@@ -306,15 +328,19 @@ def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     from app.services import google_weather
     from app.services.growatt_alarms import prune_alarms
     from app.services.growatt_energy import prune_plant_power
-    from app.services.growatt_sync import prune_history
+    from app.services.growatt_sync import prune_history, prune_raw
 
     detail = prune_history(db, _today(), settings.history_retention_days)
+    detail["raw_rows"] = prune_raw(db, _today(), min(settings.history_raw_retention_days, settings.history_retention_days))
     detail["google_weather_rows"] = google_weather.prune(db, _today(), settings.history_retention_days)
     detail["alarm_rows"] = prune_alarms(db, _today(), settings.history_retention_days)
     from app.services import check_slots
 
     detail["pwa_check_slots"] = check_slots.prune(db, _today(), settings.history_retention_days)
     detail["growatt_power_rows"] = prune_plant_power(db, _today(), settings.history_retention_days)
+    from app.services import push
+
+    detail["alarm_push_marks"] = push.prune(db, _today())
     detail["log_rows"] = prune_logs(db, datetime.now(timezone.utc), settings.log_retention_days, settings.log_max_rows)
     return "ok", detail
 
@@ -392,6 +418,7 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "google_weather": job_google_weather,
     "alarms": job_alarms,
     "alarms_yesterday": job_alarms_yesterday,
+    "push_test": job_push_test,
     "pwa_sheet": job_pwa_sheet,
     "rules_today": job_rules_today,
     "rules_yesterday": job_rules_yesterday,

@@ -51,6 +51,8 @@ BUDGET_TOPIC="tcroof-budget"
 GUARD="tcroof-cost-guard"
 DISK_GB="${DISK_GB:-100}"              # must hold HISTORY_RETENTION_DAYS of readings
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
+STORE_RAW="${STORE_RAW:-true}"          # keep whole max_data records (growatt_inverter_raw)
+RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-30}"
 HISTORY_INTERVAL_MIN="${HISTORY_INTERVAL_MIN:-10}"   # history interval on the worker
 ENV_INTERVAL_MIN="${ENV_INTERVAL_MIN:-0}"   # env_history interval on the worker; 0 = off
 SNAPSHOT_POLICY="tcroof-db-weekly"
@@ -107,6 +109,11 @@ pwa_sheet_access() {
   g services enable sheets.googleapis.com
   local email; email="$(sed -n 's/.*"client_email": *"\([^"]*\)".*/\1/p' secrets/firebase-service-account.json)"
   echo "PWA sheet: share https://docs.google.com/spreadsheets/d/$(env_value PWA_SHEET_ID)/edit as Editor with ${email}"
+}
+# Alarm push notifications: the worker sends through FCM as the Firebase service account.
+push_access() {
+  [ -n "$FIREBASE_VAPID_KEY" ] || return 0
+  g services enable fcm.googleapis.com
 }
 phase_secrets() { for p in $PHASES; do secret_exists "tcroof-growatt-token-phase$p" && echo "$p"; done; return 0; }
 
@@ -425,6 +432,9 @@ PUBLISH_DAILY_WRITE_BUDGET=15000
 WORKER_HISTORY_INTERVAL_MIN=${HISTORY_INTERVAL_MIN}
 WORKER_ENV_INTERVAL_MIN=${ENV_INTERVAL_MIN}
 HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
+HISTORY_STORE_RAW=${STORE_RAW}
+HISTORY_RAW_RETENTION_DAYS=${RAW_RETENTION_DAYS}
+PUSH_ALARM_LEVELS=${PUSH_ALARM_LEVELS}
 $(tr ' ' '\n' <<<"$pg")
 $([ -z "$(google_weather_secret)" ] || echo "GOOGLE_WEATHER_API_KEY=$(secret_get tcroof-google-weather-key)")
 $([ -z "$(env_value PWA_SHEET_ID)" ] || echo "PWA_SHEET_ID=$(env_value PWA_SHEET_ID)")
@@ -445,6 +455,7 @@ EOF
     sudo docker compose ps"
 
   report_access
+  push_access
   local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest,REPORT_API_KEY=tcroof-report-key:latest,REDIS_URL=tcroof-redis-url:latest" p
   for p in $(phase_secrets); do secrets+=",GROWATT_TOKEN_PHASE$p=tcroof-growatt-token-phase$p:latest"; done
   [ -z "$(google_weather_secret)" ] || secrets+=",GOOGLE_WEATHER_API_KEY=tcroof-google-weather-key:latest"
@@ -458,7 +469,7 @@ EOF
     --network default --subnet default --vpc-egress private-ranges-only \
     --allow-unauthenticated \
     --set-secrets "$secrets" \
-    --set-env-vars "^@^CORS_ORIGINS=[\"https://${PROJECT}.web.app\",\"https://${PROJECT}.firebaseapp.com\"]@PUBLISH_SINK=json@APP_ENV=prod@FIREBASE_PROJECT_ID=${PROJECT}@HISTORY_RETENTION_DAYS=${RETENTION_DAYS}@AI_MODEL=${AI_MODEL}@AI_ENABLED_ROLES=${AI_ENABLED_ROLES}@AI_MONTHLY_BUDGET_USD=${AI_MONTHLY_BUDGET_USD}@AI_USER_DAILY_QUESTIONS=${AI_USER_DAILY_QUESTIONS}@AI_TURN_TIMEOUT_S=${AI_TURN_TIMEOUT_S}"
+    --set-env-vars "^@^CORS_ORIGINS=[\"https://${PROJECT}.web.app\",\"https://${PROJECT}.firebaseapp.com\"]@PUBLISH_SINK=json@APP_ENV=prod@FIREBASE_PROJECT_ID=${PROJECT}@HISTORY_RETENTION_DAYS=${RETENTION_DAYS}@AI_MODEL=${AI_MODEL}@AI_ENABLED_ROLES=${AI_ENABLED_ROLES}@AI_MONTHLY_BUDGET_USD=${AI_MONTHLY_BUDGET_USD}@AI_USER_DAILY_QUESTIONS=${AI_USER_DAILY_QUESTIONS}@AI_TURN_TIMEOUT_S=${AI_TURN_TIMEOUT_S}@FIREBASE_WEB_API_KEY=${FIREBASE_WEB_API_KEY}@FIREBASE_WEB_APP_ID=${FIREBASE_WEB_APP_ID}@FIREBASE_MESSAGING_SENDER_ID=${FIREBASE_MESSAGING_SENDER_ID}@FIREBASE_VAPID_KEY=${FIREBASE_VAPID_KEY}@PUSH_ALARM_LEVELS=${PUSH_ALARM_LEVELS}"
 }
 
 # AI Assistant key (docs/plans/ai-assistant.md §6): AI_API_KEY from .env -> Secret Manager, readable by

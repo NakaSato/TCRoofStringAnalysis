@@ -43,6 +43,7 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                  │              ─► overview / power curve: grid import / export (measured), load = PV + grid (derived)
                  └─ alarm_data log ─► growatt-worker (10-min tick, 05–20, per inverter by tier: fault/open 10 min,
                                   alarms today 30 min, none 60 min; yesterday in full at 00:30) ─► SQL ─► /growatt/alarms (Active Alarm)
+                                  └─► new alarm events ─► FCM web push (worker, after each `alarms` run) ─► devices of the users who may see the plant
 API + worker logging ─► app_logs (SQL, redacted, 14 days) ─► /system/logs (admin: System → Logs)
 Google Maps Weather ─┬─ current ─► backend memory cache (30 min per cell) ─► /growatt/live/plants/{id}/google-weather
   (modelled)         ├─ current at each PWA check (08:50/12:50/16:50, every cell) ─► growatt-worker ─► frozen check slot ─► sheet สภาพอากาศ
@@ -54,7 +55,7 @@ Rules for every layer:
 1. **Never store realtime values.** Live data stays in memory only: the API process, mirrored in Redis on the VM (`REDIS_URL`; no persistence, every key expires, `services/live_store.py`) so a Cloud Run cold start stays warm. SQL gets only source-timestamped history (Growatt records, Google Weather hours).
 2. **Firestore holds only daily summaries and the static registry** (`plants/`, `inverters/`, and global settings under `config/`, e.g. `config/fleet_module`). The project `tcroof-string-analysis` runs on the free Spark plan (20k writes/day). Each day costs about 1,250 writes (about 250 per publish of today: at 08:50, 12:50 and 16:50 for the PWA report checks and at 19:30, plus about 235 when `google_weather` re-publishes yesterday), capped at `PUBLISH_DAILY_WRITE_BUDGET`.
 3. **Never invent numbers.** Missing measurements are `null` and show as "—". Don't add data with no source (irradiance only where a plant has a weather sensor; grid import / export only from the plant's energy meter), and label modelled or derived values as such (load = PV + grid is derived, never measured).
-4. **The Growatt tokens and the Google Weather key stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored.
+4. **The Growatt tokens and the Google Weather key stay on the backend.** Firebase service-account keys go in `secrets/`, which is gitignored. The Firebase web app config and Web Push key (`FIREBASE_WEB_*`, `FIREBASE_VAPID_KEY`) are public by design and reach the browser through `/push/status`.
 
 ## Deploy (GCP, test month at ≤ ฿3,000/month)
 
@@ -66,6 +67,7 @@ Rules for every layer:
 - **Cost cap:** budget `tcroof-monthly` (฿3,000; planned spend ≈ ฿2,566) emails at 50/90/100 %; the `tcroof-cost-guard` function (`deploy/costguard/`) **disables billing on the project at 96 % (฿2,880)**, which stops everything until an admin re-links billing (disks and snapshots are kept).
 - **Alerts:** email when `/api/health` or `/api/health/worker` (no finished `history` run in 2 h) fails, or the VM disk is over 85 % (Ops Agent).
 - **AI Assistant:** `deploy/gcp.sh ai` puts `AI_API_KEY` from `.env` into secret `tcroof-ai-api-key` (run again after rotating the key), then `backend` passes it to Cloud Run with `AI_*` settings from `gcp.config` (model, enabled roles, $5 cap, 15/day, 110 s turn timeout). No secret = assistant off. `frontend` builds the chat to call the Cloud Run URL directly (`VITE_ASSISTANT_API_BASE_URL`), because Hosting's `/api` rewrite buffers the SSE stream and cuts requests at 60 s; every other call still goes through `/api` on Hosting.
+- **Alarm push notifications:** off until the four `FIREBASE_WEB_*` / `FIREBASE_VAPID_KEY` values in `deploy/gcp.config` are filled (Firebase web app config + Web Push certificate key, both public); then `backend` passes them to Cloud Run and enables the FCM API. The worker on the VM sends with the Firebase service account it already has; FCM is free and writes nothing to Firestore.
 - **Production login:** `APP_ENV=prod` seeds only the admin from secret `tcroof-admin-password` (created by `setup`, or from `ADMIN_PASSWORD` in `.env`). There are no demo accounts.
 - **Why not Cloud SQL:** a comparable instance (2 vCPU / 8 GB) costs well over the whole ฿3,000 budget, and history grows by about 0.5 GB/day (629 inverters), which rules out the free Postgres tiers.
 
@@ -86,8 +88,10 @@ Rules for every layer:
 - `WORKER_HISTORY_INTERVAL_MIN` (10; production: `HISTORY_INTERVAL_MIN` in `deploy/gcp.config`)
 - `WORKER_HISTORY_BATCH_SIZE` (0 = off): `history` reads today's records of this many inverters per call (`queryDevicesHistoricalData`), falling back to `max_data` per inverter; off by default (a call returns each inverter's whole day so far)
 - `HISTORY_RETENTION_DAYS` (90)
+- `HISTORY_STORE_RAW` (true), `HISTORY_RAW_RETENTION_DAYS` (30): `history` also keeps every field of each `max_data` record as Growatt reports it (`growatt_inverter_raw`, about 4 kB a record; `/growatt/plants/{id}/inverters/{sn}/raw`)
 - `WORKER_ALARMS_TICK_MIN` (10), `WORKER_ALARMS_HOT_MIN` / `_WARM_MIN` / `_COLD_MIN` (10 / 30 / 60), `WORKER_ALARMS_START_H` / `_END_H` (5 / 20): alarm log sync. Each tick reads only the inverters due by tier (hot = open alarm or fault status, warm = alarms today, cold = none); skipped 08/12/16:42–:51 for the PWA checks
 - `WORKER_ENV_INTERVAL_MIN` (10, 0 = off), `WORKER_ENV_START_H` / `_END_H` (5 / 20): `env_history`, weather-sensor history between `history` runs
+- `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_VAPID_KEY` (any empty = off): alarm push notifications (FCM web push; `/push/*`, `services/push.py`). `PUSH_ALARM_LEVELS` (`fault`), `PUSH_ALARM_MAX_AGE_MIN` (90), `PUSH_ALARM_REPEAT_MIN` (120), `PUSH_MAX_PLANTS_PER_USER` (5): which alarm events are pushed. SQL keeps only device tokens (`push_tokens`) and what was pushed (`alarm_push_marks`)
 - `APP_ENV` (`dev` | `prod`), `ADMIN_USERNAME`, `ADMIN_PASSWORD`
 - `GOOGLE_WEATHER_API_KEY` (Secret Manager `tcroof-google-weather-key`), `GOOGLE_WEATHER_MONTHLY_BUDGET` (30000; PWA checks 687 + history 229 calls/day ≈ 28.4k/month, over the 10k free tier); each day gets what is left of the month ÷ days left. `GOOGLE_WEATHER_DAY_START_H` / `_END_H` (6 / 18): daytime-only hours stored and fetched live
 - `AI_API_KEY` (Secret Manager `tcroof-ai-api-key`; empty = off), `AI_BASE_URL` (Qwen Cloud Singapore, Anthropic-compatible), `AI_MODEL` (`qwen3.7-plus`), `AI_THINKING` (false; Qwen thinks by default and takes 30–90 s), `AI_MONTHLY_BUDGET_USD` (5), `AI_USER_DAILY_QUESTIONS` (15), `AI_ENABLED_ROLES`, `AI_PRICE_*`: AI Assistant (`/assistant/*`, docs/plans/ai-assistant.md). Conversations stay in the browser; only token counts and cost go to SQL `ai_usage`

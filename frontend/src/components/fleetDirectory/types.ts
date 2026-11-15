@@ -1,13 +1,14 @@
 /** Plant directory row (fleet home page), built from the Growatt plant list and its live overlay. */
 import type { StatusLevel } from "../ui";
 
-/** Inverters of a plant by their newest record (snapshot): `normal` / `fault` = a record from today
- *  with that status; `silent` = its newest record is older than today (`maxs_data`'s `lost` is true on
- *  every inverter, so it is not used); `answered` = how many Growatt has answered for so far. */
+/** Inverters of a plant by their newest record (snapshot): `normal` / `waiting` / `fault` = a record
+ *  from today with status 1 / 0 / 3; `offline` = its newest record is older than today (`maxs_data`'s
+ *  `lost` is true on every inverter, so it is not used); `answered` = how many Growatt has answered for so far. */
 export interface InverterLiveCounts {
   normal: number;
+  waiting: number;
   fault: number;
-  silent: number;
+  offline: number;
   other: number;
   answered: number;
 }

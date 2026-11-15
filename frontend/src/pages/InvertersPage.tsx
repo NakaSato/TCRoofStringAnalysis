@@ -54,7 +54,11 @@ export const InvertersPage: React.FC = () => {
   const states = useMemo(() => {
     const bySn = new Map((live?.inverters ?? []).map((r) => [r.device_sn, r]));
     return new Map<string, LiveState>(
-      inverters.map((i) => [i.device_sn, liveState(bySn.get(i.device_sn), plantLiveLoading, plantLiveFailed)])
+      // Offline only when Growatt answered and has no record today; a refused inverter is unknown
+      inverters.map((i) => [
+        i.device_sn,
+        liveState(bySn.get(i.device_sn), plantLiveLoading, plantLiveFailed || !live || i.device_sn in (live.errors ?? {})),
+      ])
     );
   }, [live, inverters, plantLiveLoading, plantLiveFailed]);
   const liveAt = (live?.inverters ?? []).reduce<string | null>((a, r) => (r.timestamp && (a == null || r.timestamp > a) ? r.timestamp : a), null);

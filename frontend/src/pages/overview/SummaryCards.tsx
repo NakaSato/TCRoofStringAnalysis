@@ -58,13 +58,14 @@ export const InvertersOnlineTile: React.FC<{
     };
   }, [inverters]);
 
-  // Growatt status: 1 Normal, 0 Offline, 3 Fault (INVERTER_STATUS_NAMES); anything else = other
+  // Growatt status: 1 Normal, 0 Waiting, 3 Fault (INVERTER_STATUS_NAMES); anything else = other.
+  // Offline = no live record today.
   const normal = recs.filter((r) => r.status === 1).length;
-  const offline = recs.filter((r) => r.status === 0).length;
+  const waiting = recs.filter((r) => r.status === 0).length;
   const fault = recs.filter((r) => r.status === 3).length;
-  const other = recs.length - normal - offline - fault;
-  const noRecord = Math.max(0, inverters.length - recs.length);
-  const total = normal + offline + fault + other + noRecord;
+  const other = recs.length - normal - waiting - fault;
+  const offline = recs.length ? Math.max(0, inverters.length - recs.length) : 0;
+  const total = normal + waiting + fault + other + offline;
   const lowWarn = s.lowestPct != null && s.lowestPct < LOW_PCT;
   const hot = kpis.max_temp_c != null && kpis.max_temp_c >= HOT_C;
 
@@ -81,9 +82,9 @@ export const InvertersOnlineTile: React.FC<{
           <Meter
             segments={[
               { pct: (normal / total) * 100, className: "bg-emerald-400", title: `${normal} normal` },
-              { pct: (other / total) * 100, className: "bg-amber-400", title: `${other} other` },
+              { pct: ((waiting + other) / total) * 100, className: "bg-amber-400", title: `${waiting} waiting${other ? `, ${other} other` : ""}` },
               { pct: (fault / total) * 100, className: "bg-red-500", title: `${fault} fault` },
-              { pct: ((offline + noRecord) / total) * 100, className: "bg-slate-500", title: `${offline + noRecord} offline / no record` },
+              { pct: (offline / total) * 100, className: "bg-slate-500", title: `${offline} offline (no record today)` },
             ]}
           />
         ) : undefined
@@ -94,9 +95,10 @@ export const InvertersOnlineTile: React.FC<{
         ) : (
           <>
             {fault > 0 && <Count level="crit" n={fault} label="fault" />}
-            {offline + noRecord > 0 && <Count level="off" n={offline + noRecord} label="offline" />}
+            {offline > 0 && <Count level="off" n={offline} label="offline" />}
+            {waiting > 0 && <Count level="warn" n={waiting} label="waiting" />}
             {other > 0 && <Count level="warn" n={other} label="other" />}
-            {fault + offline + noRecord + other === 0 && normal > 0 && <span>all normal</span>}
+            {fault + offline + waiting + other === 0 && normal > 0 && <span>all normal</span>}
             {lowWarn && s.lowest && (
               <span className="num text-amber-300" title={`${fmt(s.lowest.yield_today_kwh, 1)} kWh, ${fmt(s.lowestPct, 0)}% of the plant average (stored day)`}>
                 low {invName(s.lowest)} {fmt(s.lowestPct, 0)}%

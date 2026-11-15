@@ -150,7 +150,7 @@ export const OverviewPage: React.FC = () => {
 
 
 
-  // KPI strip: inverters online = reporting in the live answer (status not 0); string health of the stored day
+  // KPI strip: inverters online = in the live answer and not Waiting (status not 0); string health of the stored day
   const online = plantLive?.data ? recs.filter((r) => r.status !== 0).length : null;
   // Yield / revenue today from the live records (each inverter's own `eac_today` of today), so the
   // strip is current even when the stored day lags; only inverters with a record today are summed

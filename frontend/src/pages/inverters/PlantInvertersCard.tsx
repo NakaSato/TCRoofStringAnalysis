@@ -58,8 +58,8 @@ const SHOW = ["all", "online", "not_online", "low", "issues"] as const;
 type Show = (typeof SHOW)[number];
 const SHOW_LABEL: Record<Show, string> = {
   all: "All inverters",
-  online: "Online now",
-  not_online: "Not online now",
+  online: "Normal now",
+  not_online: "Waiting / Offline / Fault now",
   low: `Below ${LOW_PCT} % of avg`,
   issues: "With string issues",
 };
@@ -114,7 +114,15 @@ export const PlantInvertersCard: React.FC<PlantInvertersCardProps> = ({
     return s?.kind === "live" ? [s.rec] : [];
   });
   const online = recs.filter((r) => r.status === 1).length;
-  const missing = liveLoading || liveFailed ? [] : inverters.filter((i) => states.get(i.device_sn)?.kind !== "live");
+  const noRecord = (failed: boolean) =>
+    liveLoading || liveFailed
+      ? []
+      : inverters.filter((i) => {
+          const s = states.get(i.device_sn);
+          return s?.kind === "none" && s.failed === failed;
+        });
+  const offline = noRecord(false); // Growatt answered: no record today
+  const unanswered = noRecord(true); // Growatt refused this inverter: state unknown
   const acNow = sumOrNull(recs.map((r) => r.pac_w));
   const dcNow = sumOrNull(recs.map((r) => r.ppv_w));
   const todayKwh = sumOrNull(recs.map((r) => r.eac_today_kwh));
@@ -163,14 +171,17 @@ export const PlantInvertersCard: React.FC<PlantInvertersCardProps> = ({
             <AlertDescription>Growatt did not answer; status and “Now” show — until the next try. Stored figures are unaffected.</AlertDescription>
           </Alert>
         )}
-        {missing.length > 0 && (
+        {offline.length + unanswered.length > 0 && (
           <Alert>
             <Unplug />
             <AlertTitle>
-              No live record for {missing.length} of {inverters.length} inverters: {missing.map(invName).join(", ")}
+              {offline.length > 0
+                ? `${offline.length} of ${inverters.length} inverters offline: ${offline.map(invName).join(", ")}`
+                : `No live answer for ${unanswered.length} of ${inverters.length} inverters: ${unanswered.map(invName).join(", ")}`}
             </AlertTitle>
             <AlertDescription>
-              Growatt's newest-record answer did not include {missing.length === 1 ? "it" : "them"}, so status and “Now” show —.
+              {offline.length > 0 && `Offline = Growatt has no record of ${offline.length === 1 ? "it" : "them"} today, so “Now” shows —.`}
+              {offline.length > 0 && unanswered.length > 0 && ` No live answer for ${unanswered.map(invName).join(", ")}.`}
               {errorList.length > 0 && ` ${errorList.map(([k, v]) => `${k}: ${v}`).join(" · ")}`}
             </AlertDescription>
           </Alert>

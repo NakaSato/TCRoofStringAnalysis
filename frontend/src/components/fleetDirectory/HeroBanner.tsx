@@ -26,7 +26,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
         ? { level: "warn" as const, text: `Checking ${yl.checked}/${yl.total}` }
         : { level: "ok" as const, text: `Live${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` };
   const il = heroMetrics.invLive;
-  const invHint = `Live from Growatt (maxs_data, not stored): each inverter's newest record. Online = a Normal record from today; fault = a Fault record from today; silent = no record today${il.other ? `; ${il.other} in another state (e.g. waiting)` : ""}. ${fmtInt(il.answered)} of ${il.total != null ? fmtInt(il.total) : "—"} inverters answered so far.`;
+  const invHint = `Live from Growatt (maxs_data, not stored): each inverter's newest record. Normal / waiting / fault = a record from today with that status; offline = no record today${il.other ? `; ${il.other} in another state` : ""}. ${fmtInt(il.answered)} of ${il.total != null ? fmtInt(il.total) : "—"} inverters answered so far.`;
   const todayHint = `Live from Growatt (plant/data, not stored): ${yl.checked} of ${yl.total} plants checked; a plant not checked yet or not reporting today counts as —`;
   return (
     <section className="relative overflow-hidden rounded-xl border border-sky-400/20 bg-gradient-to-b from-[#07264e] via-[#061c38] to-[#081224] shadow-[0_14px_40px_-12px_rgba(2,132,199,0.35)]">
@@ -179,9 +179,10 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-baseline gap-x-1">
                   <span className="num text-lg font-bold text-white">{il.answered ? fmtInt(il.normal) : "—"}</span>
-                  <span className="text-[11px] text-slate-300">online</span>
+                  <span className="text-[11px] text-slate-300">normal</span>
+                  {il.waiting > 0 && <span className="num text-[11px] text-amber-300">· {fmtInt(il.waiting)} waiting</span>}
                   {il.fault > 0 && <span className="num text-[11px] font-semibold text-red-300">· {fmtInt(il.fault)} fault</span>}
-                  {il.silent > 0 && <span className="num text-[11px] text-slate-400">· {fmtInt(il.silent)} silent</span>}
+                  {il.offline > 0 && <span className="num text-[11px] text-slate-400">· {fmtInt(il.offline)} offline</span>}
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
                   {il.loading

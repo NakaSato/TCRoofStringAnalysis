@@ -33,8 +33,10 @@ DEVICE_TYPE_NAMES: Dict[int, str] = {
 }
 INVERTER_TYPES = {1, 4, 5, 6, 7}
 
-# Inverter `status` codes as observed in device/list (0 = offline/waiting, 1 = normal, 3 = fault)
-INVERTER_STATUS_NAMES: Dict[int, str] = {0: "Offline", 1: "Normal", 3: "Fault"}
+# Inverter `status` codes (0 = waiting, 1 = normal, 3 = fault). "Offline" is not a code: it is an
+# inverter Growatt lost contact with (`lost`) or one with no record today.
+INVERTER_STATUS_NAMES: Dict[int, str] = {0: "Waiting", 1: "Normal", 3: "Fault"}
+OFFLINE_LABEL = "Offline"
 
 
 # Longest raw reply quoted in an error message.
@@ -163,7 +165,9 @@ class GrowattClient:
                     "datalogger_sn": dev.get("datalogger_sn") or "",
                     "manufacturer": dev.get("manufacturer") or "",
                     "status": dev.get("status"),
-                    "status_label": INVERTER_STATUS_NAMES.get(int(dev["status"]), f"Status {dev['status']}")
+                    "status_label": OFFLINE_LABEL
+                    if dev.get("lost")
+                    else INVERTER_STATUS_NAMES.get(int(dev["status"]), f"Status {dev['status']}")
                     if isinstance(dev.get("status"), int)
                     else f"Status {dev.get('status')}",
                     "lost": bool(dev.get("lost")),
@@ -810,6 +814,28 @@ def _nonzero_int(v: Any) -> Optional[int]:
     except (TypeError, ValueError):
         return None
     return n or None
+
+
+# Fields of a `max_data` record left out of the raw copy: `calendar` repeats `time` as a Java
+# calendar object (about a quarter of the record), the other two are the row's own key.
+RAW_SKIP_FIELDS = frozenset({"calendar", "serialNum", "time"})
+
+
+def parse_max_raw(device_sn: str, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """`max_data` records → `growatt_inverter_raw` rows: every field of the record exactly as
+    Growatt reports it (names and values untouched), except `RAW_SKIP_FIELDS`. One per timestamp."""
+    rows: Dict[datetime, Dict[str, Any]] = {}
+    for r in records:
+        t = r.get("time")
+        if not t:
+            continue
+        ts = datetime.strptime(t, "%Y-%m-%d %H:%M:%S")
+        rows[ts] = {
+            "device_sn": device_sn,
+            "timestamp": ts,
+            "data": {k: v for k, v in r.items() if k not in RAW_SKIP_FIELDS},
+        }
+    return list(rows.values())
 
 
 def parse_max_records(

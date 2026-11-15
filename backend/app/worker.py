@@ -30,7 +30,9 @@ Schedule (plant-local time, Asia/Bangkok):
                                not 08:42–08:51 / 12:42–12:51 / 16:42–16:51 (PWA history + publish):
                                today's alarm_data → SQL (Active Alarm page) for the inverters due
                                by tier: hot 10 min, warm 30 min, cold 60 min (growatt_alarms.Tiers)
+                               then pushes the new alarm events of the logs it read (services/push.py)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
+    push_test          not scheduled: queued by POST /push/test, sends the test notifications
     rules_yesterday    00:45   daily string / inverter rows for yesterday + decision rules (counts only)
     rules_today        every WORKER_HISTORY_INTERVAL_MIN (10) min, 06–20: the same for today so far
     rules_backfill     not scheduled: daily rows for every stored day (queue once after deploy)
