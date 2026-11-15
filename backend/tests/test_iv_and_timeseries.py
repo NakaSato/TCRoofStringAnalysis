@@ -1023,3 +1023,34 @@ def test_iv_per_string_wp_keeps_the_datasheet_fill_factor():
     ff = lambda s: s.wp / (s.voc_stc * s.isc_stc)  # noqa: E731
     assert ff(got) == pytest.approx(ff(base))
     assert _spec_for_wp(fm, None) == fm
+
+
+def test_epi_is_null_without_any_measured_module_temperature(tmp_path):
+    """No module temperature measured all day: EPI is null, never modelled at an assumed 25 °C."""
+    engine = build_engine(f"sqlite:///{tmp_path / 'epi.db'}")
+    Base.metadata.create_all(bind=engine)
+    f = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    day = date(2026, 11, 10)
+    with f() as db:
+        db.add(GrowattPlant(plant_id=1, name="Roof", latitude=13.75, longitude=100.5, peak_power_kwp=100.0))
+        db.flush()
+        db.add(GrowattInverter(device_sn="INV1", plant_id=1, nominal_power_w=100000.0))
+        db.add(GrowattEnvSensor(datalogger_sn="DL1", address=1, plant_id=1, device_name="POA Sensor"))
+        db.flush()
+        eac = 0.0
+        t = datetime(2026, 11, 10, 9, 0)
+        while t < datetime(2026, 11, 10, 15, 0):
+            g = 800.0 + ((t.minute // 5) % 2)
+            pac_w = 100.0 * (g / 1000.0) * 0.76 * 1000.0
+            eac += pac_w * (5.0 / 60.0) / 1000.0
+            db.add(GrowattEnvReading(datalogger_sn="DL1", address=1, timestamp=t, irradiance_wm2=g, module_temp_c=None, ambient_temp_c=34.0))
+            db.add(GrowattInverterReading(device_sn="INV1", timestamp=t, status=1, pac_w=pac_w, ppv_w=pac_w / 0.96, eac_today_kwh=round(eac, 3)))
+            t += timedelta(minutes=5)
+        db.commit()
+
+        kpis = growatt_overview.build_plant_overview(db, 1, day)["kpis"]
+        assert kpis["iec_pr_pct"] == pytest.approx(76.0, abs=0.5)  # PR needs no module temperature
+        assert kpis["epi"] is None
+        growatt_daily.compute_day(db, day)
+        row = db.scalar(select(GrowattPlantDaily).where(GrowattPlantDaily.plant_id == 1, GrowattPlantDaily.day == day))
+        assert row is not None and row.epi is None and row.modelled_energy_kwh is None
