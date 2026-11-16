@@ -352,8 +352,13 @@ export const PlantInvertersCard: React.FC<PlantInvertersCardProps> = ({
                         <span className="text-slate-200">{s.label}</span>
                         <span className="num text-[11px] text-muted-foreground">{hhmm(s.rec.timestamp)}</span>
                       </span>
+                    ) : s?.kind === "none" && !s.failed ? (
+                      <span className="flex items-center gap-1.5 whitespace-nowrap" title="Growatt has no record of this inverter today">
+                        <Led level="crit" />
+                        <span className="text-slate-200">Offline</span>
+                      </span>
                     ) : (
-                      <span className="text-muted-foreground">{s?.kind === "waiting" ? "…" : "No record"}</span>
+                      <span className="text-muted-foreground">{s?.kind === "waiting" ? "…" : "No answer"}</span>
                     )}
                   </TableCell>
                   <TableCell className="num text-right whitespace-nowrap">{nowKw(rec?.pac_w)}</TableCell>
