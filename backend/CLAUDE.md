@@ -28,7 +28,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - `analysis.py`: IEC 61724 PR, string KPIs and faults, returning `AnalysisResults`.
   - `om_management.py`: CM work orders, PM schedule, RCA, PQ and SH&E.
   - `charts.py` (Plotly).
-  - `growatt.py`: the Growatt OpenAPI client and `parse_max_records`.
+  - `growatt/`: `client.py` (the Growatt OpenAPI client, one method per endpoint) and `parsers.py` (records → rows, e.g. `parse_max_records`); both re-exported from `solar_core.growatt`.
   - `storage.py` is legacy and used only by `test_solar_core.py`.
 - **`app/`**: FastAPI.
   - Routes are in `api/routes/*` (the Growatt ones in the package `api/routes/growatt/`, one module per area: `live`, `plants` (DB only), `fleet_config`, `rules`, `iv`, `events`, `sync`; shared pieces in `_common.py`), ORM models in `db/models.py`, request/response schemas in `schemas/api_schemas.py`.
