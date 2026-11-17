@@ -702,7 +702,9 @@ def get_live_service() -> GrowattLiveService:
         # cached timestamps outlive the process in Redis: a wall clock, not monotonic
         clock=time.time if link else time.monotonic,
         redis=link,
-        client_factory=lambda phase: GrowattClient(token=accounts[phase], base_url=settings.growatt_base_url),
+        client_factory=lambda phase: GrowattClient(
+            token=accounts[phase], base_url=settings.growatt_base_url, blocked_plant_ids=settings.blocked_plant_ids()
+        ),
         ttl_s=settings.growatt_live_ttl_s,
         latest_ttl_s=settings.growatt_live_latest_ttl_s,
         night_ttl_s=settings.growatt_live_night_ttl_s,

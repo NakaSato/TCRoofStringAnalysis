@@ -56,6 +56,7 @@ from app.services.growatt_sync.registry import (
     normalize_coords,
     PARAM_REFRESH_DAYS,
     REGISTRY_MAX_RATE_LIMITED,
+    remove_blocked_plants,
     sync_fleet,
 )
 from app.services.growatt_sync.power_limits import (

@@ -78,6 +78,7 @@ Rules for every layer:
 `.env` is read by pydantic-settings in `backend/app/config.py`; `.env.example` lists the keys. The main ones:
 - `DATABASE_URL`
 - `GROWATT_TOKEN_PHASE1`..`4`: one Growatt account per project phase. The legacy `GROWATT_API_TOKEN` is used as phase 1 when `GROWATT_TOKEN_PHASE1` is empty.
+- `GROWATT_BLOCKED_PLANT_IDS` (comma separated; production: `BLOCKED_PLANT_IDS` in `deploy/gcp.config`): Growatt plants the app ignores. They are left out of every `plant/list` answer (registry and live), and the worker removes their registry rows (with inverters, readings, alarms, issues) at start and on each `fleet` run
 - `GROWATT_LIVE_TTL_S`
 - `REDIS_URL` (empty = memory only): Redis mirror of the live caches and Growatt / Google cooldowns
 - `SENSOR_STATUS_TTL_S` (300), `SENSOR_SWEEP_PER_REQUEST` (12), `SENSOR_LATE_MIN` / `SENSOR_OFFLINE_MIN` (15 / 60): Weather Sensors live status (`env_list` per datalogger, memory only, swept only while the page is open); `SENSOR_ALARM_COVERAGE_PCT` (80): Active Alarm, past day: stored daylight coverage below this = data gap

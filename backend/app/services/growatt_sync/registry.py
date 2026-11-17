@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattInverter, GrowattPlant
+from app.db.models import GrowattInverter, GrowattIssue, GrowattPlant
 from solar_core.growatt import GrowattAPIError, GrowattClient
 from app.services.growatt_sync.common import RATE_LIMIT_CODE, _fnum, _retry, _upsert, log
 from app.services.growatt_sync.env import sync_env_sensors
@@ -44,6 +44,25 @@ def normalize_coords(lat: Any, lon: Any) -> Tuple[Optional[float], Optional[floa
 def _coords_row(p: Dict[str, Any]) -> Dict[str, Optional[float]]:
     lat, lon = normalize_coords(p.get("latitude"), p.get("longitude"))
     return {"latitude": lat, "longitude": lon}
+
+
+def remove_blocked_plants(db: Session, plant_ids: Iterable[int]) -> List[int]:
+    """Take the blocked plants (`GROWATT_BLOCKED_PLANT_IDS`) out of the registry. Returns the ids removed.
+
+    Deleting the plant row cascades to its inverters, sensors, meters, their readings and the
+    alarm log; its issues go too, so none stays in the queue without a plant. Unblocking brings
+    the plant back on the next `fleet` run (history from then on, older days by backfill).
+    """
+    ids = sorted(set(plant_ids))
+    if not ids:
+        return []
+    found = list(db.scalars(select(GrowattPlant.plant_id).where(GrowattPlant.plant_id.in_(ids))))
+    if found:
+        db.execute(delete(GrowattIssue).where(GrowattIssue.plant_id.in_(found)))
+        db.execute(delete(GrowattPlant).where(GrowattPlant.plant_id.in_(found)))
+        db.commit()
+        log.info("blocked plants removed from the registry: %s", found)
+    return found
 
 
 def sync_fleet(

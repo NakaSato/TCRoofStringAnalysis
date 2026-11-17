@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import requests
 import requests.adapters
@@ -72,12 +72,21 @@ class GrowattAPIError(RuntimeError):
 class GrowattClient:
     """Thin Growatt OpenAPI v1 client with an in-memory TTL cache."""
 
-    def __init__(self, token: str, base_url: str = "https://openapi.growatt.com/v1/", timeout: int = 30, cache_ttl_s: int = 300):
+    def __init__(
+        self,
+        token: str,
+        base_url: str = "https://openapi.growatt.com/v1/",
+        timeout: int = 30,
+        cache_ttl_s: int = 300,
+        blocked_plant_ids: Iterable[int] = (),
+    ):
         if not token:
             raise GrowattAPIError("Growatt API token is not configured (set GROWATT_API_TOKEN in .env).")
         self.base_url = base_url.rstrip("/") + "/"
         self.timeout = timeout
         self.cache_ttl_s = cache_ttl_s
+        # plants the app ignores: `list_plants` never returns them
+        self.blocked_plant_ids = frozenset(int(i) for i in blocked_plant_ids)
         self.session = requests.Session()
         # One client is shared by several thread pools (live /latest, alarms, sensor sweep,
         # concurrent requests); the default 10-connection pool would discard the extras
@@ -129,8 +138,14 @@ class GrowattClient:
             batch = data.get("plants") or []
             plants.extend(batch)
             if not batch or len(plants) >= int(data.get("count") or 0):
-                return plants
+                return [p for p in plants if not self._blocked(p)]
             page += 1
+
+    def _blocked(self, plant: Dict[str, Any]) -> bool:
+        try:
+            return int(plant.get("plant_id")) in self.blocked_plant_ids  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return False
 
     def plant_data(self, plant_id: int) -> Dict[str, Any]:
         """`plant/data`: one plant's current power, today / month / year / total energy and

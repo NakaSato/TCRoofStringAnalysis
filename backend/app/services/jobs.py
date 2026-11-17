@@ -58,7 +58,9 @@ def _clients() -> Dict[int, GrowattClient]:
     if not accounts:
         raise NoGrowattAccount("No Growatt token configured (GROWATT_TOKEN_PHASE1..4 or GROWATT_API_TOKEN)")
     return {
-        phase: GrowattClient(token=token, base_url=settings.growatt_base_url, timeout=60)
+        phase: GrowattClient(
+            token=token, base_url=settings.growatt_base_url, timeout=60, blocked_plant_ids=settings.blocked_plant_ids()
+        )
         for phase, token in accounts.items()
     }
 
@@ -294,8 +296,9 @@ def job_alarms_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
 
 
 def job_fleet(db: Session) -> Tuple[str, Dict[str, Any]]:
-    from app.services.growatt_sync import sync_fleet
+    from app.services.growatt_sync import remove_blocked_plants, sync_fleet
 
+    remove_blocked_plants(db, settings.blocked_plant_ids())
     return _per_phase(db, lambda db, c, phase, _untagged: {"inverters": len(sync_fleet(db, c, phase=phase))})
 
 

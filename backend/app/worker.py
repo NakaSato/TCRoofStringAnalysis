@@ -244,6 +244,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     with SessionLocal() as db:
         ensure_schema(db.get_bind())  # before the DB log handler: app_logs must exist
     setup_logging("worker")
+    with SessionLocal() as db:  # a newly blocked plant leaves the registry now, not at the next `fleet` run
+        from app.services.growatt_sync import remove_blocked_plants
+
+        remove_blocked_plants(db, settings.blocked_plant_ids())
 
     schedule = default_schedule()
     if args.list:

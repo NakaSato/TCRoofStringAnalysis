@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     growatt_token_phase3: str = ""
     growatt_token_phase4: str = ""
     growatt_base_url: str = "https://openapi.growatt.com/v1/"
+    # Growatt plant ids (comma separated) the app ignores: left out of every account's plant list
+    # (registry and live), and their stored registry rows are removed by the worker.
+    growatt_blocked_plant_ids: str = ""
     growatt_live_ttl_s: int = 120  # realtime cache TTL (memory only, never persisted)
     growatt_live_night_ttl_s: int = 1800  # max live cache life outside daylight (0 = off); ends at dawn
     growatt_live_device_gap_s: int = 270  # min s between max_data calls per inverter (Growatt refuses sooner)
@@ -200,6 +203,11 @@ class Settings(BaseSettings):
             4: self.growatt_token_phase4,
         }
         return {phase: t.strip() for phase, t in tokens.items() if t and t.strip()}
+
+    def blocked_plant_ids(self) -> frozenset[int]:
+        """`GROWATT_BLOCKED_PLANT_IDS` as plant ids; anything that is not a number is ignored."""
+        parts = self.growatt_blocked_plant_ids.replace(";", ",").split(",")
+        return frozenset(int(p) for p in (x.strip() for x in parts) if p.isdigit())
 
 
 settings = Settings()

@@ -13,7 +13,7 @@ from solar_core.growatt import GrowattClient
 from app.services.growatt_sync.common import log
 from app.services.growatt_sync.env import sync_env_all
 from app.services.growatt_sync.inverters import sync_all_history
-from app.services.growatt_sync.registry import sync_fleet
+from app.services.growatt_sync.registry import remove_blocked_plants, sync_fleet
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     today = date.today()
@@ -34,8 +34,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     phases = [p for p in sorted(accounts) if not args.phase or p in args.phase]
     with SessionLocal() as db:
         ensure_schema(db.get_bind())
+        remove_blocked_plants(db, settings.blocked_plant_ids())
         for phase in phases:
-            client = GrowattClient(token=accounts[phase], base_url=settings.growatt_base_url, timeout=60)
+            client = GrowattClient(
+                token=accounts[phase],
+                base_url=settings.growatt_base_url,
+                timeout=60,
+                blocked_plant_ids=settings.blocked_plant_ids(),
+            )
             if not args.skip_fleet:
                 sync_fleet(db, client, phase=phase)
             if args.fleet_only:
