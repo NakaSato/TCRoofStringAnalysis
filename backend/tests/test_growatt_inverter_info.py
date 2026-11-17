@@ -72,7 +72,7 @@ def test_parse_grid_and_diagnostics():
 def test_live_latest_row_carries_grid_and_diagnostics(monkeypatch):
     from app.services import growatt_live
 
-    monkeypatch.setattr(growatt_live, "newest_max_records", lambda c, sn, day, n=2: [REC])
+    monkeypatch.setattr(growatt_live.rows, "newest_max_records", lambda c, sn, day, n=2: [REC])
     row = _latest_row(None, "EPHHDXB00M", date(2026, 11, 12))  # type: ignore[arg-type]
     assert row is not None
     assert row["grid"]["v_r"] == 227.40001
@@ -163,7 +163,7 @@ def test_live_latest_row_carries_power_tail_oldest_first(monkeypatch):
         seen["n"] = n
         return page[:n]
 
-    monkeypatch.setattr(growatt_live, "newest_max_records", fake)
+    monkeypatch.setattr(growatt_live.rows, "newest_max_records", fake)
     row = _latest_row(None, "EPHHDXB00M", date(2026, 11, 12))  # type: ignore[arg-type]
     assert row is not None
     assert seen["n"] == growatt_live.POWER_TAIL_RECORDS
