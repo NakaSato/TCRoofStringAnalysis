@@ -162,6 +162,27 @@ def job_env_history(db: Session) -> Tuple[str, Dict[str, Any]]:
     )
 
 
+LATEST_MIN_INTERVAL_MIN = 5  # `maxs_data` answers an account again only about 5 min after a sweep
+
+
+def job_inverter_latest(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Each inverter's newest record of today (`maxs_data`, 50 inverters per call) into the
+    history tables, between `history` runs, so stored data lags Growatt by one record instead of
+    up to a `history` interval. The first 10012 ends an account's sweep (run `partial`); the
+    starting chunk moves on with every interval, so the next run reads what this one missed."""
+    from app.services.growatt_sync import sync_latest_records
+
+    now = datetime.now(PLANT_TZ)
+    turn = (now.hour * 60 + now.minute) // max(LATEST_MIN_INTERVAL_MIN, settings.worker_latest_interval_min)
+    today = _today()
+    return _per_phase(
+        db,
+        lambda db, c, phase, untagged: sync_latest_records(
+            db, c, today, phase=phase, include_untagged=untagged, first_chunk=turn
+        ),
+    )
+
+
 def job_power_limits(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Each inverter's active power limit (`readPower`), once a day in daylight: the read goes
     through the datalogger to the inverter, which answers only while it is running."""
@@ -407,6 +428,7 @@ def job_rules_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
 JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "history": job_history,
     "env_history": job_env_history,
+    "inverter_latest": job_inverter_latest,
     "backfill": job_backfill,
     "fleet": job_fleet,
     "power_limits": job_power_limits,

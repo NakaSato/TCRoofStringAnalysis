@@ -55,6 +55,7 @@ STORE_RAW="${STORE_RAW:-true}"          # keep whole max_data records (growatt_i
 RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-30}"
 HISTORY_INTERVAL_MIN="${HISTORY_INTERVAL_MIN:-10}"   # history interval on the worker
 ENV_INTERVAL_MIN="${ENV_INTERVAL_MIN:-0}"   # env_history interval on the worker; 0 = off
+LATEST_INTERVAL_MIN="${LATEST_INTERVAL_MIN:-0}"   # inverter_latest interval on the worker; 0 = off
 SNAPSHOT_POLICY="tcroof-db-weekly"
 OLD_SNAPSHOT_POLICIES="tcroof-db-daily"        # detached from the disk when found
 SNAPSHOT_KEEP_DAYS="${SNAPSHOT_KEEP_DAYS:-28}" # weekly snapshots kept 4 weeks; no daily backup
@@ -431,6 +432,7 @@ PUBLISH_SINK=firestore
 PUBLISH_DAILY_WRITE_BUDGET=15000
 WORKER_HISTORY_INTERVAL_MIN=${HISTORY_INTERVAL_MIN}
 WORKER_ENV_INTERVAL_MIN=${ENV_INTERVAL_MIN}
+WORKER_LATEST_INTERVAL_MIN=${LATEST_INTERVAL_MIN}
 HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
 HISTORY_STORE_RAW=${STORE_RAW}
 HISTORY_RAW_RETENTION_DAYS=${RAW_RETENTION_DAYS}

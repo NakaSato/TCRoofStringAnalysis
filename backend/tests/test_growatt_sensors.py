@@ -272,7 +272,7 @@ def test_live_status_thresholds():
 
 
 def test_status_route_engineer_sweeps_own_dataloggers_and_writes_nothing(factory, monkeypatch):
-    from app.api.routes import growatt as routes
+    from app.api.routes.growatt import live as routes
 
     class _Now(datetime):
         @classmethod
@@ -349,7 +349,7 @@ class _EnvLast(_EnvList):
 
 
 def _now_patch(monkeypatch):
-    from app.api.routes import growatt as routes
+    from app.api.routes.growatt import live as routes
 
     class _Now(datetime):
         @classmethod

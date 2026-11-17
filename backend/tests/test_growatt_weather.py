@@ -375,7 +375,7 @@ def test_live_weather_nulls_unfitted_probes_and_writes_nothing(env, monkeypatch)
     svc = GrowattLiveService(client_factory=lambda phase: fake, ttl_s=60)  # type: ignore[arg-type,return-value]
     app.dependency_overrides[get_live_service] = lambda: svc
     # the route looks back 7 days for which probes report; pin "now" right after the seeded days
-    from app.api.routes import growatt as routes
+    from app.api.routes.growatt import live as routes
 
     class _Now(datetime):
         @classmethod
@@ -449,7 +449,7 @@ def test_live_weather_measures_interval_from_consecutive_records_and_ttl_follows
 def test_live_weather_carries_stored_until_per_sensor(env, monkeypatch):
     c, app, Session = env
     app.dependency_overrides[get_live_service] = lambda: GrowattLiveService(client_factory=lambda phase: _EnvLive(), ttl_s=60)  # type: ignore[arg-type,return-value]
-    from app.api.routes import growatt as routes
+    from app.api.routes.growatt import live as routes
 
     class _Now(datetime):
         @classmethod

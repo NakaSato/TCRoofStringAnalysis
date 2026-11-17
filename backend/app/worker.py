@@ -39,6 +39,9 @@ Schedule (plant-local time, Asia/Bangkok):
     env_history        every WORKER_ENV_INTERVAL_MIN (10) min, WORKER_ENV_START_H..END_H (05–20)
                                weather-sensor env_data only (0 = off); a `history` start counts as
                                one, since `history` syncs the sensors too
+    inverter_latest    every WORKER_LATEST_INTERVAL_MIN (0 = off, at least 5) min,
+                               WORKER_LATEST_START_H..END_H (05–20): each inverter's newest record
+                               (maxs_data, 50 per call) into the history tables between `history` runs
 Runs queued from the API (`POST /growatt/sync/{job}`) start on the next tick (≤ 1 min).
 Daily jobs only fire within `GRACE` after their slot, so a worker started at noon does not
 publish a half day. Exception: `fleet` also runs at once when the inverter registry is empty
@@ -158,6 +161,17 @@ def default_schedule() -> List[Schedule]:
                 )
             ]
             if settings.worker_env_interval_min > 0
+            else []
+        ),
+        *(
+            [
+                Schedule(
+                    "inverter_latest",
+                    every=timedelta(minutes=max(jobs.LATEST_MIN_INTERVAL_MIN, settings.worker_latest_interval_min)),
+                    between=(settings.worker_latest_start_h, settings.worker_latest_end_h),
+                )
+            ]
+            if settings.worker_latest_interval_min > 0
             else []
         ),
     ]
