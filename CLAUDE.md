@@ -31,6 +31,8 @@ Growatt OpenAPI ─┬─ realtime ─► backend memory cache (120 s) ─► /g
                  │              (only while Weather Sensors / Active Alarm is open; never stored)
                  ├─ maxs_data newest record (50 inverters/call) ─► memory sweep (300 s) ─► /growatt/live/inverters/snapshot
                  │              (only while a page polls it; never stored)
+                 ├─ maxs_data newest record ─► growatt-worker (`inverter_latest`, off by default, every ≥ 5 min, 05–20) ─► SQL
+                 │              (the record under Growatt's own timestamp, same rows `history` writes)
                  ├─ max_data history ─► growatt-worker (every 10 min) ─► SQL ─► /growatt/plants* (DB only)
                  │                                                       └─► daily summaries ─► Firestore
                  ├─ plant/energy, plant/power, inverter day_energy (finished days) ─► growatt-worker (00:50) ─► SQL
@@ -91,6 +93,7 @@ Rules for every layer:
 - `HISTORY_STORE_RAW` (true), `HISTORY_RAW_RETENTION_DAYS` (30): `history` also keeps every field of each `max_data` record as Growatt reports it (`growatt_inverter_raw`, about 4 kB a record; `/growatt/plants/{id}/inverters/{sn}/raw`)
 - `WORKER_ALARMS_TICK_MIN` (10), `WORKER_ALARMS_HOT_MIN` / `_WARM_MIN` / `_COLD_MIN` (10 / 30 / 60), `WORKER_ALARMS_START_H` / `_END_H` (5 / 20): alarm log sync. Each tick reads only the inverters due by tier (hot = open alarm or fault status, warm = alarms today, cold = none); skipped 08/12/16:42–:51 for the PWA checks
 - `WORKER_ENV_INTERVAL_MIN` (10, 0 = off), `WORKER_ENV_START_H` / `_END_H` (5 / 20): `env_history`, weather-sensor history between `history` runs
+- `WORKER_LATEST_INTERVAL_MIN` (0 = off, at least 5), `WORKER_LATEST_START_H` / `_END_H` (5 / 20): `inverter_latest`, each inverter's newest record (`maxs_data`) into the history tables between `history` runs. It uses the same per-account `maxs_data` window as the fleet inverter snapshot
 - `FIREBASE_WEB_API_KEY`, `FIREBASE_WEB_APP_ID`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_VAPID_KEY` (any empty = off): alarm push notifications (FCM web push; `/push/*`, `services/push.py`). `PUSH_ALARM_LEVELS` (`fault`), `PUSH_ALARM_MAX_AGE_MIN` (90), `PUSH_ALARM_REPEAT_MIN` (120), `PUSH_MAX_PLANTS_PER_USER` (5): which alarm events are pushed. SQL keeps only device tokens (`push_tokens`) and what was pushed (`alarm_push_marks`)
 - `APP_ENV` (`dev` | `prod`), `ADMIN_USERNAME`, `ADMIN_PASSWORD`
 - `GOOGLE_WEATHER_API_KEY` (Secret Manager `tcroof-google-weather-key`), `GOOGLE_WEATHER_MONTHLY_BUDGET` (30000; PWA checks 687 + history 229 calls/day ≈ 28.4k/month, over the 10k free tier); each day gets what is left of the month ÷ days left. `GOOGLE_WEATHER_DAY_START_H` / `_END_H` (6 / 18): daytime-only hours stored and fetched live

@@ -345,7 +345,8 @@ class GrowattClient:
     def maxs_latest(self, device_sns: List[str], max_pages: int = 10) -> Dict[str, Dict[str, Any]]:
         """Newest record of several MAX inverters in one call (`device/max/maxs_data`, POST),
         {serial: record}; the record has the same fields as `max_data` (`time` is plant-local)
-        plus `dataloggerSn`. Realtime: callers must not store it. Rate limited per account
+        plus `dataloggerSn`. Realtime: the live services must not store it; only the worker's
+        `inverter_latest` job does, as the record under its own `time`. Rate limited per account
         (about 4 calls, then 10012 until ≈ 5 min after the first)."""
         out: Dict[str, Dict[str, Any]] = {}
         wanted = set(device_sns)

@@ -1033,6 +1033,86 @@ def _store_today(
     return len(inv_rows), len(str_rows)
 
 
+LATEST_CHUNK = GrowattClient.MAXS_PAGE  # serials per `maxs_data` call (one page)
+
+
+def sync_latest_records(
+    db: Session,
+    client: GrowattClient,
+    today: date,
+    phase: Optional[int] = None,
+    include_untagged: bool = False,
+    first_chunk: int = 0,
+    pause_s: float = 0.3,
+) -> Dict[str, Any]:
+    """Store each inverter's newest record of today from `maxs_data` (LATEST_CHUNK serials per
+    call), between `history` runs.
+
+    The record is a `max_data` record with Growatt's own `time`, so it goes into the same tables
+    under the same key and `history` later rewrites it with the same values: source-timestamped
+    history, not a poll-time value. `history_synced_until` is left alone, so `history` still
+    reads everything since its own last run and a record this job missed is never skipped. A
+    record of another day is not written (a silent inverter answers its last one, possibly
+    months old).
+
+    `maxs_data` answers about 4 calls per account, then 10012 for about 5 min: the first 10012
+    ends the account's sweep and the chunks not read are listed in `failed` (run `partial`).
+    `first_chunk` rotates the starting chunk, so a cut-short sweep does not always miss the same
+    inverters."""
+    sns = sorted({inv.device_sn for inv in db.scalars(_inverters_query(phase, include_untagged))})
+    chunks = [sns[i : i + LATEST_CHUNK] for i in range(0, len(sns), LATEST_CHUNK)]
+    totals: Dict[str, Any] = {
+        "inverters": len(sns),
+        "chunks": len(chunks),
+        "chunks_read": 0,
+        "answered": 0,
+        "not_today": 0,
+        "inverter_rows": 0,
+        "string_rows": 0,
+        "failed": [],
+    }
+    order = [(first_chunk + n) % len(chunks) for n in range(len(chunks))] if chunks else []
+    label = lambda k: f"chunk {k + 1}/{len(chunks)}"  # noqa: E731
+    day = today.isoformat()
+    for n, k in enumerate(order):
+        if n:
+            time.sleep(pause_s)
+        try:
+            records = client.maxs_latest(chunks[k])
+            inv_rows: List[Dict[str, Any]] = []
+            str_rows: List[Dict[str, Any]] = []
+            members = set(chunks[k])
+            for sn, rec in records.items():
+                if sn not in members:
+                    continue
+                totals["answered"] += 1
+                if str(rec.get("time") or "")[:10] != day:
+                    totals["not_today"] += 1
+                    continue
+                # `dataloggerSn` is added by the client; it is not a field of the record
+                rec = {f: v for f, v in rec.items() if f != "dataloggerSn"}
+                a, b = parse_max_records(sn, [rec])
+                inv_rows += a
+                str_rows += b
+                _store_raw(db, sn, [rec])
+            _upsert(db, GrowattInverterReading, inv_rows)
+            _upsert(db, GrowattStringReading, str_rows)
+            db.commit()
+        except Exception as exc:  # keep going with the next chunk; report at the end
+            db.rollback()
+            if isinstance(exc, GrowattAPIError) and exc.error_code == RATE_LIMIT_CODE:
+                totals["failed"] += [(label(j), str(exc)) for j in order[n:]]
+                log.warning("maxs_data rate limited at %s: %d chunk(s) left for the next run", label(k), len(order) - n)
+                break
+            totals["failed"].append((label(k), str(exc)))
+            log.error("maxs_data %s failed: %s", label(k), exc)
+            continue
+        totals["chunks_read"] += 1
+        totals["inverter_rows"] += len(inv_rows)
+        totals["string_rows"] += len(str_rows)
+    return totals
+
+
 def _sync_today_single(
     db: Session, client: GrowattClient, inv: GrowattInverter, today: date, overlap: timedelta
 ) -> Optional[Tuple[int, int]]:

@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     worker_env_interval_min: int = 10
     worker_env_start_h: int = 5
     worker_env_end_h: int = 20
+    # Newest record of every inverter (`inverter_latest`, `maxs_data`) into the history tables
+    # every WORKER_LATEST_INTERVAL_MIN between WORKER_LATEST_START_H and _END_H (plant-local).
+    # 0 = off (default); 1–4 run every 5 min, since an account answers `maxs_data` again only
+    # about 5 min after a sweep. It shares that window with `/growatt/live/inverters/snapshot`.
+    worker_latest_interval_min: int = 0
+    worker_latest_start_h: int = 5
+    worker_latest_end_h: int = 20
     # Sync the Growatt accounts (one per phase) in parallel threads. Growatt rate-limits per
     # token, so this cuts a fleet pass ~3x; set false if Growatt starts limiting per IP.
     worker_parallel_accounts: bool = True
