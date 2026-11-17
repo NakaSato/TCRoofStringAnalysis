@@ -31,7 +31,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
   - `growatt/`: `client.py` (the Growatt OpenAPI client, one method per endpoint) and `parsers.py` (records → rows, e.g. `parse_max_records`); both re-exported from `solar_core.growatt`.
   - `storage.py` is legacy and used only by `test_solar_core.py`.
 - **`app/`**: FastAPI.
-  - Routes are in `api/routes/*` (the Growatt ones in the package `api/routes/growatt/`, one module per area: `live`, `plants` (DB only), `fleet_config`, `rules`, `iv`, `events`, `sync`; shared pieces in `_common.py`), ORM models in `db/models.py`, request/response schemas in `schemas/api_schemas.py`.
+  - Routes are in `api/routes/*` (the Growatt ones in the package `api/routes/growatt/`, one module per area: `live`, `plants` (DB only), `fleet_config`, `rules`, `iv`, `events`, `sync`; shared pieces in `_common.py`), ORM models in the package `db/models/` (`users`, `legacy`, `growatt`, `rules`, `system`; all re-exported from `app.db.models`), request/response schemas in `schemas/api_schemas.py`.
   - Business logic lives in `services/*`. Keep route functions thin: they call a service and translate its exceptions into `HTTPException` (for example, `GrowattNotFound` becomes 404).
   - Every router is mounted twice, at `/api` and at `/`.
   - Auth is JWT (`app/auth.py`) with two roles. **admin**: everything. **engineer**: only the Growatt plants in `user_plant_assignments` (set by an admin via `/users/{id}/plants`).
