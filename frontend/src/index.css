@@ -265,6 +265,11 @@
 .plant-map .pm-dot:hover {
   transform: translate(-50%, -50%) scale(1.3);
 }
+/* radar rain over the plant (Longdo): an outer ring in the legend colour of its rain class */
+.plant-map .pm-rain {
+  outline: 2px solid var(--rain);
+  outline-offset: 3px;
+}
 /* hollow ring: disconnected / not received yet */
 .plant-map .pm-dot.pm-off,
 .plant-map .pm-dot.pm-wait {

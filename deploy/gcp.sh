@@ -94,6 +94,7 @@ phase_token_env() {  # phase -> token from .env (may be empty)
 }
 google_weather_secret() { secret_exists tcroof-google-weather-key && echo tcroof-google-weather-key; return 0; }
 # AI Assistant (Qwen Cloud): no secret = assistant off (the API answers 503 and the UI hides the button)
+longdo_secret() { secret_exists tcroof-longdo-key && echo tcroof-longdo-key; return 0; }
 ai_secret() { secret_exists tcroof-ai-api-key && echo tcroof-ai-api-key; return 0; }
 # PWA Report sheet (Apps Script) -> GET /api/report/pwa/{day} with this shared key; the API reads
 # the day's docs from Firestore as its own service account (roles/datastore.viewer). Idempotent.
@@ -160,6 +161,9 @@ EOF
   # Optional: Google Maps Weather API key (GOOGLE_WEATHER_API_KEY in .env)
   local gw_key; gw_key="$(env_value GOOGLE_WEATHER_API_KEY)"
   [ -z "$gw_key" ] || secret_put tcroof-google-weather-key "$gw_key"
+  # Optional: Longdo Map key for the Plant Map rain radar (LONGDO_API_KEY in .env)
+  local longdo_key; longdo_key="$(env_value LONGDO_API_KEY)"
+  [ -z "$longdo_key" ] || secret_put tcroof-longdo-key "$longdo_key"
 
   log "Static internal IP + VM $VM ($MACHINE_TYPE, ${DISK_GB} GB $DISK_TYPE)"
   g compute addresses describe "$DB_IP_NAME" --region "$REGION" >/dev/null 2>&1 || \
@@ -192,7 +196,7 @@ EOF
   log "Cloud Run service account"
   g iam service-accounts describe "${API_SA}@${PROJECT}.iam.gserviceaccount.com" >/dev/null 2>&1 || \
     g iam service-accounts create "$API_SA" --display-name "TC Roof API (Cloud Run)"
-  for s in $(phase_secrets | sed 's/^/tcroof-growatt-token-phase/') $(google_weather_secret) $(ai_secret) tcroof-jwt-secret tcroof-database-url tcroof-admin-password; do
+  for s in $(phase_secrets | sed 's/^/tcroof-growatt-token-phase/') $(google_weather_secret) $(longdo_secret) $(ai_secret) tcroof-jwt-secret tcroof-database-url tcroof-admin-password; do
     g secrets add-iam-policy-binding "$s" --member "serviceAccount:${API_SA}@${PROJECT}.iam.gserviceaccount.com" \
       --role roles/secretmanager.secretAccessor >/dev/null
   done
@@ -462,6 +466,7 @@ EOF
   local secrets="DATABASE_URL=tcroof-database-url:latest,JWT_SECRET_KEY=tcroof-jwt-secret:latest,ADMIN_PASSWORD=tcroof-admin-password:latest,REPORT_API_KEY=tcroof-report-key:latest,REDIS_URL=tcroof-redis-url:latest" p
   for p in $(phase_secrets); do secrets+=",GROWATT_TOKEN_PHASE$p=tcroof-growatt-token-phase$p:latest"; done
   [ -z "$(google_weather_secret)" ] || secrets+=",GOOGLE_WEATHER_API_KEY=tcroof-google-weather-key:latest"
+  [ -z "$(longdo_secret)" ] || secrets+=",LONGDO_API_KEY=tcroof-longdo-key:latest"
   [ -z "$(ai_secret)" ] || secrets+=",AI_API_KEY=tcroof-ai-api-key:latest"
 
   log "Deploying Cloud Run $SERVICE"

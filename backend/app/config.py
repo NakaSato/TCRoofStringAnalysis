@@ -156,6 +156,27 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_base_url: str = "https://ap-southeast-1.maas.qwencloudapi.com/apps/anthropic"
     ai_model: str = "qwen3.7-plus"
+    # Longdo Map Weather Radar API (weather.longdo.com): rain radar tiles on the Plant Map and
+    # radar rain over a plant now / +15 / +30 min. Empty key = off. The backend makes the JSON
+    # calls (memory cache only); the radar tiles are loaded by the browser, so the key is sent
+    # to signed-in users in the tile URL: restrict it by domain in the Longdo Map console.
+    longdo_api_key: str = ""
+    longdo_base_url: str = "https://weather.longdo.com/"
+    # Longdo allows 100,000 calls a month and 60 a minute per key. The backend's own JSON calls
+    # are counted per Bangkok day in SQL (`external_api_call_counts`, api `longdo`) and each day
+    # may use what is left of this budget spread over the days left; the rest of the 100,000 is
+    # left for the radar tiles the browsers load. Over it, the last values are served as stale.
+    longdo_monthly_budget: int = 60000
+    longdo_calls_per_min: int = 30  # backend calls per minute (the other half is for tiles)
+    longdo_interactive_reserve_per_min: int = 8  # of those, kept from the fleet sweep for the selected plant + snapshot list
+    longdo_radar_ttl_s: int = 300  # list of radar snapshots (they are 15 min apart)
+    longdo_rain_ttl_s: int = 300  # rain over the selected plant's cell (point + area, now + forecast)
+    longdo_area_radius_km: float = 10.0  # "rain nearby" circle around the selected plant
+    # Rain now over every plant, swept only while the Plant Map's radar is on: one `area` call
+    # per 1° region (47 for the fleet), then `location` only for plants in a region with rain.
+    # At most this many calls per request; a region / plant is asked again after the TTL.
+    longdo_fleet_rain_ttl_s: int = 1800
+    longdo_rain_sweep_per_request: int = 20
     ai_thinking: bool = False  # Qwen thinks by default: answers take 30-90 s, so it is sent disabled
     ai_max_tokens: int = 4000
     ai_max_tool_rounds: int = 8
