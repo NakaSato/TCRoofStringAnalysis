@@ -23,6 +23,7 @@ from app.services import growatt_sensors
 from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
 from app.services import google_weather as gw
+from app.services import longdo_weather as longdo
 from app.services import live_string_check
 from app.services import jobs
 from app.api.routes.growatt._common import sensor_scope
@@ -385,3 +386,55 @@ def live_plant_google_weather(
         return gw.live_plant(db, plant, live)
     except gw.GoogleWeatherUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Google Weather unavailable: {exc}") from exc
+
+
+@router.get("/live/rain-radar")
+def live_rain_radar(
+    db: Session = Depends(get_db), live: longdo.LongdoLive = Depends(longdo.get_longdo_live)
+) -> Dict[str, Any]:
+    """Longdo rain radar for the Plant Map: the snapshots available (Unix times, oldest first),
+    the XYZ tile URL template (it carries the Longdo Map key, a browser key) and the legend.
+    Memory only. 404 = not configured (`LONGDO_API_KEY`): the UI hides the radar button."""
+    if not longdo.enabled():
+        raise HTTPException(status_code=404, detail="Longdo rain radar is not configured")
+    try:
+        return longdo.radar(db, live)
+    except longdo.LongdoUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Longdo rain radar unavailable: {exc}") from exc
+
+
+@router.get("/live/rain")
+def live_fleet_rain(
+    db: Session = Depends(get_db),
+    live: longdo.LongdoLive = Depends(longdo.get_longdo_live),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Radar rain class now over every plant the user may see: Longdo `area` per 1° region, then
+    `location` only for plants in a region with rain. Swept `LONGDO_RAIN_SWEEP_PER_REQUEST`
+    calls per request inside the rate limit and the monthly budget, memory only. Polled only
+    while the Plant Map's radar is on. Radar-derived, not measured."""
+    if not longdo.enabled():
+        raise HTTPException(status_code=404, detail="Longdo rain radar is not configured")
+    return longdo.fleet_rain(db, live, allowed_plant_ids(db, user))
+
+
+@router.get("/live/plants/{plant_id}/rain")
+def live_plant_rain(
+    plant_id: int,
+    db: Session = Depends(get_db),
+    live: longdo.LongdoLive = Depends(longdo.get_longdo_live),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Rain over the plant from the Longdo weather radar: intensity class 0–5 now and the
+    +15 / +30 min nowcast (radar-derived, not measured). Cached in memory per ~1 km cell
+    (`LONGDO_RAIN_TTL_S`), never stored. 404 = not configured or unknown plant."""
+    if not longdo.enabled():
+        raise HTTPException(status_code=404, detail="Longdo rain radar is not configured")
+    try:
+        plant = ov._get_plant(db, plant_id)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        return longdo.plant_rain(db, plant, live)
+    except longdo.LongdoUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Longdo rain radar unavailable: {exc}") from exc

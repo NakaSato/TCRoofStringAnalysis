@@ -164,3 +164,70 @@ export interface GrowattLiveWeather {
   >;
   errors: Record<string, string>;
 }
+
+/** Rain class the Longdo weather radar shows over a point: 0 = no rain … 5 = very heavy. */
+export interface RadarRain {
+  intensity: number;
+  /** Longdo's own wording (Thai) */
+  description: string | null;
+}
+
+/** `/growatt/live/rain-radar`: Longdo rain radar for the Plant Map (memory only on the backend). */
+export interface RainRadar {
+  provider: string;
+  radar: true;
+  /** Unix seconds of the radar snapshots available, oldest first */
+  frames: number[];
+  /** Leaflet tile URL with `{time}` for the snapshot; carries the Longdo Map browser key */
+  tile_url: string;
+  min_zoom: number;
+  max_zoom: number;
+  attribution: string;
+  /** colour and label of each rain class; empty when Longdo's legend could not be read */
+  legend: Array<{ intensity: number; label: string; color: string }>;
+}
+
+/** `/growatt/live/plants/{id}/rain`: radar rain over the plant, radar-derived and never measured. */
+export interface PlantRadarRain {
+  plant_id: number;
+  provider: string;
+  radar: true;
+  cell: { key: string; latitude: number; longitude: number };
+  /** null = Longdo gave no class */
+  now: RadarRain | null;
+  /** nowcast; `rain` null = not available for that lead time */
+  forecast: Array<{ lead_min: number | null; time: number | null; rain: RadarRain | null }>;
+  forecast_error: string | null;
+  /** rain within `radius_km` of the plant; `error` when Longdo refused that part */
+  area: {
+    radius_km: number;
+    now: RadarAreaStats | null;
+    forecast: Array<{ lead_min: number | null; time: number | null; stats: RadarAreaStats | null }>;
+    error: string | null;
+  };
+}
+
+/** Share of a circle the radar shows rain over, and the strongest class in it. */
+export interface RadarAreaStats {
+  coverage_pct: number | null;
+  max_intensity: number | null;
+}
+
+/** `/growatt/live/rain`: radar rain now over every visible plant (swept on the backend, memory only). */
+export interface FleetRadarRain {
+  provider: string;
+  radar: true;
+  plants: Array<{
+    plant_id: number;
+    /** false = not asked yet (or no location): `rain` is null, which is not "no rain" */
+    checked: boolean;
+    rain: RadarRain | null;
+    /** "area" = no rain anywhere in the plant's region; "point" = asked for the plant itself */
+    via: "area" | "point" | null;
+    fetched_at: string | null;
+  }>;
+  located: number;
+  checked: number;
+  raining: number;
+  usage: { monthly_budget: number; used_this_month: number; allowance_today: number; used_today: number };
+}

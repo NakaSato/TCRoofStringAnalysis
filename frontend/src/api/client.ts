@@ -20,7 +20,7 @@ export type * from "./types/events";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
-import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay } from "./types/weather";
+import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay, FleetRadarRain, PlantRadarRain, RainRadar } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
@@ -301,6 +301,10 @@ export const api = {
     apiFetch<GoogleWeatherDay>(`/growatt/plants/${plantId}/google-weather${day ? `?day=${day}` : ""}`),
   getGoogleWeatherLive: (plantId: number) =>
     apiFetch<GrowattLive<GoogleWeatherNow>>(`/growatt/live/plants/${plantId}/google-weather`),
+  // Longdo rain radar (Plant Map): radar-derived, memory only; 404 = not configured
+  getRainRadar: () => apiFetch<GrowattLive<RainRadar>>("/growatt/live/rain-radar"),
+  getLiveFleetRain: () => apiFetch<GrowattLive<FleetRadarRain>>("/growatt/live/rain"),
+  getLivePlantRain: (plantId: number) => apiFetch<GrowattLive<PlantRadarRain>>(`/growatt/live/plants/${plantId}/rain`),
 
   // Plants
   listPlants: () => apiFetch<Plant[]>("/plants"),

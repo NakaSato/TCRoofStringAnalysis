@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { ExternalLink, Layers, MapPinOff, Maximize2, Search, X } from "lucide-react";
+import { AppWindow, CloudRain, ExternalLink, Layers, MapPinOff, Maximize2, Search, X } from "lucide-react";
 import { useFleet } from "../context/FleetContext";
 import { plantPath } from "../context/routes";
 import { pick, useUrlState } from "../lib/useUrlState";
@@ -15,23 +15,50 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { PlantRainRow, RainRadarBar, type RainingPlant, rainLook, useFleetRain, useRainRadar } from "./plantMap/rainRadar";
 
-/* Basemaps: free tiles, no key; attribution is required. */
-const BASEMAPS = {
-  sat: {
-    label: "Satellite",
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
-    // place names over the imagery, so the overview stays readable
-    labels: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-  },
-  dark: {
-    label: "Dark",
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: "© OpenStreetMap contributors © CARTO",
-    labels: null,
-  },
-} as const;
+/* Basemaps. With a Mapbox token (`VITE_MAPBOX_TOKEN`, a public `pk.` token: restrict it by URL at
+   Mapbox) the map uses Mapbox raster style tiles; without one, Esri's free tiles. Attribution is required. */
+const MAPBOX_TOKEN: string = import.meta.env.VITE_MAPBOX_TOKEN || "";
+const mapbox = (style: string) =>
+  `https://api.mapbox.com/styles/v1/mapbox/${style}/tiles/512/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
+const MAPBOX_ATTRIBUTION = "© Mapbox © OpenStreetMap";
+interface BasemapDef {
+  label: string;
+  url: string;
+  attribution: string;
+  /** a second layer of place names over the base; null when the base has its own */
+  labels: string | null;
+  /** deepest zoom with real tiles; stretched beyond */
+  maxNativeZoom: number;
+  /** Mapbox serves 512 px tiles */
+  big: boolean;
+}
+const BASEMAPS: Record<"sat" | "dark", BasemapDef> = MAPBOX_TOKEN
+  ? {
+      sat: { label: "Satellite", url: mapbox("satellite-streets-v12"), attribution: `${MAPBOX_ATTRIBUTION} © Maxar`, labels: null, maxNativeZoom: 19, big: true },
+      dark: { label: "Dark", url: mapbox("dark-v11"), attribution: MAPBOX_ATTRIBUTION, labels: null, maxNativeZoom: 19, big: true },
+    }
+  : {
+      sat: {
+        label: "Satellite",
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
+        // place names over the imagery, so the overview stays readable
+        labels: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+        maxNativeZoom: 19,
+        big: false,
+      },
+      dark: {
+        label: "Dark",
+        // Esri Dark Gray Canvas (tiles to zoom 16); CARTO's dark tiles now demand an API key
+        url: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        attribution: "© Esri, HERE, Garmin, © OpenStreetMap contributors",
+        labels: "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+        maxNativeZoom: 16,
+        big: false,
+      },
+    };
 type Basemap = keyof typeof BASEMAPS;
 
 const STATUS_FILTERS = ["all", "normal", "faulty", "disconnected"] as const;
@@ -80,12 +107,13 @@ const escapeHtml = (v: string): string =>
 /** Zero-size divIcon whose content centres itself on the point (dot) or stands on it (tag), so the
  *  label can be any width. */
 const markerIcon = (
-  o: { color: string; level: StatusLevel; size: number; kwp: number | null; name: string },
+  o: { color: string; level: StatusLevel; size: number; kwp: number | null; name: string; rain: string | null },
   tier: MarkerTier,
   selected: boolean
 ): L.DivIcon => {
-  const cls = `pm pm-${LEVEL_CLASS[o.level]}${selected ? " pm-sel" : ""}`;
-  const style = `--c:${o.color};--d:${Math.round(o.size)}px`;
+  // `rain` = Longdo's legend colour of the radar rain class over the plant: an outer ring
+  const cls = `pm pm-${LEVEL_CLASS[o.level]}${selected ? " pm-sel" : ""}${o.rain ? " pm-rain" : ""}`;
+  const style = `--c:${o.color};--d:${Math.round(o.size)}px${o.rain ? `;--rain:${o.rain}` : ""}`;
   const html =
     tier === "dot"
       ? `<span class="${cls} pm-dot" style="${style}"></span>`
@@ -108,8 +136,12 @@ export const PlantMapPage: React.FC = () => {
   const { growattPlants, plantListLoaded } = useFleet();
   const [params, set] = useUrlState();
   const statusFilter = pick(params.get("status"), STATUS_FILTERS, "all");
-  const basemap = pick(params.get("base"), ["sat", "dark"] as const, "sat");
+  const basemap = pick(params.get("base"), ["sat", "dark"] as const, "dark"); // dark by default; `base=sat` = satellite
   const q = params.get("q") ?? "";
+  // `full=1` = map only, over the whole window (opened in a new window by the map button)
+  const full = params.get("full") === "1";
+  const radarOn = params.get("radar") !== "0"; // on by default; `radar=0` turns it off
+  const rainOnly = radarOn && params.get("rain") === "1";
   const selectedId = Number(params.get("plant")) || null;
   const phaseRaw = params.get("phase");
   const phaseFilter = phaseRaw && /^\d+$/.test(phaseRaw) ? Number(phaseRaw) : null;
@@ -139,15 +171,20 @@ export const PlantMapPage: React.FC = () => {
     };
   }, [plants]);
 
+  // radar rain now over each plant (polled only while the radar is on)
+  const fleetRain = useFleetRain(radarOn);
+  const rainOf = fleetRain.byId;
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return plants.filter(({ plant, status }) => {
+      if (rainOnly && !((rainOf.get(plant.plant_id)?.rain?.intensity ?? 0) > 0)) return false;
       if (statusFilter !== "all" && FILTER_OF[status.label] !== statusFilter) return false;
       if (phaseFilter != null && plant.phase !== phaseFilter) return false;
       if (!needle) return true;
       return [plant.name, plant.city, String(plant.plant_id)].some((v) => v?.toLowerCase().includes(needle));
     });
-  }, [plants, statusFilter, q, phaseFilter]);
+  }, [plants, statusFilter, q, phaseFilter, rainOnly, rainOf]);
 
   const selected = plants.find((p) => p.plant.plant_id === selectedId) ?? null;
 
@@ -188,14 +225,30 @@ export const PlantMapPage: React.FC = () => {
     };
   }, []);
 
+  // Longdo rain radar (on unless URL `radar=0`); hidden when the backend has no Longdo key
+  const radar = useRainRadar(map, radarOn);
+  const showRadar = radarOn && radar.available;
+  const legend = useMemo(() => radar.data?.legend ?? [], [radar.data]);
+  // where it rains now: every plant the user may see with radar rain over it, strongest class first
+  const rainingPlants = useMemo<RainingPlant[]>(
+    () =>
+      plants
+        .map(({ plant }) => ({ plant, rain: rainOf.get(plant.plant_id)?.rain }))
+        .filter((r) => (r.rain?.intensity ?? 0) > 0)
+        .sort((a, b) => (b.rain?.intensity ?? 0) - (a.rain?.intensity ?? 0) || a.plant.name.localeCompare(b.plant.name))
+        .map(({ plant, rain }) => ({ plantId: plant.plant_id, name: plant.name, city: plant.city ?? null, ...rainLook(rain, legend) })),
+    [plants, rainOf, legend]
+  );
+
   // basemap
   useEffect(() => {
     const g = baseLayer.current;
     if (!g) return;
     g.clearLayers();
     const b = BASEMAPS[basemap];
-    L.tileLayer(b.url, { maxZoom: 19, maxNativeZoom: basemap === "sat" ? 19 : 20, attribution: b.attribution }).addTo(g);
-    if (b.labels) L.tileLayer(b.labels, { maxZoom: 19, opacity: 0.85 }).addTo(g);
+    const size = b.big ? { tileSize: 512, zoomOffset: -1 } : {};
+    L.tileLayer(b.url, { maxZoom: 19, maxNativeZoom: b.maxNativeZoom, attribution: b.attribution, ...size }).addTo(g);
+    if (b.labels) L.tileLayer(b.labels, { maxZoom: 19, maxNativeZoom: b.maxNativeZoom, opacity: 0.85 }).addTo(g);
   }, [basemap]);
 
   // markers: rebuilt when the list, the live status or the filter changes
@@ -210,7 +263,9 @@ export const PlantMapPage: React.FC = () => {
     for (const { plant, status } of shown) {
       const kwp = plant.peak_power_kwp ?? 0;
       const size = 9 + 9 * Math.sqrt(Math.max(0, kwp) / maxKwp);
-      const look = { color: status.color, level: status.level, size, kwp: plant.peak_power_kwp, name: plant.name };
+      const rain = rainOf.get(plant.plant_id)?.rain;
+      const raining = rain && rain.intensity > 0 ? rainLook(rain, legend) : null;
+      const look = { color: status.color, level: status.level, size, kwp: plant.peak_power_kwp, name: plant.name, rain: raining?.color ?? null };
       const icon = (selected: boolean) => markerIcon(look, tier, selected);
       const mk = L.marker([plant.latitude!, plant.longitude!], {
         icon: icon(false),
@@ -218,12 +273,15 @@ export const PlantMapPage: React.FC = () => {
         zIndexOffset: order[status.level] * 1000,
         keyboard: false,
       });
-      mk.bindTooltip(`${plant.name} · ${fmt(plant.peak_power_kwp, 1)} kWp · ${status.label}`, { direction: "top" });
+      mk.bindTooltip(
+        `${plant.name} · ${fmt(plant.peak_power_kwp, 1)} kWp · ${status.label}${raining ? ` · ${raining.label} (radar)` : ""}`,
+        { direction: "top" }
+      );
       mk.on("click", () => selectRef.current(plant.plant_id));
       mk.addTo(g);
       markers.current.set(plant.plant_id, { mk, icon });
     }
-  }, [filtered, maxKwp, tier]);
+  }, [filtered, maxKwp, tier, rainOf, legend]);
 
   // highlight the selected plant
   useEffect(() => {
@@ -236,7 +294,7 @@ export const PlantMapPage: React.FC = () => {
       m.mk.setIcon(m.icon(false));
       m.mk.setZIndexOffset(z);
     };
-  }, [selectedId, filtered, tier]);
+  }, [selectedId, filtered, tier, rainOf, legend]);
 
   const fitAll = useCallback(() => {
     const m = map.current;
@@ -278,8 +336,12 @@ export const PlantMapPage: React.FC = () => {
 
       <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]", !plantListLoaded && "hidden")}>
         {/* Map */}
-        <Card className="relative gap-0 overflow-hidden p-0">
-          <div ref={el} className="plant-map h-[calc(100vh-13rem)] min-h-[460px] w-full" aria-label="Map of all plants" />
+        <Card className={cn("relative gap-0 overflow-hidden p-0", full && "fixed inset-0 z-[45] rounded-none border-0")}>
+          <div
+            ref={el}
+            className={cn("plant-map w-full", full ? "h-dvh" : "h-[calc(100vh-13rem)] min-h-[460px]")}
+            aria-label="Map of all plants"
+          />
 
           {/* status filter */}
           <div className="absolute left-14 top-3 z-[400] flex flex-wrap gap-1 rounded-lg border border-white/[0.08] bg-ink-950/85 p-1 backdrop-blur">
@@ -302,6 +364,30 @@ export const PlantMapPage: React.FC = () => {
 
           {/* map tools */}
           <div className="absolute right-3 top-3 z-[400] flex flex-col gap-1.5">
+            {!full && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="bg-ink-950/85"
+                    onClick={() => {
+                      // same filters, basemap, radar and selected plant, map only
+                      const next = new URLSearchParams(params);
+                      next.set("full", "1");
+                      const w = window.screen.availWidth;
+                      const h = window.screen.availHeight;
+                      window.open(`/map?${next}`, "plant-map-full", `popup,left=0,top=0,width=${w},height=${h}`);
+                    }}
+                    aria-label="Open the map in a new window"
+                  >
+                    <AppWindow className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Open full-screen map in a new window</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -324,7 +410,7 @@ export const PlantMapPage: React.FC = () => {
                   variant="ghost"
                   size="icon-sm"
                   className="bg-ink-950/85"
-                  onClick={() => set({ base: basemap === "sat" ? "dark" : null })}
+                  onClick={() => set({ base: basemap === "dark" ? "sat" : null })}
                   aria-label="Switch basemap"
                 >
                   <Layers className="h-3.5 w-3.5" />
@@ -334,11 +420,30 @@ export const PlantMapPage: React.FC = () => {
                 Basemap: {BASEMAPS[basemap].label} (switch to {BASEMAPS[basemap === "sat" ? "dark" : "sat"].label})
               </TooltipContent>
             </Tooltip>
+            {radar.available && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className={cn("bg-ink-950/85", radarOn && "text-sky-300 ring-1 ring-sky-400/50")}
+                    onClick={() => set(radarOn ? { radar: "0", rain: null } : { radar: null })}
+                    aria-label="Rain radar"
+                    aria-pressed={radarOn}
+                  >
+                    <CloudRain className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Rain radar (Longdo): {radarOn ? "on" : "off"}</TooltipContent>
+              </Tooltip>
+            )}
           </div>
 
           {/* selected plant */}
           {selected && (
-            <div className="absolute bottom-6 left-3 z-[400] w-[min(360px,calc(100%-1.5rem))] rounded-xl border border-white/[0.08] bg-ink-950/90 p-3 shadow-xl backdrop-blur">
+            <div className={cn("absolute left-3 z-[400] w-[min(360px,calc(100%-1.5rem))] rounded-xl", // the radar panel sits bottom right; the card goes above it where the map is too narrow for both
+              showRadar ? (rainingPlants.length ? "bottom-[16.5rem] 2xl:bottom-6" : "bottom-[7.75rem] 2xl:bottom-6") : "bottom-6", " border border-white/[0.08] bg-ink-950/90 p-3 shadow-xl backdrop-blur")}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-100">{selected.plant.name}</div>
@@ -382,6 +487,9 @@ export const PlantMapPage: React.FC = () => {
                   : "No location set in Growatt"}
                 {selected.plant.inverter_count != null && ` · ${selected.plant.inverter_count} inverters`}
               </div>
+              {radar.available && radar.data && selected.located && (
+                <PlantRainRow plantId={selected.plant.plant_id} legend={radar.data.legend} />
+              )}
               <div className="mt-2.5 flex gap-2">
                 <Button type="button" size="sm" onClick={() => navigate(plantPath(selected.plant.plant_id))}>
                   Open plant
@@ -400,10 +508,20 @@ export const PlantMapPage: React.FC = () => {
               </div>
             </div>
           )}
+          {showRadar && (
+            <RainRadarBar
+              radar={radar}
+              fleet={fleetRain}
+              rainOnly={rainOnly}
+              onRainOnly={(v) => set({ rain: v ? "1" : null })}
+              raining={rainingPlants}
+              onPick={(id) => set({ plant: id })}
+            />
+          )}
         </Card>
 
         {/* Plant list */}
-        <Card className="gap-0 overflow-hidden p-0 lg:h-[calc(100vh-13rem)] lg:min-h-[460px]">
+        <Card className={cn("gap-0 overflow-hidden p-0 lg:h-[calc(100vh-13rem)] lg:min-h-[460px]", full && "hidden")}>
           <div className="border-b border-white/[0.06] p-3">
             <div className="flex gap-2">
             <div className="relative min-w-0 flex-1">
@@ -435,12 +553,12 @@ export const PlantMapPage: React.FC = () => {
               {fmtInt(filtered.length)} plants shown
               {filtered.some((p) => !p.located) && ` · ${filtered.filter((p) => !p.located).length} without location`}
               </span>
-              {(q || phaseFilter != null) && (
+              {(q || phaseFilter != null || rainOnly) && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="xs"
-                  onClick={() => set({ q: null, phase: null })}
+                  onClick={() => set({ q: null, phase: null, rain: null })}
                 >
                   Clear filters
                 </Button>
@@ -452,7 +570,10 @@ export const PlantMapPage: React.FC = () => {
               <div className="p-6 text-center text-xs text-slate-500">No plant matches.</div>
             ) : (
               <ul className="divide-y divide-white/[0.04]">
-                {filtered.map(({ plant, status, located }) => (
+                {filtered.map(({ plant, status, located }) => {
+                  const rain = rainOf.get(plant.plant_id)?.rain;
+                  const raining = rain && rain.intensity > 0 ? rainLook(rain, legend) : null;
+                  return (
                   <li key={plant.plant_id}>
                     <button
                       type="button"
@@ -474,10 +595,17 @@ export const PlantMapPage: React.FC = () => {
                             <MapPinOff className="h-3 w-3" /> no location
                           </div>
                         )}
+                        {raining && (
+                          <div className="flex items-center justify-end gap-1 text-[10px] text-sky-300" title="Longdo weather radar, not measured">
+                            {raining.color && <i className="h-1.5 w-1.5 rounded-full" style={{ background: raining.color }} />}
+                            {raining.label}
+                          </div>
+                        )}
                       </div>
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>

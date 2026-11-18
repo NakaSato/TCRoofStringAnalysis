@@ -67,6 +67,7 @@ def _secret_values() -> List[str]:
         settings.admin_password,
         settings.report_api_key,
         settings.ai_api_key,
+        settings.longdo_api_key,
     ]
     for url in (settings.database_url, settings.redis_url):
         try:
