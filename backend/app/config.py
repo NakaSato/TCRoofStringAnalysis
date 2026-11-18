@@ -167,6 +167,7 @@ class Settings(BaseSettings):
     # may use what is left of this budget spread over the days left; the rest of the 100,000 is
     # left for the radar tiles the browsers load. Over it, the last values are served as stale.
     longdo_monthly_budget: int = 60000
+    longdo_timeout_s: float = 6.0  # one Longdo call (they answer in 0.2–0.4 s)
     longdo_calls_per_min: int = 30  # backend calls per minute (the other half is for tiles)
     longdo_interactive_reserve_per_min: int = 8  # of those, kept from the fleet sweep for the selected plant + snapshot list
     longdo_radar_ttl_s: int = 300  # list of radar snapshots (they are 15 min apart)

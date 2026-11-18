@@ -264,3 +264,42 @@ def test_rate_limit_and_budget(client, monkeypatch):
     r = client.get("/api/growatt/live/rain").json()
     assert r["stale"] and "budget" in r["error"] and r["data"]["checked"] == 0 and r["refresh_in_s"] == 60
     assert client.fake.calls["frames"] == 0 and client.fake.calls["area"] == 0  # type: ignore[attr-defined]
+
+
+def test_plant_rain_held_back_is_not_an_error(client, monkeypatch):
+    """Rate limit, cooldown and budget answer 200 + stale with null values, never 503."""
+    fake = client.fake  # type: ignore[attr-defined]
+    tight = longdo.LongdoLive(lambda: fake, calls_per_min=2)  # type: ignore[arg-type,return-value]
+    client.app.dependency_overrides[longdo.get_longdo_live] = lambda: tight
+    r = client.get("/api/growatt/live/plants/1/rain")
+    d = r.json()["data"]
+    # room for the point part (2 calls) only: now + forecast served, the area waits
+    assert r.status_code == 200 and d["now"]["intensity"] == 3 and d["now_via"] == "point" and d["forecast"]
+    assert d["area"]["now"] is None and "rate limit" in d["area"]["error"]
+    assert r.json()["stale"] and "rate limit" in r.json()["error"] and r.json()["refresh_in_s"] <= 20
+    assert fake.calls["rain"] == 1 and fake.calls["area"] == 0
+
+    # nothing cached and no room at all: nulls, and "now" from the fleet sweep when it has the cell
+    r = client.get("/api/growatt/live/plants/3/rain")
+    b = r.json()
+    assert r.status_code == 200 and b["stale"] and b["fetched_at"] is None
+    assert b["data"]["now"] is None and b["data"]["now_via"] is None and b["data"]["forecast"] == []
+    key = client.get("/api/growatt/live/plants/3/rain").json()["data"]["cell"]["key"]
+    tight._cache[f"now:{key}"] = (tight._clock(), "2026-11-18T02:00:00+00:00", {"intensity": 2, "description": None}, 1800.0)
+    b = client.get("/api/growatt/live/plants/3/rain").json()
+    assert b["data"]["now"] == {"intensity": 2, "description": None} and b["data"]["now_via"] == "sweep"
+    assert b["fetched_at"] == "2026-11-18T02:00:00+00:00" and b["stale"]
+
+    # a Longdo failure with nothing cached: reason in `error`, then the cooldown, still 200
+    roomy = longdo.LongdoLive(lambda: fake)  # type: ignore[arg-type,return-value]
+    client.app.dependency_overrides[longdo.get_longdo_live] = lambda: roomy
+    fake.fail = {"rain", "area"}
+    b = client.get("/api/growatt/live/plants/1/rain").json()
+    assert b["stale"] and "503" in b["error"] and b["data"]["now"] is None and b["refresh_in_s"] == 60
+    b = client.get("/api/growatt/live/plants/1/rain").json()
+    assert "cooldown" in b["error"] and fake.calls["rain"] == 2  # not asked again inside the cooldown
+
+    monkeypatch.setattr(settings, "longdo_monthly_budget", 0)
+    fake.fail = set()
+    r = client.get("/api/growatt/live/plants/3/rain")
+    assert r.status_code == 200 and "budget" in r.json()["error"] and r.json()["data"]["now"] is None
