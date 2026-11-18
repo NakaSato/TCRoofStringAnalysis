@@ -533,3 +533,34 @@ def test_rules_and_tariff_routes(tmp_path):
     assert client.put("/growatt/tariff", json={**new, "holidays": ["not a day"]}, headers=admin).status_code == 422
     with f() as db:
         assert tariff.pricer(db).thb(9001, 2.0, 2.0) == pytest.approx(7.0)
+
+
+def test_day_rates_weight_tou_by_stored_power_and_scope_by_plant(tmp_path):
+    """Fleet revenue prices each plant's yield at its own rate: flat PPA, else TOU weighted by
+    the on-peak share of its stored power that day; no power yet = off-peak (never inflated)."""
+    from app.db.models import AppSetting
+
+    f, client, admin, eng = _api(tmp_path)
+    t = tariff.DEFAULT_TARIFF
+    on, off = t["on_peak_thb"] + t["ft_thb"], t["off_peak_thb"] + t["ft_thb"]
+    with f() as db:
+        db.add(GrowattInverter(device_sn="A1", plant_id=9001))
+        db.flush()
+        # DAY is a Tuesday: 1 kW 08:00–08:55 (off-peak), 3 kW 09:00–09:55 (on-peak) -> 75 % on-peak
+        for m in range(0, 60, 5):
+            db.add(GrowattInverterReading(device_sn="A1", timestamp=datetime(2026, 11, 10, 8, m), pac_w=1000.0))
+            db.add(GrowattInverterReading(device_sn="A1", timestamp=datetime(2026, 11, 10, 9, m), pac_w=3000.0))
+        db.commit()
+        r = tariff.day_rates(db, DAY)
+        assert r[9001]["on_peak_share"] == 0.75 and r[9001]["basis"] == "tou"
+        assert r[9001]["thb_per_kwh"] == pytest.approx(0.75 * on + 0.25 * off, abs=1e-3)
+        assert r[9002] == {"thb_per_kwh": round(off, 4), "on_peak_share": None, "basis": "off_peak_unknown_split"}
+        # Saturday: everything off-peak
+        assert tariff.day_rates(db, date(2026, 11, 14))[9001]["thb_per_kwh"] == pytest.approx(off, abs=1e-3)
+        db.add(AppSetting(key="tariff", value={**t, "plant_rates": {"9002": {"thb_per_kwh": 3.5, "basis": "PPA"}}}))
+        db.commit()
+        assert tariff.day_rates(db, DAY)[9002] == {"thb_per_kwh": 3.5, "on_peak_share": None, "basis": "plant_rate"}
+
+    body = client.get(f"/growatt/tariff/rates?day={DAY.isoformat()}", headers=eng).json()
+    assert set(body["plants"]) == {"9001"} and body["meta"]["estimated"] is True
+    assert set(client.get(f"/growatt/tariff/rates?day={DAY.isoformat()}", headers=admin).json()["plants"]) == {"9001", "9002"}

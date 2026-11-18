@@ -26,7 +26,7 @@ import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/sy
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
-import type { Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut } from "./types/issues";
+import type { Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -444,6 +444,7 @@ export const api = {
   putRules: (patch: RulesPatch) =>
     apiFetch<{ settings: RuleSettings }>("/growatt/rules", { method: "PUT", body: JSON.stringify(patch) }),
   getTariff: () => apiFetch<TariffOut>("/growatt/tariff"),
+  getTariffRates: (day?: string) => apiFetch<TariffRates>(`/growatt/tariff/rates${day ? `?day=${day}` : ""}`),
   putTariff: (t: Tariff) => apiFetch<TariffOut>("/growatt/tariff", { method: "PUT", body: JSON.stringify(t) }),
   getStringRuleDaily: (plantId: number, sn: string, stringNo: number, days = 30, day?: string) =>
     apiFetch<RuleDaily<StringRuleDay>>(

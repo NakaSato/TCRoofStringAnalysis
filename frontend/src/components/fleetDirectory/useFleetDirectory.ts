@@ -8,7 +8,7 @@
  * shows "—", never the stored day's yield. Inverter status per plant from
  * `/growatt/live/inverters/snapshot` (`maxs_data`, 50 inverters per call, swept the same way).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import type { GrowattInverterSnapshot, GrowattLive, GrowattLivePlantsToday } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
@@ -46,6 +46,24 @@ export const useFleetDirectory = () => {
     () => setLiveTodayFailed(true)
   );
   const todayByPlant = liveToday?.data.plants;
+
+  // each plant's THB/kWh today (DB: its flat rate, else TOU weighted by its stored power), so
+  // fleet revenue prices every plant at its own rate; re-read every 5 min while visible
+  const [rates, setRates] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      api
+        .getTariffRates()
+        .then((r) => !cancelled && setRates(Object.fromEntries(Object.entries(r.plants).map(([k, v]) => [k, v.thb_per_kwh]))))
+        .catch(() => undefined); // keep the last rates; revenue stays "—" until the first answer
+    load();
+    const id = window.setInterval(() => !document.hidden && load(), 5 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   // newest record of every inverter (realtime, backend memory only; never stored)
   const [snap, setSnap] = useState<GrowattLive<GrowattInverterSnapshot> | null>(null);
@@ -181,8 +199,13 @@ export const useFleetDirectory = () => {
     const yieldTodayKwh = sumKnown(unifiedPlants.map((p) => p.yieldTodayKwh));
     const totalYieldKwh = sumKnown(unifiedPlants.map((p) => p.totalEnergyKwh));
     const ratedPowerKwp = unifiedPlants.reduce((a, p) => a + (p.capacityKwp ?? 0), 0);
-    const tariff = activePlant?.tariff_thb_per_kwh ?? analysisRun?.tariff_thb_per_kwh ?? 4.2;
-    const revenueTodayThb = yieldTodayKwh == null ? null : yieldTodayKwh * tariff;
+    // each plant's live yield × its own rate today; null until the rates arrive or when a plant
+    // with a yield has no rate (never priced at an assumed rate)
+    const priced = unifiedPlants.filter((p) => p.yieldTodayKwh != null);
+    const revenueTodayThb =
+      rates && priced.length && priced.every((p) => rates[String(p.id)] != null)
+        ? priced.reduce((a, p) => a + (p.yieldTodayKwh ?? 0) * rates[String(p.id)], 0)
+        : null;
 
     const normalPlants = unifiedPlants.filter((p) => p.statusLabel === "Normal").length;
     const faultyPlants = unifiedPlants.filter((p) => p.statusLabel === "Faulty").length;
@@ -243,7 +266,7 @@ export const useFleetDirectory = () => {
       /** newest worker read of today's alarm log (UTC ISO); null = not synced today */
       alarmSyncedAt: alarmLog?.syncedAt ?? null,
     };
-  }, [unifiedPlants, activePlant, analysisRun, alarmLog, liveToday, liveTodayFailed, snap, snapFailed, invByPlant]);
+  }, [unifiedPlants, rates, alarmLog, liveToday, liveTodayFailed, snap, snapFailed, invByPlant]);
 
   // Filter & Sort plants for the table
   const filteredPlants = useMemo(() => {
