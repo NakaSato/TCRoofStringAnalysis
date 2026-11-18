@@ -52,8 +52,9 @@ def parse_env_records(datalogger_sn: str, address: int, records: List[Dict[str, 
 # Meter fields kept → column, under Growatt's own meaning (probed 15 Nov 2026 on a CHNT_THREE at
 # the grid connection point). `activePower` read 260 kW at night with PV at 0 (the site's draw
 # from the grid) and `posiActivePower` (= `activeEnergy`) rose by the energy drawn: the import
-# counter. Whether `activePower` turns negative while exporting, and which reverse field is
-# export energy, is not confirmed yet; they are stored raw and not shown as export.
+# counter. Export is taken from the sign of `activePower` (negative = fed into the grid,
+# `services/growatt_meter.py`); no export reading has been checked against a site yet. Which
+# reverse field is export energy is not confirmed: those are stored raw and not used.
 METER_FIELDS: Dict[str, str] = {
     "activePower": "active_power_w",
     "activePowerL1": "active_power_l1_w",

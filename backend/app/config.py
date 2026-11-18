@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     # PWA report checks 09 / 13 / 17 are snapshots taken this many minutes before hh:00 (08:50 /
     # 12:50 / 16:50), published then, so the sheet has them by hh:00 (services/check_slots.py).
     check_offset_min: int = 10
+    # A check's DATA LOG lists only the alarm-log records from hh:00 minus this many minutes
+    # (08:30) up to its snapshot; its `since` / `count` are counted over the same span.
+    pwa_fault_lookback_min: int = 30
+    # Warning codes of a reading (max_data `warnCode`, comma separated) the DATA LOG does not
+    # report when the alarm log has nothing for the inverter: 1 stays set all day on inverters
+    # that produce normally and Growatt's log never names it.
+    pwa_ignore_warn_codes: str = "1"
     # `history` pull this many minutes before each check's snapshot / publish (08:47 at 10 + 3)
     pwa_history_lead_min: int = 3
     google_weather_live_ttl_s: int = 1800  # current conditions are cached 30 min per cell (memory only)
@@ -149,13 +156,6 @@ class Settings(BaseSettings):
     # current conditions are only fetched inside it (night: last value, no Google call).
     google_weather_day_start_h: int = 6
     google_weather_day_end_h: int = 18
-    # AI Assistant (docs/plans/ai-assistant.md): Messages-API chat with read-only DB tools.
-    # Qwen Cloud Model Studio (Singapore) through its Anthropic-compatible endpoint; an empty
-    # base URL means Anthropic itself. Empty key = assistant off. Backend only (Secret Manager
-    # `tcroof-ai-api-key` in prod). Nothing the assistant reads or writes is stored, only usage.
-    ai_api_key: str = ""
-    ai_base_url: str = "https://ap-southeast-1.maas.qwencloudapi.com/apps/anthropic"
-    ai_model: str = "qwen3.7-plus"
     # Longdo Map Weather Radar API (weather.longdo.com): rain radar tiles on the Plant Map and
     # radar rain over a plant now / +15 / +30 min. Empty key = off. The backend makes the JSON
     # calls (memory cache only); the radar tiles are loaded by the browser, so the key is sent
@@ -178,6 +178,13 @@ class Settings(BaseSettings):
     # At most this many calls per request; a region / plant is asked again after the TTL.
     longdo_fleet_rain_ttl_s: int = 1800
     longdo_rain_sweep_per_request: int = 20
+    # AI Assistant (docs/plans/ai-assistant.md): Messages-API chat with read-only DB tools.
+    # Qwen Cloud Model Studio (Singapore) through its Anthropic-compatible endpoint; an empty
+    # base URL means Anthropic itself. Empty key = assistant off. Backend only (Secret Manager
+    # `tcroof-ai-api-key` in prod). Nothing the assistant reads or writes is stored, only usage.
+    ai_api_key: str = ""
+    ai_base_url: str = "https://ap-southeast-1.maas.qwencloudapi.com/apps/anthropic"
+    ai_model: str = "qwen3.7-plus"
     ai_thinking: bool = False  # Qwen thinks by default: answers take 30-90 s, so it is sent disabled
     ai_max_tokens: int = 4000
     ai_max_tool_rounds: int = 8
@@ -225,6 +232,9 @@ class Settings(BaseSettings):
             4: self.growatt_token_phase4,
         }
         return {phase: t.strip() for phase, t in tokens.items() if t and t.strip()}
+
+    def pwa_ignored_warn_codes(self) -> frozenset[int]:
+        return frozenset(int(p) for p in (x.strip() for x in self.pwa_ignore_warn_codes.split(",")) if p.isdigit())
 
     def blocked_plant_ids(self) -> frozenset[int]:
         """`GROWATT_BLOCKED_PLANT_IDS` as plant ids; anything that is not a number is ignored."""

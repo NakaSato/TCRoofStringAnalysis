@@ -579,11 +579,17 @@ def slot_current(
         skipped = len(cells) - len(todo)
         cl = client or make_client()
 
+        quota_hit = threading.Event()  # Google's per-day quota (HTTP 429): stop calling for this check
+
         def fetch(item: Tuple[str, Tuple[float, float]]) -> Tuple[str, Any]:
             k, (lat, lon) = item
+            if quota_hit.is_set():
+                return k, GoogleWeatherError("skipped: Google daily quota exceeded (HTTP 429)")
             try:
                 return k, cl.current(lat, lon)
             except GoogleWeatherError as exc:
+                if "HTTP 429" in str(exc):
+                    quota_hit.set()
                 return k, exc
 
         calls_before = cl.calls
@@ -593,7 +599,11 @@ def slot_current(
         out = {k: r for k, r in results if not isinstance(r, Exception)}
         failed = len(results) - len(out)
         if failed or skipped:
-            log.warning("google weather check %02d: %d cells failed, %d skipped (call budget)", hour, failed, skipped)
+            reason = next((str(r)[:300] for _, r in results if isinstance(r, Exception)), "")
+            log.warning(
+                "google weather check %02d: %d cells failed, %d skipped (call budget)%s",
+                hour, failed, skipped, f"; first error: {reason}" if reason else "",
+            )
         _slot_current[key] = out
         return out
 

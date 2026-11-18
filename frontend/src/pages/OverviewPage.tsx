@@ -110,8 +110,8 @@ export const OverviewPage: React.FC = () => {
   const pp = usePowerPeriod(ov, liveAt, recs, liveMeter.points);
   const pf = pp.figures;
   const meter = pf && (pf.loadKwh != null || pf.gridImportKwh != null || pf.gridExportKwh != null) ? pf : null;
-  // today's live tail has no meter values: the meter figures cover the stored records only
-  const meterStoredOnly = pp.day === pp.today ? " (stored records only, the live tail has no meter values)" : "";
+  // today: the chart's live tail shows live meter values, but the kWh figures cover the stored records only
+  const meterStoredOnly = pp.day === pp.today ? " (stored records only, the chart's live tail is not counted)" : "";
 
   if (plantOverviewLoading && !ov) {
     return (
