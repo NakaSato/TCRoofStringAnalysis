@@ -142,8 +142,8 @@ class Settings(BaseSettings):
     # PWA report checks 09 / 13 / 17 are snapshots taken this many minutes before hh:00 (08:50 /
     # 12:50 / 16:50), published then, so the sheet has them by hh:00 (services/check_slots.py).
     check_offset_min: int = 10
-    # A check's DATA LOG lists only the alarm-log records from hh:00 minus this many minutes
-    # (08:30) up to its snapshot; its `since` / `count` are counted over the same span.
+    # A check's DATA LOG lists only the alarm-log records from this many minutes before its
+    # snapshot (07:50 for the 08:50 snapshot) up to it; `since` / `count` cover the same span.
     pwa_fault_lookback_min: int = 60
     # Warning codes of a reading (max_data `warnCode`, comma separated) the DATA LOG does not
     # report when the alarm log has nothing for the inverter: 1 stays set all day on inverters
