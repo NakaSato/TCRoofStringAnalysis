@@ -178,6 +178,13 @@ class Settings(BaseSettings):
     # At most this many calls per request; a region / plant is asked again after the TTL.
     longdo_fleet_rain_ttl_s: int = 1800
     longdo_rain_sweep_per_request: int = 20
+    # RainViewer (api.rainviewer.com, no key): fallback radar tiles on the Plant Map when Longdo
+    # has no key or its snapshot list cannot be read. Tiles only (zoom ≤ 7), no rain over a plant.
+    # Free API for personal / educational / small community use, no SLA; credit is shown on the map.
+    rainviewer_enabled: bool = True
+    rainviewer_url: str = "https://api.rainviewer.com/public/weather-maps.json"
+    rainviewer_ttl_s: int = 300  # snapshot list (10 min apart)
+    rainviewer_timeout_s: float = 6.0
     # AI Assistant (docs/plans/ai-assistant.md): Messages-API chat with read-only DB tools.
     # Qwen Cloud Model Studio (Singapore) through its Anthropic-compatible endpoint; an empty
     # base URL means Anthropic itself. Empty key = assistant off. Backend only (Secret Manager
