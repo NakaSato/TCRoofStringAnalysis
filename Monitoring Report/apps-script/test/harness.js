@@ -59,16 +59,17 @@ function world(opts = {}) {
         getParents: () => { let used = !f.folder; return { hasNext: () => !used, next: () => { used = true; return fol(f.folder); } }; },
         makeCopy: (name, folder) => { if (opts.copyFails) throw new Error('quota'); const nid = 'COPY' + (drive.copies.length + 1);
           const c = mkss(nid, name, f.ss.sheets.filter(sh => !(opts.dropTab && sh.name === opts.dropTab)).map(sh => new Sheet(sh.name, sh.grid)));
-          drive.files[nid] = { ss: c, folder: folder.getId() }; drive.copies.push(nid); return { getId: () => nid }; } }; },
+          drive.files[nid] = { ss: c, folder: folder.getId() }; drive.copies.push(nid); return { getId: () => nid, setTrashed: t => { drive.files[nid].trashed = t; } }; } }; },
     },
     SpreadsheetApp: { openById: id => drive.files[id].ss, getActive: () => ss, getUi: () => { if (opts.noUi) throw new Error('no UI'); return ui; } },
-    PropertiesService: { getScriptProperties: () => ({ deleteProperty: k => { delete props[k]; }, getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
+    PropertiesService: { getScriptProperties: () => ({ getKeys: () => Object.keys(props), deleteProperty: k => { delete props[k]; }, getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => !opts.locked, releaseLock() { w.released = true; } }) },
     Utilities: { sleep: ms => { w.slept = (w.slept || 0) + ms; },
       formatDate: (d, tz, f) => { const p = part(); if (tz !== 'Asia/Bangkok') throw new Error('tz ' + tz); return f === 'yyyy-MM-dd' ? p.d : f === 'H' ? String(p.h) : f === 'm' ? String(p.m) : (() => { throw new Error('fmt ' + f); })(); } },
     UrlFetchApp: { fetch(url, o) {
       w.calls.push({ url, key: o.headers['X-Report-Key'], mute: o.muteHttpExceptions });
       const r = w.responder ? w.responder(url, w.calls.length) : defaultResponder(url);
+      if (r.throws) throw new Error(r.throws);
       return { getResponseCode: () => r.code, getContentText: () => r.body };
     } },
     ScriptApp: {
@@ -203,7 +204,11 @@ const snap = sh => JSON.stringify(sh.grid);
 // 9 menu + Thai dialogs
 const thai = t => /[\u0E00-\u0E7F]/.test(t) && !/\b(error|failed|published?|undefined|null|NaN)\b/i.test(t);
 const allThai = w => w.alerts.concat(w.prompts).every(thai);
-{ const w = world(); w.ctx.onOpen(); console.log(w.menu.map(x => '      ' + x).join('\n')); eq(w.menu.filter(x => /→/.test(x)).length, 13, 'menu: 7 actions + 6 settings');
+{ const w = world({ now: '2026-11-15T09:05' }); w.ctx.onOpen(); eq(w.ss.active && w.ss.active.name, '15.11', 'onOpen: today\'s tab becomes the active sheet'); }
+{ const w = world({ now: '2026-11-20T09:05' }); w.ctx.onOpen(); eq(w.ss.active, null, 'onOpen: no tab for today yet, the active sheet is left alone');
+  w.ctx.goToday(); ok(w.alerts.length === 1 && /20\.11/.test(w.alerts[0]), 'goToday: says today\'s tab does not exist yet'); }
+{ const w = world({ now: '2026-11-15T09:05' }); w.ctx.goToday(); eq(w.ss.active && w.ss.active.name, '15.11', 'goToday: shows today\'s tab'); eq(w.alerts.length, 0, 'goToday: no dialog when the tab exists'); }
+{ const w = world(); w.ctx.onOpen(); console.log(w.menu.map(x => '      ' + x).join('\n')); eq(w.menu.filter(x => /→/.test(x)).length, 14, 'menu: 8 actions + 6 settings');
   ok(w.menu.filter(x => /→/.test(x)).every(x => typeof w.ctx[x.split(' → ')[1]] === 'function'), 'menu: every item points at a real function'); }
 { const { ctx } = world();
   eq(['', '9', '9,13', '17 09', '13:00', '9.00, 17', '10', 'x', '9,9'].map(ctx.parseHours_), [[9, 13, 17], [9], [9, 13], [9, 17], [13], [9, 17], null, null, [9]], 'parseHours_'); }
@@ -291,5 +296,30 @@ const names = x => x.sheets.map(s => s.name);
   eq(sh.grid.slice(2).filter(row => row[4] === '—').length, 0, 'Firmware: no "—" written anywhere'); }
 { const w = world(); const sh = w.ss.sheets[0]; sh.grid[2][4] = 'x1'; const d = JSON.parse(JSON.stringify(api)); delete d.firmware;
   w.responder = () => ({ code: 200, body: JSON.stringify(d) }); w.ctx.fillDay('2026-11-15', [9]); eq(sh.grid[2][4], 'x1', 'Firmware: API without the map → column untouched'); }
+
+// 12 robustness: network failure, non-JSON answer, plant missing from the API, minimal writes, old DONE_ keys
+{ const w = world({ responder: (u, n) => (n === 1 ? { throws: 'Timeout: ' + u } : defaultResponder(u)) });
+  const r = w.ctx.fillDay('2026-11-15', [9]); ok(w.calls.length === 2 && w.slept === 5000 && r.complete.length === 1, 'fetch throws then 200 → one retry after 5 s'); }
+{ const w = world({ answers: ['9'], responder: u => ({ throws: 'DNS error: ' + u }) }); w.ctx.fillPickChecks();
+  ok(w.calls.length === 2 && /เชื่อมต่อระบบไม่ได้/.test(w.alerts[0]) && !/DNS/.test(w.alerts[0]) && allThai(w), 'fetch throws twice: Thai dialog, detail only in the log', w.alerts[0].replace(/\n+/g, ' | ')); }
+{ const w = world({ answers: ['9'], responder: () => ({ code: 200, body: '<html>Site Not Found</html>' }) }); const s = snap(w.ss.sheets[0]); w.ctx.fillPickChecks();
+  ok(/อ่านไม่ได้/.test(w.alerts[0]) && snap(w.ss.sheets[0]) === s && allThai(w), '200 that is not JSON: Thai dialog, nothing written', w.alerts[0].replace(/\n+/g, ' | ')); }
+{ const w = world({ now: '2026-11-16T09:05' }); w.ctx.createTodaySheet(); const sh = w.ss.getSheetByName('16.11');
+  const d = JSON.parse(JSON.stringify(api)); const sn = String(sh.grid[2][2]); delete d.plants[d.loggers[sn]];
+  w.responder = () => ({ code: 200, body: JSON.stringify(d) }); let e = ''; let r; try { r = w.ctx.fillDay('2026-11-16', [9]); } catch (x) { e = x.message; }
+  ok(!e && /สถานีที่ไม่พบในระบบ 1/.test(r.msg) && sh.grid[2][5] === 'Abnormal' && sh.grid[3][6] !== '', 'logger points at a plant the API left out: row unmatched, other rows filled', e); }
+{ const w = world({ now: '2026-11-16T09:05' }); w.ctx.createTodaySheet(); const sh = w.ss.getSheetByName('16.11');
+  w.ctx.fillDay('2026-11-16', [9]); const n = sh.writes; w.ctx.fillDay('2026-11-16', [9]); eq(sh.writes, n, 'second run with nothing new: no write to the sheet at all'); }
+{ const { ctx } = world(); eq([ctx.runs_([8, 6, 7, 11, 7]), ctx.runs_([])], [[[6, 3], [11, 1]], []], 'runs_'); }
+{ const w = world(); const sh = w.ss.sheets[0]; const lay = w.ctx.layout_(sh); // a manual column between the report's columns is never rewritten
+  const calls = []; const real = sh.getRange.bind(sh); sh.getRange = (r, c, nr, nc) => { const g = real(r, c, nr, nc); const sv = g.setValues.bind(g); g.setValues = v => { calls.push([c, nc]); sv(v); }; return g; };
+  const vals = real(3, 6, 2, 13).getValues(), before = vals.map(x => x.slice()); vals[0][0] = 'A'; vals[1][12] = 'B'; vals[0][5] = 'manual';
+  w.ctx.writeColumns_(sh, [6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18], 6, vals, before);
+  eq([calls, sh.grid[2][5], sh.grid[3][17], sh.grid[2][10] === 'manual'], [[[6, 5], [12, 7]], 'A', 'B', false], 'writeColumns_: writes the report\'s runs only, skips the column between them'); }
+{ const w = world({ now: '2026-11-16T06:00', props: { 'DONE_2026-11-14': '09,13,17', 'DONE_2026-11-15': '09', 'DONE_2026-11-16': '09' } }); w.ctx.createTodaySheet();
+  eq(Object.keys(w.props).filter(k => /^DONE_/.test(k)), ['DONE_2026-11-16'], 'createTodaySheet: DONE_ of past days deleted, today kept'); }
+{ const w = world({ now: '2026-12-01T06:00', dropTab: '15.11' }); w.ctx.createTodaySheet(); eq(w.drive.files.COPY1.trashed, true, 'copy incomplete: the incomplete file goes to the Drive bin'); }
+{ const w = world({ now: '2026-11-16T06:00' }); const t = w.ss.sheets[0].copyTo(w.ss); t.setName('15.11 สำรอง'); t.grid[2][1] = 'WRONG'; w.ctx.createTodaySheet();
+  ok(w.ss.getSheetByName('16.11').grid[2][1] !== 'WRONG', 'new day sheet: copied from a DD.MM tab, not from "15.11 สำรอง"'); }
 
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

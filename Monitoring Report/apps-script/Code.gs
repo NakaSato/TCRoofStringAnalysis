@@ -9,6 +9,7 @@
  *   ดึงข้อมูลย้อนหลัง…           asks for a date and the checks, fills that day (empty cells only)
  *   ดึงใหม่และเขียนทับ…          asks for a date and the checks, then, after a confirmation, REPLACES
  *                              the check cells with the API's values (the only way a filled cell changes)
+ *   ไปที่แท็บวันนี้              shows today's DD.MM tab (also done each time the file is opened)
  *   สร้างแท็บวันนี้              creates today's DD.MM tab now
  *   ดูสถานะ                    key set or not, fetch times, automatic runs on / off, today's checks done
  *   ตั้งค่า ▸ ตั้งค่าทั้งหมด…      report key + fetch time per check (default 08:50 / 12:50 / 16:50), then
@@ -76,6 +77,7 @@ function onOpen() {
     .addItem('ดึงข้อมูลย้อนหลัง…', 'fillAskDay')
     .addItem('ดึงใหม่และเขียนทับ…', 'refillOverwrite')
     .addSeparator()
+    .addItem('ไปที่แท็บวันนี้', 'goToday')
     .addItem('สร้างแท็บวันนี้', 'menuCreateToday')
     .addItem('เก็บไฟล์รายเดือนตอนนี้…', 'menuArchive')
     .addItem('ดูสถานะ', 'showStatus')
@@ -89,6 +91,21 @@ function onOpen() {
       .addItem('เปิดการทำงานอัตโนมัติ', 'autoOn')
       .addItem('ปิดการทำงานอัตโนมัติ', 'autoOff'))
     .addToUi();
+  try { activateToday_(); } catch (e) { console.log('เปิดแท็บวันนี้ไม่สำเร็จ: ' + errText_(e)); }
+}
+
+/** Makes today's DD.MM tab the active sheet. Returns its name, or '' when the tab does not exist yet. */
+function activateToday_() {
+  const ss = SpreadsheetApp.getActive(), name = sheetName_(today_());
+  const sh = ss.getSheetByName(name);
+  if (!sh) return '';
+  ss.setActiveSheet(sh);
+  return name;
+}
+
+/** Menu: show today's tab. */
+function goToday() {
+  menu_(() => (activateToday_() ? '' : `ยังไม่มีแท็บ ${sheetName_(today_())}\nใช้เมนู PWA Report → สร้างแท็บวันนี้`));
 }
 
 /** Runs a menu action: shows the text it returns, and any error, as a Thai dialog. */
@@ -98,9 +115,12 @@ function menu_(fn) {
     const msg = fn(ui);
     if (msg) ui.alert(msg);
   } catch (e) {
-    ui.alert('เกิดข้อผิดพลาด\n\n' + (e && e.message ? e.message : e));
+    ui.alert('เกิดข้อผิดพลาด\n\n' + errText_(e));
   }
 }
+
+/** The message of anything thrown. */
+function errText_(e) { return e && e.message ? e.message : String(e); }
 
 /** A text prompt: the trimmed answer, or null when the user cancelled. */
 function ask_(ui, title, text) {
@@ -269,12 +289,12 @@ function askDay_(ui, title) {
 /** Menu: today's checks whose fetch time has passed. */
 function fillNow() {
   const hm = nowMin_(), times = fetchTimes_();
-  const hours = CHECK_HOURS.filter((h, k) => hm >= toMin_(times[k]));
+  const hours = passedHours_(hm, times);
   let msg;
   try {
     msg = hours.length ? fillDay(today_(), hours).msg
       : `ยังไม่ถึงเวลาดึงรอบแรก (${times[0]})\nถ้าต้องการดึงเลย ใช้เมนู ดึงข้อมูลวันนี้ (เลือกรอบ)…`;
-  } catch (e) { msg = 'เกิดข้อผิดพลาด\n\n' + (e && e.message ? e.message : e); }
+  } catch (e) { msg = 'เกิดข้อผิดพลาด\n\n' + errText_(e); }
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) { console.log(msg); }
 }
 
@@ -320,7 +340,14 @@ function createTodaySheet() {
   try {
     const done = archivePastMonths_(ss, today);
     if (done.length) console.log(archiveText_(done).replace(/\n+/g, ' | '));
-  } catch (e) { console.log('เก็บไฟล์รายเดือนไม่สำเร็จ: ' + (e && e.message ? e.message : e)); }
+  } catch (e) { console.log('เก็บไฟล์รายเดือนไม่สำเร็จ: ' + errText_(e)); }
+  try { forgetOldDone_(today); } catch (e) { console.log('ล้าง DONE_ ของวันก่อนไม่สำเร็จ: ' + errText_(e)); }
+}
+
+/** Deletes the DONE_yyyy-MM-dd script properties of past days (one is written per day by pollChecks). */
+function forgetOldDone_(today) {
+  const props = PropertiesService.getScriptProperties();
+  props.getKeys().filter(k => /^DONE_/.test(k) && k !== 'DONE_' + today).forEach(k => props.deleteProperty(k));
 }
 
 // ------------------------------------------------------------------ one file per month
@@ -373,8 +400,10 @@ function archivePastMonths_(ss, today) {
       const copy = DriveApp.getFileById(ss.getId()).makeCopy(m.file, folder);
       const cs = SpreadsheetApp.openById(copy.getId());
       const kept = cs.getSheets().filter(s => m.tabs.indexOf(s.getName()) >= 0).length;
-      if (kept !== m.tabs.length)
+      if (kept !== m.tabs.length) {
+        try { copy.setTrashed(true); } catch (e) { /* the incomplete file stays in Drive; the error below names it */ }
         throw new Error(`ไฟล์ "${m.file}" มี ${kept} แท็บ จากที่ควรมี ${m.tabs.length} แท็บ จึงยังไม่ลบแท็บออกจากไฟล์นี้`);
+      }
       cs.getSheets().forEach(s => { if (/^\d{2}\.\d{2}$/.test(s.getName()) && m.tabs.indexOf(s.getName()) < 0) cs.deleteSheet(s); });
       m.tabs.forEach(t => ss.deleteSheet(ss.getSheetByName(t)));
       props.setProperty('ARCHIVED_' + m.key, copy.getId());
@@ -403,8 +432,7 @@ function pollChecks() {
   if (!lock.tryLock(1000)) return;
   try {
     // ask for every check due so far, so weather Status covers them all; filled cells stay as they are
-    const hours = CHECK_HOURS.filter((h, k) => hm >= toMin_(times[k]));
-    const r = fillDay(day, hours);
+    const r = fillDay(day, passedHours_(hm, times));
     const nowDone = done.concat(due.filter(h => r.complete.indexOf(pad_(h)) >= 0).map(pad_));
     if (nowDone.length > done.length) props.setProperty('DONE_' + day, nowDone.join(','));
     console.log(r.msg.replace(/\n+/g, ' | '));
@@ -445,7 +473,8 @@ function fillDay(day, hours, opts) {
   const keys = sh.getRange(FIRST_ROW, 2, n, 2).getValues(); // B name, C SN
   const block = sh.getRange(FIRST_ROW, lay.first, n, lay.last - lay.first + 1);
   const values = block.getValues();
-  const get = (row, col) => values[row][col - lay.first];
+  const before = values.map(row => row.slice());
+  const get =(row, col) => values[row][col - lay.first];
   const set = (row, col, v) => { if (col) values[row][col - lay.first] = v; };
   const fill = (row, col, v) => {
     if (!col) return 0;
@@ -463,13 +492,13 @@ function fillDay(day, hours, opts) {
     nm = String(nm || '').trim();
     if (!sn && !nm) return; // not a plant row
     const pid = matchPlant_(sn, nm, data.loggers || {}, names);
-    if (!pid) { if (sn) { stats.unmatched++; set(i, lay.weather, WX_ABNORMAL); } return; }
+    const p = pid && (data.plants || {})[pid]; // a logger / name may point at a plant the API left out
+    if (!p) { if (sn) { stats.unmatched++; set(i, lay.weather, WX_ABNORMAL); } return; }
     stats.rows++;
     // SN Datalogger (column C): the plant's current datalogger, when the sheet's SN isn't one of its
     // loggers (replaced, or C empty) and the API names exactly one.
     const sns = snOf[pid] || [];
     if (sns.indexOf(sn) < 0 && sns.length === 1) { snCol[i] = [sns[0]]; keys[i][1] = sns[0]; stats.snUpdated++; }
-    const p = data.plants[pid];
     blocks.forEach(b => {
       const v = (p.checks || {})[pad_(b.hour)];
       if (!v) { if (get(i, b.status) === '') missing[pad_(b.hour)]++; return; }
@@ -481,7 +510,7 @@ function fillDay(day, hours, opts) {
     set(i, lay.weather, weatherStatus_(p.weather_status));
     set(i, lay.yieldKwh, p.yield_kwh);
   });
-  block.setValues(values);
+  writeColumns_(sh, lay.cols, lay.first, values, before);
   if (stats.snUpdated) sh.getRange(FIRST_ROW, 3, snCol.length, 1).setValues(snCol);
   const fw = fillFirmware_(sh, lay.firmware, keys, data.firmware, overwrite, data.dataloggers);
   const complete = Object.keys(missing).filter(hh => !missing[hh]);
@@ -495,6 +524,30 @@ function fillDay(day, hours, opts) {
     (skipped.length ? `\n\nรอบ ${skipped.map(clock_).join(', ')} ยังไม่มีข้อมูลในระบบ จึงข้ามไป` : '');
   console.log(msg.replace(/\n+/g, ' | '));
   return { msg, complete };
+}
+
+/**
+ * Writes `values` (rows from FIRST_ROW, columns from `first`) back to the sheet: only the report's own
+ * columns `cols`, in contiguous runs, and only the runs that differ from `before`. A manual column or
+ * formula between the report's columns is never rewritten, and a run that changes nothing writes nothing.
+ */
+function writeColumns_(sh, cols, first, values, before) {
+  runs_(cols).forEach(([col, width]) => {
+    const k = col - first;
+    const changed = values.some((row, i) => row.slice(k, k + width).some((v, j) => v !== before[i][k + j]));
+    if (changed) sh.getRange(FIRST_ROW, col, values.length, width).setValues(values.map(row => row.slice(k, k + width)));
+  });
+}
+
+/** Column numbers as contiguous runs [first column, width]: [6, 7, 8, 11] → [[6, 3], [11, 1]]. */
+function runs_(cols) {
+  const out = [];
+  Array.from(new Set(cols)).sort((a, b) => a - b).forEach(col => {
+    const run = out[out.length - 1];
+    if (run && run[0] + run[1] === col) run[1]++;
+    else out.push([col, 1]);
+  });
+  return out;
 }
 
 /**
@@ -525,7 +578,7 @@ function fillFirmware_(sh, col, keys, firmware, overwrite, dataloggers) {
     else if (cur !== '') cleared++;
     return [v];
   });
-  range.setValues(vals);
+  if (vals.some((row, i) => row[0] !== old[i][0])) range.setValues(vals);
   return { hits, cleared };
 }
 
@@ -612,22 +665,14 @@ function layout_(sh) {
  * the report writes (layout_ cols), in contiguous runs, so a manual column between them is kept.
  */
 function newDaySheet_(ss, name) {
-  const tpl = ss.getSheets().filter(s => /^\d{2}\.\d{2}/.test(s.getName())).pop();
+  const tpl = ss.getSheets().filter(s => /^\d{2}\.\d{2}$/.test(s.getName())).pop();
   if (!tpl) throw new Error('ไม่มีแท็บรูปแบบ วัน.เดือน (เช่น 12.11) ให้คัดลอกเป็นแท็บใหม่');
   const sh = tpl.copyTo(ss).setName(name);
   ss.setActiveSheet(sh);
   ss.moveActiveSheet(ss.getNumSheets());
   const lay = layout_(sh);
   const rows = sh.getLastRow() - FIRST_ROW + 1;
-  if (rows > 0) {
-    const cols = Array.from(new Set(lay.cols)).sort((a, b) => a - b);
-    for (let i = 0; i < cols.length; ) {
-      let j = i;
-      while (j + 1 < cols.length && cols[j + 1] === cols[j] + 1) j++;
-      sh.getRange(FIRST_ROW, cols[i], rows, cols[j] - cols[i] + 1).clearContent();
-      i = j + 1;
-    }
-  }
+  if (rows > 0) runs_(lay.cols).forEach(([col, width]) => sh.getRange(FIRST_ROW, col, rows, width).clearContent());
   return sh;
 }
 
@@ -646,11 +691,18 @@ function reportCells_(day, hours) {
   const key = props.getProperty('REPORT_KEY');
   if (!key) throw new Error('ยังไม่มีรหัสรายงาน\nไปที่เมนู PWA Report → ตั้งค่า → ตั้งค่าทั้งหมด… ก่อน');
   const url = `${props.getProperty('REPORT_URL') || REPORT_URL}/${day}/cells?hours=${hours.join(',')}`;
-  let res;
+  const failed = `ดึงข้อมูลวันที่ ${sheetName_(day)} ไม่สำเร็จ`;
+  let res, netErr;
   for (let attempt = 1; ; attempt++) { // one retry: the API scales to zero and may be cold
-    res = UrlFetchApp.fetch(url, { headers: { 'X-Report-Key': key }, muteHttpExceptions: true });
-    if (res.getResponseCode() < 500 || attempt >= 2) break;
+    try { // fetch throws when there is no HTTP answer at all (timeout, DNS): retried like a 5xx
+      res = UrlFetchApp.fetch(url, { headers: { 'X-Report-Key': key }, muteHttpExceptions: true });
+    } catch (e) { res = null; netErr = e; }
+    if ((res && res.getResponseCode() < 500) || attempt >= 2) break;
     Utilities.sleep(5000);
+  }
+  if (!res) {
+    console.log(`Report API ${day}: ${errText_(netErr)}`);
+    throw new Error(`${failed}\nเชื่อมต่อระบบไม่ได้ ลองใหม่ในอีกสักครู่`);
   }
   const code = res.getResponseCode();
   if (code !== 200) {
@@ -659,9 +711,14 @@ function reportCells_(day, hours) {
       : code === 404 ? 'ระบบไม่มีข้อมูลของวันที่นี้'
       : code >= 500 ? 'ระบบขัดข้องชั่วคราว ลองใหม่ในอีกสักครู่'
       : 'ระบบไม่รับคำขอนี้';
-    throw new Error(`ดึงข้อมูลวันที่ ${sheetName_(day)} ไม่สำเร็จ (รหัส ${code})\n${why}`);
+    throw new Error(`${failed} (รหัส ${code})\n${why}`);
   }
-  return JSON.parse(res.getContentText());
+  try {
+    return JSON.parse(res.getContentText());
+  } catch (e) { // 200 with a body that is not JSON (e.g. an HTML page from the hosting layer)
+    console.log(`Report API ${day}: 200, not JSON: ${res.getContentText().slice(0, 300)}`);
+    throw new Error(`${failed}\nระบบตอบกลับมาในรูปแบบที่อ่านไม่ได้ ลองใหม่ในอีกสักครู่`);
+  }
 }
 
 // ------------------------------------------------------------------ helpers
@@ -736,6 +793,9 @@ function normTime_(t) {
 }
 
 function toMin_(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
+
+/** The checks whose fetch time has passed at minute-of-day `hm`. */
+function passedHours_(hm, times) { return CHECK_HOURS.filter((h, k) => hm >= toMin_(times[k])); }
 
 /** Fetch time per check from script property FETCH_TIMES, else DEFAULT_FETCH. */
 function fetchTimes_() {
