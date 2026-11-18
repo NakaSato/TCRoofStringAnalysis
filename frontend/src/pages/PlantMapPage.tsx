@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { AppWindow, CloudRain, ExternalLink, Layers, MapPinOff, Maximize2, Search, X } from "lucide-react";
+import { AppWindow, CloudRain, ExternalLink, Layers, LocateFixed, MapPinOff, Maximize2, Search, X } from "lucide-react";
 import { useFleet } from "../context/FleetContext";
 import { plantPath } from "../context/routes";
 import { pick, useUrlState } from "../lib/useUrlState";
@@ -15,7 +15,8 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { PlantRainRow, RainRadarBar, type RainingPlant, rainLook, useFleetRain, useRainRadar } from "./plantMap/rainRadar";
+import { PlantRainRow, RainRadarBar, type RainingFrame, type RainingPlant, rainLook, useFleetRain, useRainRadar } from "./plantMap/rainRadar";
+import { type FramePoint, RAIN_ALPHA, useFrameRain } from "./plantMap/frameRain";
 
 /* Basemaps. With a Mapbox token (`VITE_MAPBOX_TOKEN`, a public `pk.` token: restrict it by URL at
    Mapbox) the map uses Mapbox raster style tiles; without one, Esri's free tiles. Attribution is required. */
@@ -72,6 +73,25 @@ const plantStatus = (s: number | null): { label: PlantStatus; level: StatusLevel
   if (s === 1) return { label: "Normal", level: "ok", color: "#34d399" };
   if (s === 0 || s === 4) return { label: "Disconnected", level: "info", color: "#94a3b8" };
   return { label: "Faulty", level: "crit", color: "#f87171" };
+};
+
+/** List order (URL `sort`): status = faulty, disconnected, loading, normal, then name. */
+const SORTS = ["status", "name", "kwp", "rain"] as const;
+const SORT_LABEL: Record<(typeof SORTS)[number], string> = { status: "Status", name: "Name", kwp: "Capacity", rain: "Rain" };
+const STATUS_RANK: Record<PlantStatus, number> = { Faulty: 0, Disconnected: 1, [LOADING_STATUS]: 2, Normal: 3 };
+
+/** Search words, lower case; a leading "#" (plant id) is dropped. */
+const searchTokens = (q: string): string[] =>
+  q.normalize("NFC").toLowerCase().split(/\s+/).map((t) => t.replace(/^#/, "")).filter(Boolean);
+
+/** Every word must appear in the plant's name, city, id or "phase N" (any order). */
+const matchesSearch = (p: GrowattPlant, tokens: string[]): boolean => {
+  if (!tokens.length) return true;
+  const hay = [p.name, p.city, String(p.plant_id), p.phase != null ? `phase ${p.phase} p${p.phase}` : ""]
+    .join(" ")
+    .normalize("NFC")
+    .toLowerCase();
+  return tokens.every((t) => hay.includes(t));
 };
 
 const FILTER_OF: Record<PlantStatus, StatusFilter | null> = {
@@ -151,16 +171,6 @@ export const PlantMapPage: React.FC = () => {
     [growattPlants]
   );
 
-  const counts = useMemo(() => {
-    const c = { all: plants.length, normal: 0, faulty: 0, disconnected: 0, located: 0 };
-    for (const p of plants) {
-      const f = FILTER_OF[p.status.label];
-      if (f) c[f] += 1;
-      if (p.located) c.located += 1;
-    }
-    return c;
-  }, [plants]);
-
   const options = useMemo(() => {
     const phases = new Map<number, number>();
     for (const { plant } of plants) {
@@ -175,16 +185,52 @@ export const PlantMapPage: React.FC = () => {
   const fleetRain = useFleetRain(radarOn);
   const rainOf = fleetRain.byId;
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return plants.filter(({ plant, status }) => {
+  // every filter but status: the status chips count within it, so their numbers say what a click shows
+  const scoped = useMemo(() => {
+    const tokens = searchTokens(q);
+    return plants.filter(({ plant }) => {
       if (rainOnly && !((rainOf.get(plant.plant_id)?.rain?.intensity ?? 0) > 0)) return false;
-      if (statusFilter !== "all" && FILTER_OF[status.label] !== statusFilter) return false;
       if (phaseFilter != null && plant.phase !== phaseFilter) return false;
-      if (!needle) return true;
-      return [plant.name, plant.city, String(plant.plant_id)].some((v) => v?.toLowerCase().includes(needle));
+      return matchesSearch(plant, tokens);
     });
-  }, [plants, statusFilter, q, phaseFilter, rainOnly, rainOf]);
+  }, [plants, q, phaseFilter, rainOnly, rainOf]);
+
+  const counts = useMemo(() => {
+    const c = { all: scoped.length, normal: 0, faulty: 0, disconnected: 0 };
+    for (const p of scoped) {
+      const f = FILTER_OF[p.status.label];
+      if (f) c[f] += 1;
+    }
+    return c;
+  }, [scoped]);
+
+  const sortBy = ((s) => (s === "rain" && !radarOn ? "status" : s))(pick(params.get("sort"), SORTS, "status"));
+  const filtered = useMemo(() => {
+    const out = statusFilter === "all" ? [...scoped] : scoped.filter(({ status }) => FILTER_OF[status.label] === statusFilter);
+    const byName = (a: (typeof out)[number], b: (typeof out)[number]) => a.plant.name.localeCompare(b.plant.name);
+    const rainOfPlant = (p: (typeof out)[number]) => rainOf.get(p.plant.plant_id)?.rain?.intensity ?? -1; // not checked last
+    out.sort((a, b) => {
+      if (sortBy === "kwp") return (b.plant.peak_power_kwp ?? -1) - (a.plant.peak_power_kwp ?? -1) || byName(a, b);
+      if (sortBy === "rain") return rainOfPlant(b) - rainOfPlant(a) || byName(a, b);
+      if (sortBy === "status") return STATUS_RANK[a.status.label] - STATUS_RANK[b.status.label] || byName(a, b);
+      return byName(a, b);
+    });
+    return out;
+  }, [scoped, statusFilter, sortBy, rainOf]);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // "/" focuses the search, as on most list pages
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const selected = plants.find((p) => p.plant.plant_id === selectedId) ?? null;
 
@@ -229,16 +275,36 @@ export const PlantMapPage: React.FC = () => {
   const radar = useRainRadar(map, radarOn);
   const showRadar = radarOn && radar.available;
   const legend = useMemo(() => radar.data?.legend ?? [], [radar.data]);
-  // where it rains now: every plant the user may see with radar rain over it, strongest class first
-  const rainingPlants = useMemo<RainingPlant[]>(
-    () =>
-      plants
-        .map(({ plant }) => ({ plant, rain: rainOf.get(plant.plant_id)?.rain }))
-        .filter((r) => (r.rain?.intensity ?? 0) > 0)
-        .sort((a, b) => (b.rain?.intensity ?? 0) - (a.rain?.intensity ?? 0) || a.plant.name.localeCompare(b.plant.name))
-        .map(({ plant, rain }) => ({ plantId: plant.plant_id, name: plant.name, city: plant.city ?? null, ...rainLook(rain, legend) })),
-    [plants, rainOf, legend]
+  // an older snapshot on the map: rain over each plant read from that snapshot's tile image
+  const framePoints = useMemo<FramePoint[]>(
+    () => plants.filter((p) => p.located).map(({ plant }) => ({ id: plant.plant_id, lat: plant.latitude as number, lon: plant.longitude as number })),
+    [plants]
   );
+  const frameRain = useFrameRain(showRadar ? radar.data : null, radar.time, radar.isLatest, framePoints);
+  const frameMode = showRadar && !radar.isLatest && radar.time != null && radar.data?.point_rain !== false && !radar.data?.frame_tiles;
+  // where it rains in the snapshot on the map: the newest = Longdo's class per plant, strongest first;
+  // an older one = plants under rain on its radar image, strongest echo first (no class: see frameRain.ts)
+  const rainingPlants = useMemo<RainingPlant[]>(() => {
+    if (frameMode) {
+      if (!frameRain) return [];
+      return plants
+        .map(({ plant }) => ({ plant, s: frameRain.samples.get(plant.plant_id) }))
+        .filter((r) => (r.s?.alpha ?? 0) >= RAIN_ALPHA)
+        .sort((a, b) => (b.s?.alpha ?? 0) - (a.s?.alpha ?? 0) || a.plant.name.localeCompare(b.plant.name))
+        .map(({ plant, s }) => ({ plantId: plant.plant_id, name: plant.name, city: plant.city ?? null, label: "Rain", color: s?.color ?? null }));
+    }
+    return plants
+      .map(({ plant }) => ({ plant, rain: rainOf.get(plant.plant_id)?.rain }))
+      .filter((r) => (r.rain?.intensity ?? 0) > 0)
+      .sort((a, b) => (b.rain?.intensity ?? 0) - (a.rain?.intensity ?? 0) || a.plant.name.localeCompare(b.plant.name))
+      .map(({ plant, rain }) => ({ plantId: plant.plant_id, name: plant.name, city: plant.city ?? null, ...rainLook(rain, legend) }));
+  }, [frameMode, frameRain, plants, rainOf, legend]);
+  const rainingFrame: RainingFrame | null =
+    showRadar && radar.time != null
+      ? frameMode
+        ? { time: radar.time, source: "image", loading: !frameRain, unread: frameRain?.unread ?? 0, located: framePoints.length }
+        : { time: radar.time, source: "longdo", loading: false, unread: 0, located: framePoints.length }
+      : null;
 
   // basemap
   useEffect(() => {
@@ -316,6 +382,16 @@ export const PlantMapPage: React.FC = () => {
     set({ plant: p.plant_id });
     if (hasLocation(p)) map.current?.flyTo([p.latitude!, p.longitude!], PLANT_ZOOM, { duration: 1.2 });
   };
+
+  // what narrows the list now; each chip removes its own filter
+  const statusLabel: Record<StatusFilter, string> = { all: "All", normal: "Normal", faulty: "Faulty", disconnected: "Disconnected" };
+  const activeFilters: { key: string; label: string; clear: () => void }[] = [
+    ...(q.trim() ? [{ key: "q", label: `“${q.trim()}”`, clear: () => set({ q: null }) }] : []),
+    ...(statusFilter !== "all" ? [{ key: "status", label: statusLabel[statusFilter], clear: () => set({ status: null }) }] : []),
+    ...(phaseFilter != null ? [{ key: "phase", label: `Phase ${phaseFilter}`, clear: () => set({ phase: null }) }] : []),
+    ...(rainOnly ? [{ key: "rain", label: "Rain now (radar)", clear: () => set({ rain: null }) }] : []),
+  ];
+  const clearFilters = () => set({ q: null, status: null, phase: null, rain: null });
 
   const chips: { key: StatusFilter; label: string; level: StatusLevel; n: number }[] = [
     { key: "all", label: "All", level: "neutral", n: counts.all },
@@ -517,6 +593,7 @@ export const PlantMapPage: React.FC = () => {
               rainOnly={rainOnly}
               onRainOnly={(v) => set({ rain: v ? "1" : null })}
               raining={rainingPlants}
+              rainingFrame={rainingFrame}
               onPick={(id) => set({ plant: id })}
             />
           )}
@@ -525,19 +602,51 @@ export const PlantMapPage: React.FC = () => {
         {/* Plant list */}
         <Card className={cn("gap-0 overflow-hidden p-0 lg:h-[calc(100vh-13rem)] lg:min-h-[460px]", full && "hidden")}>
           <div className="border-b border-white/[0.06] p-3">
-            <div className="flex gap-2">
-            <div className="relative min-w-0 flex-1">
+            <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
               <Input
+                ref={searchRef}
                 value={q}
                 onChange={(e) => set({ q: e.target.value })}
-                placeholder="Search plant, city or ID"
-                className="pl-8"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    if (q) set({ q: null });
+                    else e.currentTarget.blur();
+                  } else if (e.key === "Enter" && filtered.length > 0) {
+                    focusPlant(filtered[0].plant); // the first result, as listed
+                  }
+                }}
+                placeholder="Search name, city, ID or phase"
+                className="pr-14 pl-8"
                 aria-label="Search plants"
+                aria-describedby="plant-search-hint"
               />
+              {q ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                  onClick={() => {
+                    set({ q: null });
+                    searchRef.current?.focus();
+                  }}
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              ) : (
+                <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-white/10 px-1.5 text-[10px] text-slate-500">
+                  /
+                </kbd>
+              )}
+              <span id="plant-search-hint" className="sr-only">
+                Every word must match. Enter opens the first result, Escape clears.
+              </span>
             </div>
+            <div className="mt-2 flex gap-2">
               <Select value={phaseFilter != null ? String(phaseFilter) : "all"} onValueChange={(v) => set({ phase: v === "all" ? null : v })}>
-                <SelectTrigger className="w-28 shrink-0 text-[11px]" aria-label="Phase">
+                <SelectTrigger className="min-w-0 flex-1 text-[11px]" aria-label="Phase">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -549,27 +658,70 @@ export const PlantMapPage: React.FC = () => {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={sortBy} onValueChange={(v) => set({ sort: v === "status" ? null : v })}>
+                <SelectTrigger className="min-w-0 flex-1 text-[11px]" aria-label="Sort plants">
+                  <span className="text-slate-500">Sort:</span>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORTS.filter((s) => s !== "rain" || radarOn).map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {SORT_LABEL[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="shrink-0"
+                    disabled={!filtered.some((p) => p.located)}
+                    onClick={fitAll}
+                    aria-label="Zoom the map to the plants listed"
+                  >
+                    <LocateFixed className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Zoom the map to the {fmtInt(filtered.filter((p) => p.located).length)} plants listed</TooltipContent>
+              </Tooltip>
             </div>
-            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-              <span>
-              {fmtInt(filtered.length)} plants shown
-              {filtered.some((p) => !p.located) && ` · ${filtered.filter((p) => !p.located).length} without location`}
-              </span>
-              {(q || phaseFilter != null || rainOnly) && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => set({ q: null, phase: null, rain: null })}
-                >
-                  Clear filters
-                </Button>
-              )}
+            {activeFilters.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1" aria-label="Active filters">
+                {activeFilters.map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    onClick={f.clear}
+                    className="flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] py-0.5 pr-1.5 pl-2 text-[11px] text-slate-300 hover:bg-white/10"
+                    aria-label={`Remove filter ${f.label}`}
+                  >
+                    <span className="truncate">{f.label}</span>
+                    <X className="h-3 w-3 shrink-0 text-slate-500" />
+                  </button>
+                ))}
+                {activeFilters.length > 1 && (
+                  <Button type="button" variant="ghost" size="xs" onClick={clearFilters}>
+                    Clear all
+                  </Button>
+                )}
+              </div>
+            )}
+            <div className="mt-2 text-[11px] text-slate-500" aria-live="polite">
+              {activeFilters.length ? `${fmtInt(filtered.length)} of ${fmtInt(plants.length)} plants` : `${fmtInt(plants.length)} plants`}
+              {filtered.some((p) => !p.located) && ` · ${fmtInt(filtered.filter((p) => !p.located).length)} without location`}
             </div>
           </div>
           <div className="max-h-[420px] overflow-y-auto lg:max-h-none lg:flex-1">
             {filtered.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-500">No plant matches.</div>
+              <div className="flex flex-col items-center gap-2 p-6 text-center text-xs text-slate-500">
+                <span>No plant matches {activeFilters.map((f) => f.label).join(" · ")}.</span>
+                <Button type="button" variant="outline" size="xs" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              </div>
             ) : (
               <ul className="divide-y divide-white/[0.04]">
                 {filtered.map(({ plant, status, located }) => {

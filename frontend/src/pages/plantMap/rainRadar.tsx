@@ -189,16 +189,28 @@ export interface RainingPlant {
   color: string | null;
 }
 
+/** Which snapshot `raining` is for: the newest (Longdo's class per plant) or an older one (its radar image). */
+export interface RainingFrame {
+  time: number;
+  source: "longdo" | "image";
+  /** the older snapshot's tiles are still being read */
+  loading: boolean;
+  /** plants whose tile could not be read (unknown, not dry) */
+  unread: number;
+  located: number;
+}
+
 /** Panel on the map (bottom right): play / pause, the snapshot slider and time, rain over the plants, Longdo's legend. */
 export const RainRadarBar: React.FC<{
   radar: RainRadarState;
   fleet: FleetRainState;
   rainOnly: boolean;
   onRainOnly: (v: boolean) => void;
-  /** plants the radar shows rain over now, strongest first */
+  /** plants the snapshot on the map shows rain over, strongest first */
   raining: RainingPlant[];
+  rainingFrame: RainingFrame | null;
   onPick: (plantId: number) => void;
-}> = ({ radar, fleet, rainOnly, onRainOnly, raining, onPick }) => {
+}> = ({ radar, fleet, rainOnly, onRainOnly, raining, rainingFrame, onPick }) => {
   const { frames, time, data } = radar;
   const index = time != null ? frames.indexOf(time) : -1;
   return (
@@ -294,8 +306,28 @@ export const RainRadarBar: React.FC<{
             </Tooltip>
           )}
           {!fleet.data && fleet.error && <span className="shrink-0 text-amber-400">Plant rain unavailable</span>}
+          {rainingFrame?.source === "image" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="w-full text-slate-500">
+                  {rainingFrame.loading
+                    ? `Reading the ${hhmm(rainingFrame.time)} radar image…`
+                    : raining.length
+                      ? `Rain over ${fmtInt(raining.length)} plants at ${hhmm(rainingFrame.time)} · radar image`
+                      : `No rain over the plants at ${hhmm(rainingFrame.time)} · radar image`}
+                  {rainingFrame.unread > 0 && <span className="text-amber-400"> · {fmtInt(rainingFrame.unread)} not read</span>}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-72">
+                Plants under rain in the snapshot on the map, read from its radar image at each plant (no Longdo call). The image
+                gives rain or no rain, not Longdo's class; the dot is the image's colour there. Pick the newest snapshot for
+                Longdo's class per plant.
+                {rainingFrame.unread > 0 && ` ${fmtInt(rainingFrame.unread)} of ${fmtInt(rainingFrame.located)} plants: the image could not be read (unknown, not dry).`}
+              </TooltipContent>
+            </Tooltip>
+          )}
           {raining.length > 0 && (
-            <ul className="max-h-32 w-full overflow-y-auto border-y border-white/[0.06] py-1" aria-label="Plants with rain now (weather radar)">
+            <ul className="max-h-32 w-full overflow-y-auto border-y border-white/[0.06] py-1" aria-label="Plants with rain in the snapshot on the map (weather radar)">
               {raining.map((r) => (
                 <li key={r.plantId}>
                   <button
