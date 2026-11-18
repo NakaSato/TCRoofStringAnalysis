@@ -13,14 +13,16 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlantInvertersCard } from "./inverters/PlantInvertersCard";
 import { InverterCard } from "./inverters/InverterCard";
 import { GridFaultCards, MpptCard, StringsCard } from "./inverters/DetailTabs";
+import { InverterIssuesCard } from "./inverters/InverterIssuesCard";
 import { invName, liveState } from "./inverters/shared";
 import type { LiveState, OverviewInverter } from "./inverters/shared";
 
-type DetailTab = "performance" | "strings" | "grid" | "history";
+type DetailTab = "performance" | "strings" | "grid" | "issues" | "history";
 const DETAIL_TABS: Array<{ id: DetailTab; label: string }> = [
   { id: "performance", label: "Performance" },
   { id: "strings", label: "Strings" },
   { id: "grid", label: "Grid & faults" },
+  { id: "issues", label: "Issues" },
   { id: "history", label: "History" },
 ];
 const DETAIL_TAB_IDS = DETAIL_TABS.map((t) => t.id);
@@ -205,6 +207,8 @@ export const InvertersPage: React.FC = () => {
           <GrowattAlarmLogPanel plantId={ov.plant.plant_id} plantName={ov.plant.name} day={day} deviceSn={inv.device_sn} />
         </div>
       )}
+
+      {tab === "issues" && <InverterIssuesCard plantId={ov.plant.plant_id} sn={inv.device_sn} label={invName(inv)} />}
 
       {tab === "history" && <InverterTrendPanel plantId={ov.plant.plant_id} deviceSn={inv.device_sn} label={invName(inv)} day={day} />}
     </div>
