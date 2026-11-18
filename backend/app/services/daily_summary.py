@@ -76,7 +76,8 @@ def _hourly_kw(timeseries: List[Dict[str, Any]]) -> List[Optional[float]]:
 
 def build_day_docs(db: Session, day: date, now: Optional[datetime] = None, freeze: bool = True) -> List[Doc]:
     """All daily documents for one plant-local day. Plants/inverters without data that day are
-    skipped, except a plant with inverters once a PWA check slot is ready (it is offline then).
+    skipped, except once a PWA check slot is ready: every plant has a doc then (offline, or with
+    no inverters at all), because the check's weather (Google, modelled) is there for every plant.
 
     PWA check slots (`checks`, `weather.slots`) come from check_slots.day_slots: the slots ready
     at `now` (naive plant-local; default the current time), frozen at their first build unless
@@ -92,7 +93,8 @@ def build_day_docs(db: Session, day: date, now: Optional[datetime] = None, freez
         k = ov["kpis"]
         has_data = bool(ov["timeseries"])
         pid = str(plant.plant_id)
-        slots = check_slots.day_slots(db, plant, day, ready, freeze=freeze) if check_slots.has_inverters(db, plant.plant_id) else {}
+        # every plant gets its check slots: one without inverters still carries the check's weather
+        slots = check_slots.day_slots(db, plant, day, ready, freeze=freeze)
         fleet[pid] = {
             "name": plant.name,
             "phase": plant.phase,

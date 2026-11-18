@@ -169,7 +169,9 @@ def test_publish_lists_ready_checks_last_and_keeps_slots(db):
     # a plant with inverters but no data all day is published once a check is ready: offline then
     silent = docs[f"daily/{DAY}/plants/8"]
     assert silent["has_data"] is False and silent["checks"]["09"]["offline"] == ["INV1"]
-    assert f"daily/{DAY}/plants/9" not in docs  # no inverters: nothing to check
+    # a plant with no inverters is published too: nothing to check, but the check's weather
+    bare = docs[f"daily/{DAY}/plants/9"]["checks"]["09"]
+    assert bare["inverters"] == 0 and bare["kw"] is None and bare["offline"] == [] and bare["issues"] == []
 
     # 19:30, after late uploads: check 09 unchanged, later checks built
     db.add(GrowattInverterReading(device_sn="B", timestamp=at(8, 49), status=1, pac_w=1000))
@@ -397,3 +399,18 @@ def test_slot_current_stops_at_the_daily_quota(db, monkeypatch):
     monkeypatch.setattr(google_weather, "remaining", lambda *a, **k: 1000)
     out = google_weather.slot_current(db, DAY, 9, at(8, 50), now_local=at(8, 52), client=fake, workers=1)
     assert out == {} and fake.calls == 1  # the other 19 cells are not called
+
+
+def test_a_plant_without_inverters_still_has_the_weather(db):
+    from app.services import pwa_sheet
+
+    plant = db.get(GrowattPlant, 9)
+    plant.latitude, plant.longitude = 13.7, 100.5  # the cell that has Google's 08:00 hour stored
+    db.commit()
+    history_run(db, at(8, 47))
+    doc = _docs(db, at(8, 52))[f"daily/{DAY}/plants/9"]
+    assert doc["has_data"] is False and doc["checks"]["09"]["google"]["condition"] == "LIGHT_RAIN"
+    cells = pwa_sheet.plant_cells(DAY, doc, {"name": "No inverters", "latitude": 13.7, "longitude": 100.5}, [9], ready=["09"])
+    # Status stays "—" (no inverter to judge), the weather is Google's
+    assert cells["checks"]["09"] == ["—", "INV Offline (ฝนตก)", "—", "ฝนตก", "offline", "—", "—"]
+    assert cells["sources"]["09"] == "google"
