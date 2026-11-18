@@ -7,6 +7,8 @@ Each project phase is a separate Growatt account; live calls for a plant use its
 
 from __future__ import annotations
 
+import logging
+
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional, Set
 
@@ -24,10 +26,13 @@ from app.services import growatt_overview as ov
 from app.services import growatt_weather as wx
 from app.services import google_weather as gw
 from app.services import longdo_weather as longdo
+from app.services import rainviewer
 from app.services import live_string_check
 from app.services import jobs
 from app.api.routes.growatt._common import sensor_scope
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -390,17 +395,32 @@ def live_plant_google_weather(
 
 @router.get("/live/rain-radar")
 def live_rain_radar(
-    db: Session = Depends(get_db), live: longdo.LongdoLive = Depends(longdo.get_longdo_live)
+    db: Session = Depends(get_db),
+    live: longdo.LongdoLive = Depends(longdo.get_longdo_live),
+    rv_live: rainviewer.RainViewerLive = Depends(rainviewer.get_rainviewer_live),
 ) -> Dict[str, Any]:
-    """Longdo rain radar for the Plant Map: the snapshots available (Unix times, oldest first),
-    the XYZ tile URL template (it carries the Longdo Map key, a browser key) and the legend.
-    Memory only. 404 = not configured (`LONGDO_API_KEY`): the UI hides the radar button."""
-    if not longdo.enabled():
-        raise HTTPException(status_code=404, detail="Longdo rain radar is not configured")
+    """Rain radar for the Plant Map: the snapshots available (Unix times, oldest first), the XYZ
+    tile URL template and the legend. Longdo first (its tile URL carries the Longdo Map key, a
+    browser key); RainViewer tiles when Longdo has no key or nothing to serve (`frame_tiles` per
+    snapshot, `point_rain: false`, `fallback_reason`). Memory only. 404 = neither configured:
+    the UI hides the radar button."""
+    reason: Optional[str] = None
+    if longdo.enabled():
+        try:
+            return longdo.radar(db, live)
+        except longdo.LongdoUnavailable as exc:
+            if not rainviewer.enabled():
+                raise HTTPException(status_code=503, detail=f"Longdo rain radar unavailable: {exc}") from exc
+            reason = f"Longdo is unavailable ({exc})"
+            logger.warning("rain radar: falling back to RainViewer (%s)", exc)
+    elif rainviewer.enabled():
+        reason = "Longdo is not configured"
+    else:
+        raise HTTPException(status_code=404, detail="Rain radar is not configured")
     try:
-        return longdo.radar(db, live)
-    except longdo.LongdoUnavailable as exc:
-        raise HTTPException(status_code=503, detail=f"Longdo rain radar unavailable: {exc}") from exc
+        return rainviewer.radar(rv_live, reason)
+    except rainviewer.RainViewerUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Rain radar unavailable: {reason}; RainViewer: {exc}") from exc
 
 
 @router.get("/live/rain")

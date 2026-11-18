@@ -56,7 +56,7 @@ export function useRainRadar(map: React.RefObject<L.Map | null>, on: boolean): R
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
-  const layers = useRef(new Map<number, L.TileLayer>());
+  const layers = useRef(new Map<number, { layer: L.TileLayer; url: string }>());
 
   useLivePoll(
     available && (on || !env),
@@ -93,7 +93,7 @@ export function useRainRadar(map: React.RefObject<L.Map | null>, on: boolean): R
   useEffect(() => {
     const m = map.current;
     const drop = () => {
-      layers.current.forEach((l) => l.remove());
+      layers.current.forEach((l) => l.layer.remove());
       layers.current.clear();
     };
     if (!m || !on || !data || time == null) {
@@ -105,14 +105,17 @@ export function useRainRadar(map: React.RefObject<L.Map | null>, on: boolean): R
       pane.style.zIndex = "350"; // over the basemap and its labels, under the plant markers
       pane.style.pointerEvents = "none";
     }
-    for (const [t, layer] of layers.current) {
-      if (!frames.includes(t)) {
-        layer.remove();
+    // Longdo: one template with {time}; RainViewer: each snapshot has its own URL
+    const urlOf = (t: number) => data.frame_tiles?.[String(t)] ?? data.tile_url.replace("{time}", String(t));
+    for (const [t, l] of layers.current) {
+      if (!frames.includes(t) || l.url !== urlOf(t)) {
+        l.layer.remove();
         layers.current.delete(t);
       }
     }
     if (!layers.current.has(time)) {
-      const layer = L.tileLayer(data.tile_url.replace("{time}", String(time)), {
+      const url = urlOf(time);
+      const layer = L.tileLayer(url, {
         pane: PANE,
         opacity: 0,
         minNativeZoom: data.min_zoom,
@@ -121,9 +124,9 @@ export function useRainRadar(map: React.RefObject<L.Map | null>, on: boolean): R
         attribution: data.attribution,
       });
       layer.addTo(m);
-      layers.current.set(time, layer);
+      layers.current.set(time, { layer, url });
     }
-    layers.current.forEach((layer, t) => layer.setOpacity(t === time ? OPACITY : 0));
+    layers.current.forEach((l, t) => l.layer.setOpacity(t === time ? OPACITY : 0));
   }, [map, on, data, frames, time]);
 
   // the map is removed with the page: forget its layers
@@ -248,7 +251,18 @@ export const RainRadarBar: React.FC<{
               <TooltipTrigger asChild>
                 <span className="shrink-0 text-amber-400">List not updated</span>
               </TooltipTrigger>
-              <TooltipContent side="top">{radar.error ?? "Longdo did not answer; showing the last list"}</TooltipContent>
+              <TooltipContent side="top">{radar.error ?? "The radar provider did not answer; showing the last list"}</TooltipContent>
+            </Tooltip>
+          )}
+          {data?.fallback_reason && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0 text-amber-400">RainViewer (fallback)</span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-72">
+                Showing RainViewer radar tiles because {data.fallback_reason}. RainViewer gives no rain value per plant, no
+                forecast and no detail past zoom {data.max_zoom}.
+              </TooltipContent>
             </Tooltip>
           )}
           {fleet.data && (

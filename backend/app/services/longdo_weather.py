@@ -243,6 +243,8 @@ def radar(db: Session, live: LongdoLive) -> Dict[str, Any]:
         "max_zoom": TILE_MAX_ZOOM,
         "attribution": ATTRIBUTION,
         "legend": legend,
+        "point_rain": True,
+        "fallback_reason": None,
     }
     return env
 

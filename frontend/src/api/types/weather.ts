@@ -183,8 +183,14 @@ export interface RainRadar {
   min_zoom: number;
   max_zoom: number;
   attribution: string;
-  /** colour and label of each rain class; empty when Longdo's legend could not be read */
+  /** colour and label of each rain class; empty when Longdo's legend could not be read (and for RainViewer) */
   legend: Array<{ intensity: number; label: string; color: string }>;
+  /** RainViewer fallback: each snapshot's own tile URL (its path is a hash, not the time) */
+  frame_tiles?: Record<string, string>;
+  /** false = no rain value over a plant from this provider (RainViewer): hide plant / fleet rain */
+  point_rain?: boolean;
+  /** why the fallback provider is shown (Longdo not configured or unavailable); null = Longdo */
+  fallback_reason?: string | null;
 }
 
 /** `/growatt/live/plants/{id}/rain`: radar rain over the plant, radar-derived and never measured. */

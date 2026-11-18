@@ -12,7 +12,9 @@ from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
 from app.services import longdo_weather as longdo
+from app.services import rainviewer
 from app.db.models import User, UserPlantAssignment
+from solar_core.rainviewer import RainViewerError, parse_maps
 from solar_core.longdo_weather import (
     parse_area_stats,
     parse_forecast_area,
@@ -23,6 +25,24 @@ from solar_core.longdo_weather import (
     parse_legend,
     parse_rain,
 )
+
+
+RV_BODY = {
+    "host": "https://tilecache.rainviewer.com",
+    "radar": {"past": [{"time": 1740449400, "path": "/v2/radar/bbb"}, {"time": 1740448800, "path": "/v2/radar/aaa"}, {"time": 5}]},
+}
+
+
+class FakeRainViewer:
+    def __init__(self):
+        self.calls = 0
+        self.fail = False
+
+    def maps(self):
+        self.calls += 1
+        if self.fail:
+            raise RainViewerError("RainViewer answered HTTP 503")
+        return parse_maps(RV_BODY)
 
 
 class FakeClient:
@@ -157,10 +177,14 @@ def client(tmp_path, monkeypatch):
     live = longdo.LongdoLive(lambda: fake)  # type: ignore[arg-type,return-value]
     app.dependency_overrides[get_db] = _db
     app.dependency_overrides[longdo.get_longdo_live] = lambda: live
+    rv = FakeRainViewer()
+    rv_live = rainviewer.RainViewerLive(lambda: rv)  # type: ignore[arg-type,return-value]
+    app.dependency_overrides[rainviewer.get_rainviewer_live] = lambda: rv_live
     c = TestClient(app)
     tok = c.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()["access_token"]
     c.headers["Authorization"] = f"Bearer {tok}"
     c.fake = fake  # type: ignore[attr-defined]
+    c.rv = rv  # type: ignore[attr-defined]
     c.Session = S  # type: ignore[attr-defined]
     return c
 
@@ -180,9 +204,52 @@ def test_routes(client, monkeypatch):
     assert client.get("/api/growatt/live/plants/999/rain").status_code == 404
     tok = client.post("/api/auth/login", json={"username": "engineer", "password": "engineer123"}).json()["access_token"]
     assert client.get("/api/growatt/live/plants/1/rain", headers={"Authorization": f"Bearer {tok}"}).status_code == 404
-    monkeypatch.setattr(settings, "longdo_api_key", "")  # not configured: the UI hides the radar
-    assert client.get("/api/growatt/live/rain-radar").status_code == 404
+    assert r["data"]["point_rain"] is True and r["data"]["fallback_reason"] is None and client.rv.calls == 0  # type: ignore[attr-defined]
+    monkeypatch.setattr(settings, "longdo_api_key", "")  # no Longdo: RainViewer tiles, no plant rain
+    d = client.get("/api/growatt/live/rain-radar").json()["data"]
+    assert d["provider"].startswith("RainViewer") and d["point_rain"] is False and d["legend"] == []
     assert client.get("/api/growatt/live/plants/1/rain").status_code == 404
+    monkeypatch.setattr(settings, "rainviewer_enabled", False)  # neither: the UI hides the radar
+    assert client.get("/api/growatt/live/rain-radar").status_code == 404
+
+
+def test_parse_rainviewer_maps():
+    m = parse_maps(RV_BODY)
+    assert m["frames"] == [1740448800, 1740449400]  # oldest first, a snapshot without a path left out
+    assert m["tiles"]["1740448800"] == "https://tilecache.rainviewer.com/v2/radar/aaa/256/{z}/{x}/{y}/2/1_0.png"
+    with pytest.raises(RainViewerError):
+        parse_maps({"host": "http://insecure", "radar": {"past": []}})
+    with pytest.raises(RainViewerError):
+        parse_maps([])
+
+
+def test_rainviewer_fallback_when_longdo_fails(client):
+    client.fake.fail = {"frames"}  # type: ignore[attr-defined]
+    r = client.get("/api/growatt/live/rain-radar").json()
+    d = r["data"]
+    assert d["frames"] == [1740448800, 1740449400] and d["max_zoom"] == 7 and "RainViewer" in d["attribution"]
+    assert d["frame_tiles"]["1740449400"].endswith("/v2/radar/bbb/256/{z}/{x}/{y}/2/1_0.png")
+    assert d["tile_url"] == d["frame_tiles"]["1740449400"] and "Longdo is unavailable" in d["fallback_reason"]
+    assert not r["stale"] and r["error"] is None
+    client.get("/api/growatt/live/rain-radar")
+    assert client.rv.calls == 1  # type: ignore[attr-defined]  # cached
+
+    client.rv.fail = True  # type: ignore[attr-defined]
+    live = rainviewer.RainViewerLive(lambda: client.rv)  # type: ignore[arg-type,return-value]
+    with pytest.raises(rainviewer.RainViewerUnavailable):
+        live.maps(300)
+
+
+def test_rainviewer_stale_and_cooldown():
+    rv = FakeRainViewer()
+    t = [0.0]
+    live = rainviewer.RainViewerLive(lambda: rv, clock=lambda: t[0])  # type: ignore[arg-type,return-value]
+    a = live.maps(300)
+    t[0], rv.fail = 400, True
+    b = live.maps(300)
+    assert b["stale"] and "503" in b["error"] and b["data"] == a["data"] and rv.calls == 2
+    t[0] = 420  # inside the cooldown
+    assert live.maps(300)["stale"] and rv.calls == 2
 
 
 def test_forecast_failure_keeps_now(client):
@@ -260,6 +327,8 @@ def test_rate_limit_and_budget(client, monkeypatch):
     assert "rate limit" in str(exc.value) and client.fake.calls["frames"] == 0  # type: ignore[attr-defined]
 
     monkeypatch.setattr(settings, "longdo_monthly_budget", 0)  # nothing left today
+    assert "budget" in client.get("/api/growatt/live/rain-radar").json()["data"]["fallback_reason"]  # RainViewer tiles
+    monkeypatch.setattr(settings, "rainviewer_enabled", False)
     assert client.get("/api/growatt/live/rain-radar").status_code == 503
     r = client.get("/api/growatt/live/rain").json()
     assert r["stale"] and "budget" in r["error"] and r["data"]["checked"] == 0 and r["refresh_in_s"] == 60

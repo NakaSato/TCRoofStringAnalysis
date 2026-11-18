@@ -435,7 +435,9 @@ export const PlantMapPage: React.FC = () => {
                     <CloudRain className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="left">Rain radar (Longdo): {radarOn ? "on" : "off"}</TooltipContent>
+                <TooltipContent side="left">
+                  Rain radar ({radar.data?.fallback_reason ? "RainViewer" : "Longdo"}): {radarOn ? "on" : "off"}
+                </TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -487,7 +489,7 @@ export const PlantMapPage: React.FC = () => {
                   : "No location set in Growatt"}
                 {selected.plant.inverter_count != null && ` · ${selected.plant.inverter_count} inverters`}
               </div>
-              {radar.available && radar.data && selected.located && (
+              {radar.available && radar.data && radar.data.point_rain !== false && selected.located && (
                 <PlantRainRow plantId={selected.plant.plant_id} legend={radar.data.legend} />
               )}
               <div className="mt-2.5 flex gap-2">
