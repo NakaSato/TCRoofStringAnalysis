@@ -75,6 +75,12 @@ def test_day_energy_leaves_null_slots_out_and_needs_two_counter_records(client):
     assert e["load_kwh"] is None
     assert e["grid_export_kwh"] == 5.0 and e["grid_import_kwh"] == 0.0
 
+    # an unknown load between two known slots adds nothing: its 5 min are not credited to the next slot
+    attach_grid(ts, {ts[0]["timestamp"]: 2000.0, ts[1]["timestamp"]: -20000.0, ts[2]["timestamp"]: 2000.0})
+    e = day_energy(s, PLANT, start, end, ts)
+    assert e["load_kwh"] == 2.0  # 12 kW x 2 slots of 5 min
+    assert e["grid_export_kwh"] == 1.7 and e["grid_import_kwh"] == 0.3
+
     # one counter record spans nothing: import stays the integrated 2 kW x 15 min, not 0
     attach_grid(ts, {r["timestamp"]: 2000.0 for r in ts})
     _seed_meter(s, [(DAY + timedelta(hours=10, seconds=3), 2000.0, 1000.0)])
