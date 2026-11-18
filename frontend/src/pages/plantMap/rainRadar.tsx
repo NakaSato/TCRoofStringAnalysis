@@ -344,7 +344,7 @@ export const PlantRainRow: React.FC<{ plantId: number; legend: Legend }> = ({ pl
         <TooltipTrigger asChild>
           <div className="text-slate-500">
             Rain · weather radar{cells.length > 1 && ", forecast"}
-            {cur.env?.stale && <span className="text-amber-400"> · not updated</span>}
+            {cur.env?.stale && <span className="text-amber-400"> · {d?.now ? "not updated" : "waiting for Longdo"}</span>}
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-64">

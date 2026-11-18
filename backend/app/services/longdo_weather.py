@@ -10,6 +10,7 @@ stays the only measured weather.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import deque
@@ -34,6 +35,8 @@ from solar_core.longdo_weather import (
     LongdoWeatherError,
 )
 
+logger = logging.getLogger(__name__)
+
 SOURCE = "Longdo Map weather radar"
 LEGEND_TTL_S = 86400.0  # static
 SWEEP_WORKERS = 8
@@ -43,7 +46,12 @@ REGION_RADIUS_KM = 80.0  # ... over the circle that covers it (half diagonal ≈
 
 
 class LongdoUnavailable(RuntimeError):
-    """Not configured, or the call failed and there is no earlier value to serve."""
+    """Not configured, or the call could not be made and there is no earlier value to serve.
+    `retry_s` = when asking again can help."""
+
+    def __init__(self, message: str, retry_s: float = 60.0):
+        super().__init__(message)
+        self.retry_s = retry_s
 
 
 def enabled() -> bool:
@@ -89,7 +97,7 @@ def usage(db: Session) -> Dict[str, Any]:
 
 
 def make_client() -> LongdoWeatherClient:
-    return LongdoWeatherClient(settings.longdo_api_key, settings.longdo_base_url)
+    return LongdoWeatherClient(settings.longdo_api_key, settings.longdo_base_url, timeout=settings.longdo_timeout_s)
 
 
 class LongdoLive:
@@ -201,7 +209,7 @@ class LongdoLive:
             hit = self._cache.get(key)
             if hit:
                 return self._env(hit[1], hit[2], True, error, wait)
-            raise LongdoUnavailable(error)
+            raise LongdoUnavailable(error, wait)
 
 
 @lru_cache(maxsize=1)
@@ -240,40 +248,93 @@ def radar(db: Session, live: LongdoLive) -> Dict[str, Any]:
 
 
 def plant_rain(db: Session, plant: GrowattPlant, live: LongdoLive) -> Dict[str, Any]:
-    """Radar rain class over the plant now, and the +15 / +30 min nowcast. Plants in one
-    Google Weather grid cell (~1 km) share a lookup."""
+    """Radar rain class over the plant now and the +15 / +30 min nowcast, plus rain within
+    `LONGDO_AREA_RADIUS_KM`. Plants in one Google Weather grid cell (~1 km) share a lookup.
+
+    Two cached parts of 2 calls each (point, area), so a tight minute still gives the main
+    values. A part the rate limit, a cooldown or the budget holds back is never an HTTP error:
+    the answer is `stale` with the reason in `error`, its values are null ("—"), and
+    `refresh_in_s` says when to ask again. While the point part waits, "now" comes from the
+    fleet sweep's cache when that has the plant (`now_via: "sweep"`)."""
     _require()
     cell = gw.plant_cell(plant)
     if cell is None:
         raise LongdoUnavailable("plant has no coordinates")
     key, lat, lon = cell
-
     radius = settings.longdo_area_radius_km
+    ttl = settings.longdo_rain_ttl_s
 
-    def fetch(c: LongdoWeatherClient) -> Dict[str, Any]:
+    def fetch_point(c: LongdoWeatherClient) -> Dict[str, Any]:
         now = c.rain_at(lat, lon)
         try:
             forecast, forecast_error = c.forecast_at(lat, lon), None
         except LongdoWeatherError as exc:  # the nowcast is optional: "now" is still served
             forecast, forecast_error = [], str(exc)
-        area: Dict[str, Any] = {"radius_km": radius, "now": None, "forecast": [], "error": None}
-        try:  # rain nearby is optional too
-            area["now"] = c.area_at(lat, lon, radius)
-            area["forecast"] = c.forecast_area_at(lat, lon, radius)
-        except LongdoWeatherError as exc:
-            area["error"] = str(exc)
-        return {"now": now, "forecast": forecast, "forecast_error": forecast_error, "area": area}
+        return {"now": now, "forecast": forecast, "forecast_error": forecast_error}
 
-    env = live.cached(f"rain:{key}", settings.longdo_rain_ttl_s, fetch, calls=4, reserve_calls=lambda n: reserve(db, n))
-    env["data"] = {
-        "plant_id": plant.plant_id,
-        "provider": SOURCE,
-        "radar": True,
-        "cell": {"key": key, "latitude": lat, "longitude": lon},
-        **env["data"],
+    def fetch_area(c: LongdoWeatherClient) -> Dict[str, Any]:
+        return {"now": c.area_at(lat, lon, radius), "forecast": c.forecast_area_at(lat, lon, radius)}
+
+    held: List[str] = []
+    waits: List[float] = []
+
+    def part(cache_key: str, fetch: Callable[[LongdoWeatherClient], Any]) -> Optional[Dict[str, Any]]:
+        try:
+            env = live.cached(cache_key, ttl, fetch, calls=2, reserve_calls=lambda n: reserve(db, n))
+        except LongdoUnavailable as exc:
+            held.append(str(exc))
+            waits.append(exc.retry_s)
+            return None
+        if env["error"]:
+            held.append(env["error"])
+        waits.append(env["refresh_in_s"])
+        return env
+
+    point = part(f"rain:{key}", fetch_point)
+    area = part(f"rain-area:{key}", fetch_area)
+
+    fetched_at, via = (point["fetched_at"], "point") if point else (None, None)
+    values: Dict[str, Any] = dict(point["data"]) if point else {"now": None, "forecast": [], "forecast_error": None}
+    if point is None:
+        swept = _swept_now(live, key, lat, lon)
+        if swept:
+            fetched_at, values["now"], via = swept[0], swept[1], "sweep"
+    if held:
+        logger.info("Longdo rain for plant %s (cell %s) held back: %s", plant.plant_id, key, "; ".join(dict.fromkeys(held)))
+    return {
+        "source": "live",
+        "fetched_at": fetched_at,
+        "stale": bool(held),
+        "error": "; ".join(dict.fromkeys(held)) or None,
+        "refresh_in_s": max(15, round(min(waits))),
+        "data": {
+            "plant_id": plant.plant_id,
+            "provider": SOURCE,
+            "radar": True,
+            "cell": {"key": key, "latitude": lat, "longitude": lon},
+            **values,
+            "now_via": via,
+            "area": {
+                "radius_km": radius,
+                "now": area["data"]["now"] if area else None,
+                "forecast": area["data"]["forecast"] if area else [],
+                "error": None if area else held[-1],
+            },
+        },
     }
-    return env
 
+
+def _swept_now(live: LongdoLive, cell_key: str, lat: float, lon: float) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """(fetched_at, rain) the fleet sweep holds for a cell, if not older than its TTL: the
+    cell's own `location` answer, or "no rain" from a region with no rain pixel."""
+    ttl = float(settings.longdo_fleet_rain_ttl_s)
+    point = live.peek(f"now:{cell_key}")
+    region = live.peek(f"region:{_region(lat, lon)[0]}")
+    if region and region[0] < ttl and not _wet(region[2]) and (point is None or region[0] <= point[0]):
+        return region[1], DRY
+    if point and point[0] < ttl and point[2]:
+        return point[1], point[2]
+    return None
 
 
 # --------------------------------------------------------------------------- fleet rain (swept)

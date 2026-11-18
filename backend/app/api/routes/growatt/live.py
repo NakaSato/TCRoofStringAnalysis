@@ -427,7 +427,9 @@ def live_plant_rain(
 ) -> Dict[str, Any]:
     """Rain over the plant from the Longdo weather radar: intensity class 0–5 now and the
     +15 / +30 min nowcast (radar-derived, not measured). Cached in memory per ~1 km cell
-    (`LONGDO_RAIN_TTL_S`), never stored. 404 = not configured or unknown plant."""
+    (`LONGDO_RAIN_TTL_S`), never stored. 404 = not configured or unknown plant. A lookup the
+    rate limit, a cooldown or the budget holds back still answers 200: `stale`, the reason in
+    `error`, null values and `refresh_in_s`; 503 only for a plant without coordinates."""
     if not longdo.enabled():
         raise HTTPException(status_code=404, detail="Longdo rain radar is not configured")
     try:

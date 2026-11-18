@@ -193,12 +193,14 @@ export interface PlantRadarRain {
   provider: string;
   radar: true;
   cell: { key: string; latitude: number; longitude: number };
-  /** null = Longdo gave no class */
+  /** null = Longdo gave no class, or the lookup is held back (the envelope is then `stale` with the reason in `error`) */
   now: RadarRain | null;
+  /** where `now` comes from: the plant's own lookup, or the fleet sweep's cache while that lookup waits */
+  now_via: "point" | "sweep" | null;
   /** nowcast; `rain` null = not available for that lead time */
   forecast: Array<{ lead_min: number | null; time: number | null; rain: RadarRain | null }>;
   forecast_error: string | null;
-  /** rain within `radius_km` of the plant; `error` when Longdo refused that part */
+  /** rain within `radius_km` of the plant; `error` when Longdo refused that part or it is held back */
   area: {
     radius_km: number;
     now: RadarAreaStats | null;
