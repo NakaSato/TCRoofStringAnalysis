@@ -87,8 +87,10 @@ def day_energy(db: Session, plant_id: int, start: datetime, end: datetime, times
         return {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}
 
     def integ(key: str) -> Optional[float]:
-        vals = [(t, float(r[key]) * 1000.0) for t, r in pts if r.get(key) is not None]
-        return round(_integrate_kwh(vals), 1) if vals else None
+        # every slot stays on the timeline (a slot without the value adds no energy): dropping it
+        # would credit its interval to the next slot that has one
+        vals = [(t, None if r.get(key) is None else float(r[key]) * 1000.0) for t, r in pts]
+        return round(_integrate_kwh(vals), 1) if any(v is not None for _t, v in vals) else None
 
     counter = db.execute(
         select(func.max(M.import_counter_kwh) - func.min(M.import_counter_kwh), func.count())
