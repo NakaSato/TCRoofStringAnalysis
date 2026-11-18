@@ -40,7 +40,6 @@ Schedule (worker): `pwa_sheet` at 06:05 creates today's tab; `publish_today` (08
 from __future__ import annotations
 
 import logging
-import math
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -52,6 +51,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.services import check_slots, pwa_report
 from app.services.check_slots import CHECK_HOURS
+from solar_core.sun import clear_sky_ghi
 
 log = logging.getLogger(__name__)
 
@@ -177,17 +177,7 @@ def layout(rows: Sequence[Sequence[Any]], title: str = "") -> Layout:
 
 def clear_sky(lat: float, lon: float, day: date, hour: int, minute: int = 0) -> float:
     """Haurwitz clear-sky GHI (W/m²) at Bangkok wall-clock `day hour:minute` for a plant at lat/lon."""
-    doy = day.timetuple().tm_yday
-    g = 2 * math.pi / 365 * (doy - 1 + (hour - 12) / 24)
-    decl = (0.006918 - 0.399912 * math.cos(g) + 0.070257 * math.sin(g) - 0.006758 * math.cos(2 * g)
-            + 0.000907 * math.sin(2 * g))
-    eqt = 229.18 * (0.000075 + 0.001868 * math.cos(g) - 0.032077 * math.sin(g)
-                    - 0.014615 * math.cos(2 * g) - 0.040849 * math.sin(2 * g))
-    solar_min = hour * 60 + minute + eqt + 4 * lon - 420
-    ha = math.radians(solar_min / 4 - 180)
-    la = math.radians(lat)
-    cosz = math.sin(la) * math.sin(decl) + math.cos(la) * math.cos(decl) * math.cos(ha)
-    return 0.0 if cosz <= 0.01 else 1098 * cosz * math.exp(-0.057 / cosz)
+    return clear_sky_ghi(day, lat, lon, hour * 60 + minute)
 
 
 def sky_th(irr: float, cs: float) -> Optional[str]:

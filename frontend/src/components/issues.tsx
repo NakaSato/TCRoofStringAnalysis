@@ -97,6 +97,19 @@ export const evidenceText = (i: Issue): string => {
       return `Down ${fmtInt((num(e.fault_min) ?? 0) + (num(e.off_min) ?? 0) + (num(e.standby_min) ?? 0))} min (fault ${fmtInt(num(e.fault_min))}, off ${fmtInt(num(e.off_min))}, standby ${fmtInt(num(e.standby_min))}) · ${fmt(num(e.kwp_share_pct), 0)} % of plant kWp`;
     case "R10":
       return `EPI ${fmt(num(e.epi), 3)} vs baseline μ=${fmt(num(e.epi_mu), 3)} (σ=${fmt(num(e.epi_sigma), 3)}, ${String(e.trigger ?? "")})`;
+    case "R16": {
+      const flags = Array.isArray(e.flags) ? (e.flags as string[]) : [];
+      const parts = flags.map((f) =>
+        f === "stale"
+          ? `irradiance frozen ${fmtInt(num(e.stale_slots))} slots`
+          : f === "above_clear_sky"
+            ? `above clear sky ${fmtInt(num(e.high_slots))} slots`
+            : f === "below_neighbours"
+              ? `midday ${fmt(num(e.neighbour_ratio), 2)} × the ${fmtInt(num(e.neighbours))} nearby sensors (Google cloud ${fmt(num(e.cloud_midday_pct), 0)} %, modelled)`
+              : f
+      );
+      return `Weather sensor: ${parts.join(" · ")} · PR / EPI not trustworthy that day`;
+    }
     case "R11":
       return `Ya − Yf loss ${fmt(num(e.ya_minus_yf), 2)} h vs baseline ${fmt(num(e.baseline_ya_minus_yf), 2)} h (+${fmt(num(e.gap_increase_h), 2)} h for ${fmtInt(num(e.days))} days)`;
     case "R17":

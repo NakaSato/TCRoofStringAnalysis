@@ -243,6 +243,16 @@ def _day_rate(db: Session, plant_id: int, day: Optional[date], timeseries: List[
     return round(rate, 4)
 
 
+def _sensor_health(db: Session, plant_id: int, day: Optional[date]) -> Optional[Dict[str, Any]]:
+    if day is None:
+        return None
+    from app.db.models import GrowattPlantDaily
+    from app.services import growatt_rules
+
+    v = growatt_rules.sensor_verdict(db.get(GrowattPlantDaily, (plant_id, day)), growatt_rules.rule_settings(db))
+    return None if v is None else {"ok": v["ok"], "flags": v["flags"], "reasons": v["reasons"]}
+
+
 def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None) -> Dict[str, Any]:
     """Single-plant overview for one day (default: latest day with data)."""
     """Single-plant overview for one day from persisted max_data history.
@@ -593,6 +603,9 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "iec_pr_pct": pr["pr_pct"],
             "iec_pr_temp_corrected_pct": pr.get("pr_temp_corrected_pct"),
             "epi": epi,
+            # R16 verdict on the day's stored sensor evidence (null = not computed / no irradiance);
+            # ok false = the IEC PR, PR' and EPI above rest on a suspect sensor
+            "sensor_health": _sensor_health(db, plant_id, day),
             "insolation_kwh_m2": wk["insolation_kwh_m2"],
             "peak_irradiance_wm2": wk["peak_irradiance_wm2"],
             "avg_module_temp_c": wk["avg_module_temp_daylight_c"],

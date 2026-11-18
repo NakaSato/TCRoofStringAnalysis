@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    GoogleWeatherHourly,
     GrowattAlarm,
     GrowattEnvReading,
     GrowattEnvSensor,
@@ -38,7 +40,7 @@ from app.db.models import (
 from app.services.growatt_common import INACTIVE_MAX_A, R, S, _bucket, _day_bounds, _integrate_kwh, capacity_check
 from app.services.growatt_layout import load_layout, load_layout_orientations
 from app.services.tariff import Pricer, pricer as load_pricer
-from solar_core.sun import sun_times
+from solar_core.sun import clear_sky_ghi, sun_times
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +68,19 @@ WIRED_LOOKBACK_DAYS = 30
 WIRED_MIN_KWH = 0.05  # a string with a daily row at least this big in the lookback is wired
 
 ERROR_FAULT_TYPES = ("error", "fault")
+
+# R16 sensor-health evidence (judged by growatt_rules.sensor_verdict)
+# Plane-of-array sensors read about 1.0–1.05 × the Haurwitz clear-sky GHI at midday and up to ~1.3
+# in cloud-edge bursts (95th percentile, fleet 12–15 Nov 2026); morning / evening ratios run higher
+# still (tilt, low-sun model error). So: 1.5 ×, and only while clear sky is at least 400 W/m².
+SENSOR_CLEAR_SKY_FACTOR = 1.5
+SENSOR_CLEAR_SKY_MIN_WM2 = 400.0
+SENSOR_STALE_MIN_WM2 = 200.0  # stale runs count in daylight = clear sky at least this
+SENSOR_MIDDAY = (10, 14)  # plant-local hours [start, end) of the midday comparison window
+SENSOR_MIDDAY_MIN_SLOTS = 24  # 2 h of readings in the window, else no midday value
+CLOUD_MIN_HOURS = 3  # Google hours in the window needed for a cloud-cover value
+NEIGHBOUR_KM = 50.0
+NEIGHBOUR_MIN = 3  # other plants with a midday value within NEIGHBOUR_KM
 
 
 # --------------------------------------------------------------------------- loading
@@ -677,6 +692,7 @@ def _plant_day(
 
     epi = round(meas_kw_sum / mod_kw_sum, 4) if valid_slots >= 6 and mod_kw_sum > 0 else None
     modelled_energy_kwh = round(mod_kw_sum * SLOT_H, 3) if valid_slots >= 6 and mod_kw_sum > 0 else None
+    sensor = _sensor_evidence(db, plant, day, wx_by_slot, stale_ts)
 
     db.add(
         GrowattPlantDaily(
@@ -698,8 +714,100 @@ def _plant_day(
             stale_masked_slots=len(stale_ts),
             clipped_masked_slots=len(clipped_slots_set),
             curtailed_masked_slots=len(curtailed_slots_set),
+            **sensor,
         )
     )
+
+
+def _sensor_evidence(
+    db: Session, plant: GrowattPlant, day: date, wx_by_slot: Dict[datetime, Dict[str, Any]], stale_ts: Set[str]
+) -> Dict[str, Any]:
+    """R16 evidence from the plant's irradiance series (the one PR and EPI use). Counts and
+    values only; `growatt_rules.sensor_verdict` judges them. All null without irradiance."""
+    irr = {t: float(p["irradiance_wm2"]) for t, p in wx_by_slot.items() if p.get("irradiance_wm2") is not None}
+    out: Dict[str, Any] = {
+        "sensor_stale_slots": None, "sensor_high_slots": None, "sensor_midday_wm2": None,
+        "sensor_midday_slots": None, "cloud_midday_pct": None,
+    }
+    if not irr:
+        return out
+    lat = float(plant.latitude) if plant.latitude is not None else None
+    lon = float(plant.longitude) if plant.longitude is not None else None
+
+    def cs(t: datetime) -> Optional[float]:
+        if lat is None or lon is None:
+            return None
+        return clear_sky_ghi(day, lat, lon, t.hour * 60 + t.minute + SLOT_MIN / 2.0, UTC_OFFSET_H)
+
+    lo_h, hi_h = SENSOR_MIDDAY
+    stale = high = 0
+    for t, g in irr.items():
+        c = cs(t)
+        daylight = c >= SENSOR_STALE_MIN_WM2 if c is not None else lo_h - 3 <= t.hour < hi_h + 3
+        if daylight and t.strftime("%Y-%m-%d %H:%M:%S") in stale_ts:
+            stale += 1
+        if c is not None and c >= SENSOR_CLEAR_SKY_MIN_WM2 and g > SENSOR_CLEAR_SKY_FACTOR * c:
+            high += 1
+    out["sensor_stale_slots"] = stale
+    out["sensor_high_slots"] = high if lat is not None and lon is not None else None
+    mid = [g for t, g in irr.items() if lo_h <= t.hour < hi_h]
+    out["sensor_midday_slots"] = len(mid)
+    if len(mid) >= SENSOR_MIDDAY_MIN_SLOTS:
+        out["sensor_midday_wm2"] = round(statistics.mean(mid), 1)
+    if lat is not None and lon is not None:
+        from app.services.google_weather import cell_of
+
+        key = cell_of(lat, lon)[0]
+        G = GoogleWeatherHourly
+        start = datetime.combine(day, datetime.min.time())
+        clouds: List[float] = [
+            float(c) for c in db.scalars(
+                select(G.cloud_cover_pct).where(
+                    G.cell_key == key, G.hour >= start + timedelta(hours=lo_h), G.hour < start + timedelta(hours=hi_h),
+                    G.cloud_cover_pct.is_not(None),
+                )
+            )
+            if c is not None
+        ]
+        if len(clouds) >= CLOUD_MIN_HOURS:
+            out["cloud_midday_pct"] = round(statistics.mean(clouds), 1)
+    return out
+
+
+def _km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 2 * 6371.0 * math.asin(math.sqrt(h))
+
+
+def sensor_neighbours(db: Session, day: date) -> int:
+    """Each plant's midday irradiance ÷ the median of the other plants' within NEIGHBOUR_KM
+    (R16's stand-in for a satellite reference). Fleet-wide, after every plant's row of the day
+    exists; null with fewer than NEIGHBOUR_MIN neighbours. Returns the rows given a ratio."""
+    PD = GrowattPlantDaily
+    rows = list(db.scalars(select(PD).where(PD.day == day)))
+    coords = {
+        int(p): (float(la), float(lo))
+        for p, la, lo in db.execute(select(GrowattPlant.plant_id, GrowattPlant.latitude, GrowattPlant.longitude))
+        if la is not None and lo is not None and not (la == 0 and lo == 0)
+    }
+    have = [(r, coords[r.plant_id]) for r in rows if r.sensor_midday_wm2 is not None and r.plant_id in coords]
+    n = 0
+    for r in rows:
+        r.sensor_neighbour_ratio = None
+        r.sensor_neighbours = None
+        here = coords.get(r.plant_id)
+        if r.sensor_midday_wm2 is None or here is None:
+            continue
+        near = [o.sensor_midday_wm2 for o, at in have if o.plant_id != r.plant_id and _km(here, at) <= NEIGHBOUR_KM]
+        vals = [float(v) for v in near if v is not None]
+        r.sensor_neighbours = len(vals)
+        med = statistics.median(vals) if len(vals) >= NEIGHBOUR_MIN else None
+        if med and med > 0:
+            r.sensor_neighbour_ratio = round(float(r.sensor_midday_wm2) / med, 3)
+            n += 1
+    db.commit()
+    return n
 
 
 def _r(v: Optional[float]) -> Optional[float]:
@@ -757,6 +865,11 @@ def compute_day(db: Session, day: date, plant_ids: Optional[Sequence[int]] = Non
         totals["plants"] += 1
         totals["strings"] += n["strings"]
         totals["inverters"] += n["inverters"]
+    try:
+        totals["sensor_neighbours"] = sensor_neighbours(db, day)
+    except Exception:  # evidence only: never fail the day's rows over it
+        db.rollback()
+        log.exception("sensor neighbour ratios failed for %s", day)
     return totals
 
 

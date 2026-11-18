@@ -134,6 +134,8 @@ export interface GrowattPlantOverview {
     iec_pr_temp_corrected_pct?: number | null;
     /** Energy Performance Index (measured / modelled energy over filtered slots) */
     epi?: number | null;
+    /** R16 verdict on the day's weather sensor; ok false = IEC PR, PR' and EPI rest on a suspect sensor; null = not judged */
+    sensor_health?: { ok: boolean; flags: string[]; reasons: string[] } | null;
     insolation_kwh_m2?: number | null;
     peak_irradiance_wm2?: number | null;
     avg_module_temp_c?: number | null;

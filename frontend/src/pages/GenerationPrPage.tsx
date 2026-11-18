@@ -72,6 +72,8 @@ export const GenerationPrPage: React.FC = () => {
   const pr = iec ?? k.plant_pr_pct;
   const prDelta = pr != null && target != null ? pr - target : null;
   const iecReason = ov.weather?.has_sensor && iec == null ? ov.weather.iec_pr.reason : null;
+  // R16: the day's weather sensor failed a health check, so IEC PR / PR' / EPI are shown greyed
+  const sensorSuspect = iec != null && k.sensor_health?.ok === false ? k.sensor_health.reasons.join("; ") : null;
 
   const revenue = k.yield_today_kwh != null ? k.yield_today_kwh * k.tariff_thb_per_kwh : null;
   const peak = ov.timeseries.reduce<(typeof ov.timeseries)[number] | null>((m, r) => (r.pac_kw != null && (m?.pac_kw == null || r.pac_kw > m.pac_kw) ? r : m), null);
@@ -107,7 +109,9 @@ export const GenerationPrPage: React.FC = () => {
             </div>
             <div className="flex flex-col gap-2">
               <GroupLabel title="Performance" note={
-                  iec != null
+                  sensorSuspect
+                    ? `IEC 61724 · weather sensor suspect: ${sensorSuspect}`
+                    : iec != null
                     ? "IEC 61724 from the weather sensor"
                     : iecReason
                       ? `peer-relative · no IEC PR: ${iecReason}`
@@ -124,7 +128,13 @@ export const GenerationPrPage: React.FC = () => {
                         : undefined
                   }
                 >
-                  <span className={cn(target != null && prTone(pr, target))}>{fmt(pr, 1)}</span> <Unit>%</Unit>
+                  <span
+                    className={cn(sensorSuspect ? "text-muted-foreground" : target != null && prTone(pr, target))}
+                    title={sensorSuspect ? `Weather sensor suspect (R16): ${sensorSuspect}` : undefined}
+                  >
+                    {fmt(pr, 1)}
+                  </span>{" "}
+                  <Unit>%</Unit>
                 </Stat>
                 <Stat
                   label="DC→AC efficiency"

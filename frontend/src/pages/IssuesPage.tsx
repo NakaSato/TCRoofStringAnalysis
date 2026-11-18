@@ -37,7 +37,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 const ALL = "all";
 const STATUSES = ["active", "closed", "all"] as const;
 const STATUS_TAB: Record<(typeof STATUSES)[number], string> = { active: "Open", closed: "Closed", all: "All" };
-const RULES = ["R1", "R2", "R3", "R5", "R7", "R8", "R9", "R17", "R18"] as const;
+const RULES = ["R1", "R2", "R3", "R5", "R7", "R8", "R9", "R16", "R17", "R18"] as const;
 const PAGE = 100;
 
 export const IssuesPage: React.FC = () => {
