@@ -77,10 +77,10 @@ def test_checks_offline_fault_and_open_alarms(db):
     c = build_checks(db, PLANT, DAY)
     assert set(c) == {"09", "13", "17"}
     pick = lambda hh: {k: c[hh][k] for k in ("at", "inverters", "offline", "fault", "alarms", "kw")}
-    assert pick("09") == {"at": "08:50", "inverters": 3, "offline": ["INV3"], "fault": [], "alarms": ["INV2 Relay fault"], "kw": 2.0}
-    assert pick("13") == {"at": "12:50", "inverters": 3, "offline": [], "fault": ["INV3"], "alarms": ["INV3 PV Isolation Low"], "kw": 3.0}
+    assert pick("09") == {"at": "08:50", "inverters": 3, "offline": ["INV3"], "fault": [], "alarms": ["INV1 undown error", "INV2 Relay fault"], "kw": 2.0}
+    assert pick("13") == {"at": "12:50", "inverters": 3, "offline": [], "fault": ["INV3"], "alarms": ["INV1 undown error", "INV3 PV Isolation Low"], "kw": 3.0}
     assert c["17"]["offline"] == ["INV1", "INV2", "INV3"] and c["17"]["kw"] is None
-    assert c["17"]["alarms"] == ["INV3 PV Isolation Low"]
+    assert c["17"]["alarms"] == ["INV1 undown error", "INV3 PV Isolation Low"]
     assert build_checks(db, 8, DAY) is None
 
 

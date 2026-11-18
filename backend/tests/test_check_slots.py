@@ -21,6 +21,8 @@ from app.db.models import (
 )
 from app.db.session import Base, build_engine
 from app.services import check_slots as cs
+from sqlalchemy import select
+
 from app.services import daily_summary, google_weather
 
 DAY = date(2026, 11, 12)
@@ -109,8 +111,9 @@ def test_slot_is_the_latest_reading_before_hh_minus_10(db):
     assert slot["reading_at"] == "08:45"
     assert slot["kw"] == 36.0  # A 21 kW (08:45) + B 15 kW (08:35); not 09:00's 120 kW
     assert slot["offline"] == [] and slot["fault"] == ["INV2"]
-    assert slot["alarms"] == ["INV2 PV Isolation Low"]  # the alarm closed at 08:49 is not open at 08:50
-    # the day's Fault Error log up to 08:50: closed ones too, Warnings and later ones left out
+    # only the alarm log of 08:30–08:50: the alarm that closed at 08:49 is in, the warning that ended 08:12 is not
+    assert slot["alarms"] == ["INV1 Closed before the snapshot", "INV2 PV Isolation Low", "INV2 25 undown error"]
+    # the Fault Error log of the same 30 min: closed ones too, Warnings and later ones left out
     assert slot["errors"] == ["INV1 Closed before the snapshot", "INV2 PV Isolation Low", "INV2 Error 25 (×2)"]
     assert slot["irradiance_wm2"] == 512.0 and slot["sensor_at"] == "08:45" and slot["module_temp_c"] == 35.0
     # Google: the hour that contains 08:50 (08:00), modelled
@@ -216,10 +219,20 @@ def test_frozen_slot_takes_google_current_at_the_slot_time(db, monkeypatch):
 def test_issues_carry_the_fault_code_and_text_at_the_check(db):
     plant = db.get(GrowattPlant, PLANT)
     issues = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"]
-    # B is in fault at 08:35 with an alarm still open; the placeholder text is dropped, closed alarms are not listed
-    assert issues == [{"inv": "INV2", "state": "Fault", "items": [{"code": None, "message": "PV Isolation Low", "since": "08:20", "count": 1}]}]
+    # the DATA LOG takes the fault messages present from 08:30 (30 min before 09:00) to the 08:50 snapshot:
+    # A's error that cleared at 08:49 is still reported, its warning that ended at 08:12 is not.
+    # B is in fault at 08:35 with an alarm still open; an alarm Growatt has no text for keeps Growatt's own name
+    assert issues == [
+        {"inv": "INV1", "state": "Alarm", "items": [
+            {"code": None, "message": "Closed before the snapshot", "since": "08:00", "count": 1},
+        ]},
+        {"inv": "INV2", "state": "Fault", "items": [
+            {"code": None, "message": "PV Isolation Low", "since": "08:20", "count": 1},
+            {"code": "25", "message": "undown error", "since": "08:30", "count": 2},
+        ]},
+    ]
 
-    # Growatt re-reports a present alarm every ~5 min with end = start: active when last reported within 10 min
+    # Growatt re-reports a present alarm every ~5 min with end = start: listed when reported from 08:30 on
     db.add_all([
         GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(8, 44), end_time=at(8, 44),
                      alarm_code="117", alarm_message="Relay check fail", fault_type="Error"),
@@ -232,11 +245,13 @@ def test_issues_carry_the_fault_code_and_text_at_the_check(db):
     issues = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"]
     assert issues == [
         {"inv": "INV1", "state": "Alarm", "items": [
+            {"code": None, "message": "Closed before the snapshot", "since": "08:00", "count": 1},
             {"code": "400", "message": "Fan function abnormal", "since": "08:46", "count": 1},
-            {"code": "912", "message": None, "since": "08:47", "count": 1},
+            {"code": "912", "message": "undown error", "since": "08:47", "count": 1},
         ]},
         {"inv": "INV2", "state": "Fault", "items": [
             {"code": None, "message": "PV Isolation Low", "since": "08:20", "count": 1},
+            {"code": "25", "message": "undown error", "since": "08:30", "count": 2},
             {"code": "117", "message": "Relay check fail", "since": "08:44", "count": 1},
         ]},
     ]
@@ -246,17 +261,19 @@ def test_issues_carry_the_fault_code_and_text_at_the_check(db):
 
 def test_issue_items_say_since_when_and_how_many_times(db):
     plant = db.get(GrowattPlant, PLANT)
-    # Growatt repeats a present alarm: reported at 06:19, 08:39 and 08:44; 08:51 is after the check
+    # Growatt repeats a present alarm: only the reports of 08:30–08:50 count (06:19 and 08:25 are
+    # before the look-back, 08:51 is after the check)
     db.add_all([
         GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(h, m), end_time=at(h, m),
                      alarm_code="409", alarm_message="Bus voltage abnormal", fault_type="Error")
-        for h, m in ((6, 19), (8, 39), (8, 44), (8, 51))
+        for h, m in ((6, 19), (8, 25), (8, 39), (8, 44), (8, 51))
     ])
     db.commit()
-    items = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"][0]["items"]
+    items = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"][1]["items"]
     assert items == [
         {"code": None, "message": "PV Isolation Low", "since": "08:20", "count": 1},
-        {"code": "409", "message": "Bus voltage abnormal", "since": "06:19", "count": 3},  # listed once
+        {"code": "25", "message": "undown error", "since": "08:30", "count": 2},
+        {"code": "409", "message": "Bus voltage abnormal", "since": "08:39", "count": 2},  # listed once
     ]
 
 
@@ -298,13 +315,23 @@ def test_issues_fall_back_to_the_readings_own_codes(db):
         {"inv": "INV2", "state": "Alarm", "items": [{"code": "77", "message": None}]},
     ]
 
-    # the alarm log was last read at 12:32: an alarm reported until then is still active at 12:50
+    # warning code 1 on a reading is not reported (PWA_IGNORE_WARN_CODES): no "Alarm: 1"
+    b = db.query(GrowattInverterReading).filter_by(device_sn="B", timestamp=at(12, 45)).one()
+    b.warn_code = 1
+    db.commit()
+    assert [i["inv"] for i in cs.compute_slots(db, plant, DAY, [13])["13"]["issues"]] == ["INV1"]
+    b.warn_code = 77
+    db.commit()
+
+    # only the alarm log of 12:30–12:50 counts: a report at 12:29 is not listed, whenever the log was read
+    db.add(GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(12, 29), end_time=at(12, 29),
+                        alarm_code="302", alarm_message="No AC Connection", fault_type="Error"))
+    db.add(GrowattAlarmSync(device_sn="B", day=DAY, plant_id=PLANT, alarm_count=1,
+                            synced_at=at(12, 30).replace(tzinfo=BKK).astimezone(timezone.utc)))
+    db.commit()
+    assert cs.compute_slots(db, plant, DAY, [13])["13"]["issues"][1]["items"] == [{"code": "77", "message": None}]
     db.add(GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(12, 30), end_time=at(12, 30),
                         alarm_code="302", alarm_message="No AC Connection", fault_type="Error"))
-    db.commit()
-    assert cs.compute_slots(db, plant, DAY, [13])["13"]["issues"][1]["items"] == [{"code": "77", "message": None}]  # 20 min old
-    db.add(GrowattAlarmSync(device_sn="B", day=DAY, plant_id=PLANT, alarm_count=1,
-                            synced_at=at(12, 32).replace(tzinfo=BKK).astimezone(timezone.utc)))
     db.commit()
     assert cs.compute_slots(db, plant, DAY, [13])["13"]["issues"][1]["items"] == [
         {"code": "302", "message": "No AC Connection", "since": "12:30", "count": 1}]
@@ -327,3 +354,46 @@ def test_a_plants_only_unnamed_inverter_is_inv1_and_others_keep_the_serial(db):
     db.commit()
     assert cs.compute_slots(db, db.get(GrowattPlant, 20), DAY, [9])["09"]["issues"] == [{"inv": "INV1", "state": "Fault", "items": []}]
     assert cs.compute_slots(db, db.get(GrowattPlant, 21), DAY, [9])["09"]["issues"] == [{"inv": "GKLLEXC031", "state": "Fault", "items": []}]
+
+
+def test_frozen_slot_without_google_takes_the_stored_hour_later(db):
+    """Google failed at the publish (quota): the slot is frozen with no weather, and filled from
+    the stored hour at a later publish. Nothing else of the frozen slot changes."""
+    plant = db.get(GrowattPlant, PLANT)
+    cell = google_weather.cell_of(13.7, 100.5)[0]
+    hour = db.scalars(select(GoogleWeatherHourly).where(GoogleWeatherHourly.cell_key == cell, GoogleWeatherHourly.hour == at(8, 0))).one()
+    db.delete(hour)
+    db.commit()
+    first = cs.day_slots(db, plant, DAY, [9])["09"]
+    assert first["google"] is None
+    assert cs.day_slots(db, plant, DAY, [9])["09"]["google"] is None  # still not stored
+    db.add(GoogleWeatherHourly(cell_key=cell, hour=at(8, 0), condition="MOSTLY_CLOUDY", precip_mm=0.0, cloud_cover_pct=80.0))
+    db.commit()
+    assert cs.day_slots(db, plant, DAY, [9], freeze=False)["09"]["google"] is None  # a dry run writes nothing
+    later = cs.day_slots(db, plant, DAY, [9])["09"]
+    assert later["google"] == {"source": "hourly", "hour": "08:00", "modelled": True, "condition": "MOSTLY_CLOUDY",
+                               "raining": False, "precip_mm": 0.0, "cloud_cover_pct": 80.0}
+    assert {k: v for k, v in later.items() if k != "google"} == {k: v for k, v in first.items() if k != "google"}
+    # a slot that has Google weather keeps it
+    hour = db.scalars(select(GoogleWeatherHourly).where(GoogleWeatherHourly.cell_key == cell, GoogleWeatherHourly.hour == at(8, 0))).one()
+    hour.condition = "CLEAR"
+    db.commit()
+    assert cs.day_slots(db, plant, DAY, [9])["09"]["google"]["condition"] == "MOSTLY_CLOUDY"
+
+
+def test_slot_current_stops_at_the_daily_quota(db, monkeypatch):
+    class Quota:
+        calls = 0
+
+        def current(self, lat, lon):
+            self.calls += 1
+            raise google_weather.GoogleWeatherError("currentConditions:lookup: HTTP 429 Quota exceeded")
+
+    fake = Quota()
+    monkeypatch.setattr(settings, "google_weather_api_key", "k")
+    monkeypatch.setattr(google_weather, "_slot_current", {})
+    cells = {f"c{i}": (13.0 + i, 100.0) for i in range(20)}
+    monkeypatch.setattr(google_weather, "fleet_cells", lambda db: cells)
+    monkeypatch.setattr(google_weather, "remaining", lambda *a, **k: 1000)
+    out = google_weather.slot_current(db, DAY, 9, at(8, 50), now_local=at(8, 52), client=fake, workers=1)
+    assert out == {} and fake.calls == 1  # the other 19 cells are not called

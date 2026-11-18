@@ -7,19 +7,25 @@ plant at 08:50, so it can be published at 08:50 and be in the Monitoring PWA Rep
 - inverters: each inverter's latest reading in [slot − 15 min, slot] (08:35–08:50). None there
   = `offline`; Growatt status 3 = `fault`. `kw` = the sum of those readings' `pac_w`
   (instantaneous AC power), null when no inverter reported.
-- `alarms`: "<INV> <message>" for alarm-log entries open at the slot time.
-- `errors`: the plant's Fault Error log of the day up to the slot time (the sheet's DATA LOG):
-  every alarm-log entry with Growatt `fault_type` "Error" (not "Warning") that started by the
-  slot time, open or already closed, once per inverter + message ("(×3)" when it recurred).
+- Every alarm field takes only the alarm-log records of the check's look-back: hh:00 −
+  PWA_FAULT_LOOKBACK_MIN (30) to the slot time, 08:30–08:50 (`_active` with `since`). A record
+  last reported before 08:30 is in none of them.
+- `alarms`: "<INV> <message>" for the alarm-log entries of the look-back.
+- `errors`: the plant's Fault Error log of the look-back: every such entry with Growatt
+  `fault_type` "Error" (not "Warning"), once per inverter + message ("(×3)" when it recurred).
   Growatt's placeholder "undown error" is shown as "Error <code>", the code as reported.
 - `issues`: the sheet's DATA LOG, one entry per inverter with something wrong at the check, in
   INV order: {"inv": "INV3", "state": "Offline" | "Fault" | "Alarm", "items": [{"code",
   "message", "since", "count"}]}. Fault = status 3 at its reading; Alarm = not in fault, but an
-  alarm active at the check. `items` are the inverter's alarm-log entries active at the check
-  (`_active`), in Growatt's own wording; Growatt's placeholder "undown error" is no message
-  (code only). `since` ("06:19") = the first time that day the log reported the same alarm
-  (same kind, code and text) and `count` = how many times it reported it, both up to the check.
+  alarm in the check's fault look-back. `items` are the inverter's alarm-log entries of the
+  look-back only: hh:00 − PWA_FAULT_LOOKBACK_MIN (30: 08:30) to the slot time (`_active`). A
+  fault that cleared a few minutes before the snapshot is reported, one last reported before
+  08:30 is not, each with its code and its name in Growatt's own wording ("undown error" is
+  the name Growatt gives a code it has no text for; it is shown as reported, never replaced). `since` ("08:39") = the first time in the look-back the log reported the same
+  alarm (same kind, code and text; an alarm still open from earlier keeps its start time) and
+  `count` = how many times it reported it in the look-back.
   When the log has none, the reading's own `fault_code` / `warn_code` (max_data `faultType` /
+  `warnCode`; a `warn_code` in PWA_IGNORE_WARN_CODES (1) is not reported),
   `warnCode`), with the log's text for that code when it has one that day (no `since` /
   `count`). No source = no items ("INV3 Fault"); nothing is made up. An Offline entry has
   `last`: the time ("07:40") of the inverter's latest stored reading that day before the
@@ -30,6 +36,8 @@ plant at 08:50, so it can be published at 08:50 and be in the Monitoring PWA Rep
   publish takes Google's current conditions at the slot time (`google_weather.slot_current`,
   `source: "current"`); otherwise the stored hour that contains the slot time (08:00 for 08:50,
   `source: "hourly"`), when stored (Google's hours are fetched at 18:15).
+  A slot frozen with no Google weather (the call failed, quota, call budget) takes the stored
+  hour at a later publish, once it is stored: the only field of a frozen slot filled afterwards.
 
 Ready and frozen: a slot of today is built only once its time has passed and a `history` run
 that started at or after the pre-check pull (slot − PWA_HISTORY_LEAD_MIN) has finished; a past
@@ -67,7 +75,7 @@ PLANT_TZ = ZoneInfo("Asia/Bangkok")
 CHECK_HOURS = (9, 13, 17)
 WINDOW = timedelta(minutes=15)  # a slot takes the latest reading in [slot − WINDOW, slot]
 FAULT_STATUS = 3  # Growatt MAX inverter status: 0 waiting, 1 normal, 3 fault
-# Growatt's placeholder text for an unmapped code; it says nothing an engineer can act on
+# Growatt's name for a code it has no text for (one name, many codes)
 SKIP_ALARMS = {"undown error"}
 READY_HISTORY = ("ok", "partial")  # a `history` run in these states counts for readiness
 PULL_SLACK = timedelta(minutes=1)  # the worker starts a scheduled job within its 60 s tick
@@ -186,15 +194,27 @@ def _windows(col: Any, times: Dict[int, datetime]) -> Any:
     return or_(*[and_(col >= t - WINDOW, col <= t) for t in times.values()])
 
 
-def _active(a: GrowattAlarm, t: datetime, read_at: Optional[datetime]) -> bool:
-    """The alarm is active at slot time `t`: it started by `t` and has no end or ends after
-    `t`. A record with end = start is one report of an alarm Growatt repeats while it lasts:
-    active when reported within ONGOING_GAP of `t` (of the inverter's last alarm-log read
-    `read_at`, when that was before `t`: the log cannot show a later report)."""
+def fault_since(day: date, hour: int) -> datetime:
+    """Start of check `hour`'s fault look-back: hh:00 − PWA_FAULT_LOOKBACK_MIN (08:30 for 9),
+    never after the slot time."""
+    since = datetime.combine(day, time(hour)) - timedelta(minutes=settings.pwa_fault_lookback_min)
+    return min(since, slot_time(day, hour))
+
+
+def _active(a: GrowattAlarm, t: datetime, read_at: Optional[datetime], since: Optional[datetime] = None) -> bool:
+    """With `since`: the alarm-log record falls in [`since`, `t`], and only there. It started by
+    `t` and has no end or ends at `since` or later; a record with end = start (one report of an
+    alarm Growatt repeats while it lasts) counts only when reported at `since` or later.
+
+    Without `since`: the alarm is active at `t`. It has no end or ends after `t`; a report with
+    end = start is active when made within ONGOING_GAP of `t` (of the inverter's last alarm-log
+    read `read_at`, when that was before `t`: the log cannot show a later report)."""
     if a.start_time is None or a.start_time > t:
         return False
     if a.end_time is None:
         return True
+    if since is not None:
+        return (a.end_time if a.end_time > a.start_time else a.start_time) >= min(since, t)
     if a.end_time > a.start_time:
         return a.end_time >= t
     ref = min(t, read_at) if read_at is not None else t
@@ -202,11 +222,10 @@ def _active(a: GrowattAlarm, t: datetime, read_at: Optional[datetime]) -> bool:
 
 
 def _item(a: GrowattAlarm) -> Optional[Dict[str, Optional[str]]]:
-    """{code, message} of an alarm-log entry, as Growatt words it; None when it has neither."""
+    """{code, message} of an alarm-log entry: its code and its name exactly as Growatt words it
+    ("undown error" is Growatt's own name for a code it has no text for); None when it has neither."""
     code = (a.alarm_code or "").strip() or None
-    msg = (a.alarm_message or "").strip() or None
-    if msg and msg.lower() in SKIP_ALARMS:
-        msg = None
+    msg = (a.alarm_message or "").strip() or None  # the alarm's name, the placeholder included
     return {"code": code, "message": msg} if code or msg else None
 
 
@@ -229,6 +248,48 @@ def _last_seen(db: Session, sns: Sequence[str], day: date, before: datetime) -> 
             .group_by(GrowattInverterReading.device_sn)
         ).all()
     )
+
+
+def _hourly_google(g: GoogleWeatherHourly) -> Dict[str, Any]:
+    """A slot's `google` from the stored hour that contains the slot time."""
+    from app.services import google_weather
+
+    return {
+        "source": "hourly",
+        "hour": g.hour.strftime("%H:%M"),
+        "modelled": True,
+        "condition": g.condition,
+        "raining": google_weather.is_raining(g.precip_mm, g.condition),
+        "precip_mm": g.precip_mm,
+        "cloud_cover_pct": g.cloud_cover_pct,
+    }
+
+
+def _fill_google(db: Session, plant: GrowattPlant, day: date, rows: Sequence[PwaCheckSlot]) -> None:
+    """Frozen slots that got no Google weather at their publish (call failed, quota, budget) take
+    the stored hour once Google's hours are in (18:15). Only the missing `google` is filled; every
+    other value of the slot stays as frozen."""
+    from app.services import google_weather
+
+    missing = [r for r in rows if not (r.slot_json or {}).get("google")]
+    cell = google_weather.plant_cell(plant)
+    if not missing or cell is None:
+        return
+    at = {r.hour: slot_time(day, r.hour).replace(minute=0, second=0, microsecond=0) for r in missing}
+    stored = {
+        g.hour: g
+        for g in db.scalars(
+            select(GoogleWeatherHourly).where(GoogleWeatherHourly.cell_key == cell[0], GoogleWeatherHourly.hour.in_(set(at.values())))
+        )
+    }
+    changed = False
+    for r in missing:
+        g = stored.get(at[r.hour])
+        if g is not None:
+            r.slot_json = {**r.slot_json, "google": _hourly_google(g)}
+            changed = True
+    if changed:
+        db.commit()
 
 
 def compute_slots(
@@ -307,8 +368,11 @@ def compute_slots(
         pac = [r[3] for r in hits.values() if r[3] is not None]
         open_now: List[str] = []
         errors: Dict[str, int] = {}
-        for a in sorted(alarms, key=lambda a: (_sort_key(label.get(a.device_sn) or a.device_sn), a.start_time or t)):
-            if a.start_time is not None and a.start_time <= t and (a.fault_type or "").strip().lower() == "error":
+        since = fault_since(day, h)
+        # every alarm field of the slot takes only the alarm-log records of the look-back (since … t)
+        in_window = [a for a in alarms if _active(a, t, alarm_read.get(a.device_sn), since)]
+        for a in sorted(in_window, key=lambda a: (_sort_key(label.get(a.device_sn) or a.device_sn), a.start_time or t)):
+            if _is_error(a):
                 err = (a.alarm_message or "").strip()
                 if not err or err.lower() in SKIP_ALARMS:
                     err = f"Error {a.alarm_code}" if a.alarm_code else ""
@@ -316,12 +380,13 @@ def compute_slots(
                     key = f"{label.get(a.device_sn) or a.device_sn} {err}"
                     errors[key] = errors.get(key, 0) + 1
             msg = (a.alarm_message or a.alarm_code or "").strip()
-            if not msg or msg.lower() in SKIP_ALARMS:
+            if not msg:
                 continue
-            if a.start_time is not None and a.start_time <= t and (a.end_time is None or a.end_time >= t):
-                text = f"{label.get(a.device_sn) or a.device_sn} {msg}"
-                if text not in open_now:
-                    open_now.append(text)
+            if msg.lower() in SKIP_ALARMS and a.alarm_code:  # a name shared by many codes: say which
+                msg = f"{a.alarm_code} {msg}"
+            text = f"{label.get(a.device_sn) or a.device_sn} {msg}"
+            if text not in open_now:
+                open_now.append(text)
 
         # DATA LOG: what is wrong with each inverter at the check
         issues: List[Dict[str, Any]] = []
@@ -333,19 +398,23 @@ def compute_slots(
                 issues.append({"inv": label[sn], "state": "Offline", "items": [], "last": seen.strftime("%H:%M") if seen else None})
                 continue
             mine = sorted((a for a in alarms if a.device_sn == sn), key=lambda a: a.start_time or t)
-            # every report of the same alarm (kind, code, text) that day up to the check
+            # the alarm-log records of the check's look-back only (hh:00 − 30 min … slot time)
+            present = [a for a in mine if a in in_window]
+            # every report of the same alarm (kind, code, text) in that look-back
             reports: Dict[Tuple[bool, Optional[str], Optional[str]], List[datetime]] = {}
-            for a in mine:
+            for a in present:
                 it = _item(a)
-                if it and a.start_time is not None and a.start_time <= t:
+                if it and a.start_time is not None:
                     reports.setdefault((_is_error(a), it["code"], it["message"]), []).append(a.start_time)
             items: List[Dict[str, Any]] = []
             seen_keys = set()
             # errors before warnings, each in start order
-            for a in sorted((a for a in mine if _active(a, t, alarm_read.get(sn))), key=lambda a: not _is_error(a)):
+            for a in sorted(present, key=lambda a: not _is_error(a)):
                 it = _item(a)
-                key = (_is_error(a), it["code"], it["message"]) if it else None
-                if it and key not in seen_keys:
+                if not it:
+                    continue
+                key = (_is_error(a), it["code"], it["message"])
+                if key not in seen_keys:
                     seen_keys.add(key)
                     times_ = reports[key]
                     items.append({**it, "since": min(times_).strftime("%H:%M"), "count": len(times_)})
@@ -353,7 +422,7 @@ def compute_slots(
                 # Growatt numbers faults and warnings separately (203 = "PV Isolation Low" as an
                 # Error, "PV Circuit short" as a Warning): the log's text only for the same kind
                 for code, is_error in ((r[4], True), (r[5], False)):
-                    if code:
+                    if code and not (not is_error and int(code) in settings.pwa_ignored_warn_codes()):
                         text = next(
                             (
                                 i["message"]
@@ -389,15 +458,7 @@ def compute_slots(
                 "cloud_cover_pct": cur.get("cloud_cover_pct"),
             }
         elif g is not None:
-            google = {
-                "source": "hourly",
-                "hour": g.hour.strftime("%H:%M"),
-                "modelled": True,
-                "condition": g.condition,
-                "raining": google_weather.is_raining(g.precip_mm, g.condition),
-                "precip_mm": g.precip_mm,
-                "cloud_cover_pct": g.cloud_cover_pct,
-            }
+            google = _hourly_google(g)
 
         out[hh(h)] = {
             "at": t.strftime("%H:%M"),
@@ -429,10 +490,10 @@ def day_slots(
 ) -> Dict[str, Dict[str, Any]]:
     """The plant's check slots of `day`: every frozen slot, plus the `ready` hours not frozen
     yet, built now (and frozen when `freeze`). Hours neither frozen nor ready are absent."""
-    frozen = {
-        r.hour: r.slot_json
-        for r in db.scalars(select(PwaCheckSlot).where(PwaCheckSlot.day == day, PwaCheckSlot.plant_id == plant.plant_id))
-    }
+    rows = list(db.scalars(select(PwaCheckSlot).where(PwaCheckSlot.day == day, PwaCheckSlot.plant_id == plant.plant_id)))
+    if freeze:
+        _fill_google(db, plant, day, rows)
+    frozen = {r.hour: r.slot_json for r in rows}
     todo = [h for h in ready if h not in frozen]
     built = compute_slots(db, plant, day, todo, live_google=freeze)
     if freeze and built:

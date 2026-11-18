@@ -19,15 +19,15 @@ Nothing is made up; no source = "—":
     Status      checks.{hh}.kw + offline / fault           real Growatt power at the slot time
     DATA LOG    checks.{hh}.issues: "INV1 Offline (last data 07:40), INV3 Fault: 117 Relay check
                 fail (06:19, ×5)" (every inverter offline / in fault status / with an alarm
-                active at the check, with Growatt's code and text, when the log first reported
+                in the 30 min before hh:00 up to the check, with Growatt's code and text, when the log first reported
                 it that day and how many times); inverters reporting but 0 kW = "INV ไม่ผลิตไฟ"
                 first; nothing wrong = "—", no data at all = "offline";
                 under LOG_MAX (300) characters, cut at a whole entry with "…(+N)"
     Note        "INV ทำงานปกติ ค่าแสง 584 (ฝนตก)" …          (old layout)
     ค่าแสง       checks.{hh}.irradiance_wm2                  Growatt weather sensor
-    สภาพอากาศ    one of ท้องฟ้าปลอดโปร่ง / มีเมฆบางส่วน / ฝนตก: checks.{hh}.google (`google_sky`,
+    สภาพอากาศ    one of ท้องฟ้าปลอดโปร่ง / มีเมฆมาก / ฝนตก: checks.{hh}.google (`google_sky`,
                 modelled, at the slot time; the cell carries no "(Google)" mark, `sources` in the API does); no Google value -> ท้องฟ้าปลอดโปร่ง /
-                มีเมฆบางส่วน from that irradiance vs clear-sky (`sky_th`)
+                มีเมฆมาก from that irradiance vs clear-sky (`sky_th`)
     weather Status  "Normal" (sensor reported at every check so far) / "Abnormal"
     Firmware    the datalogger's own firmware: Growatt's API gives none, so the cell is left blank;
                 a "—" or an inverter version an older report wrote there is blanked, a version
@@ -62,15 +62,16 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 API = "https://sheets.googleapis.com/v4/spreadsheets"
 
 # สภาพอากาศ has only these three values
-SKY_CLEAR, SKY_CLOUD, SKY_RAIN = "ท้องฟ้าปลอดโปร่ง", "มีเมฆบางส่วน", "ฝนตก"
+SKY_CLEAR, SKY_CLOUD, SKY_RAIN = "ท้องฟ้าปลอดโปร่ง", "มีเมฆมาก", "ฝนตก"
 GOOGLE_CLEAR = {"CLEAR", "MOSTLY_CLEAR"}
+GOOGLE_CLEAR_COVER_PCT = 30  # cloud cover up to this = ท้องฟ้าปลอดโปร่ง, when the condition names no sky
 
 
 def google_sky(g: Optional[Dict[str, Any]]) -> Optional[str]:
     """Google's conditions as one of the three sky values: raining (`google_weather.is_raining`)
     = ฝนตก; CLEAR / MOSTLY_CLEAR = ท้องฟ้าปลอดโปร่ง; a cloud condition or a mere chance of rain =
-    มีเมฆบางส่วน. None when Google gave nothing, or a condition that says nothing about the sky
-    (WINDY)."""
+    มีเมฆมาก; a condition that names no sky (WINDY) = by Google's cloud cover. None when Google
+    gave nothing."""
     if not g:
         return None
     if g.get("raining"):
@@ -80,6 +81,9 @@ def google_sky(g: Optional[Dict[str, Any]]) -> Optional[str]:
         return SKY_CLEAR
     if "CLOUD" in cond or cond.startswith("CHANCE_OF"):
         return SKY_CLOUD
+    cover = g.get("cloud_cover_pct")  # a condition that names no sky (WINDY): Google's cloud cover
+    if cover is not None:
+        return SKY_CLEAR if cover <= GOOGLE_CLEAR_COVER_PCT else SKY_CLOUD
     return None
 
 
@@ -187,7 +191,7 @@ def clear_sky(lat: float, lon: float, day: date, hour: int, minute: int = 0) -> 
 
 
 def sky_th(irr: float, cs: float) -> Optional[str]:
-    """Measured ÷ clear-sky → ท้องฟ้าปลอดโปร่ง (≥ 0.75) or มีเมฆบางส่วน; None when the sun is too
+    """Measured ÷ clear-sky → ท้องฟ้าปลอดโปร่ง (≥ 0.75) or มีเมฆมาก; None when the sun is too
     low to judge. Irradiance alone never says ฝนตก: rain comes from Google only."""
     if cs < 80:
         return None

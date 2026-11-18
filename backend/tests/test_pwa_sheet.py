@@ -230,7 +230,7 @@ def test_weather_is_google_first_then_the_sensor():
     slot = {"at": "08:50", "inverters": 1, "offline": [], "fault": [], "alarms": [], "kw": 10.0, "irradiance_wm2": 600.0}
     g = {"source": "current", "modelled": True, "condition": "MOSTLY_CLOUDY", "raining": False}
     cells = ps.plant_cells(DAY, {"checks": {"09": {**slot, "google": g}}}, info, [9])
-    assert cells["checks"]["09"][3] == "มีเมฆบางส่วน" and cells["sources"]["09"] == "google"
+    assert cells["checks"]["09"][3] == "มีเมฆมาก" and cells["sources"]["09"] == "google"
     rain = {**g, "condition": "CLOUDY", "raining": True}
     assert ps.plant_cells(DAY, {"checks": {"09": {**slot, "google": rain}}}, info, [9])["checks"]["09"][3] == "ฝนตก"
     no_google = ps.plant_cells(DAY, {"checks": {"09": {**slot, "google": None}}}, info, [9])
@@ -337,11 +337,14 @@ def test_data_log_is_cut_at_a_whole_entry_under_300_characters():
 def test_weather_has_only_three_values():
     sky = lambda cond, raining=False: ps.google_sky({"condition": cond, "raining": raining})
     assert [sky(c) for c in ("CLEAR", "MOSTLY_CLEAR")] == ["ท้องฟ้าปลอดโปร่ง"] * 2
-    assert [sky(c) for c in ("PARTLY_CLOUDY", "MOSTLY_CLOUDY", "CLOUDY", "CHANCE_OF_SHOWERS")] == ["มีเมฆบางส่วน"] * 4
+    assert [sky(c) for c in ("PARTLY_CLOUDY", "MOSTLY_CLOUDY", "CLOUDY", "CHANCE_OF_SHOWERS")] == ["มีเมฆมาก"] * 4
     assert [sky(c, True) for c in ("LIGHT_RAIN", "THUNDERSTORM", "CLOUDY")] == ["ฝนตก"] * 3
     assert sky("WINDY") is None and ps.google_sky(None) is None  # says nothing about the sky
+    # a condition that names no sky: Google's cloud cover decides
+    windy = lambda cover: ps.google_sky({"condition": "WINDY", "raining": False, "cloud_cover_pct": cover})
+    assert [windy(c) for c in (10, 30, 31, 90)] == ["ท้องฟ้าปลอดโปร่ง", "ท้องฟ้าปลอดโปร่ง", "มีเมฆมาก", "มีเมฆมาก"]
     # the sensor: clear or cloudy only, never rain
-    assert [ps.sky_th(i, 800.0) for i in (700.0, 400.0, 50.0)] == ["ท้องฟ้าปลอดโปร่ง", "มีเมฆบางส่วน", "มีเมฆบางส่วน"]
+    assert [ps.sky_th(i, 800.0) for i in (700.0, 400.0, 50.0)] == ["ท้องฟ้าปลอดโปร่ง", "มีเมฆมาก", "มีเมฆมาก"]
     assert ps.sky_th(50.0, 60.0) is None  # sun too low
     # WINDY with a sensor: the sensor's class, unlabelled
     info = {"latitude": 13.7, "longitude": 100.5}
