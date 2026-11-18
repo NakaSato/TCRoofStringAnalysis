@@ -78,18 +78,26 @@ def attach_grid(timeseries: List[Dict[str, Any]], slots: Dict[str, float]) -> No
 
 def day_energy(db: Session, plant_id: int, start: datetime, end: datetime, timeseries: List[Dict[str, Any]]) -> Dict[str, Optional[float]]:
     """The period's grid import (from the meters' import counters where they span it, else
-    integrated), export and load (integrated from the 5-minute series). Null without readings."""
+    integrated), export and load (integrated from the 5-minute series). Each figure is integrated
+    over the slots that have it only (a slot with a null load is left out, never counted as 0 W)
+    and is null without any. A meter's counter is used only with at least two records in the
+    period: one record spans nothing."""
     pts = [(datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S"), r) for r in timeseries if r.get("load_kw") is not None or r.get("grid_import_kw") is not None]
     if not pts:
         return {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}
-    integ = lambda key: round(_integrate_kwh((t, (r.get(key) or 0.0) * 1000.0) for t, r in pts), 1)
+
+    def integ(key: str) -> Optional[float]:
+        vals = [(t, float(r[key]) * 1000.0) for t, r in pts if r.get(key) is not None]
+        return round(_integrate_kwh(vals), 1) if vals else None
+
     counter = db.execute(
-        select(func.max(M.import_counter_kwh) - func.min(M.import_counter_kwh))
+        select(func.max(M.import_counter_kwh) - func.min(M.import_counter_kwh), func.count())
         .join(GrowattMeter, (GrowattMeter.datalogger_sn == M.datalogger_sn) & (GrowattMeter.address == M.address))
         .where(GrowattMeter.plant_id == plant_id, M.timestamp >= start, M.timestamp < end, M.import_counter_kwh > 0)
         .group_by(M.datalogger_sn, M.address)
-    ).scalars().all()
-    imp = sum(float(c) for c in counter if c is not None) if counter else None
+    ).all()
+    spanned = bool(counter) and all(span is not None and n >= 2 for span, n in counter)
+    imp = sum(float(span) for span, _n in counter) if spanned else None
     return {
         "grid_import_kwh": _round(imp, 1) if imp is not None else integ("grid_import_kw"),
         "grid_export_kwh": integ("grid_export_kw"),

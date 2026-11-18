@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.db.models import GrowattMeter, GrowattMeterReading
 from app.db.session import get_db
 from app.services import growatt_sync
-from app.services.growatt_meter import attach_grid
+from app.services.growatt_meter import attach_grid, day_energy
 from solar_core.growatt import parse_meter_records
 from tests.test_growatt_routes import PLANT, client  # noqa: F401  (fixture)
 
@@ -59,6 +59,31 @@ def test_attach_grid_signs_and_derived_load():
     assert (ts[1]["grid_import_kw"], ts[1]["grid_export_kw"], ts[1]["load_kw"]) == (0.0, 2.0, 8.0)
     assert ts[2]["load_kw"] is None  # export above PV: inconsistent, never a negative load
     assert ts[3]["grid_import_kw"] is None and ts[3]["load_kw"] is None  # no meter record
+
+
+def test_day_energy_leaves_null_slots_out_and_needs_two_counter_records(client):  # noqa: F811
+    s = _session(client)
+    start, end = DAY, DAY + timedelta(days=1)
+    ts = [
+        {"timestamp": "2026-11-11 10:00:00", "pac_kw": 10.0},
+        {"timestamp": "2026-11-11 10:05:00", "pac_kw": 10.0},
+        {"timestamp": "2026-11-11 10:10:00", "pac_kw": 10.0},
+    ]
+    # export above PV in every slot: load is unknown, never 0 kWh
+    attach_grid(ts, {r["timestamp"]: -20000.0 for r in ts})
+    e = day_energy(s, PLANT, start, end, ts)
+    assert e["load_kwh"] is None
+    assert e["grid_export_kwh"] == 5.0 and e["grid_import_kwh"] == 0.0
+
+    # one counter record spans nothing: import stays the integrated 2 kW x 15 min, not 0
+    attach_grid(ts, {r["timestamp"]: 2000.0 for r in ts})
+    _seed_meter(s, [(DAY + timedelta(hours=10, seconds=3), 2000.0, 1000.0)])
+    e = day_energy(s, PLANT, start, end, ts)
+    assert e["grid_import_kwh"] == 0.5 and e["load_kwh"] == 3.0
+
+    s.add(GrowattMeterReading(datalogger_sn=DL, address=ADDR, timestamp=DAY + timedelta(hours=10, minutes=10), active_power_w=2000.0, import_counter_kwh=1000.7))
+    s.commit()
+    assert day_energy(s, PLANT, start, end, ts)["grid_import_kwh"] == 0.7  # two records: the counter
 
 
 def test_overview_carries_grid_and_load_only_with_a_meter(client):  # noqa: F811

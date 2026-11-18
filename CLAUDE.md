@@ -95,6 +95,7 @@ Rules for every layer:
 - `PUBLISH_SINK` (`json` | `firestore`)
 - `PUBLISH_DAILY_WRITE_BUDGET`
 - `WORKER_HISTORY_INTERVAL_MIN` (10; production: `HISTORY_INTERVAL_MIN` in `deploy/gcp.config`)
+- `METER_HISTORY_ENABLED` (true): `history` / `backfill` also sync each plant's energy-meter records (`meter_data`) into `growatt_meter_readings`; false skips it
 - `WORKER_HISTORY_BATCH_SIZE` (0 = off): `history` reads today's records of this many inverters per call (`queryDevicesHistoricalData`), falling back to `max_data` per inverter; off by default (a call returns each inverter's whole day so far)
 - `HISTORY_RETENTION_DAYS` (90)
 - `HISTORY_STORE_RAW` (true), `HISTORY_RAW_RETENTION_DAYS` (30): `history` also keeps every field of each `max_data` record as Growatt reports it (`growatt_inverter_raw`, about 4 kB a record; `/growatt/plants/{id}/inverters/{sn}/raw`)

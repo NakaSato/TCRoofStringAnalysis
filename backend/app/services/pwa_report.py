@@ -144,8 +144,9 @@ def _registry(
             if sn not in current.setdefault(pid, []):
                 current[pid].append(sn)
             for kind, v in (("inner", inv.inner_version or inv.fw_version), ("fw", inv.fw_version)):
-                if (v or "").strip():
-                    versions.setdefault((sn, kind), set()).add(v.strip())
+                v = (v or "").strip()
+                if v:
+                    versions.setdefault((sn, kind), set()).add(v)
     by_plant = {pid: sorted(current.get(pid) or sns) for pid, sns in every.items()}
     firmware: Dict[str, str] = {}  # datalogger firmware: Growatt's API has none
     stale: Dict[str, List[str]] = {}
