@@ -675,6 +675,7 @@ def build_plant_power(
                 .order_by(R.device_sn, R.timestamp)
             ).all()
         )
+    raw_all = raw  # the whole days: the curve is built and the meter attached on these, then windowed
     if start_time is not None or end_time is not None:
         lo = start_time or time.min
         hi = end_time or time.max
@@ -736,15 +737,18 @@ def build_plant_power(
             }
         )
         d += timedelta(days=1)
-    curve = _plant_curve(raw, cap_kwp)
+    # built on the whole days and windowed after the meter is attached: a meter-only row's load
+    # depends on the day's first / last inverter record, which a window may cut off
+    curve = _plant_curve(raw_all, cap_kwp)
     has_meter, gslots = growatt_meter.meter_slots(db, plant_id, g_start, g_end)
     if not include_records:
         gslots = {}
+    growatt_meter.attach_grid(curve, gslots, cap_kwp)
     windowed = start_time is not None or end_time is not None
     if windowed:
-        lo, hi = (start_time or time.min).strftime("%H:%M:%S"), (end_time or time.max).strftime("%H:%M:%S")
-        gslots = {k: v for k, v in gslots.items() if lo <= k[11:] <= hi}
-    growatt_meter.attach_grid(curve, gslots, cap_kwp)
+        w_lo, w_hi = (start_time or time.min).strftime("%H:%M:%S"), (end_time or time.max).strftime("%H:%M:%S")
+        curve = [r for r in curve if w_lo <= r["timestamp"][11:] <= w_hi]
+        gslots = {k: v for k, v in gslots.items() if w_lo <= k[11:] <= w_hi}
     # the period's grid / load energy, integrated like a whole day's (the import counter only
     # without a time window: its span is the whole days')
     grid_energy: Dict[str, Optional[float]] = {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}

@@ -5,7 +5,8 @@
  * averaged within the slot, then summed across inverters, and an inverter missing from a slot keeps
  * its own value from ≤ 10 min earlier (`held`). Only slots after the newest stored inverter slot
  * are added, flagged `live`, so PV never mixes the two sources in one slot. A stored row of the
- * energy meter only (PV null) in such a slot keeps its grid / load values and gets the live PV.
+ * energy meter only (PV null) in such a slot keeps its grid values and gets the live PV, and its
+ * load is derived again from both (PV + import − export; null where negative).
  */
 import type { LiveInverter } from "../inverters/shared";
 import type { PowerCurve } from "../generation/charts";
@@ -76,8 +77,12 @@ export const withLiveTail = (stored: Row[], recs: LiveInverter[], day: string, c
     const ts = fromMs(slot);
     if (ts <= after) continue;
     const d = new Date(slot);
+    const m = meterOnly.get(ts);
+    const grid = m?.grid_import_kw != null && m.grid_export_kw != null ? m.grid_import_kw - m.grid_export_kw : null;
+    const load = grid == null ? null : pac / 1000 + grid;
     out.push({
-      ...meterOnly.get(ts),
+      ...m,
+      ...(m ? { load_kw: load != null && load >= 0 ? Math.round(load * 100) / 100 : null } : {}),
       timestamp: ts,
       pac_kw: Math.round(pac / 10) / 100,
       ppv_kw: Math.round(ppv / 10) / 100,

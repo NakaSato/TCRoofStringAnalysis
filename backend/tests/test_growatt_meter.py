@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from sqlalchemy import select
 
-from app.db.models import GrowattMeter, GrowattMeterReading, GrowattPlant
+from app.db.models import GrowattInverterReading, GrowattMeter, GrowattMeterReading, GrowattPlant
 from app.db.session import get_db
 from app.services import growatt_sync
 from app.services.growatt_meter import attach_grid, day_energy
@@ -173,6 +173,18 @@ def test_night_meter_slots_and_period_energy_from_the_backend(client):  # noqa: 
     assert all("10:00:00" <= r["timestamp"][11:] <= "10:25:00" for r in win["timeseries"])
     assert win["grid_import_kwh"] == 1.5  # 3 kW x 6 slots of 5 min, integrated: the counter spans the whole day
     assert win["grid_export_kwh"] == 0.0 and win["load_kwh"] is not None
+
+    # the inverters shut down at 17:00 (0 kW): a 17:20-17:40 window without that record still
+    # derives the evening load, as the whole day does
+    s.add(GrowattInverterReading(device_sn="INVA", timestamp=DAY + timedelta(hours=17), pac_w=0, ppv_w=0))
+    for m in (20, 25, 30):
+        s.add(GrowattMeterReading(datalogger_sn=DL, address=ADDR, timestamp=DAY + timedelta(hours=17, minutes=m, seconds=3), active_power_w=4000.0))
+    s.commit()
+    day_rows = {r["timestamp"]: r for r in client.get(f"/api/growatt/plants/{PLANT}/power?day=2026-11-11").json()["timeseries"]}
+    assert day_rows["2026-11-11 17:25:00"]["load_kw"] == 4.0
+    eve = client.get(f"/api/growatt/plants/{PLANT}/power?day=2026-11-11&start=17:20&end=17:40").json()
+    assert [r["load_kw"] for r in eve["timeseries"]] == [4.0, 4.0, 4.0]
+    assert eve["load_kwh"] == 1.0 and eve["grid_import_kwh"] == 1.0
 
     bare = client.get(f"/api/growatt/plants/{PLANT}/power?day=2026-11-11&records=false").json()
     assert bare["has_meter"] is True and bare["timeseries"] == [] and bare["grid_import_kwh"] is None
