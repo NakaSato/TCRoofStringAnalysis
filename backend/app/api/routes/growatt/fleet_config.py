@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from datetime import date
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user, require_admin, require_plant_read, require_plant_write
+from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry, Tariff
 from app.services import fleet_settings
 from app.services import growatt_overview as ov
-from app.api.routes.growatt._common import audit
+from app.api.routes.growatt._common import DAY_QUERY, audit
 
 router = APIRouter()
 
@@ -93,6 +94,19 @@ def get_tariff(db: Session = Depends(get_db), _user: User = Depends(get_current_
     from app.services import tariff
 
     return tariff.get_tariff(db)
+
+
+@router.get("/tariff/rates")
+def get_tariff_rates(
+    day: Optional[date] = DAY_QUERY, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Each visible plant's THB/kWh for `day` (default today): its flat rate, else the TOU rate
+    weighted by the on-peak share of its stored AC power that day. DB only; an estimate."""
+    from app.services import jobs, tariff
+
+    d = day or jobs._today()
+    rates = tariff.day_rates(db, d, allowed_plant_ids(db, user))
+    return {"day": d.isoformat(), "plants": {str(k): v for k, v in rates.items()}, "meta": {"source": "db", "estimated": True}}
 
 
 @router.put("/tariff")

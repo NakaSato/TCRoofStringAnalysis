@@ -143,7 +143,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
                   Revenue today
-                  <span title={`Live yield today × plant tariff (THB/kWh). ${todayHint}`}>
+                  <span title={`Estimated: each plant's live yield today × its own rate (PPA, or TOU weighted by its stored power today). ${todayHint}`}>
                     <Info className="h-3 w-3 text-slate-500" />
                   </span>
                 </div>

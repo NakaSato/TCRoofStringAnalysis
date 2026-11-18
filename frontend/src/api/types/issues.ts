@@ -128,6 +128,14 @@ export interface TariffOut extends Tariff {
   published?: { sink: string | null; written: number; deferred?: boolean; error?: string };
 }
 
+/** Each visible plant's THB/kWh for a day (`/growatt/tariff/rates`): flat plant rate, else TOU
+ * weighted by the on-peak share of its stored power; no power yet = off-peak. An estimate. */
+export interface TariffRates {
+  day: string;
+  plants: Record<string, { thb_per_kwh: number; on_peak_share: number | null; basis: "plant_rate" | "tou" | "off_peak_unknown_split" }>;
+  meta: { source: "db"; estimated: boolean };
+}
+
 export interface StringRuleDay {
   day: string;
   gated_slots: number;
