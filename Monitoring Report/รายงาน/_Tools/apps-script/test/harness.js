@@ -45,11 +45,12 @@ class File { constructor(id, name, mime, parent, ss) { Object.assign(this, { id,
   makeCopy(name, folder) { const id = 'f' + (++seq); const ss = new SS(id, name); ss.sheets = []; this.ss.sheets.forEach(s => { const c = s.copyTo(ss); c.name = s.name; c.id = s.id; c.hidden = s.hidden; }); return new File(id, name, this.mime, folder.id, ss); }
   getFoldersByName(n) { return iter(Object.values(files).filter(f => f.parent === this.id && f.mime === 'folder' && f.name === n)); }
   createFolder(n) { return new File('f' + (++seq), n, 'folder', this.id); }
+  getParents() { return iter(this.parent ? [files[this.parent]] : []); } getFilesByName(n) { return iter(Object.values(files).filter(f => f.parent === this.id && f.mime !== 'folder' && f.name === n)); } getBlob() { return 'PNG'; }
   getFiles() { return iter(Object.values(files).filter(f => f.parent === this.id && f.mime !== 'folder')); }
   searchFiles() { return iter(Object.values(files).filter(f => f.parent === this.id && !f.trashed)); } }
 const iter = a => { let i = 0; return { hasNext: () => i < a.length, next: () => a[i++] }; };
 const GS = 'application/vnd.google-apps.spreadsheet';
-const root = new File('1ReoBcxIHLE_7RAjEjJCGfnNHT7K8iZas', 'root', 'folder', null);
+const root = new File('1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV', 'root', 'folder', null);
 new File('ovx', '00_Overview_รายงานการแก้ไข.xlsx', 'xlsx', root.id);
 const props = {}; const triggers = []; const events = [];
 const chain = () => new Proxy(function () {}, { get: (t, k) => k === 'build' ? () => ({}) : (...a) => chain(), apply: () => chain() });
@@ -62,9 +63,10 @@ function apiValues(ss, a1) { const m = /^'(.+)'!(.+)$/.exec(a1); const sh = ss.g
   while (out.length && !out[out.length - 1].length) out.pop(); return out.length ? out : undefined; }
 const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN, Array,
   MimeType: { GOOGLE_SHEETS: GS },
-  SpreadsheetApp: { create: n => { const id = 'f' + (++seq); const ss = new SS(id, n); new File(id, n, GS, null, ss); return ss; }, openById: id => { if (!files[id] || !files[id].ss) throw new Error('cannot open ' + id); return files[id].ss; }, flush() {}, newDataValidation: () => chain(), newConditionalFormatRule: () => chain(), BorderStyle: { SOLID: 1, SOLID_MEDIUM: 2 } },
-  DriveApp: { getFolderById: id => files[id], getFileById: id => { if (id === '1f02N42E3mQCeWTM_f1OT2Dhl9bgkZ7sg') return { getBlob: () => 'PNG' }; if (!files[id]) throw new Error('no file ' + id); return files[id]; } },
-  Drive: { Files: { copy: (res, id) => { const nid = 'f' + (++seq); const ss = new SS(nid, res.name); ss.sheets = Object.keys(ov).map(n => { const s = new Sheet(ss, n, ++seq); s.rows = ov[n].rows; s.cols = ov[n].cols; for (const k in ov[n].cells) { const v = ov[n].cells[k]; s.cells[k] = v && v.__date ? new Date(v.__date) : v; } return s; }); new File(nid, res.name, GS, res.parents[0], ss); return { id: nid }; } } },
+  SpreadsheetApp: { getActiveSpreadsheet: () => ctx.__bound || null, create: n => { const id = 'f' + (++seq); const ss = new SS(id, n); new File(id, n, GS, null, ss); return ss; }, openById: id => { if (!files[id] || !files[id].ss) throw new Error('cannot open ' + id); return files[id].ss; }, flush() {}, newDataValidation: () => chain(), newConditionalFormatRule: () => chain(), BorderStyle: { SOLID: 1, SOLID_MEDIUM: 2 } },
+  DriveApp: { getFolderById: id => files[id], getFileById: id => { if (id === '1Ic106EgW9ceYs8JOAXSfViAwh1YFqb4T') return { getBlob: () => 'PNG' }; if (!files[id]) throw new Error('no file ' + id); return files[id]; } },
+  Drive: { Files: { list: o => { ctx.__lists = (ctx.__lists || 0) + 1; const all = /^'(.+)' in parents and trashed = false$/.exec(o.q); if (all) { ctx.__lists--; ctx.__folderLists = (ctx.__folderLists || 0) + 1; return { files: Object.values(files).filter(f => f.parent === all[1] && !f.trashed).map(f => ({ id: f.id, name: f.name, modifiedTime: f.getLastUpdated().toISOString() })) }; } const m = /^'(.+)' in parents and trashed = false and modifiedTime > '(.+)'$/.exec(o.q); if (!m) throw new Error('bad q ' + o.q); const t = new Date(m[2]).getTime(); return { files: Object.values(files).filter(f => f.parent === m[1] && !f.trashed && f.getLastUpdated().getTime() > t).slice(0, o.pageSize).map(f => ({ id: f.id })) }; },
+    get: id => ({ modifiedTime: new Date(ctx.__ovEdit || 0).toISOString() }), copy: (res, id) => { const nid = 'f' + (++seq); const ss = new SS(nid, res.name); ss.sheets = Object.keys(ov).map(n => { const s = new Sheet(ss, n, ++seq); s.rows = ov[n].rows; s.cols = ov[n].cols; for (const k in ov[n].cells) { const v = ov[n].cells[k]; s.cells[k] = v && v.__date ? new Date(v.__date) : v; } return s; }); new File(nid, res.name, GS, res.parents[0], ss); return { id: nid }; } } },
   Sheets: { Spreadsheets: { batchUpdate: (req, id) => { if (!req.requests[0].mergeCells) { ctx.__fmt = (ctx.__fmt || 0) + 1; ctx.__reqs = req.requests; req.requests.filter(q => q.updateCells).forEach(q => { const u = q.updateCells; const sh = files[id].ss.sheets.find(x => x.id === u.start.sheetId); sh.cells[`${u.start.rowIndex + 1},${u.start.columnIndex + 1}`] = u.rows[0].values[0].userEnteredValue.stringValue; }); return; } ctx.__today = (ctx.__today || 0) + 1; const sm = files[id].ss.sheets.find(x => x.id === req.requests[0].mergeCells.range.sheetId); sm.cells['4,1'] = req.requests[1].repeatCell.cell.userEnteredValue.formulaValue; }, get: id => ({ sheets: files[id].ss.sheets.map(s => ({ properties: { sheetId: s.id, title: s.name } })) }),
     Values: { batchGet: (id, o) => ({ valueRanges: o.ranges.map(r => ({ values: apiValues(files[id].ss, r) })) }),
       update: (req, id, range) => { ctx.__sub = (ctx.__sub || 0) + 1; const m = /^'(.+)'!(.+)$/.exec(range); files[id].ss.getSheetByName(m[1]).getRange(m[2]).setValue(req.values[0][0]); }, batchUpdate: (req, id) => { ctx.__writes = (ctx.__writes || 0) + 1; req.data.forEach(d => { const m = /^'(.+)'!(.+)$/.exec(d.range); const [r, c, nr, nc] = parseA1(m[2]); files[id].ss.getSheetByName(m[1]).getRange(r, c, nr, nc).setValues(d.values); }); } } } },
@@ -75,8 +77,8 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={typedDate_,setSyncInterval,intervalSync,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
-const api = ctx.__api; api.CONFIG.OVERVIEW_ID = ''; const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
+vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,overviewFile_,logoBlob_,typedDate_,setSyncInterval,intervalSync,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
+const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV'; api.CONFIG.LOGO_FILE_ID = '1Ic106EgW9ceYs8JOAXSfViAwh1YFqb4T';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
 // 1) xlsx only → sync refuses; convert; create month
@@ -138,8 +140,52 @@ events.push({ title: 'sync พิเศษ', start: new Date(Date.now() + 360000
 console.log('after adding an event in 1 h:', triggers.filter(t => t.at).map(t => t.fn + '@' + fmt(t.at, '', 'dd/MM HH:mm')).join(' · '));
 
 // 6) interval sync
-try { console.log(api.setSyncInterval(30)); console.log('triggers:', triggers.map(t => t.fn).join(' · ')); const n0 = O.getSheetByName('_log').getLastRow(); api.intervalSync(); drain(); console.log('interval run:', props.last, '· new _log rows:', O.getSheetByName('_log').getLastRow() - n0); console.log(api.status()); try { api.setSyncInterval(7); } catch (e) { console.log('bad value →', e.message); } console.log(api.setSyncInterval(0), '· left:', triggers.filter(t => t.fn === 'intervalSync').length); } catch (e) { console.log('interval test failed:', e.message); }
+console.log('default after setup():', api.status().split(' · ').pop(), '· intervalSync triggers:', triggers.filter(t => t.fn === 'intervalSync').length);
+try { console.log(api.setSyncInterval(30)); console.log('triggers:', triggers.map(t => t.fn).join(' · ')); const n0 = O.getSheetByName('_log').getLastRow(); api.intervalSync(); drain(); console.log('interval run:', props.last, '· new _log rows:', O.getSheetByName('_log').getLastRow() - n0); console.log(api.status()); try { api.setSyncInterval(7); } catch (e) { console.log('bad value →', e.message); } { delete props.last; const last = undefined, o0 = JSON.stringify(O.sheets.map(x => x.cells)); globalThis.__old = true; ctx.__lists = 0; api.intervalSync(); console.log('nothing edited → skipped:', props.last === last && !props.job && JSON.stringify(O.sheets.map(x => x.cells)) === o0, '· Drive lists:', ctx.__lists);
+    ctx.__ovEdit = Date.now() + 1000; api.intervalSync(); console.log('Overview touched, same plants → skipped:', props.last === last && !props.job, '· remembered:', !!props.ovSame);
+    const c = st.cells['2,6']; st.cells['2,6'] = 502; ctx.__ovEdit = Date.now() + 2000; api.intervalSync(); drain(); console.log('Overview plant changed → synced:', !!props.last, '·', props.last); st.cells['2,6'] = c; api.syncNow(); drain();
+    delete props.last; api.intervalSync(); console.log('still nothing edited → skipped:', !props.last); globalThis.__old = false; api.intervalSync(); drain(); console.log('plant file edited → synced:', !!props.last, '·', props.last); }
+  console.log(api.setSyncInterval(0), '· left:', triggers.filter(t => t.fn === 'intervalSync').length); api.planTriggers(); console.log('off stays off after planTriggers/setup:', triggers.filter(t => t.fn === 'intervalSync').length === 0, '·', api.status().split(' · ').pop()); } catch (e) { console.log('interval test failed:', e.message); }
+
+// 6b) a create asked for while a sync works waits for it
+try { api.syncNow === undefined; props.job = 'sync'; Object.assign(props, { ym: api.ym_(new Date()), idx: '0', folder: folder.id, ov: O.id, ovTemp: '', only: '', made: '0', skipped: '0', errors: '', warn: '', full: '', same: '0', root: root.id }); delete props.began; api.createThisMonth(); console.log('create during sync → queued:', !!props.queued, '· job still', props.job); let jobs = []; let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { if (jobs[jobs.length - 1] !== props.job) jobs.push(props.job); api.continueJob(); if (++n > 5000) throw new Error('loop'); } console.log('ran in order:', jobs.join(' → '), '· queue empty:', !props.queued, '· job left:', props.job || 'none', '·', props.last); } catch (e) { console.log('queue test failed:', e.message); }
+
+// 6c) leftovers of another root folder: the waiting sync is dropped, the old record is not trusted
+try { Object.assign(props, { job: 'sync', ym: api.ym_(new Date()), idx: '0', folder: 'gone', ov: 'gone', root: 'old-root' }); api.continueJob(); console.log('sync of another root dropped:', !props.job); Object.assign(props, { job: 'create', ym: api.ym_(new Date()), idx: '0', folder: 'gone', ov: 'gone' }); api.continueJob(); console.log('create of another root dropped:', !props.job, '·', props.last); const rec = JSON.parse(props['synced_' + api.ym_(new Date())]); rec.root = 'old-root'; props['synced_' + api.ym_(new Date())] = JSON.stringify(rec); globalThis.__old = true; delete props.last; api.intervalSync(); drain(); console.log('old record not trusted → synced:', !!props.last); globalThis.__old = false; Object.assign(props, { job: 'create', ym: api.ym_(new Date()), idx: '0', folder: 'gone', ov: 'gone', root: 'old-root' }); delete props.last; api.syncNow(); drain(); console.log('stale job does not block a new one:', !props.job, '·', props.last); } catch (e) { console.log('root test failed:', e.message); }
+
+// 6d) bound to the Overview, no id in CONFIG: the root folder is the folder the Overview is in
+try { api.CONFIG.ROOT_FOLDER_ID = ''; api.CONFIG.LOGO_FILE_ID = ''; ctx.__bound = O; new File('logo1', 'logo.png', 'image/png', root.id);
+  console.log('root from the Overview:', api.rootId_() === root.id, '· Overview = bound sheet:', api.overviewFile_().getId() === O.getId(), '· logo by name:', api.logoBlob_());
+  delete props.last; api.syncNow(); drain(); console.log('sync in that folder:', props.last);
+  const other = new File('root2', 'moved', 'folder', null); files[O.getId()].parent = other.id; delete props.last; api.createThisMonth(); drain();
+  console.log('Overview moved → month folder made next to it:', Object.values(files).some(f => f.parent === other.id && f.name === api.ym_(new Date())), '· logo there:', api.logoBlob_(), '·', props.last);
+  files[O.getId()].parent = root.id; } catch (e) { console.log('bound test failed:', e.message); }
 
 // 7) dates typed as พ.ศ.
 { const f = v => { const r = api.typedDate_(v); return r instanceof Date ? r.getFullYear() + '-' + (r.getMonth() + 1) + '-' + r.getDate() : JSON.stringify(r); };
   console.log('typed dates:', [244668.375, 46342, '15/11/2569', '15/11/2026', '29/02/2571', '31/02/2569', 'รออะไหล่', ''].map(v => JSON.stringify(v) + ' → ' + f(v)).join(' | ')); }
+
+// 8) folder listing, renamed plant, the problem table is never cleared first, calendar create waits for a sync
+try { const ymNow = api.ym_(new Date());
+  ctx.__folderLists = 0; const listed = api.folderFiles_(folder.id); const one = listed.get(plant('P1-001').name);
+  console.log('folder listed in', ctx.__folderLists, 'Drive call:', listed.size, 'files · entry has id + edit time:', one.id === plant('P1-001').id && one.edited > 0);
+  // a plant renamed in the Overview keeps its file: synced, and not created a second time
+  const nameCell = Object.keys(st.cells).find(k => k.startsWith('2,') && st.cells[k] === 'สถานีผลิตน้ำประปาบางไทร'); const oldName = st.cells[nameCell];
+  st.cells[nameCell] = 'สถานีบางไทร (ชื่อใหม่)'; delete props.last; api.syncNow(); drain();
+  console.log('renamed plant still synced:', !/ยังไม่มีไฟล์/.test(props.last), '· info B1 =', p1.getSheetByName('_ข้อมูลสถานี').cells['1,2']);
+  const before = Object.values(files).filter(f => f.parent === folder.id && !f.trashed).length; api.createThisMonth(); drain();
+  console.log('renamed plant not created twice:', Object.values(files).filter(f => f.parent === folder.id && !f.trashed).length === before, '·', props.last);
+  st.cells[nameCell] = oldName; api.syncNow(); drain();
+  // problem table: an unchanged sync writes nothing to it; a changed one writes before it clears
+  const ops = []; const real = T.getRange.bind(T);
+  T.getRange = (...a) => { const g = real(...a); for (const m of ['setValues', 'clearContent']) { const f = g[m].bind(g); g[m] = (...x) => { ops.push(`${m}@${g.r}+${g.nr}`); return f(...x); }; } return g; };
+  api.syncNow(); drain(); console.log('unchanged sync → writes to the problem table:', ops.length);
+  put(day(p3, d2), 'G17', 3); api.syncNow(); drain(); const grow = ops.splice(0);
+  put(day(p3, d2), 'G17', 0); api.syncNow(); drain(); const shrink = ops.splice(0);
+  console.log('one more problem:', grow.join(' '), '· one fewer:', shrink.join(' '), '· rows left:', T.getLastRow() - 9);
+  T.getRange = real;
+  // a "สร้าง" event while a sync is working: queued behind it, not skipped
+  Object.assign(props, { job: 'sync', ym: ymNow, idx: '0', folder: folder.id, ov: O.id, ovTemp: '', only: '', made: '0', skipped: '0', errors: '', warn: '', full: '', same: '0', root: api.rootId_() }); delete props.began;
+  api.calendarCreate(); console.log('calendar create during a sync → queued:', props.queued, '· job still', props.job);
+  api.cancelJob(); console.log('cancelled: job', props.job || 'none', '· queue', props.queued || 'empty');
+} catch (e) { console.log('section 8 failed:', e.stack); }
