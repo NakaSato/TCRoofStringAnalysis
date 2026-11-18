@@ -90,7 +90,8 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
   const begin = `${day} ${lo}:00`;
   const end = `${last} ${hi}:00`;
   // only the shown range: the stored day starts at 00:00 with night zeros, which would widen the axis
-  const inRange = c.ts.filter((r) => r.timestamp >= begin && r.timestamp <= end);
+  // a row of the energy meter only (no inverter record, PV null) is drawn only with the grid series
+  const inRange = c.ts.filter((r) => r.timestamp >= begin && r.timestamp <= end && (meterRows || r.pac_kw != null));
   const ts = inRange;
   const gw = (c.growatt ?? []).filter((r) => r.timestamp >= begin && r.timestamp <= end);
   const growattSeries = gw.length

@@ -37,17 +37,12 @@ export interface PeriodFigures {
   /** a Growatt day figure of the period was withheld as impossible (> 10 kWh/kWp) */
   growattImplausible?: boolean;
   /** energy meter at the grid point (null without meter readings): import / export measured,
-   *  load derived (PV + grid). A whole day = the overview's kpis; a range / window = summed 5-min rows */
+   *  load derived (PV + grid). Integrated by the backend: a whole day = the overview's kpis, a
+   *  range / window = the `/power` answer's */
   gridImportKwh: number | null;
   gridExportKwh: number | null;
   loadKwh: number | null;
 }
-
-/** kWh of one column of 5-min rows (kW × 5 min); null when no row carries it. */
-const sumKwh = (rows: PowerCurve["ts"], key: "grid_import_kw" | "grid_export_kw" | "load_kw"): number | null => {
-  const vs = rows.map((r) => r[key]).filter((v): v is number => v != null);
-  return vs.length ? Math.round(vs.reduce((a, v) => a + v, 0) * (5 / 60) * 10) / 10 : null;
-};
 
 type Loaded = { key: string; ov?: GrowattPlantOverview; power?: GrowattPlantPower; error?: string };
 
@@ -212,9 +207,9 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
       tariffThbPerKwh: null,
       growattKwh,
       growattImplausible,
-      gridImportKwh: sumKwh(rows, "grid_import_kw"),
-      gridExportKwh: sumKwh(rows, "grid_export_kw"),
-      loadKwh: sumKwh(rows, "load_kw"),
+      gridImportKwh: power!.grid_import_kwh ?? null,
+      gridExportKwh: power!.grid_export_kwh ?? null,
+      loadKwh: power!.load_kwh ?? null,
     };
   }, [dayOv, ts, liveYield, power, ov, growattKwh, growattImplausible]);
 

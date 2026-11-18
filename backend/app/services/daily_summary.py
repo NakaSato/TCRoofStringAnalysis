@@ -70,7 +70,8 @@ def _hourly_kw(timeseries: List[Dict[str, Any]]) -> List[Optional[float]]:
     """Mean plant AC power per hour (24 values) — a compact day curve for history charts."""
     acc: Dict[int, List[float]] = defaultdict(list)
     for r in timeseries:
-        acc[int(r["timestamp"][11:13])].append(r["pac_kw"])
+        if r["pac_kw"] is not None:  # a meter-only slot has no inverter record
+            acc[int(r["timestamp"][11:13])].append(r["pac_kw"])
     return [round(sum(acc[h]) / len(acc[h]), 2) if acc.get(h) else None for h in range(24)]
 
 
@@ -90,7 +91,7 @@ def build_day_docs(db: Session, day: date, now: Optional[datetime] = None, freez
     for plant in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)):
         ov = build_plant_overview(db, plant.plant_id, day)
         k = ov["kpis"]
-        has_data = bool(ov["timeseries"])
+        has_data = any(r["pac_kw"] is not None for r in ov["timeseries"])
         pid = str(plant.plant_id)
         slots = check_slots.day_slots(db, plant, day, ready, freeze=freeze) if check_slots.has_inverters(db, plant.plant_id) else {}
         fleet[pid] = {

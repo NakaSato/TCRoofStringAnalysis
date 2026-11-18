@@ -211,8 +211,9 @@ export interface GrowattPlantOverview {
   }>;
   timeseries: Array<{
     timestamp: string;
-    pac_kw: number;
-    ppv_kw: number;
+    /** null = no inverter record in this slot (a row of the energy meter only, e.g. at night); never 0 */
+    pac_kw: number | null;
+    ppv_kw: number | null;
     expected_kw: number | null;
     temp_c: number | null;
     freq_hz: number | null;
@@ -402,6 +403,11 @@ export interface GrowattPlantPower {
   timeseries: Omit<GrowattPlantOverview["timeseries"][number], "module_temp_c" | "ambient_temp_c">[];
   /** the plant has an energy meter (grid / load columns in `timeseries`) */
   has_meter?: boolean;
+  /** the period's grid import / export (meter) and load (derived) in kWh, integrated by the
+   *  backend like a whole day's; null without meter readings in the period */
+  grid_import_kwh?: number | null;
+  grid_export_kwh?: number | null;
+  load_kwh?: number | null;
   /** Growatt's own 5-min plant AC curve (`plant/power`), stored for finished days only */
   growatt_timeseries?: Array<{ timestamp: string; pac_kw: number }>;
   /** AC energy per day integrated from the records (in the time window); null = no records.

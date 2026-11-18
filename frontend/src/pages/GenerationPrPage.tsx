@@ -74,7 +74,7 @@ export const GenerationPrPage: React.FC = () => {
   const iecReason = ov.weather?.has_sensor && iec == null ? ov.weather.iec_pr.reason : null;
 
   const revenue = k.yield_today_kwh != null ? k.yield_today_kwh * k.tariff_thb_per_kwh : null;
-  const peak = ov.timeseries.reduce<(typeof ov.timeseries)[number] | null>((m, r) => (m == null || r.pac_kw > m.pac_kw ? r : m), null);
+  const peak = ov.timeseries.reduce<(typeof ov.timeseries)[number] | null>((m, r) => (r.pac_kw != null && (m?.pac_kw == null || r.pac_kw > m.pac_kw) ? r : m), null);
   const hottest = inverters.reduce<(typeof inverters)[number] | null>(
     (m, i) => (i.max_temp_c != null && (m?.max_temp_c == null || i.max_temp_c > m.max_temp_c) ? i : m),
     null
