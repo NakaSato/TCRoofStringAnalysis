@@ -262,6 +262,25 @@ def _issue_text(issue: Dict[str, Any]) -> str:
     return head + (": " + " / ".join(parts) if parts else "")
 
 
+def _ignored_item(it: Dict[str, Any]) -> bool:
+    """A reading's own code in PWA_IGNORE_WARN_CODES (1) with nothing else to it: no text and no
+    alarm-log `since`. Slots frozen before that setting existed still carry it ("Alarm: 1")."""
+    code = str(it.get("code") or "").strip()
+    return code.isdigit() and int(code) in settings.pwa_ignored_warn_codes() and not it.get("message") and not it.get("since")
+
+
+def _shown_issues(issues: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """`issues` without ignored codes; an Alarm entry left with no item is dropped (Offline /
+    Fault entries stay, they are wrong without a code)."""
+    out = []
+    for i in issues:
+        items = [it for it in i.get("items") or [] if not _ignored_item(it)]
+        if i.get("state") == "Alarm" and not items:
+            continue
+        out.append({**i, "items": items})
+    return out
+
+
 def _capped(entries: Sequence[str], limit: int = LOG_MAX) -> str:
     """The entries joined with ", "; over `limit`, cut at a whole entry and end with "…(+N)"
     (N = entries left out)."""
@@ -290,7 +309,7 @@ def data_log(kw: Optional[float], c: Optional[Dict[str, Any]]) -> str:
     if not c:
         return idle[0] if idle else DASH
     if c["issues"] is not None:
-        entries = [_issue_text(i) for i in c["issues"]]
+        entries = [_issue_text(i) for i in _shown_issues(c["issues"])]
     else:
         log = c["errors"] if c["errors"] is not None else c["alarms"]
         entries = [f"{x} Offline" for x in c["offline"]] + [f"{x} Fault" for x in c["fault"]] + log
