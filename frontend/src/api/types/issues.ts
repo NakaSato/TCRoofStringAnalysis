@@ -149,6 +149,31 @@ export interface StringRuleDay {
   lost_kwh_est: number | null;
 }
 
+/** One inverter-day of `growatt_inverter_daily` (minutes over sunrise+30 min … sunset−30 min;
+ * lost kWh are estimates; `yf_vs_median_pct` null = no comparison with the plant's other inverters). */
+export interface InverterRuleDay {
+  day: string;
+  daylight_min: number | null;
+  producing_min: number;
+  fault_min: number;
+  off_min: number;
+  standby_min: number;
+  limited_min: number;
+  no_data_min: number;
+  energy_kwh: number | null;
+  dc_energy_kwh: number | null;
+  kwp: number | null;
+  ya_kwh_kwp: number | null;
+  yf_kwh_kwp: number | null;
+  ya_minus_yf: number | null;
+  yf_vs_median_pct: number | null;
+  plant_kwp_share_pct: number | null;
+  lost_fault_kwh_est: number | null;
+  lost_off_kwh_est: number | null;
+  lost_standby_kwh_est: number | null;
+  lost_no_data_kwh_est: number | null;
+}
+
 export interface RuleDaily<T = StringRuleDay | Record<string, number | string | null>> {
   plant_id: number;
   device_sn: string;
