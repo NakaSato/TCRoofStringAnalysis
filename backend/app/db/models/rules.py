@@ -111,6 +111,15 @@ class GrowattPlantDaily(Base):
     stale_masked_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     clipped_masked_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     curtailed_masked_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # R16 sensor-health evidence (null = no irradiance that day / cannot be judged); the rule's
+    # thresholds judge it (`growatt_rules.sensor_verdict`), so they can change without a recompute
+    sensor_stale_slots: Mapped[Optional[int]] = mapped_column(Integer)  # daylight slots in a run of >= 3 identical non-zero readings
+    sensor_high_slots: Mapped[Optional[int]] = mapped_column(Integer)  # slots above clear-sky GHI × SENSOR_CLEAR_SKY_FACTOR
+    sensor_midday_wm2: Mapped[Optional[float]] = mapped_column(Float)  # mean irradiance 10:00–14:00 (measured)
+    sensor_midday_slots: Mapped[Optional[int]] = mapped_column(Integer)
+    cloud_midday_pct: Mapped[Optional[float]] = mapped_column(Float)  # Google Weather (modelled) mean cloud cover 10:00–14:00
+    sensor_neighbour_ratio: Mapped[Optional[float]] = mapped_column(Float)  # midday irradiance ÷ median of neighbouring plants' sensors
+    sensor_neighbours: Mapped[Optional[int]] = mapped_column(Integer)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 

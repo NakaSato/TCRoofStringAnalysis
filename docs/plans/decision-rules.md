@@ -1,6 +1,6 @@
 # Plan: Decision rules and the Issues queue
 
-Status: **Phases 1–2 built and merged, every rule starts in shadow mode; Phase 3 partly built (plant daily table, PR', EPI, R10, R11; not R16 or the fitted system factor); Phase 4: site log built (§6.1), soiling analysis not started** · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–2 built and merged, every rule starts in shadow mode; Phase 3 partly built (plant daily table, PR', EPI, R10, R11, R16 in shadow mode; not the fitted system factor); Phase 4: site log built (§6.1), soiling analysis not started** · Created 2026-11-15 · Owner: Chanthawat
 Source: the research report `docs/plans/Data-Driven Decisions for the TC Roof Solar Dashboard_ KPIs, Thresholds and Decision Rules for Thai Commercial and Industrial Rooftop PV.md` (rule numbers R1–R18 below are its §8 master table).
 
 Turn the data the platform already stores into **issues ranked by baht lost per day**. Each issue has an owner, a tier and evidence, and engineers can acknowledge and close it. Today the platform shows statuses (string Healthy / Warning / Critical, inverter fault codes, PR), but nothing says what to fix first or what a fault costs.
@@ -178,7 +178,11 @@ Only on plants whose sensor covers the day (`iec_pr` coverage check).
 
 - Built: `growatt_plant_daily`, PR', EPI, R10 and R11; details and thresholds are in [`iv-and-timeseries-analysis.md`](iv-and-timeseries-analysis.md) §3.1.
 - Different from the plan above: the model uses a fixed, assumed factor of 0.985 for every plant. No system factor is fitted per plant.
-- Not built: R16 sensor health.
+- R16 sensor health built 2026-11-18 (shadow mode, like every rule):
+  - `growatt_daily._sensor_evidence` stores evidence on the plant daily row: `sensor_stale_slots` (daylight slots in runs of ≥ 3 identical non-zero readings), `sensor_high_slots` (slots above **1.5 ×** the Haurwitz clear-sky GHI while it is ≥ 400 W/m²), `sensor_midday_wm2` (mean 10:00–14:00) and `cloud_midday_pct` (Google, modelled). `sensor_neighbours` then sets `sensor_neighbour_ratio` = midday irradiance ÷ the median of the other plants' within 50 km (≥ 3 needed), once every plant's row of the day exists.
+  - `growatt_rules.sensor_verdict` judges that evidence with the settings `r16_stale_slots` (12), `r16_high_slots` (6), `r16_neighbour_ratio` (0.7) and `r16_clear_cloud_pct` (20; the neighbour check runs only on a day Google calls clear), so thresholds change without a recompute. A failing day gives an R16 finding (P3, no lost kWh), R10 skips it (today and its baseline), and the overview's `kpis.sensor_health` greys out IEC PR / PR' / EPI in the UI.
+  - Different from the plan: the plan said clear sky × 1.2. Measured on the fleet (12–15 Nov 2026), plane-of-array sensors read 1.0–1.05 × Haurwitz GHI at midday and up to ~1.3 in cloud-edge bursts (95th percentile), so 1.2 flagged half the fleet every day. With 1.5 × and clear sky ≥ 400 W/m², 4–8 sensors a day are flagged, several of them on every day (e.g. one peaking at 1,350–1,490 W/m² daily).
+  - The neighbour check has not run on real data yet: the local DB holds no clear day with Google hours.
 
 ## 6. Phase 4: events, soiling and cleaning (from the 2026–27 dry season)
 

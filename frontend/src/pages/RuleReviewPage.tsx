@@ -34,6 +34,15 @@ const THRESHOLDS: { rule: string; fields: [key: string, label: string][] }[] = [
   { rule: "R9", fields: [["r9_events", "Trips"], ["r9_window_days", "Within (days)"]] },
   { rule: "R10", fields: [["r10_window_days", "Baseline window (days)"], ["r10_min_days", "Min. baseline days"], ["r10_two_sigma_days", "2σ persistence (days)"]] },
   { rule: "R11", fields: [["r11_window_days", "Baseline window (days)"], ["r11_min_days", "Min. baseline days"], ["r11_days", "Days in a row"], ["r11_gap_increase_h", "Ya − Yf increase (h)"]] },
+  {
+    rule: "R16",
+    fields: [
+      ["r16_stale_slots", "Frozen-reading slots / day"],
+      ["r16_high_slots", "Slots above 1.5 × clear sky"],
+      ["r16_neighbour_ratio", "Below share of nearby sensors"],
+      ["r16_clear_cloud_pct", "Clear day: Google cloud at most (%)"],
+    ],
+  },
   { rule: "R17", fields: [["r17_pct", "No data above (% of daylight)"]] },
   { rule: "Tiers", fields: [["p1_thb_per_day", "THB/day line (R2 → P1, R7 → P2)"]] },
 ];

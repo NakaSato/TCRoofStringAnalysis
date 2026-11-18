@@ -88,15 +88,16 @@ def _untouched(i: GrowattIssue) -> bool:
 
 def _verdicts(
     db: Session, days: Sequence[date], plant_ids: Optional[Set[int]]
-) -> Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple]]:
+) -> Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple]]:
     """Which entities had enough data on each day for a rule to judge them:
     (string keys with a gated verdict, inverter keys with records, inverter keys with a yield comparison,
-    plant keys with an EPI verdict)."""
-    cfg_gap = float(growatt_rules.rule_settings(db)["r7_max_gap_pct"])
+    plant keys with an EPI verdict on a day its sensor passed R16, plant keys with an R16 verdict)."""
+    cfg = growatt_rules.rule_settings(db)
+    cfg_gap = float(cfg["r7_max_gap_pct"])
     SD, ID, PD = GrowattStringDaily, GrowattInverterDaily, GrowattPlantDaily
     q = select(SD.plant_id, SD.device_sn, SD.string_no, SD.day).where(SD.day.in_(list(days)), SD.ratio_median.is_not(None))
     q2 = select(ID).where(ID.day.in_(list(days)))
-    q3 = select(PD.plant_id, PD.day).where(PD.day.in_(list(days)), PD.epi.is_not(None))
+    q3 = select(PD).where(PD.day.in_(list(days)))
     if plant_ids is not None:
         q = q.where(SD.plant_id.in_(plant_ids))
         q2 = q2.where(ID.plant_id.in_(plant_ids))
@@ -110,12 +111,19 @@ def _verdicts(
             gap = (r.fault_min + r.off_min + r.standby_min + r.no_data_min) / r.daylight_min * 100
             if r.yf_vs_median_pct is not None and gap <= cfg_gap:
                 yf.add((r.plant_id, r.device_sn, r.day))
-    plants_epi = {(int(p), d) for p, d in db.execute(q3)}
-    return strings, inv, yf, plants_epi
+    plants_epi: Set[tuple] = set()
+    plants_sensor: Set[tuple] = set()
+    for r in db.scalars(q3):
+        v = growatt_rules.sensor_verdict(r, cfg)
+        if v is not None:
+            plants_sensor.add((r.plant_id, r.day))
+        if r.epi is not None and (v is None or v["ok"]):
+            plants_epi.add((r.plant_id, r.day))
+    return strings, inv, yf, plants_epi, plants_sensor
 
 
-def _had_verdict(i: GrowattIssue, d: date, v: Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple]]) -> bool:
-    strings, inv, yf, plants_epi = v
+def _had_verdict(i: GrowattIssue, d: date, v: Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple]]) -> bool:
+    strings, inv, yf, plants_epi, plants_sensor = v
     if i.rule in STRING_RULES:
         return (i.plant_id, i.device_sn, i.string_no, d) in strings
     if i.rule == "R7":
@@ -124,6 +132,8 @@ def _had_verdict(i: GrowattIssue, d: date, v: Tuple[Set[tuple], Set[tuple], Set[
         return (i.plant_id, i.device_sn, d) in inv
     if i.rule == "R10":
         return (i.plant_id, d) in plants_epi
+    if i.rule == "R16":
+        return (i.plant_id, d) in plants_sensor
     return True  # R3 / R9: the alarm log is the data
 
 

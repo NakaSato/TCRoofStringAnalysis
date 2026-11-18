@@ -74,6 +74,12 @@ DEFAULT_RULES: Dict[str, Any] = {
     "r11_min_days": 5,
     "r11_days": 2,
     "r11_gap_increase_h": 0.15,
+    # R16 weather-sensor health: stale readings, above clear sky, or far below the neighbours' sensors
+    # on a day Google (modelled) calls clear. A failing day greys out PR / PR' / EPI and R10 skips it.
+    "r16_stale_slots": 12,  # daylight 5-min slots in runs of >= 3 identical non-zero readings
+    "r16_high_slots": 6,  # slots above clear-sky GHI × 1.5 (growatt_daily.SENSOR_CLEAR_SKY_FACTOR)
+    "r16_neighbour_ratio": 0.7,  # midday irradiance below this share of the neighbours' median
+    "r16_clear_cloud_pct": 20.0,  # neighbour check only when Google's midday cloud cover is at most this
     # R17 data gap
     "r17_pct": 5.0,
     # THB/day above which R2 is P1 (else P2) and R7 is P2 (else P3). Not confirmed yet (plan §9 Q4).
@@ -96,6 +102,7 @@ RULE_NAMES = {
     "R9": "Grid trips",
     "R10": "Plant EPI anomaly",
     "R11": "Inverter Ya − Yf loss drift",
+    "R16": "Weather sensor suspect",
     "R17": "Data gap",
     "R18": "Power limiting",
 }
@@ -174,6 +181,51 @@ def put_rule_settings(db: Session, payload: Dict[str, Any], username: Optional[s
         row.updated_by = username
     db.commit()
     return old, rule_settings(db)
+
+
+SENSOR_FLAG_TEXT = {
+    "stale": "irradiance frozen at one value",
+    "above_clear_sky": "irradiance above the clear-sky value",
+    "below_neighbours": "irradiance far below nearby plants' sensors on a clear day",
+}
+
+
+def sensor_verdict(row: Optional[GrowattPlantDaily], cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """R16 verdict on one plant-day's stored sensor evidence: {ok, flags, evidence}; None when the
+    day has no irradiance to judge. `ok` false = PR, PR' and EPI of that day are not trustworthy."""
+    if row is None or row.sensor_stale_slots is None:
+        return None
+    flags: List[str] = []
+    if row.sensor_stale_slots >= int(cfg["r16_stale_slots"]):
+        flags.append("stale")
+    if row.sensor_high_slots is not None and row.sensor_high_slots >= int(cfg["r16_high_slots"]):
+        flags.append("above_clear_sky")
+    neighbour_judged = (
+        row.sensor_neighbour_ratio is not None
+        and row.cloud_midday_pct is not None
+        and row.cloud_midday_pct <= float(cfg["r16_clear_cloud_pct"])
+    )
+    if neighbour_judged and float(row.sensor_neighbour_ratio or 0) < float(cfg["r16_neighbour_ratio"]):
+        flags.append("below_neighbours")
+    return {
+        "ok": not flags,
+        "flags": flags,
+        "reasons": [SENSOR_FLAG_TEXT[f] for f in flags],
+        "evidence": {
+            "stale_slots": row.sensor_stale_slots,
+            "high_slots": row.sensor_high_slots,
+            "midday_wm2": row.sensor_midday_wm2,
+            "neighbour_ratio": row.sensor_neighbour_ratio,
+            "neighbours": row.sensor_neighbours,
+            "cloud_midday_pct": row.cloud_midday_pct,
+            "neighbour_judged": neighbour_judged,
+        },
+    }
+
+
+def sensor_failed(row: Optional[GrowattPlantDaily], cfg: Dict[str, Any]) -> bool:
+    v = sensor_verdict(row, cfg)
+    return v is not None and not v["ok"]
 
 
 def _thb(pr: Pricer, plant_id: int, kwh: Optional[float], on_kwh: Optional[float]) -> Optional[float]:
@@ -455,20 +507,20 @@ def evaluate(
             p_days[pr_row.plant_id][pr_row.day] = pr_row
         for pid, p_map in p_days.items():
             p_today = p_map.get(day)
-            if p_today is None or p_today.epi is None:
-                continue
+            if p_today is None or p_today.epi is None or sensor_failed(p_today, cfg):
+                continue  # a failing sensor (R16) makes EPI meaningless that day
             # Baseline excludes the trailing 2-sigma persistence window so a multi-day dip doesn't corrupt mu/sigma
             base_epis = [
                 float(r_ep.epi)
                 for d in (day - timedelta(days=k) for k in range(r10_2s_days, r10_2s_days + r10_win))
-                if (r_ep := p_map.get(d)) is not None and r_ep.epi is not None
+                if (r_ep := p_map.get(d)) is not None and r_ep.epi is not None and not sensor_failed(r_ep, cfg)
             ]
             if len(base_epis) < int(cfg["r10_min_days"]):
                 # Fall back to prior days before `day` if history is shorter than r10_2s_days + r10_min_days
                 base_epis = [
                     float(r_ep.epi)
                     for d in (day - timedelta(days=k) for k in range(1, r10_win + 1))
-                    if (r_ep := p_map.get(d)) is not None and r_ep.epi is not None
+                    if (r_ep := p_map.get(d)) is not None and r_ep.epi is not None and not sensor_failed(r_ep, cfg)
                 ]
             if len(base_epis) < int(cfg["r10_min_days"]):
                 continue
@@ -478,7 +530,10 @@ def evaluate(
             thresh_2s = mu - 2.0 * sigma
             recent_2s = [p_map.get(day - timedelta(days=k)) for k in range(r10_2s_days)]
             hit_3s = float(p_today.epi) < thresh_3s
-            hit_2s = all(x is not None and x.epi is not None and float(x.epi) < thresh_2s for x in recent_2s)
+            hit_2s = all(
+                x is not None and x.epi is not None and not sensor_failed(x, cfg) and float(x.epi) < thresh_2s
+                for x in recent_2s
+            )
             if hit_3s or hit_2s:
                 tier = "P2" if hit_3s else "P3"
                 rule_mode = "3sigma_1d" if hit_3s else f"2sigma_{r10_2s_days}d"
@@ -506,6 +561,18 @@ def evaluate(
                         pr_temp_corrected_pct=p_today.pr_temp_corrected_pct,
                     )
                 )
+
+    # R16 weather-sensor health (no energy is lost; the plant's PR / EPI are blind that day)
+    if "R16" in on:
+        PD = GrowattPlantDaily
+        q16 = select(PD).where(PD.day == day)
+        if plant_ids is not None:
+            q16 = q16.where(PD.plant_id.in_(list(plant_ids)))
+        for row in db.scalars(q16):
+            v = sensor_verdict(row, cfg)
+            if v is not None and not v["ok"]:
+                out.append(_finding("R16", "P3", row.plant_id, day, None, None, None, None,
+                                    flags=v["flags"], **v["evidence"]))
 
     # alarm rules
     A = GrowattAlarm

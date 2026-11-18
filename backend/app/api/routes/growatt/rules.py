@@ -13,7 +13,7 @@ from app.auth import allowed_plant_ids, get_current_user, require_admin, require
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.api_schemas import IssueAction
-from app.services import jobs
+from app.services import growatt_rules, jobs
 from app.api.routes.growatt._common import DAY_QUERY, audit
 
 router = APIRouter()
@@ -31,7 +31,6 @@ def rule_findings(
 ) -> Dict[str, Any]:
     """Decision-rule findings for a day, from the stored daily tables (Phase 1: admin only,
     evaluated on request, not stored; docs/plans/decision-rules.md). Lost kWh is estimated."""
-    from app.services import growatt_rules
 
     d = day or jobs._today()
     findings = growatt_rules.evaluate(db, d, [plant_id] if plant_id is not None else None)
@@ -75,7 +74,6 @@ def put_rules(
     """Change rule settings (any subset of the keys of `GET /growatt/rules` `settings`). Each
     changed value is logged to System → Logs with its old and new value. Applies from the next
     `rules_*` run. Admin only."""
-    from app.services import growatt_rules
 
     try:
         old, new = growatt_rules.put_rule_settings(db, payload, user.username or user.email)
@@ -221,12 +219,22 @@ def plant_kpi_daily(
         "ya_kwh_kwp", "yf_kwh_kwp", "ya_minus_yf", "pr_pct", "pr_temp_corrected_pct", "epi",
         "irradiance_weighted_tmod_c", "filtered_slots", "stale_masked_slots",
         "clipped_masked_slots", "curtailed_masked_slots",
+        "sensor_stale_slots", "sensor_high_slots", "sensor_midday_wm2", "sensor_neighbour_ratio",
+        "sensor_neighbours", "cloud_midday_pct",
     ]
-    data = [{"day": r.day.isoformat(), **{c: getattr(r, c) for c in cols}} for r in rows]
+    cfg = growatt_rules.rule_settings(db)
+    data = []
+    for r in rows:
+        v = growatt_rules.sensor_verdict(r, cfg)
+        data.append({
+            "day": r.day.isoformat(), **{c: getattr(r, c) for c in cols},
+            # R16: false = PR, PR' and EPI of the day rest on a suspect sensor; null = not judged
+            "sensor_ok": None if v is None else v["ok"], "sensor_flags": [] if v is None else v["flags"],
+        })
     return {
         "plant_id": plant_id,
         "start": start.isoformat(),
         "end": end.isoformat(),
         "days": data,
-        "meta": {"source": "db", "modelled": ["modelled_energy_kwh", "epi"]},
+        "meta": {"source": "db", "modelled": ["modelled_energy_kwh", "epi", "cloud_midday_pct"]},
     }
