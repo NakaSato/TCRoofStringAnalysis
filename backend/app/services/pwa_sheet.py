@@ -351,7 +351,8 @@ def plant_cells(
         rain = bool(g and g.get("raining"))
 
         ok = kw is not None and kw > 0 and not (c and (c["offline"] or c["fault"]))
-        status = DASH if kw is None and not c else "Normal" if ok else "Abnormal"
+        # no reading and no inverter to report (no doc, or a plant with no inverters) = "—"
+        status = DASH if kw is None and not (c and c["inverters"]) else "Normal" if ok else "Abnormal"
 
         sky = None
         if irr is not None and info.get("latitude") is not None and info.get("longitude") is not None:
