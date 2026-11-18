@@ -77,7 +77,7 @@ def db(tmp_path):
                          alarm_message="undown error", alarm_code="25", fault_type="Error"),
             GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(8, 40), end_time=at(8, 41),
                          alarm_message="undown error", alarm_code="25", fault_type="Error"),
-            GrowattAlarm(device_sn="A", plant_id=PLANT, day=DAY, start_time=at(8, 10), end_time=at(8, 12),
+            GrowattAlarm(device_sn="A", plant_id=PLANT, day=DAY, start_time=at(7, 50), end_time=at(7, 58),
                          alarm_message="Fan function abnormal", fault_type="Warning"),
             GrowattAlarm(device_sn="A", plant_id=PLANT, day=DAY, start_time=at(8, 52), end_time=None,
                          alarm_message="After the snapshot", fault_type="Error"),
@@ -111,9 +111,9 @@ def test_slot_is_the_latest_reading_before_hh_minus_10(db):
     assert slot["reading_at"] == "08:45"
     assert slot["kw"] == 36.0  # A 21 kW (08:45) + B 15 kW (08:35); not 09:00's 120 kW
     assert slot["offline"] == [] and slot["fault"] == ["INV2"]
-    # only the alarm log of 08:30–08:50: the alarm that closed at 08:49 is in, the warning that ended 08:12 is not
+    # only the alarm log of 08:00–08:50: the alarm that closed at 08:49 is in, the warning that ended 07:58 is not
     assert slot["alarms"] == ["INV1 Closed before the snapshot", "INV2 PV Isolation Low", "INV2 25 undown error"]
-    # the Fault Error log of the same 30 min: closed ones too, Warnings and later ones left out
+    # the Fault Error log of the same hour: closed ones too, Warnings and later ones left out
     assert slot["errors"] == ["INV1 Closed before the snapshot", "INV2 PV Isolation Low", "INV2 Error 25 (×2)"]
     assert slot["irradiance_wm2"] == 512.0 and slot["sensor_at"] == "08:45" and slot["module_temp_c"] == 35.0
     # Google: the hour that contains 08:50 (08:00), modelled
@@ -221,8 +221,8 @@ def test_frozen_slot_takes_google_current_at_the_slot_time(db, monkeypatch):
 def test_issues_carry_the_fault_code_and_text_at_the_check(db):
     plant = db.get(GrowattPlant, PLANT)
     issues = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"]
-    # the DATA LOG takes the fault messages present from 08:30 (30 min before 09:00) to the 08:50 snapshot:
-    # A's error that cleared at 08:49 is still reported, its warning that ended at 08:12 is not.
+    # the DATA LOG takes the fault messages present from 08:00 (1 h before 09:00) to the 08:50 snapshot:
+    # A's error that cleared at 08:49 is still reported, its warning that ended at 07:58 is not.
     # B is in fault at 08:35 with an alarm still open; an alarm Growatt has no text for keeps Growatt's own name
     assert issues == [
         {"inv": "INV1", "state": "Alarm", "items": [
@@ -234,7 +234,7 @@ def test_issues_carry_the_fault_code_and_text_at_the_check(db):
         ]},
     ]
 
-    # Growatt re-reports a present alarm every ~5 min with end = start: listed when reported from 08:30 on
+    # Growatt re-reports a present alarm every ~5 min with end = start: listed when reported from 08:00 on
     db.add_all([
         GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(8, 44), end_time=at(8, 44),
                      alarm_code="117", alarm_message="Relay check fail", fault_type="Error"),
@@ -263,12 +263,12 @@ def test_issues_carry_the_fault_code_and_text_at_the_check(db):
 
 def test_issue_items_say_since_when_and_how_many_times(db):
     plant = db.get(GrowattPlant, PLANT)
-    # Growatt repeats a present alarm: only the reports of 08:30–08:50 count (06:19 and 08:25 are
+    # Growatt repeats a present alarm: only the reports of 08:00–08:50 count (06:19 and 07:55 are
     # before the look-back, 08:51 is after the check)
     db.add_all([
         GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(h, m), end_time=at(h, m),
                      alarm_code="409", alarm_message="Bus voltage abnormal", fault_type="Error")
-        for h, m in ((6, 19), (8, 25), (8, 39), (8, 44), (8, 51))
+        for h, m in ((6, 19), (7, 55), (8, 39), (8, 44), (8, 51))
     ])
     db.commit()
     items = cs.compute_slots(db, plant, DAY, [9])["09"]["issues"][1]["items"]
@@ -325,18 +325,18 @@ def test_issues_fall_back_to_the_readings_own_codes(db):
     b.warn_code = 77
     db.commit()
 
-    # only the alarm log of 12:30–12:50 counts: a report at 12:29 is not listed, whenever the log was read
-    db.add(GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(12, 29), end_time=at(12, 29),
+    # only the alarm log of 12:00–12:50 counts: a report at 11:59 is not listed, whenever the log was read
+    db.add(GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(11, 59), end_time=at(11, 59),
                         alarm_code="302", alarm_message="No AC Connection", fault_type="Error"))
     db.add(GrowattAlarmSync(device_sn="B", day=DAY, plant_id=PLANT, alarm_count=1,
-                            synced_at=at(12, 30).replace(tzinfo=BKK).astimezone(timezone.utc)))
+                            synced_at=at(12, 0).replace(tzinfo=BKK).astimezone(timezone.utc)))
     db.commit()
     assert cs.compute_slots(db, plant, DAY, [13])["13"]["issues"][1]["items"] == [{"code": "77", "message": None}]
-    db.add(GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(12, 30), end_time=at(12, 30),
+    db.add(GrowattAlarm(device_sn="B", plant_id=PLANT, day=DAY, start_time=at(12, 0), end_time=at(12, 0),
                         alarm_code="302", alarm_message="No AC Connection", fault_type="Error"))
     db.commit()
     assert cs.compute_slots(db, plant, DAY, [13])["13"]["issues"][1]["items"] == [
-        {"code": "302", "message": "No AC Connection", "since": "12:30", "count": 1}]
+        {"code": "302", "message": "No AC Connection", "since": "12:00", "count": 1}]
 
 
 def test_a_plants_only_unnamed_inverter_is_inv1_and_others_keep_the_serial(db):

@@ -144,7 +144,7 @@ class Settings(BaseSettings):
     check_offset_min: int = 10
     # A check's DATA LOG lists only the alarm-log records from hh:00 minus this many minutes
     # (08:30) up to its snapshot; its `since` / `count` are counted over the same span.
-    pwa_fault_lookback_min: int = 30
+    pwa_fault_lookback_min: int = 60
     # Warning codes of a reading (max_data `warnCode`, comma separated) the DATA LOG does not
     # report when the alarm log has nothing for the inverter: 1 stays set all day on inverters
     # that produce normally and Growatt's log never names it.

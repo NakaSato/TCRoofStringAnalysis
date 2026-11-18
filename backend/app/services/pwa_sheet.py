@@ -19,7 +19,7 @@ Nothing is made up; no source = "—":
     Status      checks.{hh}.kw + offline / fault           real Growatt power at the slot time
     DATA LOG    checks.{hh}.issues: "INV1 Offline (last data 07:40), INV3 Fault: 117 Relay check
                 fail (06:19, ×5)" (every inverter offline / in fault status / with an alarm
-                in the 30 min before hh:00 up to the check, with Growatt's code and text, when the log first reported
+                in the hour before hh:00 up to the check, with Growatt's code and text, when the log first reported
                 it that day and how many times); inverters reporting but 0 kW = "INV ไม่ผลิตไฟ"
                 first; nothing wrong = "—", no data at all = "offline";
                 under LOG_MAX (300) characters, cut at a whole entry with "…(+N)"

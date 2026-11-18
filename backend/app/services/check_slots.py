@@ -8,8 +8,8 @@ plant at 08:50, so it can be published at 08:50 and be in the Monitoring PWA Rep
   = `offline`; Growatt status 3 = `fault`. `kw` = the sum of those readings' `pac_w`
   (instantaneous AC power), null when no inverter reported.
 - Every alarm field takes only the alarm-log records of the check's look-back: hh:00 −
-  PWA_FAULT_LOOKBACK_MIN (30) to the slot time, 08:30–08:50 (`_active` with `since`). A record
-  last reported before 08:30 is in none of them.
+  PWA_FAULT_LOOKBACK_MIN (60) to the slot time, 08:00–08:50 (`_active` with `since`). A record
+  last reported before 08:00 is in none of them.
 - `alarms`: "<INV> <message>" for the alarm-log entries of the look-back.
 - `errors`: the plant's Fault Error log of the look-back: every such entry with Growatt
   `fault_type` "Error" (not "Warning"), once per inverter + message ("(×3)" when it recurred).
@@ -18,9 +18,9 @@ plant at 08:50, so it can be published at 08:50 and be in the Monitoring PWA Rep
   INV order: {"inv": "INV3", "state": "Offline" | "Fault" | "Alarm", "items": [{"code",
   "message", "since", "count"}]}. Fault = status 3 at its reading; Alarm = not in fault, but an
   alarm in the check's fault look-back. `items` are the inverter's alarm-log entries of the
-  look-back only: hh:00 − PWA_FAULT_LOOKBACK_MIN (30: 08:30) to the slot time (`_active`). A
+  look-back only: hh:00 − PWA_FAULT_LOOKBACK_MIN (60: 08:00) to the slot time (`_active`). A
   fault that cleared a few minutes before the snapshot is reported, one last reported before
-  08:30 is not, each with its code and its name in Growatt's own wording ("undown error" is
+  08:00 is not, each with its code and its name in Growatt's own wording ("undown error" is
   the name Growatt gives a code it has no text for; it is shown as reported, never replaced). `since` ("08:39") = the first time in the look-back the log reported the same
   alarm (same kind, code and text; an alarm still open from earlier keeps its start time) and
   `count` = how many times it reported it in the look-back.
@@ -195,7 +195,7 @@ def _windows(col: Any, times: Dict[int, datetime]) -> Any:
 
 
 def fault_since(day: date, hour: int) -> datetime:
-    """Start of check `hour`'s fault look-back: hh:00 − PWA_FAULT_LOOKBACK_MIN (08:30 for 9),
+    """Start of check `hour`'s fault look-back: hh:00 − PWA_FAULT_LOOKBACK_MIN (08:00 for 9),
     never after the slot time."""
     since = datetime.combine(day, time(hour)) - timedelta(minutes=settings.pwa_fault_lookback_min)
     return min(since, slot_time(day, hour))
@@ -398,7 +398,7 @@ def compute_slots(
                 issues.append({"inv": label[sn], "state": "Offline", "items": [], "last": seen.strftime("%H:%M") if seen else None})
                 continue
             mine = sorted((a for a in alarms if a.device_sn == sn), key=lambda a: a.start_time or t)
-            # the alarm-log records of the check's look-back only (hh:00 − 30 min … slot time)
+            # the alarm-log records of the check's look-back only (hh:00 − 60 min … slot time)
             present = [a for a in mine if a in in_window]
             # every report of the same alarm (kind, code, text) in that look-back
             reports: Dict[Tuple[bool, Optional[str], Optional[str]], List[datetime]] = {}

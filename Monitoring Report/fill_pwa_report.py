@@ -42,7 +42,7 @@ NEAREST = timedelta(minutes=10)
 DASH = "—"
 
 # สภาพอากาศ has only these three values
-SKY_CLEAR, SKY_CLOUD, SKY_RAIN = "ท้องฟ้าปลอดโปร่ง", "มีเมฆบางส่วน", "ฝนตก"
+SKY_CLEAR, SKY_CLOUD, SKY_RAIN = "ท้องฟ้าปลอดโปร่ง", "มีเมฆมาก", "ฝนตก"
 
 
 def col(letter: str, offset: int) -> str:
