@@ -85,6 +85,7 @@ export const withLiveMeter = (rows: Row[], points: MeterPoint[], day: string): R
     const p = r.live ? bySlot.get(r.timestamp) : undefined;
     if (!p) return r;
     bySlot.delete(r.timestamp);
+    if (r.grid_import_kw != null || r.grid_export_kw != null) return r; // the stored meter slot wins
     return { ...r, grid_import_kw: p.grid_import_kw, grid_export_kw: p.grid_export_kw, load_kw: p.load_kw };
   });
   for (const [slot, p] of bySlot)

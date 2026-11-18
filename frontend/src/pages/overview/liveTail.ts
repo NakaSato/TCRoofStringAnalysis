@@ -3,8 +3,9 @@
  * today's newest `max_data` records (`power`, memory only), which this sums into 5-minute plant
  * slots the same way the backend sums stored records (`_plant_curve`): an inverter's samples are
  * averaged within the slot, then summed across inverters, and an inverter missing from a slot keeps
- * its own value from ≤ 10 min earlier (`held`). Only slots after the newest stored one are added,
- * flagged `live`, so the chart never mixes the two sources in one slot.
+ * its own value from ≤ 10 min earlier (`held`). Only slots after the newest stored inverter slot
+ * are added, flagged `live`, so PV never mixes the two sources in one slot. A stored row of the
+ * energy meter only (PV null) in such a slot keeps its grid / load values and gets the live PV.
  */
 import type { LiveInverter } from "../inverters/shared";
 import type { PowerCurve } from "../generation/charts";
@@ -29,7 +30,9 @@ const expectedKw = (capKwp: number | null, hr: number): number | null => {
 const mean = (xs: number[]) => xs.reduce((a, v) => a + v, 0) / xs.length;
 
 export const withLiveTail = (stored: Row[], recs: LiveInverter[], day: string, capKwp: number | null): Row[] => {
-  const after = stored.length ? stored[stored.length - 1].timestamp : "";
+  const pvRows = stored.filter((r) => r.pac_kw != null);
+  const after = pvRows.length ? pvRows[pvRows.length - 1].timestamp : "";
+  const meterOnly = new Map(stored.filter((r) => r.pac_kw == null).map((r) => [r.timestamp, r]));
   // (slot ms) -> sn -> samples
   const slots = new Map<number, Map<string, { pac: number[]; ppv: number[] }>>();
   for (const r of recs) {
@@ -74,6 +77,7 @@ export const withLiveTail = (stored: Row[], recs: LiveInverter[], day: string, c
     if (ts <= after) continue;
     const d = new Date(slot);
     out.push({
+      ...meterOnly.get(ts),
       timestamp: ts,
       pac_kw: Math.round(pac / 10) / 100,
       ppv_kw: Math.round(ppv / 10) / 100,
@@ -85,5 +89,7 @@ export const withLiveTail = (stored: Row[], recs: LiveInverter[], day: string, c
       live: true,
     });
   }
-  return out.length ? [...stored, ...out] : stored;
+  if (!out.length) return stored;
+  const replaced = new Set(out.map((r) => r.timestamp));
+  return [...stored.filter((r) => !replaced.has(r.timestamp)), ...out].sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
 };

@@ -89,9 +89,10 @@ export const sensorDaySpec = (
     });
   }
   // plant AC power on its own x (the plant's 5-min slots), under irradiance so the two shapes compare
-  const pw = (o.power?.ts ?? []).filter((r) => {
+  // (rows of the energy meter only, with no inverter record, carry no AC power: left out)
+  const pw = (o.power?.ts ?? []).filter((r): r is typeof r & { pac_kw: number } => {
     const t = r.timestamp.slice(11, 16);
-    return r.timestamp.slice(0, 10) === o.day && (!o.from || t >= o.from) && (!o.to || t <= o.to);
+    return r.pac_kw != null && r.timestamp.slice(0, 10) === o.day && (!o.from || t >= o.from) && (!o.to || t <= o.to);
   });
   const fullCount = Math.max(0, ...pw.map((r) => r.inverters ?? 0));
   // only producing slots: at night a few inverters logging 0 kW says nothing about the sum

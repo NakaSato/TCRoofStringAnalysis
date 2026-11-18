@@ -8,6 +8,13 @@ been checked against a site yet, so the UI labels these "meter".
 
 Load is not measured: it is derived as PV AC + grid power (PV + import − export) in the slots
 where both are stored, and null where that sum would be negative (inconsistent data).
+
+The meter records around the clock, the inverters only while they run. A meter slot with no
+inverter record becomes a row of its own with PV null (never 0). Its load is derived (= grid
+power) only where PV is 0 without a record: with the sun down (outside `DAY_START_H`–`DAY_END_H`),
+or before / after the day's inverter records when the nearest of them read 0 kW (not started
+yet / shut down). Any other slot without an inverter record keeps load null: the inverters may
+be producing unreported.
 """
 
 from __future__ import annotations
@@ -20,9 +27,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import GrowattMeter, GrowattMeterReading
-from app.services.growatt_common import _bucket, _integrate_kwh, _round
+from app.services.growatt_common import _bucket, _expected_kw, _integrate_kwh, _round
 
 M = GrowattMeterReading
+
+TS_FMT = "%Y-%m-%d %H:%M:%S"
+DAY_START_H, DAY_END_H = 5, 19  # outside these plant-local hours the sun is down: PV is 0 without a record
 
 
 def plant_meters(db: Session, plant_id: int) -> List[Tuple[str, int]]:
@@ -56,14 +66,21 @@ def meter_slots(db: Session, plant_id: int, start: datetime, end: datetime) -> T
         per.setdefault((_bucket(ts), (dl, int(addr))), []).append(float(p))
     out: Dict[str, float] = {}
     for (slot, _meter), vals in per.items():
-        key = slot.strftime("%Y-%m-%d %H:%M:%S")
+        key = slot.strftime(TS_FMT)
         out[key] = out.get(key, 0.0) + statistics.mean(vals)
     return True, out
 
 
-def attach_grid(timeseries: List[Dict[str, Any]], slots: Dict[str, float]) -> None:
+def attach_grid(timeseries: List[Dict[str, Any]], slots: Dict[str, float], cap_kwp: Optional[float] = None) -> None:
     """Adds grid_import_kw / grid_export_kw (measured) and load_kw (derived) to each curve row;
-    null where the meter has no record for the slot."""
+    null where the meter has no record for the slot. A meter slot the curve has no row for is
+    added as a row with PV null (see the module docstring for its load); the curve stays in
+    time order."""
+    edges: Dict[str, Tuple[Dict[str, Any], Dict[str, Any]]] = {}  # day -> its first / last inverter row
+    for r in timeseries:
+        d = r["timestamp"][:10]
+        edges[d] = (edges[d][0] if d in edges else r, r)
+    known = {r["timestamp"] for r in timeseries}
     for r in timeseries:
         p = slots.get(r["timestamp"])
         if p is None:
@@ -74,15 +91,43 @@ def attach_grid(timeseries: List[Dict[str, Any]], slots: Dict[str, float]) -> No
         r["grid_export_kw"] = round(max(-kw, 0.0), 2)
         load = (r.get("pac_kw") or 0.0) + kw
         r["load_kw"] = round(load, 2) if load >= 0 else None
+    extra = sorted(set(slots) - known)
+    for key in extra:
+        t = datetime.strptime(key, TS_FMT)
+        kw = slots[key] / 1000.0
+        pv_off = not DAY_START_H <= t.hour < DAY_END_H
+        if not pv_off and key[:10] in edges:
+            first, last = edges[key[:10]]
+            pv_off = (key < first["timestamp"] and first.get("pac_kw") == 0) or (key > last["timestamp"] and last.get("pac_kw") == 0)
+        timeseries.append(
+            {
+                "timestamp": key,
+                "pac_kw": None,  # no inverter record in this slot
+                "ppv_kw": None,
+                "expected_kw": _expected_kw(cap_kwp, t.hour + t.minute / 60.0),
+                "temp_c": None,
+                "freq_hz": None,
+                "inverters": 0,
+                "held": 0,
+                "grid_import_kw": round(max(kw, 0.0), 2),
+                "grid_export_kw": round(max(-kw, 0.0), 2),
+                "load_kw": round(kw, 2) if pv_off and kw >= 0 else None,
+            }
+        )
+    if extra:
+        timeseries.sort(key=lambda r: r["timestamp"])
 
 
-def day_energy(db: Session, plant_id: int, start: datetime, end: datetime, timeseries: List[Dict[str, Any]]) -> Dict[str, Optional[float]]:
+def day_energy(
+    db: Session, plant_id: int, start: datetime, end: datetime, timeseries: List[Dict[str, Any]], use_counter: bool = True
+) -> Dict[str, Optional[float]]:
     """The period's grid import (from the meters' import counters where they span it, else
-    integrated), export and load (integrated from the 5-minute series). Each figure is integrated
-    over the slots that have it only (a slot with a null load is left out, never counted as 0 W)
-    and is null without any. A meter's counter is used only with at least two records in the
-    period: one record spans nothing."""
-    pts = [(datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S"), r) for r in timeseries if r.get("load_kw") is not None or r.get("grid_import_kw") is not None]
+    integrated), export and load (integrated from the 5-minute series). A slot without a value
+    adds no energy (never counted as 0 W), and a figure is null when no slot has one. A meter's
+    counter is used only with at least two records in the period: one record spans nothing.
+    `use_counter=False` (a time-of-day window, which the counters' span does not match):
+    import is always integrated."""
+    pts = [(datetime.strptime(r["timestamp"], TS_FMT), r) for r in timeseries if r.get("load_kw") is not None or r.get("grid_import_kw") is not None]
     if not pts:
         return {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}
 
@@ -92,14 +137,16 @@ def day_energy(db: Session, plant_id: int, start: datetime, end: datetime, times
         vals = [(t, None if r.get(key) is None else float(r[key]) * 1000.0) for t, r in pts]
         return round(_integrate_kwh(vals), 1) if any(v is not None for _t, v in vals) else None
 
-    counter = db.execute(
-        select(func.max(M.import_counter_kwh) - func.min(M.import_counter_kwh), func.count())
-        .join(GrowattMeter, (GrowattMeter.datalogger_sn == M.datalogger_sn) & (GrowattMeter.address == M.address))
-        .where(GrowattMeter.plant_id == plant_id, M.timestamp >= start, M.timestamp < end, M.import_counter_kwh > 0)
-        .group_by(M.datalogger_sn, M.address)
-    ).all()
-    spanned = bool(counter) and all(span is not None and n >= 2 for span, n in counter)
-    imp = sum(float(span) for span, _n in counter) if spanned else None
+    imp: Optional[float] = None
+    if use_counter:
+        counter = db.execute(
+            select(func.max(M.import_counter_kwh) - func.min(M.import_counter_kwh), func.count())
+            .join(GrowattMeter, (GrowattMeter.datalogger_sn == M.datalogger_sn) & (GrowattMeter.address == M.address))
+            .where(GrowattMeter.plant_id == plant_id, M.timestamp >= start, M.timestamp < end, M.import_counter_kwh > 0)
+            .group_by(M.datalogger_sn, M.address)
+        ).all()
+        if counter and all(span is not None and n >= 2 for span, n in counter):
+            imp = sum(float(span) for span, _n in counter)
     return {
         "grid_import_kwh": _round(imp, 1) if imp is not None else integ("grid_import_kw"),
         "grid_export_kwh": integ("grid_export_kw"),

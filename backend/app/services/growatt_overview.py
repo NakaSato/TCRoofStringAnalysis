@@ -453,6 +453,18 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     mod = fleet_settings.get_fleet_module(db)
     gamma_pct = float(mod.get("temp_coeff_pmax_pct") or growatt_weather.DEFAULT_GAMMA_PCT_PER_K)
 
+    # Energy meter at the grid connection point: grid import / export measured, load derived.
+    # Meter slots without an inverter record (night) become rows with PV null, so every reader
+    # of `timeseries` below treats a null pac_kw as "no inverter record", never as 0.
+    grid_energy: Dict[str, Optional[float]] = {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}
+    if day is not None:
+        m_start, m_end = _day_bounds(day)
+        has_meter, gslots = growatt_meter.meter_slots(db, plant_id, m_start, m_end)
+        growatt_meter.attach_grid(timeseries, gslots, cap_kwp)
+        if gslots:
+            grid_energy = growatt_meter.day_energy(db, plant_id, m_start, m_end, timeseries)
+    else:  # no inverter record yet: the meter is still reported, its figures stay null
+        has_meter = bool(growatt_meter.plant_meters(db, plant_id))
     # Weather sensor (measured irradiance / temperatures) for the same day, merged onto the
     # 5-minute curve, and the IEC 61724-1 PR it allows. Null where the plant has no sensor.
     weather = growatt_weather.build_weather_day(db, plant_id, day, latest_if_none=False)
@@ -462,16 +474,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         r["irradiance_wm2"] = wx.get("irradiance_wm2")  # measured, plane of array
         r["module_temp_c"] = wx.get("module_temp_c")
         r["ambient_temp_c"] = wx.get("ambient_temp_c")
-    # Energy meter at the grid connection point: grid import / export measured, load derived
-    has_meter, grid_energy = False, {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}
-    if day is not None:
-        m_start, m_end = _day_bounds(day)
-        has_meter, gslots = growatt_meter.meter_slots(db, plant_id, m_start, m_end)
-        growatt_meter.attach_grid(timeseries, gslots)
-        if gslots:
-            grid_energy = growatt_meter.day_energy(db, plant_id, m_start, m_end, timeseries)
     pr = growatt_weather.iec_pr(
-        yield_today_kwh, cap_kwp, weather, [r["timestamp"] for r in timeseries if r["pac_kw"] > 0], gamma_pct
+        yield_today_kwh, cap_kwp, weather, [r["timestamp"] for r in timeseries if (r["pac_kw"] or 0) > 0], gamma_pct
     )
     wk = weather["kpis"]
 
@@ -488,9 +492,10 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         for r in timeseries:
             ts_str = r["timestamp"]
             g = r.get("irradiance_wm2")
-            pac_kw = r.get("pac_kw") or 0.0
+            pac_kw = r.get("pac_kw")
             if (
                 g is None
+                or pac_kw is None  # no inverter record in this slot
                 or ts_str in stale_ts
                 or not (growatt_weather.POA_FILTER_MIN_WM2 <= g <= growatt_weather.POA_FILTER_MAX_WM2)
                 or (rated_ac_kw > 0 and pac_kw >= 0.98 * rated_ac_kw)
@@ -733,7 +738,18 @@ def build_plant_power(
         d += timedelta(days=1)
     curve = _plant_curve(raw, cap_kwp)
     has_meter, gslots = growatt_meter.meter_slots(db, plant_id, g_start, g_end)
-    growatt_meter.attach_grid(curve, gslots)
+    if not include_records:
+        gslots = {}
+    windowed = start_time is not None or end_time is not None
+    if windowed:
+        lo, hi = (start_time or time.min).strftime("%H:%M:%S"), (end_time or time.max).strftime("%H:%M:%S")
+        gslots = {k: v for k, v in gslots.items() if lo <= k[11:] <= hi}
+    growatt_meter.attach_grid(curve, gslots, cap_kwp)
+    # the period's grid / load energy, integrated like a whole day's (the import counter only
+    # without a time window: its span is the whole days')
+    grid_energy: Dict[str, Optional[float]] = {"grid_import_kwh": None, "grid_export_kwh": None, "load_kwh": None}
+    if gslots:
+        grid_energy = growatt_meter.day_energy(db, plant_id, g_start, g_end, curve, use_counter=not windowed)
     # Weather sensor POA irradiance (measured) per slot, built day by day as the day view does,
     # so a probe stuck at 0 all day counts as not measured. Null where the plant has no sensor.
     irr: Dict[str, Optional[float]] = {}
@@ -757,6 +773,7 @@ def build_plant_power(
         "rated_ac_kw": _round(rated_w / 1000.0, 1) if rated_w else None,
         "timeseries": curve,
         "has_meter": has_meter,
+        **grid_energy,
         # Growatt's own 5-minute plant AC curve (`plant/power`, stored for finished days)
         "growatt_timeseries": [{"timestamp": _fmt_ts(ts), "pac_kw": round(w / 1000.0, 2)} for ts, w in g_raw],
         "daily": daily,

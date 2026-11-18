@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from sqlalchemy import select
 
-from app.db.models import GrowattMeter, GrowattMeterReading
+from app.db.models import GrowattMeter, GrowattMeterReading, GrowattPlant
 from app.db.session import get_db
 from app.services import growatt_sync
 from app.services.growatt_meter import attach_grid, day_energy
@@ -120,6 +120,73 @@ def test_overview_carries_grid_and_load_only_with_a_meter(client):  # noqa: F811
     power = client.get(f"/api/growatt/plants/{PLANT}/power?day=2026-11-11").json()
     assert power["has_meter"] is True
     assert any(r["load_kw"] is not None for r in power["timeseries"])
+
+
+def test_attach_grid_adds_meter_only_slots_with_pv_null():
+    ts = [
+        {"timestamp": "2026-11-11 06:00:00", "pac_kw": 0.0},
+        {"timestamp": "2026-11-11 12:00:00", "pac_kw": 10.0},
+        {"timestamp": "2026-11-11 17:50:00", "pac_kw": 0.4},
+    ]
+    slots = {
+        "2026-11-11 02:00:00": 5000.0,  # sun down
+        "2026-11-11 05:30:00": 4000.0,  # before the first inverter row, which read 0 kW
+        "2026-11-11 12:05:00": 3000.0,  # between inverter rows
+        "2026-11-11 18:10:00": 2000.0,  # after the last inverter row, which still produced
+        "2026-11-11 19:30:00": 1000.0,  # sun down
+        "2026-11-11 23:00:00": -500.0,  # export with the sun down: inconsistent
+    }
+    attach_grid(ts, slots, cap_kwp=20.0)
+    assert [r["timestamp"] for r in ts] == sorted(r["timestamp"] for r in ts) and len(ts) == 9
+    by = {r["timestamp"][11:16]: r for r in ts}
+    for key in ("02:00", "05:30", "12:05", "18:10", "19:30", "23:00"):
+        assert by[key]["pac_kw"] is None and by[key]["ppv_kw"] is None and by[key]["inverters"] == 0  # never 0 kW
+    assert by["02:00"]["grid_import_kw"] == 5.0 and by["02:00"]["load_kw"] == 5.0
+    assert by["05:30"]["load_kw"] == 4.0
+    assert by["12:05"]["grid_import_kw"] == 3.0 and by["12:05"]["load_kw"] is None  # PV unknown by day
+    assert by["18:10"]["load_kw"] is None
+    assert by["19:30"]["load_kw"] == 1.0
+    assert by["23:00"]["grid_export_kw"] == 0.5 and by["23:00"]["load_kw"] is None
+    assert by["02:00"]["expected_kw"] == 0.0 and by["12:05"]["expected_kw"] > 0  # clear-sky model, as on inverter rows
+
+
+def test_night_meter_slots_and_period_energy_from_the_backend(client):  # noqa: F811
+    s = _session(client)
+    readings = [(DAY + timedelta(hours=2, minutes=m, seconds=3), 6000.0, 990.0 + m / 10) for m in (0, 5, 10)]
+    for m in range(0, 60, 5):
+        readings.append((DAY + timedelta(hours=10, minutes=m, seconds=3), 3000.0, 1000.0 + m / 20))
+    _seed_meter(s, readings)
+
+    ov = client.get(f"/api/growatt/plants/{PLANT}/overview?day=2026-11-11").json()
+    by = {r["timestamp"]: r for r in ov["timeseries"]}
+    night = by["2026-11-11 02:05:00"]
+    assert night["pac_kw"] is None and night["grid_import_kw"] == 6.0 and night["load_kw"] == 6.0
+    assert ov["kpis"]["peak_power_kw"] is not None and ov["kpis"]["tariff_thb_per_kwh"] is not None
+
+    power = client.get(f"/api/growatt/plants/{PLANT}/power?day=2026-11-11").json()
+    assert "2026-11-11 02:05:00" in {r["timestamp"] for r in power["timeseries"]}
+    for key in ("grid_import_kwh", "grid_export_kwh", "load_kwh"):
+        assert power[key] == ov["kpis"][key]  # one integration for a whole day and a period
+    assert power["grid_import_kwh"] == 12.8  # the import counter: 990.0 -> 1002.75
+
+    win = client.get(f"/api/growatt/plants/{PLANT}/power?day=2026-11-11&start=10:00&end=10:25").json()
+    assert all("10:00:00" <= r["timestamp"][11:] <= "10:25:00" for r in win["timeseries"])
+    assert win["grid_import_kwh"] == 1.5  # 3 kW x 6 slots of 5 min, integrated: the counter spans the whole day
+    assert win["grid_export_kwh"] == 0.0 and win["load_kwh"] is not None
+
+    bare = client.get(f"/api/growatt/plants/{PLANT}/power?day=2026-11-11&records=false").json()
+    assert bare["has_meter"] is True and bare["timeseries"] == [] and bare["grid_import_kwh"] is None
+
+
+def test_overview_reports_a_meter_before_any_inverter_record(client):  # noqa: F811
+    s = _session(client)
+    s.add(GrowattPlant(plant_id=222, name="New Plant", peak_power_kwp=10.0))
+    s.flush()
+    s.add(GrowattMeter(datalogger_sn="DLNEW", address=1, plant_id=222, device_name="CHNT_THREE"))
+    s.commit()
+    k = client.get("/api/growatt/plants/222/overview").json()["kpis"]
+    assert k["has_meter"] is True
+    assert k["grid_import_kwh"] is None and k["load_kwh"] is None
 
 
 def test_sync_meters_registers_by_bus_address_and_retention_prunes(client):  # noqa: F811
