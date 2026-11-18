@@ -17,7 +17,8 @@
  *        วันที่ 1 … 28-31     the daily String Check form, one sheet per day
  *        _ข้อมูลสถานี (hidden)  the plant's data from the Overview; every day sheet reads from it
  *
- * Sync (syncNow, and automatically at each "ซิงก์" event of the calendar) — for every plant file of the month:
+ * Sync (syncNow; automatically every CONFIG.SYNC_EVERY_MIN minutes during the day, and at each "ซิงก์"
+ * event of the calendar) — for every plant file of the month:
  *   - _ข้อมูลสถานี is rewritten from the Overview when anything differs (name, kWp, S/N, จำนวนสตริง …)
  *   - Overview "รายงานการแก้ไข": one row per problem (an inverter that is ผิดปกติ > 0, Fault or Offline,
  *     from the first day it is seen until a later day shows it normal), with the newest รายละเอียด,
@@ -29,6 +30,11 @@
  *     status typed in the day sheets
  *   - Overview "สถานี": จำนวน Inverter, จำนวนสตริงรวม (formulas over "Inverter") and ไฟล์รายงาน (link)
  *
+ * Where things are: the root folder is the folder the Overview sheet is in (rootId_), so the month folders
+ * "yyyy-MM" and logo.png sit next to the Overview. No Drive id is written in this file; a copy of the
+ * Overview in another folder or account works on its own folder as soon as setup() is run there.
+ * The live copy belongs to engineer@tcrenewable.com (upload with `clasp push --user engineer`); the
+ * triggers run as the account that ran setup().
  * The script is bound to the Overview Google Sheet: everything below is in the sheet's menu "String Check".
  * The same functions can be run from the Apps Script editor:
  *   convertOverview()   once, when the Overview in Drive is still an .xlsx: makes the Google Sheet copy
@@ -40,6 +46,10 @@
  *                       from then on the automatic runs happen at the start time of that calendar's events
  *                       (move, add or delete events to change the schedule — see "schedule = Google Calendar")
  *   planTriggers()      re-reads the calendar now
+ *   setSyncInterval(n)  how often the automatic sync looks for edits (minutes; 0 = off). It is on by
+ *                       default: every CONFIG.SYNC_EVERY_MIN minutes, CONFIG.SYNC_FROM_HOUR–SYNC_TO_HOUR.
+ *                       Apps Script cannot react to an edit in another file, so "realtime" means this poll:
+ *                       a run that finds no edited file ends in about a second, without touching the Overview
  *   status() / cancelJob()
  *
  * Apps Script stops a run after 6 minutes, so a job works in batches: each run works for about
@@ -52,14 +62,19 @@
  */
 
 const CONFIG = {
-  ROOT_FOLDER_ID: '1ReoBcxIHLE_7RAjEjJCGfnNHT7K8iZas',   // Drive folder that holds the Overview and the month folders
-  OVERVIEW_ID: '1ikZ3NsKPdJ4PbAya9Q0d8Db57RJSvDJOptuPHS7B5HQ',   // the Overview Google Sheet (this script is bound to it); blank = find by name
-  OVERVIEW_NAME: '00_Overview',   // the Overview's file name starts with this
-  LOGO_FILE_ID: '1f02N42E3mQCeWTM_f1OT2Dhl9bgkZ7sg',   // logo.png in the root folder, top right of every day sheet; blank = no logo
+  // Nothing here names a Drive location: the Overview is the sheet this script is bound to, and the root
+  // folder is the folder that sheet is in. Move or copy the sheet and everything follows it.
+  ROOT_FOLDER_ID: '',             // blank = the folder the Overview is in; an id = month folders go there instead
+  OVERVIEW_ID: '',                // blank = the sheet this script is bound to; an id = that Google Sheet instead
+  OVERVIEW_NAME: '00_Overview',   // only without a bound sheet: the Overview is the file in the root folder whose name starts with this
+  LOGO_FILE_ID: '',               // blank = the file LOGO_NAME in the root folder (none = no logo); an id = that image
+  LOGO_NAME: 'logo.png',          // top right of every day sheet
   CALENDAR_NAME: 'String Check',  // Google Calendar whose events are the schedule of the automatic runs
   CREATE_ON_DAY: 25,              // setup(): default event — next month's files on this day, 01:00
   SYNC_HOURS: [12, 18],           // setup(): default events — sync every day at these hours (Bangkok)
-  SYNC_FROM_HOUR: 6,              // the interval sync (menu "ตั้งรอบซิงก์อัตโนมัติ") only runs from this hour ...
+  SYNC_EVERY_MIN: 5,              // interval sync, on by default: look for edits this often (one of SYNC_INTERVALS; 0 = off)
+                                  // until another value is chosen in the menu "ตั้งรอบซิงก์อัตโนมัติ"
+  SYNC_FROM_HOUR: 6,              // the interval sync only runs from this hour ...
   SYNC_TO_HOUR: 20,               // ... until this hour (Bangkok), to stay inside Google's daily run time
   RUN_SECONDS: 240,               // work per run (the Apps Script limit is 6 minutes)
   REPLACE_XLSX: true,             // a plant's old "<name>.xlsx" in the month folder goes to the trash once its Google Sheet exists
@@ -113,9 +128,9 @@ const INFO_INV0 = 11;        // first inverter row in the info sheet
 const DAY_INV0 = 17;         // first inverter row in a day sheet
 const TEMP_OVERVIEW = '_overview_tmp';
 const JOB_KEYS = ['job', 'ym', 'idx', 'folder', 'ov', 'ovTemp', 'only', 'made', 'skipped', 'errors', 'warn', 'fails',
-  'full', 'sig', 'since', 'began', 'same'];
+  'full', 'sig', 'since', 'began', 'same', 'root'];
 const SYNC_VERSION = '7';            // raised when sync starts repairing something new: every file is read once
-const SYNC_INTERVALS = [15, 30, 60, 120, 240, 360, 720];   // minutes; what a time trigger can do
+const SYNC_INTERVALS = [1, 5, 10, 15, 30, 60, 120, 240, 360, 720];   // minutes; what a time trigger can do
 const SYNC_MARGIN_MS = 15 * 60000;   // a file edited this long before the last sync started is read again, to be safe
 const WATCHDOG_MIN = 7;      // Google stops a run at 6 minutes; this trigger, set before the work, carries the job on
 const NEXT_RUN_MS = 10000;   // pause between two runs of a job
@@ -154,19 +169,23 @@ function menuStatus() { SpreadsheetApp.getUi().alert('String Check', status(), S
 function menuCancel() { cancelJob(); toast_('ยกเลิกงานแล้ว'); }
 function menuInterval() {
   const ui = SpreadsheetApp.getUi();
-  const cur = Number(PropertiesService.getScriptProperties().getProperty('syncEvery') || 0);
+  const cur = syncEvery_(PropertiesService.getScriptProperties());
   const r = ui.prompt('String Check — รอบซิงก์อัตโนมัติ',
     `ซิงก์ทุกกี่นาที?  พิมพ์ ${SYNC_INTERVALS.join(', ')}  หรือ 0 เพื่อปิด\n` +
     `ทำงานเฉพาะ ${CONFIG.SYNC_FROM_HOUR}:00–${CONFIG.SYNC_TO_HOUR}:00 น.  ·  ตอนนี้: ${cur ? `ทุก ${cur} นาที` : 'ปิด'}`,
     ui.ButtonSet.OK_CANCEL);
-  if (r.getSelectedButton() !== ui.Button.OK) return;
-  toast_(setSyncInterval(Number(r.getResponseText().trim())));
+  const typed = r.getResponseText().trim();
+  if (r.getSelectedButton() !== ui.Button.OK || typed === '') return;   // blank = keep the current setting
+  toast_(setSyncInterval(Number(typed)));
 }
 function menuPlan() { planTriggers(); toast_('อ่านเวลาจากปฏิทินแล้ว'); }
 function menuSetup() {
   setup();
+  const every = syncEvery_(PropertiesService.getScriptProperties());
   SpreadsheetApp.getUi().alert('String Check', `ตั้งค่าแล้ว — เวลาทำงานอัตโนมัติอยู่ในปฏิทิน "${CONFIG.CALENDAR_NAME}" ของ Google Calendar\n` +
-    'ย้าย / เพิ่ม / ลบนัดในปฏิทินเพื่อเปลี่ยนเวลา', SpreadsheetApp.getUi().ButtonSet.OK);
+    'ย้าย / เพิ่ม / ลบนัดในปฏิทินเพื่อเปลี่ยนเวลา\n' +
+    (every ? `ซิงก์อัตโนมัติเมื่อมีการแก้ไขไฟล์สถานี: ตรวจทุก ${every} นาที ระหว่าง ${CONFIG.SYNC_FROM_HOUR}:00–${CONFIG.SYNC_TO_HOUR}:00 น.`
+      : 'รอบซิงก์อัตโนมัติ: ปิด') + ' (เปลี่ยนได้ที่เมนู ตั้งรอบซิงก์อัตโนมัติ)', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 function confirmCreate_(ym, onlyCode) {
@@ -215,7 +234,7 @@ function setup() {
   } catch (e) {
     console.warn(`ตั้งให้อัปเดตทันทีเมื่อแก้ปฏิทินไม่ได้ (${e}) — เวลาที่แก้ในปฏิทินจะมีผลหลัง 00:05 หรือเมื่อรัน planTriggers()`);
   }
-  planTriggers();
+  planTriggers();                                       // also turns the interval sync on (ensureInterval_)
   console.log(`ตั้งค่าแล้ว: เวลาทำงานอัตโนมัติมาจากปฏิทิน "${CONFIG.CALENDAR_NAME}" — ย้าย / เพิ่ม / ลบนัดในปฏิทินเพื่อเปลี่ยนเวลา`);
 }
 
@@ -276,12 +295,26 @@ function planTriggers() {
   });
   // a job whose chain of runs broke (for example the daily quota ran out) starts again here
   if (PropertiesService.getScriptProperties().getProperty('job') && !hasTrigger_('continueJob')) after_(NEXT_RUN_MS);
+  ensureInterval_();
   console.log(planned.length ? `ตั้งเวลาจากปฏิทินแล้ว: ${planned.join(' · ')}` : 'ไม่มีนัดในปฏิทินภายใน 25 ชั่วโมงข้างหน้า');
+}
+
+/** Minutes between interval syncs: the value chosen with setSyncInterval, else CONFIG.SYNC_EVERY_MIN; 0 = off. */
+function syncEvery_(props) {
+  const chosen = props.getProperty('syncEvery');
+  return Number(chosen === null ? CONFIG.SYNC_EVERY_MIN : chosen) || 0;
+}
+
+/** The interval sync is on by default: its trigger is put back whenever it is missing and not turned off. */
+function ensureInterval_() {
+  const minutes = syncEvery_(PropertiesService.getScriptProperties());
+  if (minutes && !hasTrigger_('intervalSync')) console.log(setSyncInterval(minutes));
 }
 
 /**
  * Sync every `minutes` minutes (one of SYNC_INTERVALS; 0 = off), on top of the calendar's sync events.
- * A sync only reads the plant files edited since the one before, so a short interval stays cheap.
+ * A run first asks Drive whether any plant file was edited (nothingNew_) and stops there when none was;
+ * a sync only reads the plant files edited since the one before, so a short interval stays cheap.
  */
 function setSyncInterval(minutes) {
   if (minutes !== 0 && SYNC_INTERVALS.indexOf(minutes) < 0) {
@@ -289,13 +322,12 @@ function setSyncInterval(minutes) {
   }
   const props = PropertiesService.getScriptProperties();
   clearTriggers_('intervalSync');
+  props.setProperty('syncEvery', String(minutes));       // "0" is kept: off stays off through setup()
   if (!minutes) {
-    props.deleteProperty('syncEvery');
     return 'ปิดรอบซิงก์อัตโนมัติแล้ว (ซิงก์ตามปฏิทินยังทำงาน)';
   }
   const t = ScriptApp.newTrigger('intervalSync').timeBased();
   (minutes < 60 ? t.everyMinutes(minutes) : t.everyHours(minutes / 60)).create();
-  props.setProperty('syncEvery', String(minutes));
   return `ตั้งแล้ว: ซิงก์ทุก ${minutes} นาที ระหว่าง ${CONFIG.SYNC_FROM_HOUR}:00–${CONFIG.SYNC_TO_HOUR}:00 น.`;
 }
 
@@ -303,7 +335,39 @@ function setSyncInterval(minutes) {
 function intervalSync() {
   const hour = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'H'));
   if (hour < CONFIG.SYNC_FROM_HOUR || hour >= CONFIG.SYNC_TO_HOUR) return;
-  startSync_(ym_(new Date()), true);
+  const ym = ym_(new Date());
+  if (nothingNew_(ym)) return;
+  startSync_(ym, true);
+}
+
+/**
+ * True when a sync of `ym` would find nothing to do: no job is waiting, the last sync was complete, no
+ * plant file in the month folder was edited since (same rule as syncBatch_), and the Overview's plants
+ * and inverters are the same. Two Drive calls; the Overview is only opened after somebody edited it.
+ * Any doubt (or a failed call) answers false, and the sync decides for itself.
+ */
+function nothingNew_(ym) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty('job')) return false;
+    const last = JSON.parse(props.getProperty(`synced_${ym}`) || 'null');
+    if (!last || !last.f || !last.ov || !last.fin || last.v !== SYNC_VERSION || (last.err && last.err.length)) return false;
+    if (last.root !== rootId_()) return false;   // the last sync was of another root folder
+    const since = new Date(Number(last.t) - SYNC_MARGIN_MS).toISOString();
+    const edited = Drive.Files.list({ q: `'${last.f}' in parents and trashed = false and modifiedTime > '${since}'`,
+      pageSize: 1, fields: 'files(id)' }).files;
+    if (edited && edited.length) return false;
+    // the Overview: untouched since the sync wrote it, or already compared at this edit time
+    const at = Drive.Files.get(last.ov, { fields: 'modifiedTime' }).modifiedTime;
+    if (new Date(at).getTime() <= Number(last.fin) || props.getProperty('ovSame') === at) return true;
+    const overview = SpreadsheetApp.openById(last.ov);
+    if (signature_([readStations_(overview), readInverters_(overview)]) !== last.sig) return false;
+    props.setProperty('ovSame', at);
+    return true;
+  } catch (e) {
+    console.warn(`ตรวจการแก้ไขไม่ได้ — ซิงก์ตามปกติ: ${e}`);
+    return false;
+  }
 }
 
 /** Fired at the start of a "ซิงก์" event. */
@@ -315,10 +379,12 @@ function calendarCreate() {
   const event = calendar_(false).getEvents(new Date(now.getTime() - 20 * 60000), new Date(now.getTime() + 20 * 60000))
     .filter(e => eventAction_(e) === 'calendarCreate')[0];
   const named = event && /\d{4}-(0[1-9]|1[0-2])/.exec(event.getTitle());
-  if (PropertiesService.getScriptProperties().getProperty('job')) {
-    console.warn('ข้ามการสร้างไฟล์ตามปฏิทิน: มีงานอื่นทำอยู่');
+  // a sync that is working (the interval sync often is) is waited for: startCreate_ queues behind it
+  if (PropertiesService.getScriptProperties().getProperty('job') === 'create') {
+    console.warn('ข้ามการสร้างไฟล์ตามปฏิทิน: มีงานสร้างไฟล์ทำอยู่');
     return;
   }
+  RUN_LATER = true;
   startCreate_(named ? named[0] : nextYm_(), '');
 }
 
@@ -340,7 +406,7 @@ function convertOverview() {
     return;
   }
   const copy = Drive.Files.copy({ name: file.getName().replace(/\.xlsx?$/i, ''), mimeType: MimeType.GOOGLE_SHEETS,
-    parents: [CONFIG.ROOT_FOLDER_ID] }, file.getId());
+    parents: [rootId_()] }, file.getId());
   console.log(`สร้าง Overview แบบ Google Sheet แล้ว: https://docs.google.com/spreadsheets/d/${copy.id}/edit\n` +
     `ต่อจากนี้ให้แก้ไขที่ไฟล์นี้ (ไฟล์ .xlsx เดิมยังอยู่ แต่ระบบไม่ใช้แล้ว)`);
 }
@@ -352,9 +418,11 @@ function status() {
       ? `กำลังซิงก์เดือน ${p.ym}: ทำแล้ว ${p.idx} สถานี (อ่าน ${p.made}, ไม่มีการแก้ไข ${p.same || 0}, ยังไม่มีไฟล์ ${p.skipped})`
       : `กำลังสร้างไฟล์เดือน ${p.ym}: ทำแล้ว ${p.idx} สถานี (สร้างใหม่ ${p.made}, มีอยู่แล้ว ${p.skipped})`) +
       (p.errors ? ` · ผิดพลาด: ${p.errors}` : '') +
-      (hasTrigger_('continueJob') ? '' : ' · งานหยุดอยู่ — กดเมนูเดิมอีกครั้งเพื่อทำต่อ')
+      (hasTrigger_('continueJob') ? '' : ' · งานหยุดอยู่ — กดเมนูเดิมอีกครั้งเพื่อทำต่อ') +
+      (p.queued ? ' · รอคิว: สร้างไฟล์ (เริ่มเองเมื่อซิงก์เสร็จ)' : '')
     : 'ไม่มีงานค้าง' + (p.last ? ` · งานล่าสุด: ${p.last}` : '');
-  const every = p.syncEvery ? ` · ซิงก์อัตโนมัติทุก ${p.syncEvery} นาที` : ' · รอบซิงก์อัตโนมัติ: ปิด';
+  const n = syncEvery_(PropertiesService.getScriptProperties());
+  const every = n ? ` · ซิงก์อัตโนมัติ: ตรวจการแก้ไขทุก ${n} นาที` : ' · รอบซิงก์อัตโนมัติ: ปิด';
   console.log(msg + every);
   return msg + every;
 }
@@ -363,20 +431,27 @@ function cancelJob() {
   clearTriggers_('continueJob');
   const props = PropertiesService.getScriptProperties();
   cleanup_(props, props.getProperties());
+  props.deleteProperty('queued');
   console.log('ยกเลิกงานแล้ว (ไฟล์สถานีที่สร้างไปแล้วยังอยู่)');
 }
 
 // ============================================================ the job (runs in batches)
 
 function startCreate_(ym, onlyCode) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(ym))) throw new Error(`เดือนต้องเป็นรูปแบบ yyyy-MM เช่น 2026-12 (ได้รับ: ${ym})`);
+  checkYm_(ym);
   const props = PropertiesService.getScriptProperties();
-  const cur = props.getProperties();
+  const cur = dropStaleJob_(props, props.getProperties());
   if (cur.job) {
     // the same job again: carry on where it stopped (a run that is still working is left alone)
     if (cur.job === 'create' && cur.ym === ym && (cur.only || '') === (onlyCode || '')) {
       console.log(`ทำงานเดิมต่อ: ${status()}`);
       kick_();
+      return;
+    }
+    if (cur.job === 'sync') {                           // a sync is working (the interval sync often is): the create waits for it
+      props.setProperty('queued', JSON.stringify({ ym: ym, only: onlyCode || '' }));
+      if (!hasTrigger_('continueJob')) after_(NEXT_RUN_MS);
+      console.log(`กำลังซิงก์อยู่ — จะเริ่มสร้างไฟล์เดือน ${ym} ทันทีที่ซิงก์เสร็จ`);
       return;
     }
     throw new Error(`มีงานค้างอยู่ (${status()}) — รอให้เสร็จ หรือรัน cancelJob() ก่อน`);
@@ -385,10 +460,22 @@ function startCreate_(ym, onlyCode) {
   const ov = overviewSnapshot_(folder);
   props.setProperties({
     job: 'create', ym: ym, idx: '0', folder: folder.getId(), ov: ov.id, ovTemp: ov.temp ? '1' : '',
-    only: onlyCode || '', made: '0', skipped: '0', errors: '', warn: '',
+    only: onlyCode || '', made: '0', skipped: '0', errors: '', warn: '', root: rootId_(),
   });
   console.log(`เริ่มสร้างไฟล์เดือน ${ym} ในโฟลเดอร์ ${folder.getUrl()}`);
   kick_();
+}
+
+/**
+ * A job left over from another root folder (the Overview was moved or copied since it started) is given
+ * up, so it cannot block a new one. Returns the job properties that still count.
+ */
+function dropStaleJob_(props, cur) {
+  if (!cur.job || cur.root === rootId_()) return cur;
+  clearTriggers_('continueJob');
+  cleanup_(props, cur);
+  console.warn(`ยกเลิกงานที่ค้างของโฟลเดอร์หลักเดิม (${cur.job} ${cur.ym})`);
+  return {};
 }
 
 function continueJob() {
@@ -402,6 +489,9 @@ function continueJob() {
     after_(WATCHDOG_MIN * 60000);                       // if this run is killed, the job still carries on
     let done = false;
     try {
+      if (p.root !== rootId_()) {                         // started for another root folder (the Overview moved since)
+        throw stop_('ยกเลิกงานที่ค้างของโฟลเดอร์หลักเดิม — สั่งงานใหม่อีกครั้ง จะใช้โฟลเดอร์ที่ไฟล์ Overview อยู่ตอนนี้');
+      }
       done = p.job === 'create' ? createBatch_(props, p, Date.now()) : syncBatch_(props, p, Date.now());
       props.deleteProperty('fails');
     } catch (e) {
@@ -416,10 +506,29 @@ function continueJob() {
       }
     }
     clearTriggers_('continueJob');
-    if (done) cleanup_(props, props.getProperties());
-    else after_(NEXT_RUN_MS);
+    if (done) {
+      cleanup_(props, props.getProperties());
+      startQueued_(props);
+    } else {
+      after_(NEXT_RUN_MS);
+    }
   } finally {
     lock.releaseLock();
+  }
+}
+
+/** A create that was asked for while a sync was working starts now, in the background. */
+function startQueued_(props) {
+  const queued = props.getProperty('queued');
+  if (!queued) return;
+  props.deleteProperty('queued');
+  try {
+    const q = JSON.parse(queued);
+    RUN_LATER = true;
+    startCreate_(q.ym, q.only);
+  } catch (e) {
+    console.error(`เริ่มงานสร้างไฟล์ที่รอคิวไม่ได้: ${e}`);
+    note_(props, `เริ่มงานสร้างไฟล์ที่รอคิวไม่ได้ — ${e.message || e}`);
   }
 }
 
@@ -433,10 +542,10 @@ function createBatch_(props, p, t0) {
   }
   const inverters = readInverters_(overview);
   const folder = DriveApp.getFolderById(p.folder);
-  const existing = fileIds_(folder);
+  const existing = folderFiles_(p.folder);
   // a template left half-built by a run that was cut short is not one of this job's templates
   const mine = Object.keys(p).filter(k => k.indexOf('tpl_') === 0).map(k => p[k]);
-  existing.forEach((id, name) => { if (name.indexOf('_TEMPLATE_') === 0 && mine.indexOf(id) < 0) trash_(id); });
+  existing.forEach((f, name) => { if (name.indexOf('_TEMPLATE_') === 0 && mine.indexOf(f.id) < 0) trash_(f.id); });
   let i = Number(p.idx), made = Number(p.made), skipped = Number(p.skipped);
   const errors = p.errors ? p.errors.split(',') : [];
   const seconds = () => (Date.now() - t0) / 1000;
@@ -447,7 +556,7 @@ function createBatch_(props, p, t0) {
     const name = fileName_(s, p.ym);
     let file = null;
     try {
-      if (existing.has(name)) {
+      if (plantFile_(existing, s, p.ym)) {
         skipped++;
       } else {
         const list = inverters[s.code] || [];
@@ -456,12 +565,12 @@ function createBatch_(props, p, t0) {
         if (!props.getProperty(`tpl_${n}`) && seconds() > TEMPLATE_BY_S) break;
         const tplId = template_(props, p.ym, folder, n);
         file = DriveApp.getFileById(tplId).makeCopy(name, folder);
-        fillStation_(SpreadsheetApp.openById(file.getId()), s, list);
+        writeInfo_(file.getId(), infoValues_(s), inverterValues_(list, list.length));
         made++;
       }
       // the Google Sheet replaces the old Excel report (the trash keeps it for 30 days)
       const old = CONFIG.REPLACE_XLSX && existing.get(`${name}.xlsx`);
-      if (old) { DriveApp.getFileById(old).setTrashed(true); existing.delete(`${name}.xlsx`); }
+      if (old) { DriveApp.getFileById(old.id).setTrashed(true); existing.delete(`${name}.xlsx`); }
       streak = 0;
     } catch (e) {
       console.error(`${s.code}: ${e}`);
@@ -505,22 +614,45 @@ function trash_(id) {
 
 // ============================================================ 1) month folder
 
-function monthFolder_(ym) {
-  const root = DriveApp.getFolderById(CONFIG.ROOT_FOLDER_ID);
-  const it = root.getFoldersByName(ym);
+/** The month folder "yyyy-MM" in the root folder, or null when there is none (one in the trash does not count). */
+function findMonthFolder_(ym) {
+  const it = DriveApp.getFolderById(rootId_()).getFoldersByName(ym);
   while (it.hasNext()) { const f = it.next(); if (!f.isTrashed()) return f; }
-  return root.createFolder(ym);
+  return null;
 }
 
-/** Name → file id of everything in the folder that is not in the trash. */
-function fileIds_(folder) {
-  const ids = new Map();
-  const it = folder.searchFiles('trashed = false');
-  while (it.hasNext()) { const f = it.next(); ids.set(f.getName(), f.getId()); }
-  return ids;
+function monthFolder_(ym) {
+  return findMonthFolder_(ym) || DriveApp.getFolderById(rootId_()).createFolder(ym);
+}
+
+/**
+ * Everything in a folder that is not in the trash: Map name → { id, edited (ms) }. One Drive API call
+ * per 1,000 files, instead of one DriveApp round trip per file.
+ */
+function folderFiles_(folderId) {
+  const out = new Map();
+  const args = { q: `'${folderId}' in parents and trashed = false`, pageSize: 1000, fields: 'nextPageToken, files(id,name,modifiedTime)' };
+  do {
+    const page = retry_(() => Drive.Files.list(args));
+    (page.files || []).forEach(f => out.set(f.name, { id: f.id, edited: new Date(f.modifiedTime).getTime() }));
+    args.pageToken = page.nextPageToken;
+  } while (args.pageToken);
+  return out;
 }
 
 function fileName_(s, ym) { return `${s.code}_${s.name.replace(/[\\/:*?"<>|]/g, '-').trim()}_${ym}`; }
+
+/**
+ * A plant's file of the month in `files` (folderFiles_): by its exact name, else by plant code and month,
+ * so a plant renamed in the Overview after its file was made keeps that file. undefined = no file yet.
+ */
+function plantFile_(files, s, ym) {
+  const exact = files.get(fileName_(s, ym));
+  if (exact) return exact;
+  const head = `${s.code}_`, tail = `_${ym}`;
+  for (const [name, f] of files) if (name.indexOf(head) === 0 && name.slice(-tail.length) === tail) return f;
+  return undefined;
+}
 
 // ============================================================ 2) one file per plant, one sheet per day
 
@@ -540,7 +672,7 @@ function template_(props, ym, folder, n) {
 
 function buildTemplate_(ym, folder, n) {
   const [y, m] = ym.split('-').map(Number);
-  const days = new Date(y, m, 0).getDate();
+  const days = daysIn_(y, m);
   const ss = SpreadsheetApp.create(`_TEMPLATE_${ym}_${n}inv`);
   DriveApp.getFileById(ss.getId()).moveTo(folder);
   ss.setSpreadsheetLocale('th_TH');
@@ -572,9 +704,11 @@ function buildTemplate_(ym, folder, n) {
 }
 
 function logoBlob_() {
-  if (!CONFIG.LOGO_FILE_ID) return null;
   try {
-    return DriveApp.getFileById(CONFIG.LOGO_FILE_ID).getBlob();
+    if (CONFIG.LOGO_FILE_ID) return DriveApp.getFileById(CONFIG.LOGO_FILE_ID).getBlob();
+    const it = DriveApp.getFolderById(rootId_()).getFilesByName(CONFIG.LOGO_NAME);
+    while (it.hasNext()) { const f = it.next(); if (!f.isTrashed()) return f.getBlob(); }
+    return null;
   } catch (e) {
     console.warn(`อ่านไฟล์โลโก้ไม่ได้ (${e}) — สร้างไฟล์โดยไม่มีโลโก้`);
     return null;
@@ -594,12 +728,12 @@ function addLogo_(sh, blob) {
  */
 function addLogoToExisting() {
   const logo = logoBlob_();
-  if (!logo) throw new Error('ไม่มีไฟล์โลโก้ (CONFIG.LOGO_FILE_ID)');
+  if (!logo) throw new Error(`ไม่มีไฟล์โลโก้ "${CONFIG.LOGO_NAME}" ในโฟลเดอร์เดียวกับไฟล์ Overview`);
   const t0 = Date.now(), ym = ym_(new Date());
-  const it = DriveApp.getFolderById(CONFIG.ROOT_FOLDER_ID).getFoldersByName(ym);
-  if (!it.hasNext()) throw new Error(`ยังไม่มีโฟลเดอร์เดือน ${ym}`);
+  const folder = findMonthFolder_(ym);
+  if (!folder) throw new Error(`ยังไม่มีโฟลเดอร์เดือน ${ym}`);
   let added = 0, finished = true;
-  const files = it.next().getFilesByType(MimeType.GOOGLE_SHEETS);
+  const files = folder.getFilesByType(MimeType.GOOGLE_SHEETS);
   while (files.hasNext()) {
     if ((Date.now() - t0) / 1000 > CONFIG.RUN_SECONDS) { finished = false; break; }
     const f = files.next();
@@ -793,12 +927,14 @@ function buildSummary_(ss, y, m, days, n, gids) {
   ]);
 }
 
-/** Writes one plant's name, capacity, contract and inverters into its file's info sheet. */
-function fillStation_(ss, s, invs) {
-  const info = ss.getSheetByName(INFO);
-  info.getRange('B1:B5').setValues(infoValues_(s));
-  if (invs.length) info.getRange(INFO_INV0, 1, invs.length, 3).setValues(inverterValues_(invs, invs.length));
-  SpreadsheetApp.flush();
+/**
+ * Writes a plant file's info sheet — B1:B5 (infoValues_) and the inverter rows (inverterValues_) — in one
+ * Sheets API call, without opening the file. Values are stored as given (RAW): an S/N like 1E5 stays text.
+ */
+function writeInfo_(id, info, inv) {
+  const data = [{ range: `'${INFO}'!B1:B5`, values: info }];
+  if (inv.length) data.push({ range: `'${INFO}'!A${INFO_INV0}:C${INFO_INV0 + inv.length - 1}`, values: inv });
+  retry_(() => Sheets.Spreadsheets.Values.batchUpdate({ valueInputOption: 'RAW', data: data }, id));
 }
 
 /** B1:B5 of the info sheet. */
@@ -833,9 +969,29 @@ function overviewSnapshot_(folder) {
   return { id: copy.id, temp: true };
 }
 
+/** The sheet this script is bound to (null when it runs as a standalone script). */
+function boundSheet_() {
+  try { return SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { return null; }
+}
+
+/**
+ * The root folder: where the month folders and the logo are. It is the folder the Overview sheet is in,
+ * read from Drive each time, so it follows the sheet when it is moved (CONFIG.ROOT_FOLDER_ID overrides).
+ */
+function rootId_() {
+  if (CONFIG.ROOT_FOLDER_ID) return CONFIG.ROOT_FOLDER_ID;
+  const id = CONFIG.OVERVIEW_ID || (boundSheet_() && boundSheet_().getId());
+  if (!id) throw new Error('ไม่รู้ว่าไฟล์ Overview อยู่ที่ไหน — เปิดสคริปต์จากไฟล์ Overview (ส่วนขยาย ▸ Apps Script) หรือใส่ CONFIG.OVERVIEW_ID');
+  const parents = DriveApp.getFileById(id).getParents();
+  if (!parents.hasNext()) throw new Error('หาโฟลเดอร์ของไฟล์ Overview ไม่ได้ — ย้ายไฟล์ Overview เข้าโฟลเดอร์ที่บัญชีนี้เปิดได้ หรือใส่ CONFIG.ROOT_FOLDER_ID');
+  return parents.next().getId();
+}
+
 function overviewFile_() {
   if (CONFIG.OVERVIEW_ID) return DriveApp.getFileById(CONFIG.OVERVIEW_ID);
-  const it = DriveApp.getFolderById(CONFIG.ROOT_FOLDER_ID).getFiles();
+  const bound = boundSheet_();
+  if (bound) return DriveApp.getFileById(bound.getId());
+  const it = DriveApp.getFolderById(rootId_()).getFiles();
   let best = null;
   while (it.hasNext()) {
     const f = it.next();
@@ -894,9 +1050,9 @@ function readInverters_(overview) {
  * unless the Overview's สถานี / Inverter sheets changed (then every file is read).
  */
 function startSync_(ym, quiet, full) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(ym))) throw new Error(`เดือนต้องเป็นรูปแบบ yyyy-MM เช่น 2026-12 (ได้รับ: ${ym})`);
+  checkYm_(ym);
   const props = PropertiesService.getScriptProperties();
-  const cur = props.getProperties();
+  const cur = dropStaleJob_(props, props.getProperties());
   if (cur.job) {
     if (cur.job === 'sync' && cur.ym === ym) { kick_(); return; }   // the same sync: carry on where it stopped
     if (quiet) {                                        // a scheduled sync waits for the next slot
@@ -909,9 +1065,7 @@ function startSync_(ym, quiet, full) {
   if (file.getMimeType() !== MimeType.GOOGLE_SHEETS) {
     throw new Error('Overview ยังเป็นไฟล์ .xlsx — สคริปต์เขียนกลับไม่ได้ ให้รัน convertOverview() หนึ่งครั้งก่อน');
   }
-  const it = DriveApp.getFolderById(CONFIG.ROOT_FOLDER_ID).getFoldersByName(ym);
-  let folder = null;
-  while (it.hasNext() && !folder) { const f = it.next(); if (!f.isTrashed()) folder = f; }
+  const folder = findMonthFolder_(ym);
   if (!folder) {
     if (quiet) return;
     throw new Error(`ยังไม่มีโฟลเดอร์เดือน ${ym} — สร้างไฟล์ของเดือนนั้นก่อน`);
@@ -919,6 +1073,7 @@ function startSync_(ym, quiet, full) {
   props.setProperties({
     job: 'sync', ym: ym, idx: '0', folder: folder.getId(), ov: file.getId(), ovTemp: '',
     only: '', made: '0', skipped: '0', errors: '', warn: '', full: full ? '1' : '', same: '0',
+    root: rootId_(),
   });
   kick_();
 }
@@ -930,9 +1085,7 @@ function syncBatch_(props, p, t0) {
   if (overview.getSpreadsheetTimeZone() !== 'Asia/Bangkok') overview.setSpreadsheetTimeZone('Asia/Bangkok');
   const stations = readStations_(overview);
   const inverters = readInverters_(overview);
-  const files = new Map(), edited = new Map();          // file name → id, → time of the last edit
-  const it = DriveApp.getFolderById(p.folder).searchFiles('trashed = false');
-  while (it.hasNext()) { const f = it.next(); files.set(f.getName(), f.getId()); edited.set(f.getName(), f.getLastUpdated().getTime()); }
+  const files = folderFiles_(p.folder);                 // file name → { id, edited }
   const [y, m] = p.ym.split('-').map(Number);
   const lastDay = lastDayToRead_(p.ym);
   let i = Number(p.idx), made = Number(p.made), skipped = Number(p.skipped), same = Number(p.same || 0);
@@ -944,6 +1097,7 @@ function syncBatch_(props, p, t0) {
   // sync says what it said then, as long as the Overview's plants and inverters are the same too.
   let last = null;
   try { last = JSON.parse(props.getProperty(`synced_${p.ym}`) || 'null'); } catch (e) { last = null; }
+  if (last && last.f !== p.folder) last = null;          // the last sync was of another folder (CONFIG changed since)
   let since = Number(p.since || 0);
   if (!p.began) {
     const sig = signature_([stations, inverters]);
@@ -955,15 +1109,14 @@ function syncBatch_(props, p, t0) {
 
   while (i < stations.length && (Date.now() - t0) / 1000 < CONFIG.RUN_SECONDS) {
     const s = stations[i];
-    const name = fileName_(s, p.ym);
-    const id = files.get(name);
-    if (!id) {
+    const file = plantFile_(files, s, p.ym);
+    if (!file) {
       skipped++;
-    } else if (since > 0 && edited.get(name) < since && retry.indexOf(s.code) < 0) {
+    } else if (since > 0 && file.edited < since && retry.indexOf(s.code) < 0) {
       same++;
     } else {
       try {
-        const r = syncPlant_(id, s, inverters[s.code] || [], y, m, lastDay);
+        const r = syncPlant_(file.id, s, inverters[s.code] || [], y, m, lastDay);
         results[s.code] = r;
         Object.keys(r.invStatus).forEach(sn => { invStatus[sn] = r.invStatus[sn]; });
         r.warnings.forEach(w => warnings.push(w));
@@ -991,7 +1144,9 @@ function syncBatch_(props, p, t0) {
     (errors.length ? `, อ่านไม่ได้ ${errors.length} สถานี (${errors.join(', ')}) — จะอ่านใหม่ในการซิงก์ครั้งถัดไป` : '');
   // a sync that found nothing new leaves no line in _log (an interval sync would fill it)
   finishSync_(overview, p.ym, stations, files, summary, warnings, made > 0 || errors.length > 0 || !!p.full);
-  props.setProperty(`synced_${p.ym}`, JSON.stringify({ t: Number(p.began), sig: p.sig, err: errors, v: SYNC_VERSION }));
+  SpreadsheetApp.flush();                               // fin = after the last write to the Overview (nothingNew_)
+  props.setProperty(`synced_${p.ym}`, JSON.stringify({ t: Number(p.began), sig: p.sig, err: errors, v: SYNC_VERSION,
+    f: p.folder, ov: p.ov, root: p.root, fin: Date.now() }));
   note_(props, summary);
   console.log(summary + (warnings.length ? `\n${warnings.join('\n')}` : ''));
   return true;
@@ -1003,7 +1158,7 @@ function lastDayToRead_(ym) {
   if (ym > cur) return 0;
   if (ym === cur) return Number(Utilities.formatDate(now, 'Asia/Bangkok', 'd'));
   const [y, m] = ym.split('-').map(Number);
-  return new Date(y, m, 0).getDate();
+  return daysIn_(y, m);
 }
 
 /**
@@ -1041,7 +1196,7 @@ function syncPlant_(id, s, invs, y, m, lastDay) {
     retry_(() => Sheets.Spreadsheets.batchUpdate({ requests: [
       { mergeCells: { range: Object.assign({ endColumnIndex: 9 }, cell), mergeType: 'MERGE_ALL' } },
       { repeatCell: { range: Object.assign({ endColumnIndex: 1 }, cell),
-        cell: { userEnteredValue: { formulaValue: todayLink_(y, m, new Date(y, m, 0).getDate()) },
+        cell: { userEnteredValue: { formulaValue: todayLink_(y, m, daysIn_(y, m)) },
           userEnteredFormat: { horizontalAlignment: 'CENTER', textFormat: { bold: true, foregroundColor: { red: 0.02, green: 0.39, blue: 0.76 } } } },
         fields: 'userEnteredValue,userEnteredFormat.horizontalAlignment,userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColor' } },
     ] }, id));
@@ -1055,7 +1210,7 @@ function syncPlant_(id, s, invs, y, m, lastDay) {
   // A file of an older template: every day sheet gets the วันเข้าแก้ไข column (J, until then the second
   // half of การแก้ไข), and วันเข้าแก้ไข / วันแล้วเสร็จ of สรุปเดือน become formulas over the day sheets.
   if (Number((info[6] || [])[1] || 1) < TEMPLATE_VERSION) {
-    const nDays = new Date(y, m, 0).getDate(), L = layout_(rows), ids = sheetIds();
+    const nDays = daysIn_(y, m), L = layout_(rows), ids = sheetIds();
     const requests = [{ repeatCell: {
       range: { sheetId: ids[SUMMARY], startRowIndex: 5, endRowIndex: 5 + nDays, startColumnIndex: 6, endColumnIndex: 8 },
       cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 } } },
@@ -1084,12 +1239,7 @@ function syncPlant_(id, s, invs, y, m, lastDay) {
   const at = (r, c) => text((info[r - 1] || [])[c - 1]);
   const same = wantInfo.every((row, k) => at(k + 1, 2) === text(row[0])) &&
     wantInv.every((row, k) => row.every((v, c) => at(INFO_INV0 + k, c + 1) === text(v)));
-  if (!same) {
-    retry_(() => Sheets.Spreadsheets.Values.batchUpdate({ valueInputOption: 'RAW', data: [
-      { range: `'${INFO}'!B1:B5`, values: wantInfo },
-      { range: `'${INFO}'!A${INFO_INV0}:C${INFO_INV0 + rows - 1}`, values: wantInv },
-    ] }, id));
-  }
+  if (!same) writeInfo_(id, wantInfo, wantInv);
 
   // plant file ─► Overview
   const out = { station: s, episodes: [], invStatus: {}, warnings: warnings, updated: !same };
@@ -1185,13 +1335,14 @@ function upsertIssues_(overview, y, m, results) {
   if (!codes.length) return;
   const t = issueTable_(overview), sh = t.sh;
   const n = Math.max(sh.getLastRow() - t.headRow, 0);
-  let rows = [];
+  let rows = [], current = [];                          // current = the table as it is now: formula, else value
   if (n) {
     const range = sh.getRange(t.headRow + 1, 1, n, t.width);
     const values = range.getValues(), formulas = range.getFormulas();
-    rows = values.map((r, i) => {
+    current = values.map((r, i) => r.map((v, k) => formulas[i][k] || v));
+    rows = current.map(r => {
       const row = {};
-      t.head.forEach((h, k) => { if (h) row[h] = formulas[i][k] || r[k]; });
+      t.head.forEach((h, k) => { if (h) row[h] = r[k]; });
       return row;
     }).filter(row => String(row['รหัสปัญหา'] || '').trim() !== '');
     rows.forEach(row => ISSUE_DATES.forEach(h => { if (row[h] !== undefined) row[h] = typedDate_(row[h]); }));
@@ -1200,10 +1351,15 @@ function upsertIssues_(overview, y, m, results) {
   const inMonth = v => v instanceof Date && v >= monthStart && v < monthEnd;
   const ymd = d => Utilities.formatDate(d, 'Asia/Bangkok', 'yyyyMMdd');
 
-  const kept = rows.filter(row => codes.indexOf(String(row['รหัสปัญหา']).split('|')[0]) < 0);
+  const kept = [], byCode = {};                         // rows of other plants are kept; the scanned plants' rows by code
+  codes.forEach(code => { byCode[code] = []; });
+  rows.forEach(row => {
+    const code = String(row['รหัสปัญหา']).split('|')[0];
+    (Object.prototype.hasOwnProperty.call(byCode, code) ? byCode[code] : kept).push(row);
+  });
   codes.forEach(code => {
     const res = results[code], s = res.station;
-    const mine = rows.filter(row => String(row['รหัสปัญหา']).split('|')[0] === code);
+    const mine = byCode[code];
     const used = [];
     res.episodes.forEach(ep => {
       const key = `${code}|${ep.sn}|${ymd(ep.start)}`;
@@ -1242,14 +1398,19 @@ function upsertIssues_(overview, y, m, results) {
     });
   });
 
-  if (n) sh.getRange(t.headRow + 1, 1, n, t.width).clearContent();
-  if (!out.length) return;
-  ensureSize_(sh, t.headRow + out.length, t.width);
-  // text format first: written into a date cell, "16/11/2569" would turn into a date of the year 2569
-  ISSUE_DATES.forEach(h => {
-    if (t.col[h]) sh.getRange(t.headRow + 1, t.col[h], out.length, 1).setNumberFormat('@');
-  });
-  sh.getRange(t.headRow + 1, 1, out.length, t.width).setValues(out);
+  // nothing differs (the usual case when the edit was not about a problem): the Overview is not written
+  if (out.length === n && out.every((row, i) => row.every((v, k) => v === current[i][k]))) return;
+  // The new rows are written over the old ones and only the rows left below are cleared: a run that is
+  // stopped half-way never leaves the table empty (columns typed by hand could not be brought back).
+  if (out.length) {
+    ensureSize_(sh, t.headRow + out.length, t.width);
+    // text format first: written into a date cell, "16/11/2569" would turn into a date of the year 2569
+    ISSUE_DATES.forEach(h => {
+      if (t.col[h]) sh.getRange(t.headRow + 1, t.col[h], out.length, 1).setNumberFormat('@');
+    });
+    sh.getRange(t.headRow + 1, 1, out.length, t.width).setValues(out);
+  }
+  if (n > out.length) sh.getRange(t.headRow + 1 + out.length, 1, n - out.length, t.width).clearContent();
 }
 
 /** Overview "Inverter": the newest Inverter Status typed in the day sheets, and its day. */
@@ -1268,13 +1429,16 @@ function writeInverterStatus_(overview, invStatus) {
   if (!snCol || n < 1) return;
   const sns = sh.getRange(2, snCol, n, 1).getValues();
   const st = sh.getRange(2, stCol, n, 1).getValues(), day = sh.getRange(2, dayCol, n, 1).getValues();
+  let stChanged = false, dayChanged = false;
   sns.forEach((r, k) => {
     const v = invStatus[String(r[0]).trim()];
-    if (v) { st[k][0] = v.status; day[k][0] = v.date; }
-    if (day[k][0] instanceof Date) day[k][0] = beText_(typedDate_(day[k][0]));   // shown as พ.ศ., like the problem table
+    let d = v ? v.date : day[k][0];
+    if (d instanceof Date) d = beText_(typedDate_(d));   // shown as พ.ศ., like the problem table
+    if (v && v.status !== st[k][0]) { st[k][0] = v.status; stChanged = true; }
+    if (d !== day[k][0]) { day[k][0] = d; dayChanged = true; }
   });
-  sh.getRange(2, stCol, n, 1).setValues(st);
-  sh.getRange(2, dayCol, n, 1).setNumberFormat('@').setValues(day);
+  if (stChanged) sh.getRange(2, stCol, n, 1).setValues(st);
+  if (dayChanged) sh.getRange(2, dayCol, n, 1).setNumberFormat('@').setValues(day);
 }
 
 /** After the last plant: summary boxes, "as of" line, the link columns of "สถานี", one line in "_log". */
@@ -1313,22 +1477,30 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     const codes = ss.getRange(2, 1, n, 1).getValues().map(r => String(r[0]).trim());
     const byCode = {};
     stations.forEach(s => { byCode[s.code] = s; });
-    const put = (h, make) => {
+    const all = ss.getRange(2, 1, n, sHead.length);
+    const values = all.getValues(), formulas = all.getFormulas();
+    const put = (h, make) => {                          // a column is written only when it differs (no recalculation otherwise)
       const k = sHead.indexOf(h) + 1;
-      if (k) ss.getRange(2, k, n, 1).setValues(codes.map((c, i) => [c ? make(c, i + 2) : '']));
+      if (!k) return;
+      const want = codes.map((c, i) => [c ? make(c, i + 2) : '']);
+      if (want.some((w, i) => w[0] !== (formulas[i][k - 1] || values[i][k - 1]))) ss.getRange(2, k, n, 1).setValues(want);
     };
     if (code && used) put('จำนวน Inverter', (c, r) => `=COUNTIFS(${code},$A${r},${used},"<>N")`);
     if (code && used && strings) put('จำนวนสตริงรวม', (c, r) => `=SUMIFS(${strings},${code},$A${r},${used},"<>N")`);
     put('ไฟล์รายงาน', c => {
-      const id = byCode[c] && files.get(fileName_(byCode[c], ym));
-      return id ? `=HYPERLINK("https://docs.google.com/spreadsheets/d/${id}/edit","${ym}")` : '';
+      const file = byCode[c] && plantFile_(files, byCode[c], ym);
+      return file ? `=HYPERLINK("https://docs.google.com/spreadsheets/d/${file.id}/edit","${ym}")` : '';
     });
   }
 
   const log = overview.getSheetByName(LOG) || overview.insertSheet(LOG);
   const stamp = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
-  if (logIt) log.appendRow([stamp, summary]);
-  warnings.forEach(w => log.appendRow([stamp, w]));
+  const lines = (logIt ? [[stamp, summary]] : []).concat(warnings.map(w => [stamp, w]));
+  if (lines.length) {                                   // one write, however many warnings
+    const r = log.getLastRow() + 1;
+    ensureSize_(log, r + lines.length - 1, 2);
+    log.getRange(r, 1, lines.length, 2).setValues(lines);
+  }
 }
 
 // ============================================================ helpers
@@ -1357,6 +1529,13 @@ function signature_(value) {
   for (let k = 0; k < text.length; k++) h = ((h * 33) ^ text.charCodeAt(k)) >>> 0;
   return `${text.length}.${h}`;
 }
+
+function checkYm_(ym) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(ym))) throw new Error(`เดือนต้องเป็นรูปแบบ yyyy-MM เช่น 2026-12 (ได้รับ: ${ym})`);
+}
+
+/** Days in month m (1-12) of year y. */
+function daysIn_(y, m) { return new Date(y, m, 0).getDate(); }
 
 function ym_(d) { return Utilities.formatDate(d, 'Asia/Bangkok', 'yyyy-MM'); }
 
