@@ -55,3 +55,17 @@ data/growatt_probe/
 # frontend uses Bun (bun.lock) only
 frontend/package-lock.json
 frontend/yarn.lock
+
+# Monitoring Report (รายงาน): only the tools, the blank template and the setup note are tracked.
+# Reports and test output hold plant names; the Google login and Drive ids are per setup.
+Monitoring Report/รายงาน/**/*.xlsx
+!Monitoring Report/รายงาน/_Template/*.xlsx
+Monitoring Report/รายงาน/_ทดสอบ_*/
+Monitoring Report/รายงาน/_Tools/*.tar
+Monitoring Report/รายงาน/_Tools/*_v[0-9]*.py
+Monitoring Report/รายงาน/_Tools/credentials.json
+Monitoring Report/รายงาน/_Tools/token.json
+Monitoring Report/รายงาน/_Tools/gsheet_config.json
+Monitoring Report/รายงาน/_Tools/gsheet_ids.json
+Monitoring Report/รายงาน/_Tools/registry.csv
+Monitoring Report/รายงาน/_Tools/plant_map.json
