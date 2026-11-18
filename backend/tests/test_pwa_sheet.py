@@ -309,6 +309,16 @@ def test_data_log_says_since_when_how_often_and_last_data():
         "INV1 Offline (last data 07:40), INV2 Offline (no data today)")
 
 
+def test_data_log_leaves_out_warning_code_1_of_slots_frozen_before_the_filter():
+    one = {"code": "1", "message": None}
+    assert _log([{"inv": "INV4", "state": "Alarm", "items": [one]}]) == "—"  # never "INV4 Alarm: 1"
+    assert _log([{"inv": "INV2", "state": "Fault", "items": [one]}, {"inv": "INV3", "state": "Alarm", "items": [one, {"code": "203", "message": None}]}]) == (
+        "INV2 Fault, INV3 Alarm: 203")
+    # the alarm log's own record of code 1 (text or `since`) is Growatt's report: kept
+    assert _log([{"inv": "INV1", "state": "Alarm", "items": [{"code": "1", "message": "Fan fault", "since": "08:10", "count": 1}]}]) == (
+        "INV1 Alarm: 1 Fan fault (08:10)")
+
+
 def test_data_log_names_a_plant_that_reports_but_produces_nothing():
     assert _log([], kw=0.0) == "INV ไม่ผลิตไฟ"  # Status is abnormal: the cell says why
     assert _log([{"inv": "INV2", "state": "Fault", "items": []}], kw=0.0) == "INV ไม่ผลิตไฟ, INV2 Fault"
