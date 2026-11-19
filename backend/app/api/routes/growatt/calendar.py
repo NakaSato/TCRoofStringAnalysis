@@ -25,7 +25,7 @@ from app.schemas.api_schemas import (
     OmTeamPatch,
 )
 from app.services import om_calendar as cal
-from app.services import om_plans
+from app.services import om_ics, om_plans
 from app.services.growatt_common import GrowattNotFound
 from app.api.routes.growatt._common import audit
 
@@ -334,3 +334,26 @@ def save_cleaning_round(
         raise _errors(exc) from exc
     audit.info("%s planned a cleaning round: %s tasks", cal._who(user), out["created"])
     return out
+
+
+# --------------------------------------------------------------------------- calendar feed (ICS)
+
+
+@router.get("/calendar/feed")
+def calendar_feed_status(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Whether the user's read-only calendar subscription is on (the link itself is shown only once)."""
+    return om_ics.status(db, user)
+
+
+@router.post("/calendar/feed")
+def calendar_feed_new_link(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """A new secret subscription link for the user's own tasks; any earlier link stops working."""
+    token = om_ics.new_link(db, user)
+    audit.info("%s made a new calendar feed link", user.username or user.email)
+    return {**om_ics.status(db, user), "path": f"/api/ics/calendar/{token}.ics"}
+
+
+@router.delete("/calendar/feed", status_code=204)
+def calendar_feed_off(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> None:
+    om_ics.turn_off(db, user)
+    audit.info("%s turned the calendar feed off", user.username or user.email)

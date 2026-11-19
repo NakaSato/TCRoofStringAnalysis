@@ -57,10 +57,12 @@ from app.db.models.rules import (  # noqa: F401
     SiteEvent,
 )
 from app.db.models.om import (  # noqa: F401
+    OmIcsFeed,
     OmPlan,
     OmPlanAssignee,
     OmPlanPlant,
     OmPlantSettings,
+    OmPushMark,
     OmTask,
     OmTaskAssignee,
     OmTaskHistory,

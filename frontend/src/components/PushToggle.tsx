@@ -86,25 +86,26 @@ export const PushToggle: React.FC<{ user: UserProfile }> = ({ user }) => {
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Alarm notifications on this device: ${on ? "on" : "off"}`}
+              aria-label={`Alarm and calendar notifications on this device: ${on ? "on" : "off"}`}
               className={on ? "text-solar-300" : undefined}
             >
               {on ? <BellRing className="size-4" /> : <BellOff className="size-4" />}
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>Alarm notifications on this device</TooltipContent>
+        <TooltipContent>Alarm and calendar notifications on this device</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-80 text-xs">
         <PopoverHeader>
           <PopoverTitle className="flex items-center justify-between gap-2 text-sm">
-            Alarm notifications
+            Notifications
             <Badge variant={on ? "ok" : "neutral"}>{on ? "On" : "Off"}</Badge>
           </PopoverTitle>
           <PopoverDescription>
             This device is notified when an inverter at {scope} reports a new {levels}. Alarms come from Growatt's
             alarm log, read between 05:00 and 20:00, so a notification can arrive a few minutes to an hour after the
-            alarm starts.
+            alarm starts. It also gets your Calendar reminders: work starting tomorrow (at 18:00) and your week on
+            Monday at 07:30.
           </PopoverDescription>
         </PopoverHeader>
 

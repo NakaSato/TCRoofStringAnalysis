@@ -153,3 +153,28 @@ class OmPlantSettings(Base):
     cleaning_cost_thb: Mapped[Optional[float]] = mapped_column(Float)
     updated_by: Mapped[Optional[str]] = mapped_column(String(64))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class OmPushMark(Base):
+    """Phase 3 reminders already pushed: one row per user, kind and day (`tomorrow` = the day the
+    tasks start, `week` = the Monday), so a re-run never pushes twice. Pruned after 14 days."""
+
+    __tablename__ = "om_push_marks"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True, index=True)
+    tasks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pushed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OmIcsFeed(Base):
+    """A user's read-only calendar subscription (ICS). Only the SHA-256 of the secret in the URL is
+    kept: the link is shown once, and a new link or turning it off makes the old one stop working."""
+
+    __tablename__ = "om_ics_feeds"
+
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, autoincrement=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

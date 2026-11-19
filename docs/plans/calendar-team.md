@@ -1,6 +1,6 @@
 # Plan & Spec: Calendar Team (O&M and cleaning planning)
 
-Status: **Phases 1–2 built 2026-11-19** (Phase 1: tasks, teams, calendar page, Upcoming work card, migration `a6b7c8d9e0f1`; Phase 2: recurring plans + nightly `om_plans` job, Due view, cleaning rounds, per-plant crew-days / cost, drag to move, migration `7a1c2e9b4d60`), Phases 3–4 not started · Created 2026-11-19 · Owner: Chanthawat
+Status: **Phases 1–2 built 2026-11-19** (Phase 1: tasks, teams, calendar page, Upcoming work card, migration `a6b7c8d9e0f1`; Phase 2: recurring plans + nightly `om_plans` job, Due view, cleaning rounds, per-plant crew-days / cost, drag to move, migration `7a1c2e9b4d60`; Phase 3: push reminders `om_reminders` / `om_weekly`, per-user ICS feed, migration `8b2d4f6a1c93`), Phase 4 not started · Created 2026-11-19 · Owner: Chanthawat
 Related: [`decision-rules.md`](decision-rules.md) §6 (site log, soiling wallet R12, R13), `services/site_events.py`, `solar_core/om_management.py` (legacy demo PM schedule)
 
 A shared **team calendar** where admins and engineers plan O&M work per plant: a weekly plan for the crews, a monthly plan for the fleet, recurring preventive maintenance, and **panel-cleaning rounds** for the dry season. When planned work is finished, it becomes a Site log event. The Site log already records work that was done; the calendar adds work that is planned.
@@ -131,9 +131,14 @@ New fleet page **Calendar** at `/calendar` (nav item next to Active Alarm). The 
 
 Components are shadcn only, as on Active Alarm. The month and week grids are built in-house with CSS grid and `date-fns`-style helpers. **Don't add FullCalendar**: it brings its own styling and bundle size, and the two grids are simple.
 
-## 9. Notifications (Phase 3)
+## 9. Notifications and calendar feed (Phase 3, built)
 
-The existing FCM web push (`services/push.py`) adds a worker job `om_reminders` at 18:00. It pushes "Tomorrow: cleaning at {plant}" to each assignee's devices, plus a Monday 07:30 "This week: N tasks" message. A new `om_push_marks` table prevents repeats (same pattern as `alarm_push_marks`). It is off unless push is configured.
+**Push reminders** over the existing FCM web push (`services/push.py` channel; `services/om_reminders.py`). A person's work = tasks assigned to them directly or through a team they are a member of, on plants they may see now. Off while push is not configured; only users with a registered device get anything.
+- `om_reminders` (worker, 18:00): "Tomorrow: Cleaning · {plant}" (title, and the length when it spans several days) for `planned` tasks starting tomorrow; several tasks become "Tomorrow: N tasks" with the first three. Opens `/calendar?view=list&d=…&user=me`.
+- `om_weekly` (worker, Monday 07:30; `Schedule.weekdays`): "This week: N tasks, M overdue" (planned / in progress overlapping Monday … Sunday, overdue = ended before Monday), first three by day. Opens the week view.
+- `om_push_marks` (user, kind `tomorrow` | `week`, day) stops a re-run pushing twice; rows older than 14 days are pruned. The weekly summary is this push (no email).
+
+**ICS feed** (`services/om_ics.py`): the Calendar page's Subscribe button makes a secret link `/api/ics/calendar/{token}.ics` (no login: calendar apps send none). Only the SHA-256 of the secret is stored (`om_ics_feeds`, one per user), so the link is shown once; "Make a new link" or "Turn off" stops the old one at once, and an inactive user's feed answers 404. Content: the user's own work (as above, plant access checked on every read), 30 days back to 180 days ahead, not cancelled; all-day events in plant-local days with type, plant, title, status, inverter / string, team, assignees, note and a link back to the calendar (built from the forwarded host). Read-only; calendar apps poll it on their own schedule (Google: several hours).
 
 ## 10. Phases
 
@@ -141,7 +146,7 @@ The existing FCM web push (`services/push.py`) adds a worker job `om_reminders` 
 |---|---|---|
 | **1. Tasks + calendar (MVP)** | Migration (`om_tasks`, assignees, history, teams) + extend `site_events` types (`pm_inspection`, `inverter_service`, `site_visit`). CRUD API with access rules & masked `'Busy'` blocks. Calendar page with month, week and list views. Task dialog. Mark done → Site log. Upcoming card on the plant Maintenance tab. Tests: engineer 404 / filter / Busy masking, done → event, history. | ~1 week |
 | **2. Monthly plan + cleaning rounds** | `om_plans` recurring templates (with presets) and the `om_plans` worker job. Due-this-month panel. Round scheduler with preview / save (Mon–Fri default + tariff holidays + optional Saturday). Per-plant `om_plant_settings` (`cleaning_crew_days`, `cleaning_cost_thb`). Drag to move. CSV export. | ~1 week |
-| **3. Reminders + export** | Push reminders, ICS feed (per-user signed URL, read-only), and a weekly summary. | ~3 days |
+| **3. Reminders + export** (built) | Push reminders, ICS feed (per-user secret URL, read-only), and a weekly summary (Monday push). | ~3 days |
 | **4. Data-driven cleaning** | Once decision-rules §6 has the cleaning step and soiling wallet (R12): "suggested" ghost tasks when the THB lost since the last cleaning exceeds the plant's cleaning cost, outside the monsoon window. An admin accepts a suggestion to turn it into a task. Suggestions are estimates and labelled as such. | after R12 |
 
 ## 11. Resolved design decisions (2026-11-19)

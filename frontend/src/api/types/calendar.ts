@@ -311,3 +311,17 @@ export interface OmRoundSaveBody {
   note: string | null;
   items: Array<{ plant_id: number; start_day: string; end_day: string; crew?: number | null }>;
 }
+
+/** The user's read-only calendar subscription (ICS). The secret link is returned only by `newOmFeedLink`. */
+export interface OmFeedStatus {
+  enabled: boolean;
+  created_at: string | null;
+  last_used_at: string | null;
+  past_days: number;
+  ahead_days: number;
+}
+
+export interface OmFeedLink extends OmFeedStatus {
+  /** e.g. /api/ics/calendar/<secret>.ics, served on the app's own origin */
+  path: string;
+}

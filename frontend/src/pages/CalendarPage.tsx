@@ -11,7 +11,7 @@
  * `user` (me | all | id; default me for engineers, all for admins), `plant`; Due adds `show`, `days`, `q`.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Repeat, Users } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, Plus, Repeat, Users } from "lucide-react";
 import { api } from "../api/client";
 import type { OmAssignees, OmTask, OmTaskList, OmTaskStatus, OmTaskType } from "../api/client";
 import { useAppContext } from "../context/AppContext";
@@ -30,6 +30,7 @@ import { PlantPicker } from "./calendar/fields";
 import { TaskDialog } from "./calendar/TaskDialog";
 import { TeamsDialog } from "./calendar/TeamsDialog";
 import { PlansDialog } from "./calendar/PlansDialog";
+import { FeedDialog } from "./calendar/FeedDialog";
 import { RoundDialog } from "./calendar/RoundDialog";
 import { DueView } from "./calendar/DueView";
 import type { TaskDialogTarget } from "./calendar/TaskDialog";
@@ -70,6 +71,7 @@ export const CalendarPage: React.FC = () => {
   const [dialog, setDialog] = useState<TaskDialogTarget | null>(null);
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [plansOpen, setPlansOpen] = useState(false);
+  const [feedOpen, setFeedOpen] = useState(false);
   const [round, setRound] = useState<number[] | null>(null);
   const [dueVersion, setDueVersion] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
@@ -164,6 +166,10 @@ export const CalendarPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => setPlansOpen(true)}>
             <Repeat data-icon="inline-start" />
             Plans
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setFeedOpen(true)}>
+            <CalendarPlus data-icon="inline-start" />
+            Subscribe
           </Button>
           {admin && (
             <Button variant="outline" size="sm" onClick={() => setTeamsOpen(true)}>
@@ -335,6 +341,7 @@ export const CalendarPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      <FeedDialog open={feedOpen} onClose={() => setFeedOpen(false)} />
       <PlansDialog open={plansOpen} admin={admin} plants={growattPlants} onClose={() => setPlansOpen(false)} onChanged={() => void load()} />
       {admin && (
         <RoundDialog

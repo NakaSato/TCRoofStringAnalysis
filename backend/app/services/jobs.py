@@ -461,6 +461,23 @@ def job_om_plans(db: Session) -> Tuple[str, Dict[str, Any]]:
     return "ok", om_plans.generate_all(db)
 
 
+def job_om_reminders(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Calendar Team: push "Tomorrow: …" to each person with planned work starting tomorrow
+    (services/om_reminders.py; off while push is not configured)."""
+    from app.services import om_reminders
+
+    detail = _push(db, lambda _push_mod: om_reminders.notify_tomorrow(db))
+    return ("partial" if "error" in detail or detail.get("failed") else "ok"), detail
+
+
+def job_om_weekly(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Calendar Team: push each person's week (this Monday … Sunday) and overdue count."""
+    from app.services import om_reminders
+
+    detail = _push(db, lambda _push_mod: om_reminders.notify_week(db))
+    return ("partial" if "error" in detail or detail.get("failed") else "ok"), detail
+
+
 JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "history": job_history,
     "env_history": job_env_history,
@@ -483,6 +500,8 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "rules_backfill": job_rules_backfill,
     "epi_refit": job_epi_refit,
     "om_plans": job_om_plans,
+    "om_reminders": job_om_reminders,
+    "om_weekly": job_om_weekly,
 }
 
 
