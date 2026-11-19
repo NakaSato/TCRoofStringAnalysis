@@ -32,6 +32,7 @@ const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
 const SystemLogsPage = page(() => import("./pages/SystemLogsPage"), "SystemLogsPage");
 const AiUsagePage = page(() => import("./pages/AiUsagePage"), "AiUsagePage");
 const RuleReviewPage = page(() => import("./pages/RuleReviewPage"), "RuleReviewPage");
+const CalendarPage = page(() => import("./pages/CalendarPage"), "CalendarPage");
 const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
 const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
 
@@ -104,6 +105,7 @@ export const App: React.FC = () => {
             <Route path="map" element={<PlantMapPage />} />
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
+            <Route path="calendar" element={<CalendarPage />} />
             <Route path="tools" element={<ToolsPage />} />
             <Route path="claims" element={<ClaimsPage />} />
             <Route path="rules" element={<AdminOnly><RuleReviewPage /></AdminOnly>} />

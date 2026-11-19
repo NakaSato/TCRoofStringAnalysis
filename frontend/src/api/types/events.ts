@@ -6,6 +6,9 @@ export type SiteEventType =
   | "module_replaced"
   | "inverter_replaced"
   | "ir_flight"
+  | "pm_inspection"
+  | "inverter_service"
+  | "site_visit"
   | "curtailment"
   | "other";
 

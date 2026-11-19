@@ -33,6 +33,9 @@ export const EVENT_TYPES: ReadonlyArray<{ value: SiteEventType; label: string }>
   { value: "module_replaced", label: "Module replaced" },
   { value: "inverter_replaced", label: "Inverter replaced" },
   { value: "ir_flight", label: "IR flight" },
+  { value: "pm_inspection", label: "PM inspection" },
+  { value: "inverter_service", label: "Inverter service" },
+  { value: "site_visit", label: "Site visit" },
   { value: "curtailment", label: "Curtailment" },
   { value: "other", label: "Other" },
 ];
@@ -43,6 +46,9 @@ const TYPE_VARIANT: Record<SiteEventType, "info" | "ok" | "warn" | "neutral" | "
   module_replaced: "ok",
   inverter_replaced: "ok",
   ir_flight: "default",
+  pm_inspection: "ok",
+  inverter_service: "ok",
+  site_visit: "neutral",
   curtailment: "warn",
   other: "neutral",
 };

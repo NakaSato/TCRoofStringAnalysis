@@ -1,8 +1,8 @@
 """SQLAlchemy 2.0 ORM models for the TC Roof Solar PV Full-Stack Application.
 
 One module per domain: `users`, `legacy` (local plants of the upload / analysis pages), `growatt`
-(Growatt mirror and Google Weather hours), `rules` (daily rows, I-V sweeps, issues, site events)
-and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
+(Growatt mirror and Google Weather hours), `rules` (daily rows, I-V sweeps, issues, site events),
+`om` (Calendar Team: planned O&M tasks and crews) and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
 them all on `Base.metadata` and `from app.db.models import X` works as before.
 """
 
@@ -55,6 +55,13 @@ from app.db.models.rules import (  # noqa: F401
     GrowattPlantEpiFit,
     GrowattStringDaily,
     SiteEvent,
+)
+from app.db.models.om import (  # noqa: F401
+    OmTask,
+    OmTaskAssignee,
+    OmTaskHistory,
+    OmTeam,
+    OmTeamMember,
 )
 from app.db.models.system import (  # noqa: F401
     AiUsage,

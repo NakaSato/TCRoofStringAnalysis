@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattInverter, GrowattIssue, GrowattPlant
+from app.db.models import GrowattInverter, GrowattIssue, GrowattPlant, OmTask
 from solar_core.growatt import GrowattAPIError, GrowattClient
 from app.services.growatt_sync.common import RATE_LIMIT_CODE, _fnum, _retry, _upsert, log
 from app.services.growatt_sync.env import sync_env_sensors
@@ -50,7 +50,7 @@ def remove_blocked_plants(db: Session, plant_ids: Iterable[int]) -> List[int]:
     """Take the blocked plants (`GROWATT_BLOCKED_PLANT_IDS`) out of the registry. Returns the ids removed.
 
     Deleting the plant row cascades to its inverters, sensors, meters, their readings and the
-    alarm log; its issues go too, so none stays in the queue without a plant. Unblocking brings
+    alarm log; its issues and planned tasks (Calendar Team) go too, so none stays without a plant. Unblocking brings
     the plant back on the next `fleet` run (history from then on, older days by backfill).
     """
     ids = sorted(set(plant_ids))
@@ -59,6 +59,7 @@ def remove_blocked_plants(db: Session, plant_ids: Iterable[int]) -> List[int]:
     found = list(db.scalars(select(GrowattPlant.plant_id).where(GrowattPlant.plant_id.in_(ids))))
     if found:
         db.execute(delete(GrowattIssue).where(GrowattIssue.plant_id.in_(found)))
+        db.execute(delete(OmTask).where(OmTask.plant_id.in_(found)))  # assignees + history cascade
         db.execute(delete(GrowattPlant).where(GrowattPlant.plant_id.in_(found)))
         db.commit()
         log.info("blocked plants removed from the registry: %s", found)

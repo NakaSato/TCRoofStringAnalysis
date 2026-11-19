@@ -440,7 +440,82 @@ class IssueAction(BaseModel):
     feedback: Optional[Literal["confirmed", "false_alarm"]] = None
 
 
-SiteEventType = Literal["cleaning", "repair", "module_replaced", "inverter_replaced", "ir_flight", "curtailment", "other"]
+SiteEventType = Literal[
+    "cleaning", "repair", "module_replaced", "inverter_replaced", "ir_flight",
+    "pm_inspection", "inverter_service", "site_visit", "curtailment", "other",
+]
+# Calendar Team task types: the Site log types except curtailment (not planned work)
+OmTaskType = Literal[
+    "cleaning", "repair", "module_replaced", "inverter_replaced", "ir_flight",
+    "pm_inspection", "inverter_service", "site_visit", "other",
+]
+OmTaskStatus = Literal["planned", "in_progress", "skipped", "cancelled"]
+
+
+class OmTaskCreate(BaseModel):
+    """Plan a task on a plant (plant-local dates, may be in the future)."""
+
+    task_type: OmTaskType
+    title: Optional[str] = Field(default=None, max_length=160)
+    start_day: date
+    end_day: Optional[date] = None
+    device_sn: Optional[str] = Field(default=None, max_length=64)
+    string_no: Optional[int] = Field(default=None, ge=1, le=64)
+    team_id: Optional[int] = None
+    assignee_ids: List[int] = Field(default_factory=list, max_length=20)
+    issue_id: Optional[int] = None
+    est_cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class OmTaskPatch(BaseModel):
+    """Change a task: only the fields sent; null clears an optional one. `done` has its own route."""
+
+    task_type: Optional[OmTaskType] = None
+    title: Optional[str] = Field(default=None, max_length=160)
+    start_day: Optional[date] = None
+    end_day: Optional[date] = None
+    device_sn: Optional[str] = Field(default=None, max_length=64)
+    string_no: Optional[int] = Field(default=None, ge=1, le=64)
+    status: Optional[OmTaskStatus] = None
+    team_id: Optional[int] = None
+    assignee_ids: Optional[List[int]] = Field(default=None, max_length=20)
+    issue_id: Optional[int] = None
+    est_cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    comment: Optional[str] = Field(default=None, max_length=2000)
+
+    def changes(self) -> Dict[str, Any]:
+        out = self.model_dump(exclude_unset=True)
+        out.pop("comment", None)
+        for k in ("task_type", "start_day", "status", "assignee_ids"):  # required: null = unchanged
+            if out.get(k, 0) is None:
+                out.pop(k)
+        return out
+
+
+class OmTaskDone(BaseModel):
+    """Mark a task done: writes the Site log event. Dates default to the planned ones, capped at today."""
+
+    day: Optional[date] = None
+    end_day: Optional[date] = None
+    cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    close_issue: bool = False
+
+
+class OmTeamBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    active: bool = True
+    member_ids: List[int] = Field(default_factory=list, max_length=50)
+
+
+class OmTeamPatch(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    active: Optional[bool] = None
+    member_ids: Optional[List[int]] = Field(default=None, max_length=50)
 
 
 class SiteEventCreate(BaseModel):
