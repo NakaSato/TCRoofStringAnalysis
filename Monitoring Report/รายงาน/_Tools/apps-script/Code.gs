@@ -33,6 +33,8 @@
  *     รายงานล่าสุด (added if missing) = the newest day whose day sheet has a checked inverter row
  *   - Overview "รายงานการแก้ไข" box รายงานวันนี้ (added next to the other boxes if missing) = "xxx/233":
  *     plants whose รายงานล่าสุด is today, out of every plant in "สถานี" (a formula: it goes back to 0 at midnight)
+ *   - Overview sheet "รายงานวันนี้" (made if missing): the plants that reported today and the ones that have
+ *     not yet, as FILTER formulas over "สถานี" (they follow TODAY(); the script only writes them once)
  *
  * Where things are: the root folder is the folder the Overview sheet is in (rootId_), so the
  * folder "String Check" sits next to the Overview, with the month folders "yyyy-MM" inside "String Check".
@@ -1585,6 +1587,7 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     const L = letter_(lastCol);
     boxes.push([REPORTED_TODAY, `=COUNTIF('${STATIONS}'!$${L}$2:$${L},TEXT(TODAY(),"dd/mm/")&(YEAR(TODAY())+543))&"/"&COUNTA('${STATIONS}'!$A$2:$A)`]);
     addBox_(t, REPORTED_TODAY);
+    todaySheet_(overview, sHead);
   }
   const norm = v => String(v).replace(/เเ/g, 'แ').trim();          // the sheet spells some labels with "เเ"
   for (let r = 0; r < t.headRow - 1; r++) {
@@ -1633,6 +1636,36 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     const extra = log.getLastRow() - 1 - LOG_KEEP_ROWS;   // row 1 is the header
     if (extra > 0) log.deleteRows(2, extra);
   }
+}
+
+/**
+ * Sheet "รายงานวันนี้": left, the plants whose รายงานล่าสุด is today; right, the plants that have not reported
+ * today. Formulas only (FILTER over "สถานี"), so the lists change with TODAY() and the next sync; the sheet
+ * is written only when it is missing or its formulas differ (e.g. a column of "สถานี" moved).
+ */
+function todaySheet_(overview, sHead) {
+  const want = ['รหัส', 'ระยะ', 'ชื่อสถานี', 'กปภ.สาขา', LAST_REPORT].filter(h => sHead.indexOf(h) >= 0);
+  if (want.indexOf(LAST_REPORT) < 0 || want.indexOf('รหัส') < 0) return;
+  const ref = h => { const L = letter_(sHead.indexOf(h) + 1); return `'${STATIONS}'!$${L}$2:$${L}`; };
+  const today = 'TEXT(TODAY(),"dd/mm/")&(YEAR(TODAY())+543)';
+  const cols = `{${want.map(ref).join(',')}}`, code = ref('รหัส'), last = ref(LAST_REPORT);
+  const w = want.length, right = w + 2;                 // one empty column between the two lists
+  const done = `=IFERROR(FILTER(${cols},${last}=${today}),"ยังไม่มีสถานีที่ทำรายงานวันนี้")`;
+  const notYet = `=IFERROR(FILTER(${cols},${code}<>"",${last}<>${today}),"ทำรายงานครบทุกสถานีแล้ว")`;
+  const title = `="รายงานวันนี้ – วันที่ "&${today}&"   ·   ทำรายงานแล้ว "&COUNTIF(${last},${today})&"/"&COUNTA(${code})&" สถานี"`;
+  let sh = overview.getSheetByName(REPORTED_TODAY);
+  if (sh && sh.getRange(5, 1).getFormula() === done && sh.getRange(5, right).getFormula() === notYet &&
+    sh.getRange(1, 1).getFormula() === title) return;
+  if (!sh) sh = overview.insertSheet(REPORTED_TODAY, 1);   // next to รายงานการแก้ไข
+  sh.clear();
+  ensureSize_(sh, 5, right + w - 1);
+  sh.getRange(1, 1).setFormula(title).setFontWeight('bold').setFontSize(14);
+  sh.getRange(3, 1).setFormula(`="ทำรายงานแล้ว ("&COUNTIF(${last},${today})&")"`).setFontWeight('bold').setFontColor('#38761D');
+  sh.getRange(3, right).setFormula(`="ยังไม่ทำรายงาน ("&(COUNTA(${code})-COUNTIF(${last},${today}))&")"`).setFontWeight('bold').setFontColor('#CC0000');
+  [1, right].forEach(c => sh.getRange(4, c, 1, w).setValues([want]).setFontWeight('bold').setBackground(COLOR.BLUE));
+  sh.getRange(5, 1).setFormula(done);
+  sh.getRange(5, right).setFormula(notYet);
+  sh.setFrozenRows(4);
 }
 
 /**

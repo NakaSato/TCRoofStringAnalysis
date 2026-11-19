@@ -12,7 +12,7 @@ class Sheet {
   deleteRows(a, n) { const c = {}; for (const k in this.cells) { const [r, col] = k.split(',').map(Number); if (r < a) c[k] = this.cells[k]; else if (r >= a + n) c[`${r - n},${col}`] = this.cells[k]; } this.cells = c; this.rows -= n; } deleteColumns(a, n) { this.cols -= n; }
   insertRowsAfter(a, n) { if (a !== this.rows) throw new Error('insertRowsAfter not at end'); this.rows += n; }
   insertColumnsAfter(a, n) { if (a !== this.cols) throw new Error('insertColsAfter not at end'); this.cols += n; }
-  insertImage(b, c, r) { if (!b) throw new Error('no blob'); const sh = this, o = { c, r, setHeight: () => o, setWidth: () => o, getAnchorCell: () => ({ getRow: () => o.r, getColumn: () => o.c }), remove: () => { sh.images = sh.images.filter(x => x !== o); } }; this.images = [...(this.images || []), o]; return o; } getImages() { return [...(this.images || [])]; } setHiddenGridlines() { return this; } setFrozenRows() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules() {}
+  insertImage(b, c, r) { if (!b) throw new Error('no blob'); const sh = this, o = { c, r, setHeight: () => o, setWidth: () => o, getAnchorCell: () => ({ getRow: () => o.r, getColumn: () => o.c }), remove: () => { sh.images = sh.images.filter(x => x !== o); } }; this.images = [...(this.images || []), o]; return o; } getImages() { return [...(this.images || [])]; } setHiddenGridlines() { return this; } clear() { this.cells = {}; return this; } setFrozenRows() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules() {}
   _ext() { let r = 0, c = 0; for (const k in this.cells) { if (this.cells[k] === '' ) continue; const [a, b] = k.split(',').map(Number); r = Math.max(r, a); c = Math.max(c, b); } return [r, c]; }
   getLastRow() { return this._ext()[0]; } getLastColumn() { return this._ext()[1]; }
   getDataRange() { const [r, c] = this._ext(); return this.getRange(1, 1, Math.max(r, 1), Math.max(c, 1)); }
@@ -33,7 +33,7 @@ class Range { constructor(sh, r, c, nr, nc) { Object.assign(this, { sh, r, c, nr
     v2d.forEach((row, i) => row.forEach((v, j) => { if (v === undefined || v === null) throw new Error('undefined value'); if (f && !isF(v)) throw new Error('not a formula: ' + v); this.sh.cells[`${this.r + i},${this.c + j}`] = v; })); return this; }
   setValues(v) { return this._set(v); } setFormulas(v) { return this._set(v, true); }
   setValue(v) { this.sh.cells[`${this.r},${this.c}`] = v; return this; } setFormula(v) { if (!isF(v)) throw new Error('not formula ' + v); return this.setValue(v); }
-  merge() { return this; } mergeAcross() { return this; } getMergedRanges() { return []; } copyFormatToRange() {} }
+  merge() { return this; } mergeAcross() { return this; } getMergedRanges() { return []; } copyFormatToRange() {} getFormula() { return this.getFormulas()[0][0]; } }
 for (const m of ['setFontFamily', 'setFontSize', 'setHorizontalAlignment', 'setVerticalAlignment', 'setWrap', 'setFontWeight', 'setBackground', 'setNumberFormat', 'setDataValidation', 'setBorder', 'setFontColor']) Range.prototype[m] = function () { return this; };
 class SS { constructor(id, name) { this.id = id; this.name = name; this.sheets = [new Sheet(this, 'Sheet1', ++seq)]; }
   getId() { return this.id; } getSheets() { return this.sheets; } setSpreadsheetLocale() {} setSpreadsheetTimeZone(z) { this.tz = z; } getSpreadsheetTimeZone() { return this.tz || "Etc/GMT"; }
@@ -120,6 +120,7 @@ console.log('--- _log'); show(O.getSheetByName('_log'), [1, 2, 3, 4]);
 { const lc = Object.keys(st.cells).find(k => k.startsWith('1,') && st.cells[k] === 'รายงานล่าสุด'); const c = lc && +lc.split(',')[1];
   const filled = Object.keys(st.cells).filter(k => c && +k.split(',')[1] === c && +k.split(',')[0] > 1 && st.cells[k] !== '').map(k => st.cells[`${k.split(',')[0]},1`] + '=' + st.cells[k]);
   console.log('รายงานล่าสุด column', c, ':', filled.join(' '), '· box', Object.keys(T.cells).filter(k => T.cells[k] === 'รายงานวันนี้').join(), '→', T.cells['5,12']); }
+{ const R = O.getSheetByName('รายงานวันนี้'); console.log('sheet รายงานวันนี้ at', O.sheets.indexOf(R), ':'); show(R, [1, 3, 4, 5]); }
 // 4) idempotency
 api.syncNow(); drain(); const snap = sh => JSON.stringify(Object.entries(sh.cells).filter(([k, v]) => v !== '' && k !== '2,1').sort());
 const b1 = [T, iv, st].map(snap); ctx.__writes = 0; api.syncNow(); drain(); const b2 = [T, iv, st].map(snap);
