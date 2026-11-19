@@ -13,7 +13,7 @@ from app.auth import allowed_plant_ids, get_current_user, require_admin, require
 from app.db.models import User
 from app.db.session import get_db
 from app.schemas.api_schemas import IssueAction
-from app.services import growatt_rules, jobs
+from app.services import epi_fit, growatt_rules, jobs
 from app.api.routes.growatt._common import DAY_QUERY, audit
 
 router = APIRouter()
@@ -216,7 +216,7 @@ def plant_kpi_daily(
     )
     cols = [
         "capacity_kwp", "energy_kwh", "dc_energy_kwh", "modelled_energy_kwh", "yr_h",
-        "ya_kwh_kwp", "yf_kwh_kwp", "ya_minus_yf", "pr_pct", "pr_temp_corrected_pct", "epi",
+        "ya_kwh_kwp", "yf_kwh_kwp", "ya_minus_yf", "pr_pct", "pr_temp_corrected_pct", "epi", "system_factor",
         "irradiance_weighted_tmod_c", "filtered_slots", "stale_masked_slots",
         "clipped_masked_slots", "curtailed_masked_slots",
         "sensor_stale_slots", "sensor_high_slots", "sensor_midday_wm2", "sensor_neighbour_ratio",
@@ -236,5 +236,7 @@ def plant_kpi_daily(
         "start": start.isoformat(),
         "end": end.isoformat(),
         "days": data,
-        "meta": {"source": "db", "modelled": ["modelled_energy_kwh", "epi", "cloud_midday_pct"]},
+        # the EPI model's system factor now in use (fitted per plant or the default) and its fit
+        "epi_factor": epi_fit.factor_info(db, plant_id),
+        "meta": {"source": "db", "modelled": ["modelled_energy_kwh", "epi", "system_factor", "cloud_midday_pct"]},
     }

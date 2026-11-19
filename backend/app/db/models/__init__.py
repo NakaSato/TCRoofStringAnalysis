@@ -52,6 +52,7 @@ from app.db.models.rules import (  # noqa: F401
     GrowattIssue,
     GrowattIvSweep,
     GrowattPlantDaily,
+    GrowattPlantEpiFit,
     GrowattStringDaily,
     SiteEvent,
 )

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.services import growatt_meter, growatt_weather
+from app.services import epi_fit, growatt_meter, growatt_weather
 from app.db.models import (
     GrowattInverter,
     GrowattInverterEnergyDay,
@@ -492,6 +492,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     # EPI (Energy Performance Index = measured AC energy / modelled AC energy from POA & T_mod)
     # over POA-filtered (200-1200 W/m²), non-stale, non-clipped slots.
     epi: Optional[float] = None
+    epi_factor = epi_fit.factor_info(db, plant_id)  # the plant's fitted model factor, else the default
     if pr["pr_pct"] is not None and cap_kwp:
         stale_ts = growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2")
         rated_ac_kw = (plant_rated_ac_w(db, [plant_id]).get(plant_id) or 0.0) / 1000.0
@@ -517,7 +518,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             if t_mod is None:
                 continue  # no module temperature measured at all: the slot cannot be modelled
             temp_factor = max(0.5, 1.0 + (gamma_pct / 100.0) * (float(t_mod) - 25.0))
-            p_mod_kw = cap_kwp * (float(g) / 1000.0) * temp_factor * 0.985
+            p_mod_kw = cap_kwp * (float(g) / 1000.0) * temp_factor * epi_factor["factor"]
             if p_mod_kw > 0:
                 meas_kw_sum += pac_kw
                 mod_kw_sum += p_mod_kw
@@ -603,6 +604,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "iec_pr_pct": pr["pr_pct"],
             "iec_pr_temp_corrected_pct": pr.get("pr_temp_corrected_pct"),
             "epi": epi,
+            # the model's system factor behind `epi` (modelled): fitted per plant, or the default
+            "epi_factor": epi_factor,
             # R16 verdict on the day's stored sensor evidence (null = not computed / no irradiance);
             # ok false = the IEC PR, PR' and EPI above rest on a suspect sensor
             "sensor_health": _sensor_health(db, plant_id, day),

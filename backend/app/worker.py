@@ -33,9 +33,11 @@ Schedule (plant-local time, Asia/Bangkok):
                                then pushes the new alarm events of the logs it read (services/push.py)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
     push_test          not scheduled: queued by POST /push/test, sends the test notifications
-    rules_yesterday    00:45   daily string / inverter rows for yesterday + decision rules (counts only)
+    rules_yesterday    00:45   daily string / inverter rows for yesterday + decision rules (counts only),
+                               then the EPI system factor of plants not fitted yet (services/epi_fit.py)
     rules_today        every WORKER_HISTORY_INTERVAL_MIN (10) min, 06–20: the same for today so far
     rules_backfill     not scheduled: daily rows for every stored day (queue once after deploy)
+    epi_refit          not scheduled: every plant's EPI system factor fitted again, stored EPI rescaled
     env_history        every WORKER_ENV_INTERVAL_MIN (10) min, WORKER_ENV_START_H..END_H (05–20)
                                weather-sensor env_data only (0 = off); a `history` start counts as
                                one, since `history` syncs the sensors too

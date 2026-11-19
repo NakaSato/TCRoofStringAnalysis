@@ -134,6 +134,8 @@ export interface GrowattPlantOverview {
     iec_pr_temp_corrected_pct?: number | null;
     /** Energy Performance Index (measured / modelled energy over filtered slots) */
     epi?: number | null;
+    /** the EPI model's system factor (modelled): fitted per plant on its clearest good days, else the default 0.985 */
+    epi_factor?: EpiFactor;
     /** R16 verdict on the day's weather sensor; ok false = IEC PR, PR' and EPI rest on a suspect sensor; null = not judged */
     sensor_health?: { ok: boolean; flags: string[]; reasons: string[] } | null;
     insolation_kwh_m2?: number | null;
@@ -423,4 +425,22 @@ export interface GrowattPlantPower {
     /** a Growatt figure above 10 kWh/kWp was withheld (null), as a Growatt glitch */
     growatt_implausible?: boolean;
   }>;
+}
+
+/** The EPI model's system factor in use for a plant (backend services/epi_fit.py). Modelled. */
+export interface EpiFactor {
+  factor: number;
+  basis: "fitted" | "default";
+  /** fitted | too_few_days | rejected; null = never tried */
+  status: "fitted" | "too_few_days" | "rejected" | null;
+  /** the median found, also when rejected */
+  fit_factor: number | null;
+  days_used: number;
+  candidate_days: number;
+  start_day: string | null;
+  end_day: string | null;
+  spread_pct: number | null;
+  reason: string | null;
+  fitted_at: string | null;
+  modelled: true;
 }

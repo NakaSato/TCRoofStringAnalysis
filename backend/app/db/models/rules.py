@@ -106,6 +106,7 @@ class GrowattPlantDaily(Base):
     pr_pct: Mapped[Optional[float]] = mapped_column(Float)  # raw IEC 61724-1 PR (reporting only)
     pr_temp_corrected_pct: Mapped[Optional[float]] = mapped_column(Float)  # PR' = PR / [1 + γ(T_mod − 25 °C)]
     epi: Mapped[Optional[float]] = mapped_column(Float)  # E_measured / E_modelled over filtered slots
+    system_factor: Mapped[Optional[float]] = mapped_column(Float)  # model factor behind epi / modelled_energy_kwh (null = 0.985)
     irradiance_weighted_tmod_c: Mapped[Optional[float]] = mapped_column(Float)
     filtered_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     stale_masked_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -122,6 +123,27 @@ class GrowattPlantDaily(Base):
     sensor_neighbours: Mapped[Optional[int]] = mapped_column(Integer)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
+
+
+class GrowattPlantEpiFit(Base):
+    """A plant's fitted EPI system factor (services/epi_fit.py, docs/plans/decision-rules.md §5.1):
+    the median of measured ÷ modelled-without-factor over its clearest good days. Only a `fitted`
+    row's factor is used; otherwise the plant keeps `DEFAULT_SYSTEM_FACTOR`. Modelled, kept
+    indefinitely; fitted once, refitted only by the `epi_refit` job."""
+
+    __tablename__ = "growatt_plant_epi_fit"
+
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # fitted | too_few_days | rejected
+    factor: Mapped[Optional[float]] = mapped_column(Float)  # the median found (also when rejected)
+    spread_pct: Mapped[Optional[float]] = mapped_column(Float)  # median absolute deviation of the days ÷ factor
+    days_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    candidate_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    start_day: Mapped[Optional[date]] = mapped_column(Date)  # first / last day used
+    end_day: Mapped[Optional[date]] = mapped_column(Date)
+    min_clearness: Mapped[Optional[float]] = mapped_column(Float)  # clearness of the least clear day used
+    reason: Mapped[Optional[str]] = mapped_column(String(255))
+    fitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 class GrowattIvSweep(Base):
     """Measured I-V curve sweep (string or module level) from a field tracer or inverter smart scan,

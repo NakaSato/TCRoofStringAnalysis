@@ -403,9 +403,33 @@ def job_rules_today(db: Session) -> Tuple[str, Dict[str, Any]]:
     return _rules(db, _today(), close=False)
 
 
+def _epi_fit(db: Session, detail: Dict[str, Any], end: date, refit: bool = False) -> None:
+    """Fit plants' EPI system factors into `detail["epi_fit"]`; never fails the rules run."""
+    from app.services import epi_fit
+
+    try:
+        detail["epi_fit"] = epi_fit.fit(db, end, refit=refit)
+    except Exception as exc:  # noqa: BLE001 - a modelled factor must not undo the day's rows
+        db.rollback()
+        log.exception("EPI system factor fit failed")
+        detail["epi_fit"] = {"error": f"{type(exc).__name__}: {exc}"}
+
+
 def job_rules_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
-    """Yesterday in full, after `alarms_yesterday` (00:30) stored its late alarms."""
-    return _rules(db, _today() - timedelta(days=1))
+    """Yesterday in full, after `alarms_yesterday` (00:30) stored its late alarms; then fits the
+    EPI system factor of plants that have none yet (services/epi_fit.py)."""
+    yesterday = _today() - timedelta(days=1)
+    status, detail = _rules(db, yesterday)
+    _epi_fit(db, detail, yesterday)
+    return status, detail
+
+
+def job_epi_refit(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Fit every plant's EPI system factor again on the last 60 days and rescale its stored EPI
+    (not scheduled; queue it after a sensor, inverter or module change)."""
+    detail: Dict[str, Any] = {}
+    _epi_fit(db, detail, _today() - timedelta(days=1), refit=True)
+    return ("failed" if "error" in detail["epi_fit"] else "ok"), detail
 
 
 def job_rules_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
@@ -425,6 +449,7 @@ def job_rules_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
         closed += r["closed"]
         d += timedelta(days=1)
     detail["issues"] = {"opened": opened, "closed": closed}
+    _epi_fit(db, detail, end)
     return ("partial" if detail["failed"] else "ok"), detail
 
 
@@ -448,6 +473,7 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "rules_today": job_rules_today,
     "rules_yesterday": job_rules_yesterday,
     "rules_backfill": job_rules_backfill,
+    "epi_refit": job_epi_refit,
 }
 
 
