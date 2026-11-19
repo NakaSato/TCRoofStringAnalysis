@@ -33,7 +33,7 @@ class Range { constructor(sh, r, c, nr, nc) { Object.assign(this, { sh, r, c, nr
     v2d.forEach((row, i) => row.forEach((v, j) => { if (v === undefined || v === null) throw new Error('undefined value'); if (f && !isF(v)) throw new Error('not a formula: ' + v); this.sh.cells[`${this.r + i},${this.c + j}`] = v; })); return this; }
   setValues(v) { return this._set(v); } setFormulas(v) { return this._set(v, true); }
   setValue(v) { this.sh.cells[`${this.r},${this.c}`] = v; return this; } setFormula(v) { if (!isF(v)) throw new Error('not formula ' + v); return this.setValue(v); }
-  merge() { return this; } mergeAcross() { return this; } getMergedRanges() { return []; } copyFormatToRange() {} getFormula() { return this.getFormulas()[0][0]; } }
+  merge() { return this; } mergeAcross() { return this; } getMergedRanges() { return []; } copyFormatToRange() {} getFormula() { return this.getFormulas()[0][0]; } breakApart() { return this; } }
 for (const m of ['setFontFamily', 'setFontSize', 'setHorizontalAlignment', 'setVerticalAlignment', 'setWrap', 'setFontWeight', 'setBackground', 'setNumberFormat', 'setDataValidation', 'setBorder', 'setFontColor']) Range.prototype[m] = function () { return this; };
 class SS { constructor(id, name) { this.id = id; this.name = name; this.sheets = [new Sheet(this, 'Sheet1', ++seq)]; }
   getId() { return this.id; } getSheets() { return this.sheets; } setSpreadsheetLocale() {} setSpreadsheetTimeZone(z) { this.tz = z; } getSpreadsheetTimeZone() { return this.tz || "Etc/GMT"; }
@@ -120,7 +120,7 @@ console.log('--- _log'); show(O.getSheetByName('_log'), [1, 2, 3, 4]);
 { const lc = Object.keys(st.cells).find(k => k.startsWith('1,') && st.cells[k] === 'รายงานล่าสุด'); const c = lc && +lc.split(',')[1];
   const filled = Object.keys(st.cells).filter(k => c && +k.split(',')[1] === c && +k.split(',')[0] > 1 && st.cells[k] !== '').map(k => st.cells[`${k.split(',')[0]},1`] + '=' + st.cells[k]);
   console.log('รายงานล่าสุด column', c, ':', filled.join(' '), '· box', Object.keys(T.cells).filter(k => T.cells[k] === 'รายงานวันนี้').join(), '→', T.cells['5,12']); }
-{ const R = O.getSheetByName('รายงานวันนี้'); console.log('sheet รายงานวันนี้ at', O.sheets.indexOf(R), ':'); show(R, [1, 3, 4, 5]); }
+{ const R = O.getSheetByName('รายงานวันนี้'); console.log('sheet รายงานวันนี้ at', O.sheets.indexOf(R), ':'); show(R, [1, 2, 3, 4, 5]); console.log('   grid', R.rows, 'x', R.cols); }
 // 4) idempotency
 api.syncNow(); drain(); const snap = sh => JSON.stringify(Object.entries(sh.cells).filter(([k, v]) => v !== '' && k !== '2,1').sort());
 const b1 = [T, iv, st].map(snap); ctx.__writes = 0; api.syncNow(); drain(); const b2 = [T, iv, st].map(snap);
