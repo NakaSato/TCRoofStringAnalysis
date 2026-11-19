@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-from sqlalchemy import delete, false, select, update
+from sqlalchemy import delete, false, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -357,8 +357,13 @@ def list_tasks(
         q = q.where(T.status == status)
     if team_id is not None:
         q = q.where(T.team_id == team_id)
-    if user_id is not None:
-        q = q.where(T.id.in_(select(OmTaskAssignee.task_id).where(OmTaskAssignee.user_id == user_id)))
+    if user_id is not None:  # the person's work: assigned directly or through a team they are in
+        q = q.where(
+            or_(
+                T.id.in_(select(OmTaskAssignee.task_id).where(OmTaskAssignee.user_id == user_id)),
+                T.team_id.in_(select(OmTeamMember.team_id).where(OmTeamMember.user_id == user_id)),
+            )
+        )
     if overdue:
         q = q.where(T.status.in_(ACTIVE), T.end_day < _today())
     rows = list(db.scalars(q.order_by(T.start_day, T.end_day, T.id)))

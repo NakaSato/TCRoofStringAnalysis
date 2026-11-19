@@ -6,7 +6,8 @@
 
 A person's work = tasks they are assigned to, directly or through a team they are a member of, on
 plants they may see (admin: every plant; engineer: their assigned plants). Only users with a
-device registered for push get anything; push is off while it is not configured (`push.web_config`).
+device registered for push get anything (devices register only while push is configured on the API;
+the worker sends with FIREBASE_CREDENTIALS_FILE, like alarm pushes).
 `om_push_marks` keeps one row per person, kind and day so a re-run never pushes twice. Plans, not
 measurements: nothing is computed beyond counting the stored tasks.
 """
@@ -161,8 +162,9 @@ def _deliver(
 
 
 def _off(db: Session) -> Optional[Dict[str, Any]]:
-    if push.web_config() is None:
-        return {"skipped": "push is not configured"}
+    # No `push.web_config()` check: the worker has no web app config (only the API does). A device
+    # can only have registered while push was configured, and sending needs the worker's
+    # FIREBASE_CREDENTIALS_FILE (`push._sender`), as for alarm pushes.
     if not int(db.scalar(select(func.count()).select_from(PushToken)) or 0):
         return {"devices": 0}
     return None

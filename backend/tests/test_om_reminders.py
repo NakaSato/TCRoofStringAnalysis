@@ -146,14 +146,30 @@ def test_week_summary_counts_this_week_and_overdue(env):
     assert "tok-admin" not in msgs
 
 
-def test_nothing_is_sent_while_push_is_off(env, monkeypatch):
+def test_worker_without_web_config_still_sends_and_no_devices_sends_nothing(env, monkeypatch):
     f, ids = env
-    monkeypatch.setattr(settings, "firebase_vapid_key", "")
+    for k in ("firebase_web_api_key", "firebase_web_app_id", "firebase_messaging_sender_id", "firebase_vapid_key"):
+        monkeypatch.setattr(settings, k, "")  # the VM worker's .env has none of these
     with f() as db:
         _add(db, P1, date(2026, 11, 24), users=[ids["eng"]])
         s = Sender()
-        assert om_reminders.notify_tomorrow(db, sender=s, now=NOW)["skipped"] == "push is not configured"
-        assert s.msgs == [] and not list(db.scalars(select(OmPushMark)))
+        assert om_reminders.notify_tomorrow(db, sender=s, now=NOW)["sent"] == 1
+        db.query(PushToken).delete()
+        db.commit()
+        s2 = Sender()
+        assert om_reminders.notify_week(db, sender=s2, now=NOW) == {"day": "2026-11-23", "devices": 0}
+        assert s2.msgs == []
+
+
+def test_my_work_filter_includes_team_tasks(env):
+    f, ids = env
+    with f() as db:
+        team_task = _add(db, P1, date(2026, 11, 24), team=ids["team"])
+        _add(db, P1, date(2026, 11, 25), users=[ids["eng"]])
+    client, hdr = _client(f)
+    crew = hdr("crew", "crewpass")
+    body = client.get(f"/growatt/calendar/tasks?from=2026-11-23&to=2026-11-29&user_id={ids['crew']}", headers=crew).json()
+    assert [t["id"] for t in body["tasks"]] == [team_task.id]
 
 
 def test_weekly_schedule_fires_only_on_monday():
