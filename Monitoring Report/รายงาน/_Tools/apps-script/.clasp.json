@@ -12,6 +12,17 @@
   "jsonExtensions": [
     ".json"
   ],
-  "filePushOrder": [],
+  "filePushOrder": [
+    "00_Config.gs",
+    "01_Menu.gs",
+    "02_Schedule.gs",
+    "03_Job.gs",
+    "04_Folders.gs",
+    "05_Template.gs",
+    "06_Overview.gs",
+    "07_Sync.gs",
+    "08_Archive.gs",
+    "09_Helpers.gs"
+  ],
   "skipSubdirectories": false
 }
