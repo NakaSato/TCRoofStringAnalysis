@@ -77,7 +77,7 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,overviewFile_,logoBlob_,typedDate_,setSyncInterval,intervalSync,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
+vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,logoBlob_,typedDate_,setSyncInterval,intervalSync,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
 const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV'; api.CONFIG.LOGO_FILE_ID = '1Ic106EgW9ceYs8JOAXSfViAwh1YFqb4T';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
@@ -158,7 +158,7 @@ try { api.CONFIG.ROOT_FOLDER_ID = ''; api.CONFIG.LOGO_FILE_ID = ''; ctx.__bound 
   console.log('root from the Overview:', api.rootId_() === root.id, '· Overview = bound sheet:', api.overviewFile_().getId() === O.getId(), '· logo by name:', api.logoBlob_());
   delete props.last; api.syncNow(); drain(); console.log('sync in that folder:', props.last);
   const other = new File('root2', 'moved', 'folder', null); files[O.getId()].parent = other.id; delete props.last; api.createThisMonth(); drain();
-  console.log('Overview moved → month folder made next to it:', Object.values(files).some(f => f.parent === other.id && f.name === api.ym_(new Date())), '· logo there:', api.logoBlob_(), '·', props.last);
+  console.log('Overview moved → month folder made in String Check next to it:', Object.values(files).some(f => f.name === api.ym_(new Date()) && files[f.parent] && files[f.parent].name === 'String Check' && files[f.parent].parent === other.id), '· logo there:', api.logoBlob_(), '·', props.last);
   files[O.getId()].parent = root.id; } catch (e) { console.log('bound test failed:', e.message); }
 
 // 7) dates typed as พ.ศ.
@@ -189,3 +189,12 @@ try { const ymNow = api.ym_(new Date());
   api.calendarCreate(); console.log('calendar create during a sync → queued:', props.queued, '· job still', props.job);
   api.cancelJob(); console.log('cancelled: job', props.job || 'none', '· queue', props.queued || 'empty');
 } catch (e) { console.log('section 8 failed:', e.stack); }
+// 9) month folders: a new month goes into "String Check" (made once); one left in the root folder is used where it is
+try {
+  const legacy = api.findMonthFolder_(api.ym_(new Date()));
+  const a = api.monthFolder_('2027-01'), b = api.monthFolder_('2027-01');
+  const sc = Object.values(files).filter(f => f.mime === 'folder' && f.name === 'String Check' && f.parent === root.id);
+  console.log('month left in root found there:', legacy.parent === root.id, '· new month in String Check:', sc.length === 1 && a.parent === sc[0].id,
+    '· made once:', a.id === b.id && Object.values(files).filter(f => f.name === '2027-01').length === 1);
+  const moved = new File('fm1', '2027-02', 'folder', sc[0].id); console.log('moved month found in String Check:', api.findMonthFolder_('2027-02').id === moved.id);
+} catch (e) { console.log('section 9 failed:', e.stack); }

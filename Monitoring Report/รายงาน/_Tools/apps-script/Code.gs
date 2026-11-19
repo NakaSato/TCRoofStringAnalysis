@@ -11,7 +11,8 @@
  *                               (typed in the yellow cells of the day sheets)
  *
  * Creating the month
- *   1) the month folder "yyyy-MM" inside the root folder (if it is not there yet)
+ *   1) the month folder "yyyy-MM" inside the folder "String Check" of the root folder (CONFIG.MONTHS_FOLDER;
+ *      both made if they are not there yet)
  *   2) one Google Sheet per plant, "<code>_<plant name>_<yyyy-MM>":
  *        สรุปเดือน            one row per day, read from the day sheets
  *        วันที่ 1 … 28-31     the daily String Check form, one sheet per day
@@ -30,8 +31,10 @@
  *     status typed in the day sheets
  *   - Overview "สถานี": จำนวน Inverter, จำนวนสตริงรวม (formulas over "Inverter") and ไฟล์รายงาน (link)
  *
- * Where things are: the root folder is the folder the Overview sheet is in (rootId_), so the month folders
- * "yyyy-MM" and logo.png sit next to the Overview. No Drive id is written in this file; a copy of the
+ * Where things are: the root folder is the folder the Overview sheet is in (rootId_), so logo.png and the
+ * folder "String Check" sit next to the Overview, with the month folders "yyyy-MM" inside "String Check".
+ * A month folder still left directly in the root folder is used where it is (never made twice).
+ * No Drive id is written in this file; a copy of the
  * Overview in another folder or account works on its own folder as soon as setup() is run there.
  * The live copy belongs to engineer@tcrenewable.com (upload with `clasp push --user engineer`); the
  * triggers run as the account that ran setup().
@@ -65,6 +68,7 @@ const CONFIG = {
   // Nothing here names a Drive location: the Overview is the sheet this script is bound to, and the root
   // folder is the folder that sheet is in. Move or copy the sheet and everything follows it.
   ROOT_FOLDER_ID: '',             // blank = the folder the Overview is in; an id = month folders go there instead
+  MONTHS_FOLDER: 'String Check',  // the month folders "yyyy-MM" are in this folder of the root folder (blank = in the root folder itself)
   OVERVIEW_ID: '',                // blank = the sheet this script is bound to; an id = that Google Sheet instead
   OVERVIEW_NAME: '00_Overview',   // only without a bound sheet: the Overview is the file in the root folder whose name starts with this
   LOGO_FILE_ID: '',               // blank = the file LOGO_NAME in the root folder (none = no logo); an id = that image
@@ -614,15 +618,34 @@ function trash_(id) {
 
 // ============================================================ 1) month folder
 
-/** The month folder "yyyy-MM" in the root folder, or null when there is none (one in the trash does not count). */
-function findMonthFolder_(ym) {
-  const it = DriveApp.getFolderById(rootId_()).getFoldersByName(ym);
+/** The folder `name` in `parent`, or null when there is none (one in the trash does not count). */
+function childFolder_(parent, name) {
+  const it = parent.getFoldersByName(name);
   while (it.hasNext()) { const f = it.next(); if (!f.isTrashed()) return f; }
   return null;
 }
 
+/**
+ * The folder that holds the month folders: CONFIG.MONTHS_FOLDER in the root folder (made when `make`),
+ * the root folder itself when MONTHS_FOLDER is blank; null when it is not there and not `make`.
+ */
+function monthsParent_(make) {
+  const root = DriveApp.getFolderById(rootId_());
+  if (!CONFIG.MONTHS_FOLDER) return root;
+  return childFolder_(root, CONFIG.MONTHS_FOLDER) || (make ? root.createFolder(CONFIG.MONTHS_FOLDER) : null);
+}
+
+/**
+ * The month folder "yyyy-MM", or null when there is none: the one in the months folder, else one still
+ * left directly in the root folder (from before MONTHS_FOLDER), so a month is never made twice.
+ */
+function findMonthFolder_(ym) {
+  const parent = monthsParent_(false);
+  return (parent && childFolder_(parent, ym)) || childFolder_(DriveApp.getFolderById(rootId_()), ym);
+}
+
 function monthFolder_(ym) {
-  return findMonthFolder_(ym) || DriveApp.getFolderById(rootId_()).createFolder(ym);
+  return findMonthFolder_(ym) || monthsParent_(true).createFolder(ym);
 }
 
 /**
@@ -975,7 +998,7 @@ function boundSheet_() {
 }
 
 /**
- * The root folder: where the month folders and the logo are. It is the folder the Overview sheet is in,
+ * The root folder: where the logo and the months folder (CONFIG.MONTHS_FOLDER) are. It is the folder the Overview sheet is in,
  * read from Drive each time, so it follows the sheet when it is moved (CONFIG.ROOT_FOLDER_ID overrides).
  */
 function rootId_() {

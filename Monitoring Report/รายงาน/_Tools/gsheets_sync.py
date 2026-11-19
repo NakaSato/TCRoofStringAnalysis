@@ -9,7 +9,8 @@
 รันครั้งแรกจะเปิดเบราว์เซอร์ให้กดอนุญาต แล้วเก็บ token ไว้ที่ _Tools/token.json
 
 โครงสร้างใน Drive:
-    <root>/YYYY-MM/<รหัส>_<ชื่อสถานี>_YYYY-MM   (Google Sheet: หน้า "วันที่ 1", "วันที่ 2", ...)
+    <root>/String Check/YYYY-MM/<รหัส>_<ชื่อสถานี>_YYYY-MM   (Google Sheet: หน้า "วันที่ 1", "วันที่ 2", ...)
+    (โฟลเดอร์เดือนที่ยังอยู่ใน <root> โดยตรง ใช้ที่เดิม ไม่สร้างซ้ำ)
 """
 import os, json, time, random, datetime as dt
 
@@ -21,6 +22,7 @@ CACHE = os.path.join(HERE, "gsheet_ids.json")
 SCOPES = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
 SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 FOLDER_MIME = "application/vnd.google-apps.folder"
+MONTHS_FOLDER = "String Check"      # โฟลเดอร์เดือน YYYY-MM อยู่ในโฟลเดอร์นี้ (ใต้ root) เหมือน Apps Script
 
 
 def enabled():
@@ -76,14 +78,25 @@ class Sync:
         r = self._do(self.drive.files().list(q=q, fields="files(id)", pageSize=1))
         return r["files"][0]["id"] if r.get("files") else None
 
+    def _folder(self, name, parent, make=True):
+        fid = self._find(name, parent, FOLDER_MIME)
+        if not fid and make:
+            fid = self._do(self.drive.files().create(
+                body={"name": name, "mimeType": FOLDER_MIME, "parents": [parent]}, fields="id"))["id"]
+        return fid
+
+    def months_parent(self):
+        if not self.ids.get("_months_folder"):
+            self.ids["_months_folder"] = self._folder(MONTHS_FOLDER, self.root)
+        return self.ids["_months_folder"]
+
     def month_folder(self, month):
         m = self.ids.setdefault(month, {})
         if not m.get("_folder"):
-            fid = self._find(month, self.root, FOLDER_MIME)
-            if not fid:
-                fid = self._do(self.drive.files().create(
-                    body={"name": month, "mimeType": FOLDER_MIME, "parents": [self.root]}, fields="id"))["id"]
-            m["_folder"] = fid
+            parent = self.months_parent()
+            m["_folder"] = (self._folder(month, parent, make=False)
+                            or self._folder(month, self.root, make=False)   # เดือนเก่าที่ยังอยู่ใน root
+                            or self._folder(month, parent))
         return m["_folder"]
 
     def station_sheet(self, month, code, title):

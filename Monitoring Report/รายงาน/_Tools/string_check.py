@@ -8,8 +8,9 @@ String Check – ระบบรายงานความพร้อมระ
     _Input/                           ← วางไฟล์ inverter_string_inputs_YYYY-MM-DD.xlsx ทุกวัน
     _Template/logo.png                ← โลโก้หัวรายงาน
     _Tools/string_check.py            ← สคริปต์นี้
-    2026-11/                          ← 1 โฟลเดอร์ต่อเดือน
-        P1-037_สถานีผลิตน้ำบางวาด(สำนักงาน).xlsx   ← 1 ไฟล์ต่อสถานี: "สรุปเดือน" + "วันที่ 1..31"
+    String Check/                     ← โฟลเดอร์รวมรายงานรายเดือน
+        2026-11/                      ← 1 โฟลเดอร์ต่อเดือน
+            P1-037_สถานีผลิตน้ำบางวาด(สำนักงาน)_2026-11.xlsx   ← 1 ไฟล์ต่อสถานี: "สรุปเดือน" + "วันที่ 1..31"
 
 วิธีใช้:
     python3 string_check.py            # ประมวลผลทุกไฟล์ใน _Input ที่ยังไม่เคยทำ
@@ -30,6 +31,8 @@ ROOT = os.path.dirname(HERE) if os.path.basename(HERE) == "_Tools" else HERE
 OVERVIEW = os.path.join(ROOT, "00_Overview_รายงานการแก้ไข.xlsx")
 INPUT_DIR = os.path.join(ROOT, "_Input")
 LOGO = os.path.join(ROOT, "_Template", "logo.png")
+MONTHS_REL = "String Check"                      # โฟลเดอร์เดือน YYYY-MM อยู่ในโฟลเดอร์นี้ (ใต้ ROOT)
+MONTHS_DIR = os.path.join(ROOT, MONTHS_REL)
 
 PROJECT = "โครงการจัดการพลังงานไฟฟ้าจากระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์ที่ติดตั้งบนหลังคา (Solar Rooftop)"
 OWNER = "การประปาส่วนภูมิภาค"
@@ -319,11 +322,19 @@ def evaluate(inv_master, rec):
 
 
 # =====================================================================  PLANT monthly file
+def plant_name(station, day):
+    return f"{station['รหัส']}_{safe(station['ชื่อสถานี (ใช้ในรายงาน)'])}_{day:%Y-%m}.xlsx"
+
+
+def plant_rel(station, day):
+    """ที่อยู่ไฟล์สถานีเทียบกับไฟล์ Overview (ใช้ทำลิงก์)"""
+    return f"{MONTHS_REL}/{day:%Y-%m}/{plant_name(station, day)}"
+
+
 def plant_file(station, day):
-    folder = os.path.join(ROOT, f"{day:%Y-%m}")
+    folder = os.path.join(MONTHS_DIR, f"{day:%Y-%m}")
     os.makedirs(folder, exist_ok=True)
-    name = f"{station['รหัส']}_{safe(station['ชื่อสถานี (ใช้ในรายงาน)'])}_{day:%Y-%m}.xlsx"
-    return folder, name
+    return folder, plant_name(station, day)
 
 
 def ensure_info_sheet(wb, station, invs):
@@ -708,7 +719,7 @@ def process(path, logo=LOGO):
         invs = sorted(by_code.get(code, []), key=lambda v: (v["NO."] is None, v["NO."] or 0))
         folder, fname = plant_file(s, day)
         fpath = os.path.join(folder, fname)
-        rel = f"{day:%Y-%m}/{fname}"
+        rel = plant_rel(s, day)
         s["ไฟล์รายงาน"] = rel
         s["จำนวน Inverter"] = len(invs)
         s["จำนวนสตริงรวม"] = sum(v["จำนวนสตริง"] or 0 for v in invs)
@@ -808,7 +819,12 @@ def process(path, logo=LOGO):
             pd_ = r["พบล่าสุด"]
             s = next((x for x in st if x["รหัส"] == r["รหัส"]), None)
             if s:
-                r["_link"] = f"{pd_:%Y-%m}/{s['รหัส']}_{safe(s['ชื่อสถานี (ใช้ในรายงาน)'])}.xlsx#'วันที่ {pd_.day}'!A1"
+                r["_link"] = f"{plant_rel(s, pd_)}#'วันที่ {pd_.day}'!A1"
+    # ลิงก์ไฟล์รายงานเดิมที่ชี้ไปโฟลเดอร์เดือนข้าง Overview → ย้ายเข้า String Check/
+    for s in st:
+        f = s.get("ไฟล์รายงาน")
+        if isinstance(f, str) and re.match(r"\d{4}-\d{2}/", f):
+            s["ไฟล์รายงาน"] = f"{MONTHS_REL}/{f}"
     save_overview(wb, st, inv, iss, daily, done, asof)
     if gs:
         try:
