@@ -16,7 +16,9 @@ import { SERIES, STATUS } from "../../components/chartTheme";
 import { LoadingState, fmt } from "../../components/ui";
 import { IssueActionDialog, IssueActions, StatusBadgeIssue, TierBadge, evidenceText, issueHref, thb } from "../../components/issues";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { newClaimHref } from "@/lib/claimLinks";
 
 const DAYS = 30;
 
@@ -151,6 +153,11 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
           {label}: active issues of the inverter and its strings, and the last {DAYS} days of the daily rule table · stored history · lost
           energy estimated
         </CardDescription>
+        <CardAction>
+          <Button size="xs" variant="outline" asChild title="Open a warranty claim for this inverter">
+            <Link to={newClaimHref("inverter", { plantId, sn })}>Open claim</Link>
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         {issues == null ? (

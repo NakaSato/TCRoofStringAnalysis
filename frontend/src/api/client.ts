@@ -17,6 +17,8 @@ export type * from "./types/assistant";
 export type * from "./types/push";
 export type * from "./types/issues";
 export type * from "./types/events";
+export type * from "./types/tools";
+export type * from "./types/claims";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
@@ -26,6 +28,8 @@ import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/sy
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
+import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
+import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
@@ -454,6 +458,38 @@ export const api = {
     apiFetch<RuleDaily<StringRuleDay>>(
       `/growatt/plants/${plantId}/rules/daily?sn=${encodeURIComponent(sn)}&string_no=${stringNo}&days=${days}${day ? `&day=${day}` : ""}`
     ),
+
+  // ---- measuring tools (instruments, check-outs, calibration / document due dates; DB only)
+  listInstruments: (includeRetired = false) =>
+    apiFetch<InstrumentList>(`/tools${includeRetired ? "?include_retired=true" : ""}`),
+  getInstrument: (id: number) => apiFetch<InstrumentDetail>(`/tools/${id}`),
+  createInstrument: (body: InstrumentBody) =>
+    apiFetch<Instrument>("/tools", { method: "POST", body: JSON.stringify(body) }),
+  patchInstrument: (id: number, body: Partial<InstrumentBody>) =>
+    apiFetch<Instrument>(`/tools/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteInstrument: (id: number) => apiFetch<void>(`/tools/${id}`, { method: "DELETE" }),
+  checkoutInstrument: (id: number, body: CheckoutBody) =>
+    apiFetch<Checkout>(`/tools/${id}/checkout`, { method: "POST", body: JSON.stringify(body) }),
+  returnInstrument: (id: number, body: ReturnBody) =>
+    apiFetch<Checkout>(`/tools/${id}/return`, { method: "POST", body: JSON.stringify(body) }),
+  recordInstrumentDue: (id: number, body: DueBody) =>
+    apiFetch<Instrument>(`/tools/${id}/due`, { method: "POST", body: JSON.stringify(body) }),
+  // ---- claims (warranty / insurance claims for plant equipment; DB only)
+  listClaims: () => apiFetch<ClaimList>("/claims"),
+  getClaim: (id: number) => apiFetch<ClaimDetail>(`/claims/${id}`),
+  createClaim: (body: ClaimBody) => apiFetch<Claim>("/claims", { method: "POST", body: JSON.stringify(body) }),
+  patchClaim: (id: number, body: Partial<ClaimBody>) =>
+    apiFetch<Claim>(`/claims/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteClaim: (id: number) => apiFetch<void>(`/claims/${id}`, { method: "DELETE" }),
+  setClaimStatus: (id: number, body: ClaimStatusBody) =>
+    apiFetch<Claim>(`/claims/${id}/status`, { method: "POST", body: JSON.stringify(body) }),
+  addClaimEvent: (id: number, body: ClaimEventBody) =>
+    apiFetch<ClaimEvent>(`/claims/${id}/events`, { method: "POST", body: JSON.stringify(body) }),
+  setClaimEvidence: (id: number, key: string, body: ClaimEvidenceBody) =>
+    apiFetch<ClaimEvidence>(`/claims/${id}/evidence/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(body) }),
+  addClaimLink: (id: number, body: ClaimLinkBody) =>
+    apiFetch<ClaimLink>(`/claims/${id}/links`, { method: "POST", body: JSON.stringify(body) }),
+  deleteClaimLink: (id: number, linkId: number) => apiFetch<void>(`/claims/${id}/links/${linkId}`, { method: "DELETE" }),
 
   // File URLs (need the session token: download with downloadApiFile)
   sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,

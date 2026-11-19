@@ -34,6 +34,8 @@ const SystemLogsPage = page(() => import("./pages/SystemLogsPage"), "SystemLogsP
 const AiUsagePage = page(() => import("./pages/AiUsagePage"), "AiUsagePage");
 const IssuesPage = page(() => import("./pages/IssuesPage"), "IssuesPage");
 const RuleReviewPage = page(() => import("./pages/RuleReviewPage"), "RuleReviewPage");
+const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
+const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
 
 /** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
 const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -105,6 +107,8 @@ export const App: React.FC = () => {
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
             <Route path="issues" element={<IssuesPage />} />
+            <Route path="tools" element={<ToolsPage />} />
+            <Route path="claims" element={<ClaimsPage />} />
             <Route path="rules" element={<AdminOnly><RuleReviewPage /></AdminOnly>} />
             <Route path="sensors" element={<SensorsPage />} />
             <Route path="she" element={<AdminOnly><SheSafetyPage /></AdminOnly>} />

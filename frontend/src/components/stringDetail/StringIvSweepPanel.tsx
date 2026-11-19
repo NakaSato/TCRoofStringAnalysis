@@ -11,7 +11,9 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Flame, Plus, ShieldCheck, Upload, Zap } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import { newClaimHref } from "@/lib/claimLinks";
 import type { IvCellTechnology, IvSiteCoefficients, IvSweep } from "../../api/types/growatt";
 import { Spinner } from "@/components/ui/spinner";
 import { useAppContext } from "../../context/AppContext";
@@ -428,6 +430,11 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                     <Badge variant="crit" title="Below warranted power, agreed by two sources. A string sweep is not warranty evidence: test its modules one by one.">
                       <ShieldCheck className="mr-1 h-3 w-3" /> Module test candidate (2 sources)
                     </Badge>
+                  ) : null}
+                  {active.module_test_candidate ? (
+                    <Button variant="ghost" size="xs" asChild title="Open a module warranty claim with this sweep linked">
+                      <Link to={newClaimHref("sweep", { plantId, sn, stringNo, ref: active.id })}>Open claim</Link>
+                    </Button>
                   ) : null}
                   {canEdit && (
                     <Button variant="ghost" size="xs" onClick={() => toggleIr(active)} title="Toggle IR thermography confirmation (2nd source for a module-test candidate)">
