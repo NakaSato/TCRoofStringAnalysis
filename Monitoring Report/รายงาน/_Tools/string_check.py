@@ -6,7 +6,6 @@ String Check – ระบบรายงานความพร้อมระ
 โครงสร้างโฟลเดอร์ (ทั้งหมดอยู่ใต้โฟลเดอร์ "รายงาน"):
     00_Overview_รายงานการแก้ไข.xlsx   ← ไฟล์ PM: หน้า "รายงานการแก้ไข" + ทะเบียนสถานี/Inverter
     _Input/                           ← วางไฟล์ inverter_string_inputs_YYYY-MM-DD.xlsx ทุกวัน
-    _Template/logo.png                ← โลโก้หัวรายงาน
     _Tools/string_check.py            ← สคริปต์นี้
     String Check/                     ← โฟลเดอร์รวมรายงานรายเดือน
         2026-11/                      ← 1 โฟลเดอร์ต่อเดือน
@@ -24,13 +23,11 @@ from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import FormulaRule, CellIsRule
-from openpyxl.drawing.image import Image as XLImage
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE) if os.path.basename(HERE) == "_Tools" else HERE
 OVERVIEW = os.path.join(ROOT, "00_Overview_รายงานการแก้ไข.xlsx")
 INPUT_DIR = os.path.join(ROOT, "_Input")
-LOGO = os.path.join(ROOT, "_Template", "logo.png")
 MONTHS_REL = "String Check"                      # โฟลเดอร์เดือน YYYY-MM อยู่ในโฟลเดอร์นี้ (ใต้ ROOT)
 MONTHS_DIR = os.path.join(ROOT, MONTHS_REL)
 
@@ -371,7 +368,7 @@ def th_long(d):
     return f"{d.day} {TH_MONTH[d.month]} พ.ศ. {d.year + 543}"
 
 
-def build_day_sheet(wb, day, station, invs, results, issue_rows, logo, time_txt):
+def build_day_sheet(wb, day, station, invs, results, issue_rows, time_txt):
     """หน้ารายงานประจำวัน – ทุกบล็อกชิดขอบ C ถึง M, A4 แนวนอน, ฟอนต์ 3 ระดับ (20 หนา / 16 หนา / 16)"""
     from openpyxl.worksheet.pagebreak import Break
     from openpyxl.cell.rich_text import CellRichText, TextBlock
@@ -403,14 +400,6 @@ def build_day_sheet(wb, day, station, invs, results, issue_rows, logo, time_txt)
     ws["C4"].value = CellRichText(
         TextBlock(InlineFont(rFont=FONT, sz=16), "สรุปผลความพร้อมระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์ประจำวันที่  "),
         TextBlock(InlineFont(rFont=FONT, sz=16, b=True), th_long(day)))
-    if logo and os.path.exists(logo):
-        from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
-        from openpyxl.drawing.xdr import XDRPositiveSize2D
-        from openpyxl.utils.units import pixels_to_EMU
-        img = XLImage(logo); w, hh = 100, 80
-        img.anchor = OneCellAnchor(_from=AnchorMarker(col=11, colOff=pixels_to_EMU(60), row=1, rowOff=0),
-                                   ext=XDRPositiveSize2D(pixels_to_EMU(w), pixels_to_EMU(hh)))
-        ws.add_image(img)
 
     # ---------- ข้อมูลโครงการ (ป้าย C:D หนาพื้นเทา, ค่า E:M)
     info = [("ชื่อโครงการ", PROJECT, F), (None, OWNER, F), ("ชื่อสถานี", f"={I}B1", FB),
@@ -552,11 +541,10 @@ def build_day_sheet(wb, day, station, invs, results, issue_rows, logo, time_txt)
     return ws
 
 
-def build_blank_day(wb, day, station, invs, logo=None):
+def build_blank_day(wb, day, station, invs):
     """หน้าวันที่ล่วงหน้า: หัว/ข้อมูลสถานี/Inverter S/N/จำนวนสตริง ครบ – ช่องผลตรวจยังว่าง (เติมเมื่อรันรายงานวันนั้น)"""
-    logo = logo or LOGO
     results = {v["Inverter S/N"]: (None, "", "", "", []) for v in invs}
-    ws = build_day_sheet(wb, day, station, invs, results, [], logo, "")
+    ws = build_day_sheet(wb, day, station, invs, results, [], "")
     H = 15
     last = H + 1 + len(invs)
     for r in range(H + 2, last + 1):
@@ -568,36 +556,6 @@ def build_blank_day(wb, day, station, invs, logo=None):
     ws[f"C{R0 + 2}"].value = "ยังไม่ได้ประมวลผลข้อมูลวันนี้"
     ws["P1"].value = 0; ws["P2"].value = 0
     return ws
-
-
-def dedupe_media(path):
-    """openpyxl ฝังโลโก้ซ้ำทุกหน้า → ให้ทุกหน้าใช้ไฟล์รูปเดียวกัน (ไฟล์เล็กลงมาก)"""
-    import zipfile, hashlib, shutil, tempfile
-    zin = zipfile.ZipFile(path)
-    names = zin.namelist()
-    media = [n for n in names if n.startswith("xl/media/")]
-    if len(media) < 2:
-        zin.close(); return
-    first, rename = {}, {}
-    for n in media:
-        h = hashlib.md5(zin.read(n)).hexdigest()
-        if h in first: rename[n] = first[h]
-        else: first[h] = n
-    if not rename:
-        zin.close(); return
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx").name
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
-        for n in names:
-            if n in rename: continue
-            data = zin.read(n)
-            if n.startswith("xl/drawings/_rels/"):
-                t = data.decode("utf-8")
-                for old, new in rename.items():
-                    t = t.replace("/" + old[3:], "/" + new[3:]).replace('"../' + old[3:], '"../' + new[3:])
-                data = t.encode("utf-8")
-            zout.writestr(zin.getinfo(n), data)
-    zin.close()
-    shutil.move(tmp, path)
 
 
 MONTH_COLS = ["วันที่", "สตริงทั้งหมด", "ปกติ", "ผิดปกติ", "ความพร้อม", "Inverter ไม่มีข้อมูล", "Inverter Fault", "จำนวนปัญหา", "หน้า"]
@@ -661,7 +619,7 @@ def build_month_sheet(wb, station, day):
 
 
 # =====================================================================  MAIN daily processing
-def process(path, logo=LOGO):
+def process(path):
     day, data = parse_input(path)
     print(f"→ {os.path.basename(path)}  วันที่ {day}  ({len(data)} inverters)")
     wb, st, inv, iss, daily, done = load_overview()
@@ -755,7 +713,7 @@ def process(path, logo=LOGO):
             pwb = openpyxl.Workbook(); pwb.remove(pwb.active)
         ensure_info_sheet(pwb, s, invs)
         ms = build_month_sheet(pwb, s, day)
-        build_day_sheet(pwb, day, s, invs, results, day_issues, logo, time_txt)
+        build_day_sheet(pwb, day, s, invs, results, day_issues, time_txt)
         n = sum(v["จำนวนสตริง"] or 0 for v in invs)
         b = sum(min(results[v["Inverter S/N"]][0], v["จำนวนสตริง"] or 0) for v in invs)
         r = 5 + day.day
@@ -767,7 +725,6 @@ def process(path, logo=LOGO):
         pwb.active = pwb.sheetnames.index(f"วันที่ {day.day}")
         for w in pwb.worksheets: w.sheet_view.tabSelected = (w.title == f"วันที่ {day.day}")
         pwb.save(fpath)
-        dedupe_media(fpath)
         tot += n; ok += n - b; bad += b
         stations_with_issue += bool(day_issues)
         if gs:

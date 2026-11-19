@@ -31,8 +31,8 @@
  *     status typed in the day sheets
  *   - Overview "สถานี": จำนวน Inverter, จำนวนสตริงรวม (formulas over "Inverter") and ไฟล์รายงาน (link)
  *
- * Where things are: the root folder is the folder the Overview sheet is in (rootId_), so logo.png and the
- * folder "String Check" sit next to the Overview, with the month folders "yyyy-MM" inside "String Check".
+ * Where things are: the root folder is the folder the Overview sheet is in (rootId_), so the
+ * folder "String Check" sits next to the Overview, with the month folders "yyyy-MM" inside "String Check".
  * A month folder still left directly in the root folder is used where it is (never made twice).
  * No Drive id is written in this file; a copy of the
  * Overview in another folder or account works on its own folder as soon as setup() is run there.
@@ -71,8 +71,6 @@ const CONFIG = {
   MONTHS_FOLDER: 'String Check',  // the month folders "yyyy-MM" are in this folder of the root folder (blank = in the root folder itself)
   OVERVIEW_ID: '',                // blank = the sheet this script is bound to; an id = that Google Sheet instead
   OVERVIEW_NAME: '00_Overview',   // only without a bound sheet: the Overview is the file in the root folder whose name starts with this
-  LOGO_FILE_ID: '',               // blank = the file LOGO_NAME in the root folder (none = no logo); an id = that image
-  LOGO_NAME: 'logo.png',          // top right of every day sheet
   CALENDAR_NAME: 'String Check',  // Google Calendar whose events are the schedule of the automatic runs
   CREATE_ON_DAY: 25,              // setup(): default event — next month's files on this day, 01:00
   SYNC_HOURS: [12, 18],           // setup(): default events — sync every day at these hours (Bangkok)
@@ -163,7 +161,6 @@ function onOpen() {
     .addItem('ตั้งรอบซิงก์อัตโนมัติ (ทุก … นาที)', 'menuInterval')
     .addItem('อ่านเวลาจากปฏิทินใหม่', 'menuPlan')
     .addItem('ยกเลิกงานที่ค้าง', 'menuCancel')
-    .addItem('ใส่โลโก้ในไฟล์เดือนนี้ที่ยังไม่มี', 'addLogoToExisting')
     .addSeparator()
     .addItem('ย้ายปัญหาที่ปิดแล้วของปีเก่าไปไฟล์เก็บ…', 'menuArchive')
     .addToUi();
@@ -726,66 +723,19 @@ function buildTemplate_(ym, folder, n) {
   info.getRange('A7:B7').setValues([['รุ่นแม่แบบ', TEMPLATE_VERSION]]);
   info.getRange(INFO_INV0 - 1, 1, 1, 3).setValues([['NO.', 'Inverter S/N', 'จำนวนสตริง']]);
 
-  const logo = logoBlob_();
   const first = ss.insertSheet('วันที่ 1');
   buildDay_(first, n);
   setDayTitle_(first, y, m, 1);
-  addLogo_(first, logo);
   const gids = [first.getSheetId()];
-  let carried = false;
   for (let d = 2; d <= days; d++) {
     const sh = first.copyTo(ss).setName(`วันที่ ${d}`);
     setDayTitle_(sh, y, m, d);
-    if (!carried) carried = !addLogo_(sh, logo);        // only if the copy did not bring the image along
     gids.push(sh.getSheetId());
   }
   buildSummary_(ss, y, m, days, n, gids);
   info.hideSheet();
   SpreadsheetApp.flush();
   return ss.getId();
-}
-
-function logoBlob_() {
-  try {
-    if (CONFIG.LOGO_FILE_ID) return DriveApp.getFileById(CONFIG.LOGO_FILE_ID).getBlob();
-    const it = DriveApp.getFolderById(rootId_()).getFilesByName(CONFIG.LOGO_NAME);
-    while (it.hasNext()) { const f = it.next(); if (!f.isTrashed()) return f.getBlob(); }
-    return null;
-  } catch (e) {
-    console.warn(`อ่านไฟล์โลโก้ไม่ได้ (${e}) — สร้างไฟล์โดยไม่มีโลโก้`);
-    return null;
-  }
-}
-
-/** The logo at the top right of a day sheet (over columns L:M, rows 1-4), unless the sheet already has an image. */
-function addLogo_(sh, blob) {
-  if (!blob || sh.getImages().length) return false;
-  sh.insertImage(blob, 12, 1, 150, 4).setHeight(92).setWidth(116);
-  return true;
-}
-
-/**
- * Menu: puts the logo on the day sheets of this month's plant files that were created without it.
- * Works for about CONFIG.RUN_SECONDS; run it again to continue (sheets that have the logo are skipped).
- */
-function addLogoToExisting() {
-  const logo = logoBlob_();
-  if (!logo) throw new Error(`ไม่มีไฟล์โลโก้ "${CONFIG.LOGO_NAME}" ในโฟลเดอร์เดียวกับไฟล์ Overview`);
-  const t0 = Date.now(), ym = ym_(new Date());
-  const folder = findMonthFolder_(ym);
-  if (!folder) throw new Error(`ยังไม่มีโฟลเดอร์เดือน ${ym}`);
-  let added = 0, finished = true;
-  const files = folder.getFilesByType(MimeType.GOOGLE_SHEETS);
-  while (files.hasNext()) {
-    if ((Date.now() - t0) / 1000 > CONFIG.RUN_SECONDS) { finished = false; break; }
-    const f = files.next();
-    if (f.isTrashed() || f.getName().indexOf('_') === 0) continue;
-    SpreadsheetApp.openById(f.getId()).getSheets().filter(sh => /^วันที่ \d+$/.test(sh.getName()))
-      .forEach(sh => { if (addLogo_(sh, logo)) added++; });
-  }
-  const msg = `ใส่โลโก้แล้ว ${added} หน้า` + (finished ? '' : ' — ยังไม่ครบ กดเมนูนี้อีกครั้งเพื่อทำต่อ');
-  toast_(msg);
-  return msg;
 }
 
 /** Row numbers of a day sheet for a plant with n inverters. */
@@ -816,7 +766,7 @@ function buildDay_(sh, n) {
 
   // title
   sh.getRange('C2:K3').merge().setValue('รายงานความพร้อมระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์ประจำวัน').setFontSize(16).setFontWeight('bold');
-  sh.getRange('C4:K4').merge().setFontSize(12);                 // columns L:M of rows 1-4 hold the logo
+  sh.getRange('C4:K4').merge().setFontSize(12);
 
   // project and plant
   sh.getRange('C8:D9').merge().setValue('ชื่อโครงการ');
@@ -1017,7 +967,7 @@ function boundSheet_() {
 }
 
 /**
- * The root folder: where the logo and the months folder (CONFIG.MONTHS_FOLDER) are. It is the folder the Overview sheet is in,
+ * The root folder: where the months folder (CONFIG.MONTHS_FOLDER) is. It is the folder the Overview sheet is in,
  * read from Drive each time, so it follows the sheet when it is moved (CONFIG.ROOT_FOLDER_ID overrides).
  */
 function rootId_() {

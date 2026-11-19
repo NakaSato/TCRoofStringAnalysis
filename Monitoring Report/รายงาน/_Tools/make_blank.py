@@ -14,7 +14,7 @@ def template():
     invs = [{"NO.": i + 1, "Inverter S/N": f"_{i}", "จำนวนสตริง": None} for i in range(10)]
     results = {v["Inverter S/N"]: (None, "", "", "", []) for v in invs}
     issues = [{"Inverter S/N": "", "String": "", "ประเภทปัญหา": "", "ค่าที่อ่านได้": "", "สถานะ": ""} for _ in range(8)]
-    ws = SC.build_day_sheet(wb, dt.date.today(), st, invs, results, issues, SC.LOGO, "")
+    ws = SC.build_day_sheet(wb, dt.date.today(), st, invs, results, issues, "")
     ws.title = "แบบฟอร์ม"
     ws.oddFooter.left.text = ""
     ws["C4"].value = "สรุปผลความพร้อมระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์ประจำวันที่  ......../......../........"
@@ -66,7 +66,7 @@ def month(m):
         pwb.move_sheet("_ข้อมูลสถานี", len(pwb.sheetnames) - 1 - pwb.sheetnames.index("_ข้อมูลสถานี"))
         pwb.active = 0
         for w in pwb.worksheets: w.sheet_view.tabSelected = (w.title == "สรุปเดือน")
-        pwb.save(path); SC.dedupe_media(path); n += 1
+        pwb.save(path); n += 1
     print(f"→ สร้าง/อัปเดต {n} ไฟล์ใน {m}/")
 
 

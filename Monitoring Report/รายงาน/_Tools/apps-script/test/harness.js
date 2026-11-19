@@ -77,8 +77,8 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,logoBlob_,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
-const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV'; api.CONFIG.LOGO_FILE_ID = '1Ic106EgW9ceYs8JOAXSfViAwh1YFqb4T';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
+vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
+const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
 // 1) xlsx only → sync refuses; convert; create month
@@ -92,7 +92,6 @@ const folder = Object.values(files).find(f => f.name === ym);
 const plant = code => Object.values(files).find(f => f.parent === folder.id && f.name.startsWith(code) && !f.trashed);
 console.log('created', Object.values(files).filter(f => f.parent === folder.id && !f.trashed).length, 'files for', ym, '· today is day', today);
 console.log('old xlsx trashed:', oldX.trashed, '· unrelated xlsx trashed:', other.trashed);
-console.log('logo images on P1-001 day sheets:', [...new Set(plant('P1-001').ss.sheets.filter(x => x.name.startsWith('วันที่')).map(x => x.images))]);
 const sm = plant('P1-002').ss.getSheetByName('สรุปเดือน'); sm.cells['3,1'] = '=old'; 
 // 2) reporter types into P1-001 (several inverters) and P3-002
 const p1 = plant('P1-001').ss, L1 = api.layout_(p1.getSheetByName('_ข้อมูลสถานี').getLastRow() - 10);
@@ -154,11 +153,11 @@ try { api.syncNow === undefined; props.job = 'sync'; Object.assign(props, { ym: 
 try { Object.assign(props, { job: 'sync', ym: api.ym_(new Date()), idx: '0', folder: 'gone', ov: 'gone', root: 'old-root' }); api.continueJob(); console.log('sync of another root dropped:', !props.job); Object.assign(props, { job: 'create', ym: api.ym_(new Date()), idx: '0', folder: 'gone', ov: 'gone' }); api.continueJob(); console.log('create of another root dropped:', !props.job, '·', props.last); const rec = JSON.parse(props['synced_' + api.ym_(new Date())]); rec.root = 'old-root'; props['synced_' + api.ym_(new Date())] = JSON.stringify(rec); globalThis.__old = true; delete props.last; api.intervalSync(); drain(); console.log('old record not trusted → synced:', !!props.last); globalThis.__old = false; Object.assign(props, { job: 'create', ym: api.ym_(new Date()), idx: '0', folder: 'gone', ov: 'gone', root: 'old-root' }); delete props.last; api.syncNow(); drain(); console.log('stale job does not block a new one:', !props.job, '·', props.last); } catch (e) { console.log('root test failed:', e.message); }
 
 // 6d) bound to the Overview, no id in CONFIG: the root folder is the folder the Overview is in
-try { api.CONFIG.ROOT_FOLDER_ID = ''; api.CONFIG.LOGO_FILE_ID = ''; ctx.__bound = O; new File('logo1', 'logo.png', 'image/png', root.id);
-  console.log('root from the Overview:', api.rootId_() === root.id, '· Overview = bound sheet:', api.overviewFile_().getId() === O.getId(), '· logo by name:', api.logoBlob_());
+try { api.CONFIG.ROOT_FOLDER_ID = ''; ctx.__bound = O;
+  console.log('root from the Overview:', api.rootId_() === root.id, '· Overview = bound sheet:', api.overviewFile_().getId() === O.getId());
   delete props.last; api.syncNow(); drain(); console.log('sync in that folder:', props.last);
   const other = new File('root2', 'moved', 'folder', null); files[O.getId()].parent = other.id; delete props.last; api.createThisMonth(); drain();
-  console.log('Overview moved → month folder made in String Check next to it:', Object.values(files).some(f => f.name === api.ym_(new Date()) && files[f.parent] && files[f.parent].name === 'String Check' && files[f.parent].parent === other.id), '· logo there:', api.logoBlob_(), '·', props.last);
+  console.log('Overview moved → month folder made in String Check next to it:', Object.values(files).some(f => f.name === api.ym_(new Date()) && files[f.parent] && files[f.parent].name === 'String Check' && files[f.parent].parent === other.id), '·', props.last);
   files[O.getId()].parent = root.id; } catch (e) { console.log('bound test failed:', e.message); }
 
 // 7) dates typed as พ.ศ.
