@@ -89,8 +89,8 @@ export const daysBetween = (from: string, to: string) => {
   return out;
 };
 
-export type View = "month" | "week" | "list";
-export const VIEWS: readonly View[] = ["month", "week", "list"];
+export type View = "month" | "week" | "list" | "due";
+export const VIEWS: readonly View[] = ["month", "week", "list", "due"];
 
 /** what the API is asked for: the 6-week grid around the month, or the Mon–Sun week */
 export const rangeFor = (view: View, day: string): { from: string; to: string } => {
@@ -98,7 +98,7 @@ export const rangeFor = (view: View, day: string): { from: string; to: string } 
     const from = weekStart(day);
     return { from, to: addDays(from, 6) };
   }
-  if (view === "list") return { from: monthStart(day), to: monthEnd(day) };
+  if (view === "list" || view === "due") return { from: monthStart(day), to: monthEnd(day) };
   const from = weekStart(monthStart(day));
   return { from, to: addDays(from, 41) };
 };
@@ -139,3 +139,17 @@ export const tasksCsv = (tasks: OmTask[]) => {
   ]);
   return [head, ...rows].map((r) => r.map(esc).join(",")).join("\n");
 };
+
+export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+/** "Every 2 months · Nov–Apr · Mondays" */
+export const planRule = (p: { every_n: number; unit: "week" | "month"; season_from_month: number | null; season_to_month: number | null; weekday: number | null }) => {
+  const every = p.every_n === 1 ? `Every ${p.unit}` : `Every ${p.every_n} ${p.unit}s`;
+  const season = p.season_from_month && p.season_to_month ? ` · ${MONTHS[p.season_from_month - 1]}–${MONTHS[p.season_to_month - 1]}` : "";
+  const day = p.weekday != null ? ` · ${WEEKDAY_NAMES[p.weekday]}s` : "";
+  return every + season + day;
+};
+
+/** days between two plant-local days (b − a) */
+export const dayDiff = (a: string, b: string) => Math.round((toDate(b).getTime() - toDate(a).getTime()) / 86_400_000);

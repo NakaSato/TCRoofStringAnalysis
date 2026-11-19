@@ -154,3 +154,157 @@ export interface OmTeamBody {
   active?: boolean;
   member_ids?: number[];
 }
+
+// --------------------------------------------------------------------------- Phase 2: plans, due, rounds
+
+export type OmPlanUnit = "week" | "month";
+
+export interface OmPlan {
+  id: number;
+  name: string;
+  task_type: OmTaskType;
+  label: string;
+  every_n: number;
+  unit: OmPlanUnit;
+  /** 1–12; both null = all year; may wrap the year (11 → 4) */
+  season_from_month: number | null;
+  season_to_month: number | null;
+  /** 0 = Monday; null = first working day (Mon–Fri, not a holiday) */
+  weekday: number | null;
+  duration_days: number;
+  team: { id: number; name: string; color: string | null } | null;
+  assignees: OmPerson[];
+  /** for an engineer: only their plants */
+  plant_ids: number[];
+  plants: Array<{ plant_id: number; name: string | null }>;
+  starts_on: string;
+  ends_on: string | null;
+  active: boolean;
+  note: string | null;
+  /** the next (up to 3) days it falls on */
+  next_days: string[];
+  /** planned tasks of it from today on */
+  upcoming_tasks: number;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export interface OmPlanPreset {
+  key: string;
+  name: string;
+  task_type: OmTaskType;
+  every_n: number;
+  unit: OmPlanUnit;
+  season_from_month: number | null;
+  season_to_month: number | null;
+  duration_days: number;
+}
+
+export interface OmPlanList {
+  plans: OmPlan[];
+  presets: OmPlanPreset[];
+  horizon_days: number;
+}
+
+export interface OmPlanBody {
+  name: string;
+  task_type: OmTaskType;
+  every_n: number;
+  unit: OmPlanUnit;
+  season_from_month: number | null;
+  season_to_month: number | null;
+  weekday: number | null;
+  duration_days: number;
+  default_team_id: number | null;
+  assignee_ids: number[];
+  plant_ids: number[];
+  starts_on: string;
+  ends_on: string | null;
+  active: boolean;
+  note: string | null;
+}
+
+export type OmPlanSaved = OmPlan & { result: { created: number; deleted: number; updated: number } };
+
+export interface OmPlantSettings {
+  /** as entered; null = not entered */
+  cleaning_crew_days: number | null;
+  cleaning_cost_thb: number | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export interface OmDueRow {
+  plant_id: number;
+  name: string;
+  city: string | null;
+  phase: number | null;
+  /** last Site log day per type (cleaning, pm_inspection, inverter_service, ir_flight) */
+  last: Partial<Record<OmTaskType, string>>;
+  /** null = no cleaning recorded */
+  days_since_cleaning: number | null;
+  /** earliest open (planned / started) task per type */
+  next: Partial<Record<OmTaskType, string>>;
+  next_cleaning: string | null;
+  overdue: number;
+  month: { total: number; done: number; open: number };
+  plans: string[];
+  settings: OmPlantSettings;
+}
+
+export interface OmDue {
+  month: string;
+  from: string;
+  to: string;
+  today: string;
+  plants: OmDueRow[];
+  summary: { plants: number; never_cleaned: number; cleaning_planned: number; with_overdue: number; month_tasks: number };
+  meta: { source: "db" };
+}
+
+export interface OmRoundPreviewBody {
+  plant_ids: number[];
+  start_day: string;
+  crews: number;
+  include_saturday: boolean;
+  group_by: "city" | "phase" | "none";
+}
+
+export interface OmRoundItem {
+  plant_id: number;
+  plant_name: string;
+  city: string | null;
+  phase: number | null;
+  start_day: string;
+  end_day: string;
+  crew: number;
+  crew_days: number;
+  /** false = crew-days not entered, counted as 1 */
+  duration_set: boolean;
+  days_since_cleaning: number | null;
+  cost_thb: number | null;
+  /** an open cleaning task already planned on the plant (its start day) */
+  already_planned: string | null;
+}
+
+export interface OmRoundPreview {
+  items: OmRoundItem[];
+  unscheduled: Array<{ plant_id: number; name: string }>;
+  start_day: string;
+  end_day: string | null;
+  crews: number;
+  weekdays: number[];
+  holidays_skipped: string[];
+  /** sum of the entered costs; null when none entered */
+  cost_thb: number | null;
+  cost_missing: number;
+  duration_missing: number;
+}
+
+export interface OmRoundSaveBody {
+  title: string | null;
+  team_id: number | null;
+  assignee_ids: number[];
+  note: string | null;
+  items: Array<{ plant_id: number; start_day: string; end_day: string; crew?: number | null }>;
+}

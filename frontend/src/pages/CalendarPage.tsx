@@ -1,15 +1,17 @@
 /**
  * Operations → Calendar (`/calendar`, everyone): the team's planned O&M work (cleaning, PM,
  * repairs, …) per plant. DB only. Month grid, week lanes (one row per person / team, double
- * bookings marked) and a list. Engineers see full tasks on their plants and masked "Busy" blocks
- * for work elsewhere; they open on their own tasks (`user=me`). A done task writes the Site log
- * event. Pieces in `pages/calendar/`; docs/plans/calendar-team.md.
+ * bookings marked) and a list; drag a planned task to another day to move it. Engineers see full
+ * tasks on their plants and masked "Busy" blocks for work elsewhere; they open on their own tasks
+ * (`user=me`). A done task writes the Site log event. "Due" is the monthly plan per plant (last /
+ * next cleaning, overdue work), where admins plan cleaning rounds; "Plans" holds the recurring
+ * plans. Pieces in `pages/calendar/`; docs/plans/calendar-team.md.
  *
- * URL: `view` (month | week | list), `d` (a day in the period), `type`, `status`, `team`,
- * `user` (me | all | id; default me for engineers, all for admins), `plant`.
+ * URL: `view` (month | week | list | due), `d` (a day in the period), `type`, `status`, `team`,
+ * `user` (me | all | id; default me for engineers, all for admins), `plant`; Due adds `show`, `days`, `q`.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, Users } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Repeat, Users } from "lucide-react";
 import { api } from "../api/client";
 import type { OmAssignees, OmTask, OmTaskList, OmTaskStatus, OmTaskType } from "../api/client";
 import { useAppContext } from "../context/AppContext";
@@ -27,6 +29,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlantPicker } from "./calendar/fields";
 import { TaskDialog } from "./calendar/TaskDialog";
 import { TeamsDialog } from "./calendar/TeamsDialog";
+import { PlansDialog } from "./calendar/PlansDialog";
+import { RoundDialog } from "./calendar/RoundDialog";
+import { DueView } from "./calendar/DueView";
 import type { TaskDialogTarget } from "./calendar/TaskDialog";
 import { MonthGrid, TaskList, WeekLanes } from "./calendar/views";
 import { STATUSES, STATUS_KEYS, TASK_TYPES, TYPE_KEYS, VIEWS, addDays, addMonths, monthLabel, personName, rangeFor, tasksCsv, weekLabel, weekStart } from "./calendar/format";
@@ -64,9 +69,17 @@ export const CalendarPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<TaskDialogTarget | null>(null);
   const [teamsOpen, setTeamsOpen] = useState(false);
+  const [plansOpen, setPlansOpen] = useState(false);
+  const [round, setRound] = useState<number[] | null>(null);
+  const [dueVersion, setDueVersion] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
   const [lanesVersion, setLanesVersion] = useState(0);
 
   const load = useCallback(async () => {
+    if (view === "due") {
+      setDueVersion((v) => v + 1);
+      return;
+    }
     setLoading(true);
     try {
       const out = await api.listOmTasks({
@@ -86,11 +99,11 @@ export const CalendarPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [from, to, plantId, type, status, userId, teamId]);
+  }, [view, from, to, plantId, type, status, userId, teamId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (view !== "due") void load(); // Due loads by itself; Refresh bumps it through load()
+  }, [load, view]);
 
   useEffect(() => {
     let live = true;
@@ -112,6 +125,16 @@ export const CalendarPage: React.FC = () => {
   };
   const periodLabel = view === "week" ? weekLabel(weekStart(day)) : monthLabel(day);
   const open = (t: OmTask) => setDialog({ task: t });
+  const move = async (t: OmTask, d: string) => {
+    try {
+      await api.patchOmTask(t.plant_id, t.id, { start_day: d });
+      setNotice(`Moved "${t.title || t.label}" (${t.plant_name ?? t.plant_id}) to ${d}.`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    void load();
+  };
   const create = (d?: string) => setDialog({ task: null, day: d && d >= today ? d : today, plantId: plantId ?? null });
 
   const exportCsv = () => {
@@ -138,6 +161,10 @@ export const CalendarPage: React.FC = () => {
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
             {loading ? "Refreshing…" : "Refresh"}
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setPlansOpen(true)}>
+            <Repeat data-icon="inline-start" />
+            Plans
+          </Button>
           {admin && (
             <Button variant="outline" size="sm" onClick={() => setTeamsOpen(true)}>
               <Users data-icon="inline-start" />
@@ -151,6 +178,16 @@ export const CalendarPage: React.FC = () => {
         </div>
       </div>
 
+      {notice && !error && (
+        <Alert>
+          <AlertDescription className="flex items-center justify-between gap-2">
+            {notice}
+            <Button variant="ghost" size="xs" onClick={() => setNotice(null)}>
+              Dismiss
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Could not load the calendar</AlertTitle>
@@ -158,6 +195,7 @@ export const CalendarPage: React.FC = () => {
         </Alert>
       )}
 
+      {view !== "due" && (
       <Card className="py-0">
         <CardContent className="grid grid-cols-2 divide-white/[0.06] px-0 sm:grid-cols-5 lg:divide-x">
           <Stat label="Tasks" value={data?.total ?? null} tone="text-foreground" onClick={() => setUrl({ status: null })} active={status === ALL} />
@@ -167,6 +205,7 @@ export const CalendarPage: React.FC = () => {
           <Stat label="Overdue" value={s?.overdue ?? null} tone="text-red-300" onClick={() => setUrl({ status: "overdue" })} active={status === "overdue"} />
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardContent className="flex flex-col gap-3">
@@ -188,10 +227,12 @@ export const CalendarPage: React.FC = () => {
                 <TabsTrigger value="month">Month</TabsTrigger>
                 <TabsTrigger value="week">Week</TabsTrigger>
                 <TabsTrigger value="list">List</TabsTrigger>
+                <TabsTrigger value="due">Due</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
 
+          {view !== "due" && (
           <div className="flex flex-wrap items-center gap-2">
             <Select value={userParam} onValueChange={(v) => setUrl({ user: v === userDefault ? null : v })}>
               <SelectTrigger size="sm" className="w-44" aria-label="Person">
@@ -264,8 +305,11 @@ export const CalendarPage: React.FC = () => {
               </Button>
             )}
           </div>
+          )}
 
-          {!data && loading ? (
+          {view === "due" ? (
+            <DueView month={day} admin={admin} version={dueVersion} onPlanRound={setRound} />
+          ) : !data && loading ? (
             <div className="flex h-40 items-center justify-center">
               <Spinner className="size-5" />
             </div>
@@ -278,9 +322,10 @@ export const CalendarPage: React.FC = () => {
               onOpen={open}
               onCreate={create}
               onShowDay={(d) => setUrl({ view: "week", d })}
+              onMove={move}
             />
           ) : view === "week" ? (
-            <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} me={me} onOpen={open} onCreate={create} />
+            <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} me={me} onOpen={open} onCreate={create} onMove={move} />
           ) : (
             <TaskList tasks={tasks} onOpen={open} />
           )}
@@ -290,6 +335,18 @@ export const CalendarPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      <PlansDialog open={plansOpen} admin={admin} plants={growattPlants} onClose={() => setPlansOpen(false)} onChanged={() => void load()} />
+      {admin && (
+        <RoundDialog
+          plantIds={round}
+          onClose={() => setRound(null)}
+          onSaved={(msg) => {
+            setRound(null);
+            setNotice(msg);
+            setDueVersion((v) => v + 1);
+          }}
+        />
+      )}
       {admin && (
         <TeamsDialog
           open={teamsOpen}

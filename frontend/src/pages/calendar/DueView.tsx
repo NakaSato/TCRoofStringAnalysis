@@ -1,0 +1,285 @@
+/** Calendar "Due" view, the monthly plan (Phase 2): every plant the user can see with its last
+ * cleaning and PM (Site log), days since cleaning, next planned cleaning, the month's tasks and
+ * overdue work. Admins tick plants for a cleaning round and enter each plant's crew-days and cost.
+ * DB only (`/growatt/calendar/due?month=`). URL: `show`, `days`, `q`. */
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { api } from "../../api/client";
+import type { OmDue, OmDueRow } from "../../api/client";
+import { plantPath } from "../../context/routes";
+import { fmtInt } from "../../components/ui";
+import { pick, useUrlState } from "@/lib/useUrlState";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { shortDay } from "./format";
+
+const SHOWS = ["all", "due", "never", "unplanned", "overdue"] as const;
+type Show = (typeof SHOWS)[number];
+const SHOW_LABEL: Record<Show, string> = {
+  all: "All plants",
+  due: "Cleaning due",
+  never: "No cleaning recorded",
+  unplanned: "No cleaning planned",
+  overdue: "With overdue work",
+};
+const OTHER: Array<{ key: "pm_inspection" | "inverter_service" | "ir_flight"; label: string }> = [
+  { key: "pm_inspection", label: "PM" },
+  { key: "inverter_service", label: "Inv. service" },
+  { key: "ir_flight", label: "IR" },
+];
+
+const SettingsDialog: React.FC<{ row: OmDueRow | null; onClose: () => void; onSaved: () => void }> = ({ row, onClose, onSaved }) => {
+  const [days, setDays] = useState("");
+  const [cost, setCost] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!row) return;
+    setDays(row.settings.cleaning_crew_days == null ? "" : String(row.settings.cleaning_crew_days));
+    setCost(row.settings.cleaning_cost_thb == null ? "" : String(row.settings.cleaning_cost_thb));
+    setError(null);
+  }, [row]);
+  const num = (s: string) => (s.trim() === "" ? null : Number(s));
+  const bad = (num(days) != null && !(num(days)! > 0)) || (num(cost) != null && !(num(cost)! >= 0));
+  const save = async () => {
+    if (!row) return;
+    setBusy(true);
+    try {
+      await api.putOmPlantSettings(row.plant_id, { cleaning_crew_days: num(days), cleaning_cost_thb: num(cost) });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={row != null} onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Cleaning figures</DialogTitle>
+          <DialogDescription>{row?.name}: as your crews or contractor quote them. Leave empty when not known.</DialogDescription>
+        </DialogHeader>
+        {error && <p className="text-xs text-red-300">{error}</p>}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="om-crew-days">Crew-days per cleaning</Label>
+            <Input id="om-crew-days" type="number" min={0.25} step={0.25} value={days} onChange={(e) => setDays(e.target.value)} className="num" placeholder="Not entered" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="om-cost">Cost per cleaning (฿)</Label>
+            <Input id="om-cost" type="number" min={0} step={100} value={cost} onChange={(e) => setCost(e.target.value)} className="num" placeholder="Not entered" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button size="sm" disabled={busy || bad} onClick={() => void save()}>
+            {busy && <Spinner data-icon="inline-start" className="size-3" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+export const DueView: React.FC<{ month: string; admin: boolean; version: number; onPlanRound: (ids: number[]) => void }> = ({ month, admin, version, onPlanRound }) => {
+  const [url, setUrl] = useUrlState();
+  const show = pick(url.get("show"), SHOWS, "all") as Show;
+  const minDays = Math.max(1, Number(url.get("days")) || 60);
+  const q = url.get("q") ?? "";
+  const [data, setData] = useState<OmDue | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [editing, setEditing] = useState<OmDueRow | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await api.getOmDue(month.slice(0, 7)));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [month]);
+
+  useEffect(() => {
+    void load();
+  }, [load, version]);
+  // a saved round: start the next selection from scratch
+  useEffect(() => setSelected(new Set()), [version]);
+
+  const rows = useMemo(() => {
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const out = (data?.plants ?? []).filter((r) => {
+      const hay = `${r.name} ${r.city ?? ""} ${r.plant_id} phase ${r.phase ?? ""}`.toLowerCase();
+      if (!words.every((w) => hay.includes(w))) return false;
+      if (show === "due") return !r.next_cleaning && (r.days_since_cleaning == null || r.days_since_cleaning >= minDays);
+      if (show === "never") return r.days_since_cleaning == null;
+      if (show === "unplanned") return !r.next_cleaning;
+      if (show === "overdue") return r.overdue > 0;
+      return true;
+    });
+    // never cleaned first, then the longest since the last cleaning
+    return out.sort((a, b) => (b.days_since_cleaning ?? Infinity) - (a.days_since_cleaning ?? Infinity) || a.name.localeCompare(b.name));
+  }, [data, q, show, minDays]);
+
+  const allOn = rows.length > 0 && rows.every((r) => selected.has(r.plant_id));
+  const toggleAll = () => setSelected(allOn ? new Set([...selected].filter((id) => !rows.some((r) => r.plant_id === id))) : new Set([...selected, ...rows.map((r) => r.plant_id)]));
+  const toggle = (id: number) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  };
+  const s = data?.summary;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input value={q} onChange={(e) => setUrl({ q: e.target.value })} placeholder="Search plant, province, id…" className="h-8 w-56" aria-label="Search plants" />
+        <Select value={show} onValueChange={(v) => setUrl({ show: v === "all" ? null : v })}>
+          <SelectTrigger size="sm" className="w-48" aria-label="Show">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SHOWS.map((x) => (
+              <SelectItem key={x} value={x}>
+                {SHOW_LABEL[x]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {show === "due" && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            not cleaned for
+            <Input type="number" min={1} value={minDays} onChange={(e) => setUrl({ days: Number(e.target.value) === 60 ? null : e.target.value })} className="num h-8 w-20" aria-label="Days" />
+            days or more, none planned
+          </label>
+        )}
+        {admin && (
+          <Button size="sm" className="ml-auto" disabled={selected.size === 0} onClick={() => onPlanRound([...selected])}>
+            Plan cleaning round{selected.size ? ` (${selected.size})` : ""}…
+          </Button>
+        )}
+      </div>
+
+      {s && (
+        <p className="text-xs text-muted-foreground">
+          <span className="num">{fmtInt(s.plants)}</span> plants · <span className="num">{fmtInt(s.never_cleaned)}</span> with no cleaning recorded ·{" "}
+          <span className="num">{fmtInt(s.cleaning_planned)}</span> with a cleaning planned · <span className="num">{fmtInt(s.with_overdue)}</span> with overdue work ·{" "}
+          <span className="num">{fmtInt(s.month_tasks)}</span> tasks this month. Last work comes from the Site log.
+        </p>
+      )}
+      {error && <p className="text-xs text-red-300">{error}</p>}
+
+      {!data ? (
+        <div className="flex h-40 items-center justify-center">
+          <Spinner className="size-5" />
+        </div>
+      ) : (
+        <Table containerClassName="table-wrap max-h-[65vh]">
+          <TableHeader>
+            <TableRow>
+              {admin && (
+                <TableHead className="w-8">
+                  <Checkbox checked={allOn} onCheckedChange={toggleAll} aria-label="Select all shown" />
+                </TableHead>
+              )}
+              <TableHead>Plant</TableHead>
+              <TableHead>Last cleaning</TableHead>
+              <TableHead>Next cleaning</TableHead>
+              <TableHead>Other work (last)</TableHead>
+              <TableHead>This month</TableHead>
+              <TableHead>Crew-days · cost</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={admin ? 7 : 6} className="py-6 text-center text-muted-foreground">
+                  No plants match.
+                </TableCell>
+              </TableRow>
+            )}
+            {rows.map((r) => {
+              const other = OTHER.filter((o) => r.last[o.key]);
+              const st = r.settings;
+              return (
+                <TableRow key={r.plant_id} data-state={selected.has(r.plant_id) ? "selected" : undefined}>
+                  {admin && (
+                    <TableCell>
+                      <Checkbox checked={selected.has(r.plant_id)} onCheckedChange={() => toggle(r.plant_id)} aria-label={`Select ${r.name}`} />
+                    </TableCell>
+                  )}
+                  <TableCell className="max-w-56">
+                    <Link to={plantPath(r.plant_id, "maintenance")} className="block truncate hover:underline">
+                      {r.name}
+                    </Link>
+                    <div className="text-[11px] text-muted-foreground">
+                      {[r.city, r.phase != null ? `Phase ${r.phase}` : null].filter(Boolean).join(" · ") || `#${r.plant_id}`}
+                      {r.plans.length > 0 && ` · ${r.plans.join(", ")}`}
+                    </div>
+                  </TableCell>
+                  <TableCell className="num whitespace-nowrap">
+                    {r.last.cleaning ? (
+                      <>
+                        {shortDay(r.last.cleaning)} <span className="text-muted-foreground">({fmtInt(r.days_since_cleaning)} d)</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">None recorded</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="num whitespace-nowrap">{r.next_cleaning ? shortDay(r.next_cleaning) : <span className="text-muted-foreground">—</span>}</TableCell>
+                  <TableCell className="text-[11px]">
+                    {other.length ? other.map((o) => <div key={o.key} className="num whitespace-nowrap">{o.label} {shortDay(r.last[o.key]!)}</div>) : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {r.month.total ? (
+                        <span className="num text-xs">
+                          {r.month.open} open · {r.month.done} done
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      {r.overdue > 0 && <Badge variant="crit">{r.overdue} overdue</Badge>}
+                    </div>
+                  </TableCell>
+                  <TableCell className="num whitespace-nowrap text-xs">
+                    {admin ? (
+                      <button type="button" className="hover:underline" onClick={() => setEditing(r)}>
+                        {st.cleaning_crew_days == null && st.cleaning_cost_thb == null ? (
+                          <span className="text-muted-foreground">Not entered</span>
+                        ) : (
+                          `${st.cleaning_crew_days ?? "—"} d · ${st.cleaning_cost_thb == null ? "—" : `฿${fmtInt(st.cleaning_cost_thb)}`}`
+                        )}
+                      </button>
+                    ) : st.cleaning_crew_days == null && st.cleaning_cost_thb == null ? (
+                      <span className="text-muted-foreground">Not entered</span>
+                    ) : (
+                      `${st.cleaning_crew_days ?? "—"} d · ${st.cleaning_cost_thb == null ? "—" : `฿${fmtInt(st.cleaning_cost_thb)}`}`
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+      <SettingsDialog
+        row={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          void load();
+        }}
+      />
+    </div>
+  );
+};

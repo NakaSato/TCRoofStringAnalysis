@@ -518,6 +518,77 @@ class OmTeamPatch(BaseModel):
     member_ids: Optional[List[int]] = Field(default=None, max_length=50)
 
 
+class OmPlanBody(BaseModel):
+    """A recurring plan: every `every_n` weeks / months from `starts_on`, optional season months
+    (may wrap the year, e.g. 11 … 4) and weekday (0 = Monday; null = first working day)."""
+
+    name: str = Field(min_length=1, max_length=120)
+    task_type: OmTaskType
+    every_n: int = Field(ge=1, le=104)
+    unit: Literal["week", "month"]
+    season_from_month: Optional[int] = Field(default=None, ge=1, le=12)
+    season_to_month: Optional[int] = Field(default=None, ge=1, le=12)
+    weekday: Optional[int] = Field(default=None, ge=0, le=6)
+    duration_days: int = Field(default=1, ge=1, le=31)
+    default_team_id: Optional[int] = None
+    assignee_ids: List[int] = Field(default_factory=list, max_length=20)
+    plant_ids: List[int] = Field(min_length=1, max_length=300)
+    starts_on: date
+    ends_on: Optional[date] = None
+    active: bool = True
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class OmPlanPatch(BaseModel):
+    """Only the fields sent; null clears an optional one (season, weekday, team, end, note)."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    task_type: Optional[OmTaskType] = None
+    every_n: Optional[int] = Field(default=None, ge=1, le=104)
+    unit: Optional[Literal["week", "month"]] = None
+    season_from_month: Optional[int] = Field(default=None, ge=1, le=12)
+    season_to_month: Optional[int] = Field(default=None, ge=1, le=12)
+    weekday: Optional[int] = Field(default=None, ge=0, le=6)
+    duration_days: Optional[int] = Field(default=None, ge=1, le=31)
+    default_team_id: Optional[int] = None
+    assignee_ids: Optional[List[int]] = Field(default=None, max_length=20)
+    plant_ids: Optional[List[int]] = Field(default=None, min_length=1, max_length=300)
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None
+    active: Optional[bool] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class OmPlantSettingsBody(BaseModel):
+    """Per-plant planning figures as entered; null = not entered (never assumed)."""
+
+    cleaning_crew_days: Optional[float] = Field(default=None, gt=0, le=60)
+    cleaning_cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+
+
+class OmRoundPreview(BaseModel):
+    plant_ids: List[int] = Field(min_length=1, max_length=300)
+    start_day: date
+    crews: int = Field(default=1, ge=1, le=20)
+    include_saturday: bool = False
+    group_by: Literal["city", "phase", "none"] = "city"
+
+
+class OmRoundItem(BaseModel):
+    plant_id: int
+    start_day: date
+    end_day: Optional[date] = None
+    crew: Optional[int] = Field(default=None, ge=1, le=20)
+
+
+class OmRoundSave(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=120)
+    team_id: Optional[int] = None
+    assignee_ids: List[int] = Field(default_factory=list, max_length=20)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    items: List[OmRoundItem] = Field(min_length=1, max_length=300)
+
+
 class SiteEventCreate(BaseModel):
     """Record work done on a plant (plant-local dates). `close_issue` resolves `issue_id` as confirmed."""
 

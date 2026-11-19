@@ -244,3 +244,156 @@ def test_new_site_log_types(api):
         assert res.status_code == 201, (t, res.text)
     body = client.get(f"/growatt/plants/{P1}/events?type=site_visit", headers=eng).json()
     assert body["total"] == 1 and {"value": "inverter_service", "label": "Inverter service"} in body["types"]
+
+
+# --------------------------------------------------------------------------- Phase 2: plans, due, rounds
+
+
+def _plan(client, h, **kw):
+    body = {"name": "Monthly clean", "task_type": "cleaning", "every_n": 1, "unit": "month",
+            "starts_on": "2026-11-24", "plant_ids": [P1, P2], **kw}
+    return client.post("/growatt/calendar/plans", headers=h, json=body)
+
+
+def _plan_tasks(f, plan_id=None):
+    with f() as db:
+        q = select(OmTask).order_by(OmTask.plant_id, OmTask.start_day)
+        if plan_id is not None:
+            q = q.where(OmTask.plan_id == plan_id)
+        return list(db.scalars(q))
+
+
+def test_plan_generates_occurrences_and_keeps_moved_tasks(api):
+    f, client, ids, admin, eng, eng2 = api
+    assert _plan(client, eng).status_code == 403
+    res = _plan(client, admin, assignee_ids=[ids["eng"]])
+    assert res.status_code == 201, res.text
+    plan = res.json()
+    # today 19 Nov, 90 days ahead → 24 Nov, 24 Dec, 24 Jan (a Sunday → Mon 25 Jan) on both plants
+    assert plan["result"] == {"created": 6, "deleted": 0, "updated": 0}
+    assert plan["next_days"] == ["2026-11-24", "2026-12-24", "2027-01-25"] and plan["upcoming_tasks"] == 6
+    tasks = _plan_tasks(f, plan["id"])
+    assert {(t.plant_id, t.start_day.isoformat()) for t in tasks} == {
+        (p, d) for p in (P1, P2) for d in ("2026-11-24", "2026-12-24", "2027-01-25")
+    }
+    assert all(t.scheduled_day == t.start_day and t.title == "Monthly clean" for t in tasks)
+    # eng may work on P1 only: assigned there, left off P2
+    p1 = next(t for t in tasks if t.plant_id == P1 and t.start_day == date(2026, 12, 24))
+    got = client.get(f"/growatt/plants/{P1}/tasks/{p1.id}", headers=eng).json()
+    assert [a["id"] for a in got["assignees"]] == [ids["eng"]]
+    p2 = next(t for t in tasks if t.plant_id == P2 and t.start_day == date(2026, 11, 24))
+    assert client.get(f"/growatt/plants/{P2}/tasks/{p2.id}", headers=admin).json()["assignees"] == []
+
+    # someone moves the P1 December task; the plan then changes to every 2 months and a new name
+    assert client.patch(f"/growatt/plants/{P1}/tasks/{p1.id}", headers=eng, json={"start_day": "2026-12-28"}).status_code == 200
+    res = client.patch(f"/growatt/calendar/plans/{plan['id']}", headers=admin, json={"every_n": 2, "name": "Bi-monthly clean"})
+    assert res.status_code == 200, res.text
+    # P2's untouched December task goes; P1's moved one stays; the 4 untouched others are renamed
+    assert res.json()["result"] == {"created": 0, "deleted": 1, "updated": 4}
+    tasks = _plan_tasks(f, plan["id"])
+    assert {(t.plant_id, t.start_day.isoformat(), t.title) for t in tasks} == {
+        (P1, "2026-11-24", "Bi-monthly clean"), (P1, "2026-12-28", "Monthly clean"), (P1, "2027-01-25", "Bi-monthly clean"),
+        (P2, "2026-11-24", "Bi-monthly clean"), (P2, "2027-01-25", "Bi-monthly clean"),
+    }
+    # the nightly job is idempotent and never regenerates the moved task on its old day
+    from app.services import jobs
+
+    with f() as db:
+        status, detail = jobs.job_om_plans(db)
+    assert status == "ok" and detail == {"plans": 1, "created": 0, "deleted": 0, "updated": 0}
+    assert "om_plans" in jobs.JOBS
+    from app.worker import default_schedule
+
+    assert any(s.job == "om_plans" for s in default_schedule())
+
+    # engineers read the plans covering their plants, with only those plants
+    seen = client.get("/growatt/calendar/plans", headers=eng).json()
+    assert [p["id"] for p in seen["plans"]] == [plan["id"]] and seen["plans"][0]["plant_ids"] == [P1]
+    assert {x["key"] for x in seen["presets"]} == {"cleaning_dry", "inverter_quarterly", "ir_yearly"}
+
+    # deleting: untouched future tasks go, the moved one stays as a one-off
+    res = client.delete(f"/growatt/calendar/plans/{plan['id']}", headers=admin)
+    assert res.status_code == 200 and res.json() == {"deleted": 4, "kept": 1}
+    left = _plan_tasks(f)
+    assert [(t.start_day.isoformat(), t.plan_id) for t in left] == [("2026-12-28", None)]
+
+
+def test_plan_validation_and_inactive(api):
+    f, client, ids, admin, eng, eng2 = api
+    assert _plan(client, admin, season_from_month=11).status_code == 422  # both season months or none
+    assert _plan(client, admin, plant_ids=[424242]).status_code == 422
+    assert _plan(client, admin, every_n=40).status_code == 422  # > 36 months
+    res = _plan(client, admin, active=False)
+    assert res.status_code == 201 and res.json()["result"]["created"] == 0 and res.json()["next_days"] == []
+    pid = res.json()["id"]
+    assert client.patch(f"/growatt/calendar/plans/{pid}", headers=admin, json={"active": True}).json()["result"]["created"] == 6
+    assert client.patch(f"/growatt/calendar/plans/{pid}", headers=admin, json={"active": False}).json()["result"]["deleted"] == 6
+
+
+def test_due_and_plant_settings(api):
+    f, client, ids, admin, eng, eng2 = api
+    ev = client.post(f"/growatt/plants/{P1}/events", headers=eng, json={"event_type": "cleaning", "day": "2026-10-30", "end_day": "2026-11-01"})
+    assert ev.status_code == 201, ev.text
+    assert client.put(f"/growatt/plants/{P1}/om-settings", headers=eng, json={"cleaning_crew_days": 0.5}).status_code == 403
+    res = client.put(f"/growatt/plants/{P1}/om-settings", headers=admin, json={"cleaning_crew_days": 0.5, "cleaning_cost_thb": 3000})
+    assert res.status_code == 200 and res.json()["cleaning_cost_thb"] == 3000
+    assert client.put("/growatt/plants/424242/om-settings", headers=admin, json={}).status_code == 404
+    _task(client, admin, P1, start_day="2026-11-10")  # overdue (ends before 19 Nov)
+    _task(client, admin, P1, start_day="2026-12-03")
+
+    body = client.get("/growatt/calendar/due?month=2026-11", headers=admin).json()
+    rows = {r["plant_id"]: r for r in body["plants"]}
+    assert set(rows) == {P1, P2, P3}
+    p1 = rows[P1]
+    assert p1["last"] == {"cleaning": "2026-11-01"} and p1["days_since_cleaning"] == 18
+    assert p1["next_cleaning"] == "2026-11-10" and p1["overdue"] == 1
+    assert p1["month"] == {"total": 1, "done": 0, "open": 1}
+    assert p1["settings"]["cleaning_crew_days"] == 0.5 and p1["settings"]["cleaning_cost_thb"] == 3000
+    assert rows[P2]["days_since_cleaning"] is None and rows[P2]["settings"]["cleaning_cost_thb"] is None
+    assert body["summary"]["never_cleaned"] == 2 and body["summary"]["with_overdue"] == 1
+    # engineers: their plants only
+    assert [r["plant_id"] for r in client.get("/growatt/calendar/due?month=2026-11", headers=eng).json()["plants"]] == [P1]
+    assert client.get("/growatt/calendar/due?month=2026-13", headers=eng).status_code == 422
+
+
+def test_cleaning_round_preview_and_save(api):
+    f, client, ids, admin, eng, eng2 = api
+    client.put(f"/growatt/plants/{P1}/om-settings", headers=admin, json={"cleaning_crew_days": 0.5, "cleaning_cost_thb": 3000})
+    client.post(f"/growatt/plants/{P1}/events", headers=admin, json={"event_type": "cleaning", "day": "2026-11-01"})
+    q = {"plant_ids": [P1, P2, P3], "start_day": "2026-11-23", "crews": 1, "group_by": "none"}
+    assert client.post("/growatt/calendar/rounds/preview", headers=eng, json=q).status_code == 403
+    assert client.post("/growatt/calendar/rounds/preview", headers=admin, json={**q, "start_day": "2026-11-18"}).status_code == 422
+    res = client.post("/growatt/calendar/rounds/preview", headers=admin, json=q)
+    assert res.status_code == 200, res.text
+    pv = res.json()
+    # never-cleaned plants first (by id), then P1; P1 is half a crew-day
+    assert [(x["plant_id"], x["start_day"]) for x in pv["items"]] == [(P2, "2026-11-23"), (P3, "2026-11-24"), (P1, "2026-11-25")]
+    assert pv["duration_missing"] == 2 and pv["cost_thb"] == 3000 and pv["cost_missing"] == 2
+    assert pv["end_day"] == "2026-11-25" and pv["unscheduled"] == []
+
+    items = [{"plant_id": x["plant_id"], "start_day": x["start_day"], "end_day": x["end_day"]} for x in pv["items"]]
+    assert client.post("/growatt/calendar/rounds", headers=eng, json={"items": items}).status_code == 403
+    res = client.post("/growatt/calendar/rounds", headers=admin, json={"title": "Dry season round 1", "assignee_ids": [ids["eng"]], "items": items})
+    assert res.status_code == 201, res.text
+    out = res.json()
+    assert out["created"] == 3 and out["dropped_assignees"] == {str(P2): [ids["eng"]], str(P3): [ids["eng"]]}
+    tasks = {t.plant_id: t for t in _plan_tasks(f)}
+    assert tasks[P1].est_cost_thb == 3000 and tasks[P2].est_cost_thb is None
+    assert tasks[P1].title == "Dry season round 1" and tasks[P1].task_type == "cleaning"
+    got = client.get(f"/growatt/plants/{P1}/tasks/{tasks[P1].id}", headers=eng).json()
+    assert [a["id"] for a in got["assignees"]] == [ids["eng"]]
+    # the preview now shows the plants as already planned
+    again = client.post("/growatt/calendar/rounds/preview", headers=admin, json=q).json()
+    assert {x["plant_id"]: x["already_planned"] for x in again["items"]}[P1] == "2026-11-25"
+
+
+def test_blocked_plant_cleanup_removes_plan_links_and_settings(api):
+    f, client, ids, admin, eng, eng2 = api
+    from app.db.models import OmPlanPlant, OmPlantSettings
+
+    _plan(client, admin)
+    client.put(f"/growatt/plants/{P2}/om-settings", headers=admin, json={"cleaning_cost_thb": 100})
+    with f() as db:
+        remove_blocked_plants(db, [P2])
+        assert db.scalars(select(OmPlanPlant.plant_id)).all() == [P1]
+        assert db.get(OmPlantSettings, P2) is None

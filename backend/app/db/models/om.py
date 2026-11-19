@@ -5,8 +5,10 @@ change history. A finished task writes a Site log event (`site_events`); the Sit
 work done, these tables record work planned. SQL only (never Firestore), kept indefinitely.
 
 `plant_id` has no FK, like `site_events` and `user_plant_assignments`: the blocked-plant cleanup
-(`remove_blocked_plants`) deletes a plant's tasks explicitly. `plan_id` / `scheduled_day` are for
-the recurring plans of Phase 2 (null = a one-off task).
+(`remove_blocked_plants`) deletes a plant's tasks, plan links and settings explicitly.
+Phase 2: recurring plans (`om_plans`) generate tasks with `plan_id` + `scheduled_day` (the
+occurrence's original day, so a moved task is never generated again); `om_plant_settings` holds
+the optional per-plant cleaning duration and cost (null until entered).
 """
 
 from __future__ import annotations
@@ -98,3 +100,56 @@ class OmTaskHistory(Base):
     by: Mapped[Optional[str]] = mapped_column(String(64))
     change: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     comment: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class OmPlan(Base):
+    """A recurring template: every `every_n` weeks / months from `starts_on`, optionally only in the
+    season months `season_from_month` … `season_to_month` (may wrap the year, e.g. 11 … 4), on
+    `weekday` (0 = Monday; null = the first working day). Tasks are generated up to 90 days ahead."""
+
+    __tablename__ = "om_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    task_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    every_n: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit: Mapped[str] = mapped_column(String(8), nullable=False)  # week | month
+    season_from_month: Mapped[Optional[int]] = mapped_column(Integer)
+    season_to_month: Mapped[Optional[int]] = mapped_column(Integer)
+    weekday: Mapped[Optional[int]] = mapped_column(Integer)
+    duration_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    default_team_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("om_teams.id", ondelete="SET NULL"))
+    starts_on: Mapped[date] = mapped_column(Date, nullable=False)
+    ends_on: Mapped[Optional[date]] = mapped_column(Date)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[Optional[str]] = mapped_column(String(64))
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class OmPlanPlant(Base):
+    __tablename__ = "om_plan_plants"
+
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("om_plans.id", ondelete="CASCADE"), primary_key=True)
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+
+class OmPlanAssignee(Base):
+    __tablename__ = "om_plan_assignees"
+
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("om_plans.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+
+
+class OmPlantSettings(Base):
+    """Optional planning figures per plant, entered by an admin (null = not entered, never assumed)."""
+
+    __tablename__ = "om_plant_settings"
+
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    cleaning_crew_days: Mapped[Optional[float]] = mapped_column(Float)
+    cleaning_cost_thb: Mapped[Optional[float]] = mapped_column(Float)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)

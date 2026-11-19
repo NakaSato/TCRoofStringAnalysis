@@ -1,6 +1,6 @@
 # Plan & Spec: Calendar Team (O&M and cleaning planning)
 
-Status: **Phase 1 built 2026-11-19** (tasks, teams, calendar page, Upcoming work card; migration `a6b7c8d9e0f1`), Phases 2–4 not started · Created 2026-11-19 · Owner: Chanthawat
+Status: **Phases 1–2 built 2026-11-19** (Phase 1: tasks, teams, calendar page, Upcoming work card, migration `a6b7c8d9e0f1`; Phase 2: recurring plans + nightly `om_plans` job, Due view, cleaning rounds, per-plant crew-days / cost, drag to move, migration `7a1c2e9b4d60`), Phases 3–4 not started · Created 2026-11-19 · Owner: Chanthawat
 Related: [`decision-rules.md`](decision-rules.md) §6 (site log, soiling wallet R12, R13), `services/site_events.py`, `solar_core/om_management.py` (legacy demo PM schedule)
 
 A shared **team calendar** where admins and engineers plan O&M work per plant: a weekly plan for the crews, a monthly plan for the fleet, recurring preventive maintenance, and **panel-cleaning rounds** for the dry season. When planned work is finished, it becomes a Site log event. The Site log already records work that was done; the calendar adds work that is planned.
@@ -108,6 +108,8 @@ POST   /growatt/calendar/rounds/preview                     (admin) plant_ids, f
 POST   /growatt/calendar/rounds                             (admin) save the previewed tasks in one transaction
 GET    /growatt/calendar/export.csv?from=&to=
 ```
+
+As built (Phase 2): the CSV export stays in the browser (List view, Phase 1), so there is no `export.csv` route. Plans are read by everyone (`GET /growatt/calendar/plans`; engineers only plans covering their plants, with only those plants); `DELETE` of a plan removes its untouched future tasks and keeps the others as one-off tasks. An occurrence falls on the plan's weekday, or with none on the first Mon–Fri day that is not a tariff holiday; the season is judged on the nominal day's month. Round scheduler: each crew cleans one plant at a time; a plant of ≤ 1 crew-day shares the crew's day while it has room, a longer one starts on a fresh day and takes ⌈crew-days⌉ working days; plants that don't fit within 120 days are listed as unscheduled. Plants with no cleaning recorded go first (unknown is never assumed clean).
 
 Services: `app/services/om_calendar.py` contains task CRUD, history, occurrence generation and the round scheduler wrapper. The scheduler is a pure function in `solar_core/om_planning.py`, so it can be unit tested without the DB.
 

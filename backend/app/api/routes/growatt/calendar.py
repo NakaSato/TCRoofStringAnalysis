@@ -1,4 +1,5 @@
-"""Calendar Team: planned O&M tasks and crews (DB only, docs/plans/calendar-team.md)."""
+"""Calendar Team: planned O&M tasks, crews, recurring plans, the monthly due view and cleaning
+rounds (DB only, docs/plans/calendar-team.md)."""
 
 from __future__ import annotations
 
@@ -11,8 +12,20 @@ from sqlalchemy.orm import Session
 from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
 from app.db.models import User
 from app.db.session import get_db
-from app.schemas.api_schemas import OmTaskCreate, OmTaskDone, OmTaskPatch, OmTeamBody, OmTeamPatch
+from app.schemas.api_schemas import (
+    OmPlanBody,
+    OmPlanPatch,
+    OmPlantSettingsBody,
+    OmRoundPreview,
+    OmRoundSave,
+    OmTaskCreate,
+    OmTaskDone,
+    OmTaskPatch,
+    OmTeamBody,
+    OmTeamPatch,
+)
 from app.services import om_calendar as cal
+from app.services import om_plans
 from app.services.growatt_common import GrowattNotFound
 from app.api.routes.growatt._common import audit
 
@@ -220,3 +233,104 @@ def delete_calendar_team(
     except _HANDLED as exc:
         raise _errors(exc) from exc
     audit.info("%s deleted team #%s", cal._who(user), team_id)
+
+
+# --------------------------------------------------------------------------- recurring plans (Phase 2)
+
+
+@router.get("/calendar/plans")
+def list_calendar_plans(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Admins: every plan. Engineers: plans covering their plants (read only, their plants only)."""
+    return om_plans.list_plans(db, allowed_plant_ids(db, user))
+
+
+@router.post("/calendar/plans", status_code=201)
+def create_calendar_plan(
+    payload: OmPlanBody, db: Session = Depends(get_db), user: User = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Save a plan and generate its tasks for the next 90 days."""
+    try:
+        p, result = om_plans.create_plan(db, user, payload.model_dump())
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+    audit.info("%s created plan #%s %r: %s", cal._who(user), p.id, p.name, result)
+    return {**om_plans.plan_out(db, p), "result": result}
+
+
+@router.patch("/calendar/plans/{plan_id}")
+def patch_calendar_plan(
+    plan_id: int, payload: OmPlanPatch, db: Session = Depends(get_db), user: User = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Change a plan; its untouched future tasks follow (moved / started / finished ones never change)."""
+    try:
+        p = om_plans.get_plan(db, plan_id)
+        p, result = om_plans.update_plan(db, user, p, payload.model_dump(exclude_unset=True))
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+    audit.info("%s changed plan #%s: %s", cal._who(user), plan_id, result)
+    return {**om_plans.plan_out(db, p), "result": result}
+
+
+@router.delete("/calendar/plans/{plan_id}")
+def delete_calendar_plan(plan_id: int, db: Session = Depends(get_db), user: User = Depends(require_admin)) -> Dict[str, Any]:
+    """Remove a plan: its untouched future tasks go, the rest stay as one-off tasks."""
+    try:
+        result = om_plans.delete_plan(db, om_plans.get_plan(db, plan_id))
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+    audit.info("%s deleted plan #%s: %s", cal._who(user), plan_id, result)
+    return result
+
+
+# --------------------------------------------------------------------------- due this month, plant figures
+
+
+@router.get("/calendar/due")
+def calendar_due(
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="YYYY-MM"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Per visible plant: last cleaning / PM (Site log), days since cleaning, next open task per type,
+    the month's tasks, overdue work, covering plans and planning figures."""
+    return om_plans.due(db, allowed_plant_ids(db, user), date.fromisoformat(f"{month}-01"))
+
+
+@router.put("/plants/{plant_id}/om-settings")
+def put_plant_om_settings(
+    plant_id: int, payload: OmPlantSettingsBody, db: Session = Depends(get_db), user: User = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Cleaning crew-days and cost as entered (null = not entered)."""
+    try:
+        out = om_plans.put_settings(db, user, plant_id, payload.model_dump())
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+    audit.info("%s set O&M figures of plant %s", cal._who(user), plant_id)
+    return out
+
+
+# --------------------------------------------------------------------------- cleaning rounds
+
+
+@router.post("/calendar/rounds/preview")
+def preview_cleaning_round(
+    payload: OmRoundPreview, db: Session = Depends(get_db), user: User = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Proposed cleaning tasks (working days, crews, holidays skipped); nothing is saved."""
+    try:
+        return om_plans.round_preview(db, payload.model_dump())
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+
+
+@router.post("/calendar/rounds", status_code=201)
+def save_cleaning_round(
+    payload: OmRoundSave, db: Session = Depends(get_db), user: User = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Create the round's cleaning tasks in one transaction."""
+    try:
+        out = om_plans.round_save(db, user, payload.model_dump())
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+    audit.info("%s planned a cleaning round: %s tasks", cal._who(user), out["created"])
+    return out

@@ -60,6 +60,9 @@ def remove_blocked_plants(db: Session, plant_ids: Iterable[int]) -> List[int]:
     if found:
         db.execute(delete(GrowattIssue).where(GrowattIssue.plant_id.in_(found)))
         db.execute(delete(OmTask).where(OmTask.plant_id.in_(found)))  # assignees + history cascade
+        from app.services import om_plans  # local: keeps the sync package free of the calendar's imports
+
+        om_plans.delete_plant_rows(db, found)  # plan links, per-plant planning figures
         db.execute(delete(GrowattPlant).where(GrowattPlant.plant_id.in_(found)))
         db.commit()
         log.info("blocked plants removed from the registry: %s", found)

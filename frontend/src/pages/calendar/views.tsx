@@ -1,5 +1,7 @@
-/** Calendar Team views: month grid, week lanes (one row per person / team) and the task list. */
-import React, { useMemo } from "react";
+/** Calendar Team views: month grid, week lanes (one row per person / team) and the task list.
+ * Planned / started tasks can be dragged to another day in the month and week views (keeps the
+ * task's length; `onMove`). */
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { OmBusyBlock, OmPerson, OmTask } from "../../api/client";
 import { plantPath } from "../../context/routes";
@@ -11,16 +13,55 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { BUSY_CHIP, TYPE_CHIP, WEEKDAYS, addDays, covers, daysBetween, personName, spanLabel, statusChip, statusOf, taskTitle, taskWhere } from "./format";
 
 const MAX_CHIPS = 3;
+const DRAG_TYPE = "application/x-om-task";
 
-const Chip: React.FC<{ task: OmTask; onOpen: (t: OmTask) => void; showPlant?: boolean }> = ({ task, onOpen, showPlant = true }) => (
+const movable = (t: OmTask) => t.status === "planned" || t.status === "in_progress";
+
+/** drop-target props for a day cell: highlights while a task hovers it, calls `onMove` on drop */
+function useDrop(tasks: OmTask[], onMove?: (t: OmTask, day: string) => void) {
+  const [over, setOver] = useState<string | null>(null);
+  const props = (day: string) =>
+    onMove
+      ? {
+          onDragOver: (e: React.DragEvent) => {
+            if (!e.dataTransfer.types.includes(DRAG_TYPE)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (over !== day) setOver(day);
+          },
+          onDragLeave: () => setOver((d) => (d === day ? null : d)),
+          onDrop: (e: React.DragEvent) => {
+            setOver(null);
+            const id = Number(e.dataTransfer.getData(DRAG_TYPE));
+            const t = tasks.find((x) => x.id === id);
+            if (!t) return;
+            e.preventDefault();
+            if (t.start_day !== day) onMove(t, day);
+          },
+        }
+      : {};
+  return { over, props };
+}
+
+const Chip: React.FC<{ task: OmTask; onOpen: (t: OmTask) => void; showPlant?: boolean; draggable?: boolean }> = ({ task, onOpen, showPlant = true, draggable }) => (
   <button
     type="button"
+    draggable={draggable && movable(task)}
+    onDragStart={(e) => {
+      e.dataTransfer.setData(DRAG_TYPE, String(task.id));
+      e.dataTransfer.effectAllowed = "move";
+    }}
     onClick={(e) => {
       e.stopPropagation();
       onOpen(task);
     }}
     title={`${task.label}${task.title ? `: ${task.title}` : ""} · ${task.plant_name ?? task.plant_id} · ${spanLabel(task)} · ${statusOf(task.status).label}${task.overdue ? " · overdue" : ""}`}
-    className={cn("block w-full truncate rounded border px-1.5 py-0.5 text-left text-[11px] leading-4", TYPE_CHIP[task.task_type], statusChip(task))}
+    className={cn(
+      "block w-full truncate rounded border px-1.5 py-0.5 text-left text-[11px] leading-4",
+      TYPE_CHIP[task.task_type],
+      statusChip(task),
+      draggable && movable(task) && "cursor-grab active:cursor-grabbing"
+    )}
   >
     {showPlant ? `${task.plant_name ?? `#${task.plant_id}`} · ` : ""}
     {taskTitle(task)}
@@ -46,8 +87,10 @@ export const MonthGrid: React.FC<{
   onOpen: (t: OmTask) => void;
   onCreate: (day: string) => void;
   onShowDay: (day: string) => void;
-}> = ({ from, month, today, tasks, onOpen, onCreate, onShowDay }) => {
+  onMove?: (t: OmTask, day: string) => void;
+}> = ({ from, month, today, tasks, onOpen, onCreate, onShowDay, onMove }) => {
   const days = daysBetween(from, addDays(from, 41));
+  const drop = useDrop(tasks, onMove);
   return (
     <div className="overflow-x-auto">
       <div className="grid min-w-[640px] grid-cols-7 border-l border-t border-white/[0.06]">
@@ -67,14 +110,16 @@ export const MonthGrid: React.FC<{
               aria-label={`Plan a task on ${day}`}
               onClick={() => onCreate(day)}
               onKeyDown={(e) => e.key === "Enter" && onCreate(day)}
+              {...drop.props(day)}
               className={cn(
                 "flex min-h-24 cursor-pointer flex-col gap-1 border-b border-r border-white/[0.06] p-1.5 transition-colors hover:bg-white/[0.03]",
-                !inMonth && "bg-black/20 text-muted-foreground"
+                !inMonth && "bg-black/20 text-muted-foreground",
+                drop.over === day && "bg-solar-500/10 ring-1 ring-inset ring-solar-400/60"
               )}
             >
               <span className={cn("num w-fit rounded px-1 text-[11px]", day === today && "bg-solar-500/20 font-semibold text-solar-200")}>{Number(day.slice(8))}</span>
               {here.slice(0, MAX_CHIPS).map((t) => (
-                <Chip key={t.id} task={t} onOpen={onOpen} />
+                <Chip key={t.id} task={t} onOpen={onOpen} draggable={!!onMove} />
               ))}
               {here.length > MAX_CHIPS && (
                 <button
@@ -117,8 +162,10 @@ export const WeekLanes: React.FC<{
   me: number | undefined;
   onOpen: (t: OmTask) => void;
   onCreate: (day: string) => void;
-}> = ({ from, today, tasks, busy, people, me, onOpen, onCreate }) => {
+  onMove?: (t: OmTask, day: string) => void;
+}> = ({ from, today, tasks, busy, people, me, onOpen, onCreate, onMove }) => {
   const days = daysBetween(from, addDays(from, 6));
+  const drop = useDrop(tasks, onMove);
   const lanes = useMemo<Lane[]>(() => {
     const out: Lane[] = [];
     const seen = new Set<number>();
@@ -188,15 +235,17 @@ export const WeekLanes: React.FC<{
                   <td
                     key={day}
                     onClick={() => onCreate(day)}
+                    {...drop.props(day)}
                     className={cn(
                       "cursor-pointer space-y-1 border-b border-l border-white/[0.06] p-1 hover:bg-white/[0.03]",
                       day === today && "bg-solar-500/[0.04]",
-                      clash && "bg-red-500/[0.06]"
+                      clash && "bg-red-500/[0.06]",
+                      drop.over === day && "bg-solar-500/10 ring-1 ring-inset ring-solar-400/60"
                     )}
                   >
                     {clash && <div className="text-[10px] font-medium text-red-300">{active} jobs</div>}
                     {ts.map((t) => (
-                      <Chip key={t.id} task={t} onOpen={onOpen} />
+                      <Chip key={t.id} task={t} onOpen={onOpen} draggable={!!onMove} />
                     ))}
                     {bs.map((b, i) => (
                       <BusyChip key={`b${i}`} block={b} />
