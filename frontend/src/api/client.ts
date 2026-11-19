@@ -19,8 +19,9 @@ export type * from "./types/issues";
 export type * from "./types/events";
 export type * from "./types/tools";
 export type * from "./types/claims";
+export type * from "./types/calendar";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
-import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
+import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay, FleetRadarRain, PlantRadarRain, RainRadar } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
@@ -29,6 +30,26 @@ import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
+import type {
+  OmAssignees,
+  OmDue,
+  OmPlanBody,
+  OmPlanList,
+  OmPlanSaved,
+  OmPlantSettings,
+  OmRoundPreview,
+  OmRoundPreviewBody,
+  OmRoundSaveBody,
+  OmTask,
+  OmTaskBody,
+  OmTaskDetail,
+  OmTaskDoneBody,
+  OmTaskList,
+  OmTaskPatch,
+  OmTaskQuery,
+  OmTeam,
+  OmTeamBody,
+} from "./types/calendar";
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
@@ -385,17 +406,6 @@ export const api = {
     apiFetch<RCARecord>(`/rca/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteRcaRecord: (id: number) => apiFetch<void>(`/rca/${id}`, { method: "DELETE" }),
 
-  // SH&E & PTW
-  getSheDashboard: (plantId: number) =>
-    apiFetch<{ kpis: Record<string, number>; ptw_permits: PTWPermit[]; checklist: Record<string, any>[] }>(
-      `/she/dashboard?plant_id=${plantId}`
-    ),
-  createPtwPermit: (payload: Partial<PTWPermit>) =>
-    apiFetch<PTWPermit>("/ptw", { method: "POST", body: JSON.stringify(payload) }),
-  updatePtwPermit: (id: number, payload: Partial<PTWPermit>) =>
-    apiFetch<PTWPermit>(`/ptw/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deletePtwPermit: (id: number) => apiFetch<void>(`/ptw/${id}`, { method: "DELETE" }),
-
   // System → Logs (admin only)
   listSystemLogs: (params: SystemLogQuery = {}) => {
     const q = new URLSearchParams();
@@ -444,6 +454,43 @@ export const api = {
     apiFetch<SiteEvent>(`/growatt/plants/${plantId}/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteSiteEvent: (plantId: number, id: number) =>
     apiFetch<void>(`/growatt/plants/${plantId}/events/${id}`, { method: "DELETE" }),
+  // ---- Calendar Team (planned O&M tasks and crews; DB only)
+  listOmTasks: (q: OmTaskQuery) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "" && v !== false) p.set(k, String(v));
+    return apiFetch<OmTaskList>(`/growatt/calendar/tasks?${p.toString()}`);
+  },
+  getOmTask: (plantId: number, id: number) => apiFetch<OmTaskDetail>(`/growatt/plants/${plantId}/tasks/${id}`),
+  createOmTask: (plantId: number, body: OmTaskBody) =>
+    apiFetch<OmTask>(`/growatt/plants/${plantId}/tasks`, { method: "POST", body: JSON.stringify(body) }),
+  patchOmTask: (plantId: number, id: number, body: OmTaskPatch) =>
+    apiFetch<OmTask>(`/growatt/plants/${plantId}/tasks/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  finishOmTask: (plantId: number, id: number, body: OmTaskDoneBody) =>
+    apiFetch<OmTask>(`/growatt/plants/${plantId}/tasks/${id}/done`, { method: "POST", body: JSON.stringify(body) }),
+  deleteOmTask: (plantId: number, id: number) => apiFetch<void>(`/growatt/plants/${plantId}/tasks/${id}`, { method: "DELETE" }),
+  listOmAssignees: (plantId?: number) =>
+    apiFetch<OmAssignees>(`/growatt/calendar/assignees${plantId != null ? `?plant_id=${plantId}` : ""}`),
+  listOmTeams: (includeInactive = false) =>
+    apiFetch<OmTeam[]>(`/growatt/calendar/teams${includeInactive ? "?include_inactive=true" : ""}`),
+  createOmTeam: (body: OmTeamBody) => apiFetch<OmTeam>("/growatt/calendar/teams", { method: "POST", body: JSON.stringify(body) }),
+  patchOmTeam: (id: number, body: Partial<OmTeamBody>) =>
+    apiFetch<OmTeam>(`/growatt/calendar/teams/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteOmTeam: (id: number) => apiFetch<void>(`/growatt/calendar/teams/${id}`, { method: "DELETE" }),
+  listOmPlans: () => apiFetch<OmPlanList>("/growatt/calendar/plans"),
+  createOmPlan: (body: OmPlanBody) => apiFetch<OmPlanSaved>("/growatt/calendar/plans", { method: "POST", body: JSON.stringify(body) }),
+  patchOmPlan: (id: number, body: Partial<OmPlanBody>) =>
+    apiFetch<OmPlanSaved>(`/growatt/calendar/plans/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteOmPlan: (id: number) => apiFetch<{ deleted: number; kept: number }>(`/growatt/calendar/plans/${id}`, { method: "DELETE" }),
+  getOmDue: (month: string) => apiFetch<OmDue>(`/growatt/calendar/due?month=${month}`),
+  putOmPlantSettings: (plantId: number, body: { cleaning_crew_days: number | null; cleaning_cost_thb: number | null }) =>
+    apiFetch<OmPlantSettings & { plant_id: number }>(`/growatt/plants/${plantId}/om-settings`, { method: "PUT", body: JSON.stringify(body) }),
+  previewOmRound: (body: OmRoundPreviewBody) =>
+    apiFetch<OmRoundPreview>("/growatt/calendar/rounds/preview", { method: "POST", body: JSON.stringify(body) }),
+  saveOmRound: (body: OmRoundSaveBody) =>
+    apiFetch<{ created: number; task_ids: number[]; dropped_assignees: Record<string, number[]> }>("/growatt/calendar/rounds", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   getRules: (sinceDays = 90) => apiFetch<RulesOut>(`/growatt/rules?since_days=${sinceDays}`),
   putRules: (patch: RulesPatch) =>
     apiFetch<{ settings: RuleSettings }>("/growatt/rules", { method: "PUT", body: JSON.stringify(patch) }),

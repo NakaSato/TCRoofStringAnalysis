@@ -4,7 +4,6 @@
  * (`/growatt/plants/{id}/events`); the cleaning dates are what Phase 4 measures recovery from.
  * Engineers and admins of the plant record and edit; delete = admin or whoever recorded it. */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../../api/client";
 import type { GrowattInverter, Issue, SiteEvent, SiteEventBody, SiteEventList, SiteEventType } from "../../api/client";
@@ -34,6 +33,9 @@ export const EVENT_TYPES: ReadonlyArray<{ value: SiteEventType; label: string }>
   { value: "module_replaced", label: "Module replaced" },
   { value: "inverter_replaced", label: "Inverter replaced" },
   { value: "ir_flight", label: "IR flight" },
+  { value: "pm_inspection", label: "PM inspection" },
+  { value: "inverter_service", label: "Inverter service" },
+  { value: "site_visit", label: "Site visit" },
   { value: "curtailment", label: "Curtailment" },
   { value: "other", label: "Other" },
 ];
@@ -44,6 +46,9 @@ const TYPE_VARIANT: Record<SiteEventType, "info" | "ok" | "warn" | "neutral" | "
   module_replaced: "ok",
   inverter_replaced: "ok",
   ir_flight: "default",
+  pm_inspection: "ok",
+  inverter_service: "ok",
+  site_visit: "neutral",
   curtailment: "warn",
   other: "neutral",
 };
@@ -441,9 +446,9 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
                   <TableCell className="num whitespace-nowrap text-right text-xs">{thb(e.cost_thb)}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">
                     {e.issue ? (
-                      <Link to={`/issues?plant=${plantId}&status=all`} className="text-solar-300 hover:underline" title={`Issue #${e.issue.id}`}>
+                      <span className="text-slate-300" title={`Issue #${e.issue.id}`}>
                         {e.issue.rule} · {e.issue.status}
-                      </Link>
+                      </span>
                     ) : (
                       <span className="text-slate-500">—</span>
                     )}

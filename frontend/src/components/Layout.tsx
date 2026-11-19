@@ -3,7 +3,6 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Ruler,
   FileWarning,
-  ShieldAlert,
   Settings,
   Bell,
   Menu,
@@ -18,11 +17,11 @@ import {
   Users,
   ScrollText,
   BellRing,
+  CalendarDays,
   Building2,
   Gauge,
   Map as MapIcon,
   Sparkles,
-  ListChecks,
   Scale,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -60,10 +59,9 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: "Operations",
     items: [
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
-      { to: "/issues", label: "Issues", icon: ListChecks, description: "What to fix first, ranked by estimated baht lost per day" },
+      { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
       { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },
       { to: "/tools", label: "Measuring Tools", icon: Ruler, description: "Drones, meters & testers: who has them, calibration & due dates" },
-      { to: "/she", label: "Safety (SH&E)", icon: ShieldAlert, description: "Permit-to-work, LOTO & ISO 45001 compliance" },
     ],
   },
   {

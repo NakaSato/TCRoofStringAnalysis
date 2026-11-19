@@ -63,7 +63,7 @@ export const routeData = (pathname: string, admin: boolean): RouteData => {
     fleetLive: true,
     plantId: null,
     plantLive: false,
-    legacy: admin && (top === "/she" || top === "/settings"),
+    legacy: admin && top === "/settings",
   };
 };
 

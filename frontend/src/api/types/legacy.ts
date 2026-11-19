@@ -121,18 +121,3 @@ export interface RCARecord {
   rca_status: string;
   updated_at: string;
 }
-
-export interface PTWPermit {
-  id: number;
-  plant_id: number;
-  ptw_number: string;
-  issue_date: string;
-  work_activity: string;
-  high_risk_permits: string;
-  loto_padlock_id: string;
-  arc_flash_ppe: string;
-  gas_heat_index_check: string;
-  safety_supervisor: string;
-  status: string;
-  updated_at: string;
-}

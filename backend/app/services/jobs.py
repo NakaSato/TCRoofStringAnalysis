@@ -453,6 +453,14 @@ def job_rules_backfill(db: Session) -> Tuple[str, Dict[str, Any]]:
     return ("partial" if detail["failed"] else "ok"), detail
 
 
+def job_om_plans(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Calendar Team recurring plans: keep each plan's planned tasks up to 90 days ahead (moved,
+    started or finished tasks are never touched; services/om_plans.py)."""
+    from app.services import om_plans
+
+    return "ok", om_plans.generate_all(db)
+
+
 JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "history": job_history,
     "env_history": job_env_history,
@@ -474,6 +482,7 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "rules_yesterday": job_rules_yesterday,
     "rules_backfill": job_rules_backfill,
     "epi_refit": job_epi_refit,
+    "om_plans": job_om_plans,
 }
 
 

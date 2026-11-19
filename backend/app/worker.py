@@ -148,6 +148,8 @@ def default_schedule() -> List[Schedule]:
             ),
         ),
         Schedule("alarms_yesterday", at=dtime(0, 30)),
+        # Calendar Team recurring plans → planned tasks 90 days ahead (DB only, no Growatt calls)
+        Schedule("om_plans", at=dtime(0, 40)),
         Schedule("rules_yesterday", at=dtime(0, 45)),
         # Growatt's own figures for yesterday, after its late alarms / rules; done long before 05:30 fleet
         Schedule("growatt_energy", at=dtime(0, 50)),

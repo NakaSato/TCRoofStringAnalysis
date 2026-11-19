@@ -7,7 +7,6 @@ import {
   TrendingUp,
   Activity,
   Wrench,
-  ShieldAlert,
   Settings,
   LogOut,
   Cpu,
@@ -93,15 +92,6 @@ export const CommandPaletteModal: React.FC<{
         icon: Wrench,
         onSelect: go(plantHref("maintenance")),
         path: plantHref("maintenance"),
-      },
-      {
-        id: "nav-she",
-        category: "Navigation",
-        title: "Safety, Health & Environment (SH&E)",
-        subtitle: "Permit-to-work, LOTO isolation & ISO 45001 compliance",
-        icon: ShieldAlert,
-        onSelect: go("/she"),
-        path: "/she",
       },
       {
         id: "nav-settings",

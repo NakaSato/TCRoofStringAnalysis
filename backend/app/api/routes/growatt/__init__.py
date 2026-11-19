@@ -6,6 +6,7 @@
 - `rules`         decision rules, Issues queue, daily rule / KPI rows
 - `iv`            I-V curve sweeps
 - `events`        site events
+- `calendar`      Calendar Team: planned O&M tasks and crews
 - `sync`          worker job status and queueing
 
 Live and persisted data never mix: a live route never writes to the database, and a DB route
@@ -16,8 +17,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routes.growatt import events, fleet_config, iv, live, plants, rules, sync
+from app.api.routes.growatt import calendar, events, fleet_config, iv, live, plants, rules, sync
 
 router = APIRouter(prefix="/growatt", tags=["Growatt OpenAPI & Plant Telemetry"])
-for _module in (live, plants, fleet_config, rules, iv, events, sync):
+for _module in (live, plants, fleet_config, rules, iv, events, calendar, sync):
     router.include_router(_module.router)

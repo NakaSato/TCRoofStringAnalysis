@@ -20,7 +20,9 @@ router = APIRouter()
 
 # --------------------------------------------------------------------------- site events (DB only)
 
-EVENT_TYPE_PATTERN = "^(cleaning|repair|module_replaced|inverter_replaced|ir_flight|curtailment|other)$"
+EVENT_TYPE_PATTERN = (
+    "^(cleaning|repair|module_replaced|inverter_replaced|ir_flight|pm_inspection|inverter_service|site_visit|curtailment|other)$"
+)
 
 
 @router.get("/events")

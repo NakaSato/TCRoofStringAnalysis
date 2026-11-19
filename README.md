@@ -32,9 +32,6 @@ An end-to-end **Full-Stack Solar PV String Performance, Asset Management, Root C
    - Auto-generated CM Work Orders & step-by-step field troubleshooting checklists.
    - Structured **5-Why & Fishbone (Ishikawa)** RCA register with **CAPA (Corrective & Preventive Actions)** covering **Inverters**, **Transformers**, **Switchgear**, and **PV Strings**.
 
-5. **Safety, Health & Environment (SH&E) Standards (`/she`)**
-   - **SH&E Dashboard**: Safe Man-Hours, Zero-LTI streak, Permit-to-Work (PTW), Lock-Out Tag-Out (LOTO) register, Arc-Flash PPE, and ISO 45001 / ISO 14001 compliance checklist.
-
 ---
 
 ## Quick Start

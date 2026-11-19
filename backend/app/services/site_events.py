@@ -1,6 +1,7 @@
 """Site events: work done on a Growatt plant (docs/plans/decision-rules.md §6).
 
-Cleanings, repairs, module or inverter replacements, IR flights and curtailment, entered by an
+Cleanings, repairs, module or inverter replacements, IR flights, PM inspections, inverter
+service, site visits and curtailment, entered by an
 engineer or admin with the plant-local date of the work, an optional inverter / string, the cost
 paid (THB, null when not entered) and a note. An event can answer a decision-rule issue
 (`issue_id`) and resolve it in the same step.
@@ -30,6 +31,9 @@ EVENT_TYPES = (
     "module_replaced",
     "inverter_replaced",
     "ir_flight",
+    "pm_inspection",
+    "inverter_service",
+    "site_visit",
     "curtailment",
     "other",
 )
@@ -39,6 +43,9 @@ EVENT_LABELS = {
     "module_replaced": "Module replaced",
     "inverter_replaced": "Inverter replaced",
     "ir_flight": "IR flight",
+    "pm_inspection": "PM inspection",
+    "inverter_service": "Inverter service",
+    "site_visit": "Site visit",
     "curtailment": "Curtailment",
     "other": "Other",
 }
