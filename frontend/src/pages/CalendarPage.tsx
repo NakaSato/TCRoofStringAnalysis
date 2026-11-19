@@ -9,7 +9,7 @@
  * `user` (me | all | id; default me for engineers, all for admins), `plant`.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Users } from "lucide-react";
 import { api } from "../api/client";
 import type { OmAssignees, OmTask, OmTaskList, OmTaskStatus, OmTaskType } from "../api/client";
 import { useAppContext } from "../context/AppContext";
@@ -26,6 +26,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlantPicker } from "./calendar/fields";
 import { TaskDialog } from "./calendar/TaskDialog";
+import { TeamsDialog } from "./calendar/TeamsDialog";
 import type { TaskDialogTarget } from "./calendar/TaskDialog";
 import { MonthGrid, TaskList, WeekLanes } from "./calendar/views";
 import { STATUSES, STATUS_KEYS, TASK_TYPES, TYPE_KEYS, VIEWS, addDays, addMonths, monthLabel, personName, rangeFor, tasksCsv, weekLabel, weekStart } from "./calendar/format";
@@ -62,6 +63,8 @@ export const CalendarPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<TaskDialogTarget | null>(null);
+  const [teamsOpen, setTeamsOpen] = useState(false);
+  const [lanesVersion, setLanesVersion] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,7 +98,7 @@ export const CalendarPage: React.FC = () => {
     return () => {
       live = false;
     };
-  }, []);
+  }, [lanesVersion]);
 
   const tasks = useMemo(() => data?.tasks ?? [], [data]);
   const lanePeople = useMemo(() => {
@@ -135,6 +138,12 @@ export const CalendarPage: React.FC = () => {
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
             {loading ? "Refreshing…" : "Refresh"}
           </Button>
+          {admin && (
+            <Button variant="outline" size="sm" onClick={() => setTeamsOpen(true)}>
+              <Users data-icon="inline-start" />
+              Teams
+            </Button>
+          )}
           <Button size="sm" onClick={() => create()}>
             <Plus data-icon="inline-start" />
             Plan task
@@ -281,6 +290,16 @@ export const CalendarPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      {admin && (
+        <TeamsDialog
+          open={teamsOpen}
+          onClose={() => setTeamsOpen(false)}
+          onChanged={() => {
+            setLanesVersion((v) => v + 1);
+            void load();
+          }}
+        />
+      )}
       <TaskDialog target={dialog} plants={growattPlants} me={me} admin={admin} onClose={() => setDialog(null)} onChanged={() => void load()} />
     </div>
   );

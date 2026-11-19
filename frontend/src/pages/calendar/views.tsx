@@ -105,6 +105,7 @@ interface Lane {
   tasks: OmTask[];
   busy: OmBusyBlock[];
   person: boolean;
+  color?: string | null;
 }
 
 export const WeekLanes: React.FC<{
@@ -133,15 +134,15 @@ export const WeekLanes: React.FC<{
       out.push({ key: `u${p.id}`, label: personName(p) + (p.id === me ? " (you)" : ""), tasks: mine, busy: blocked, person: true });
     }
     // a team gets a lane for its team-only work (e.g. a contractor crew with no logins)
-    const teamOnly = new Map<number, { name: string; tasks: OmTask[] }>();
+    const teamOnly = new Map<number, { name: string; color: string | null; tasks: OmTask[] }>();
     for (const t of tasks) {
       if (!t.team || t.assignees.length) continue;
-      const lane = teamOnly.get(t.team.id) ?? { name: t.team.name, tasks: [] };
+      const lane = teamOnly.get(t.team.id) ?? { name: t.team.name, color: t.team.color, tasks: [] };
       lane.tasks.push(t);
       teamOnly.set(t.team.id, lane);
     }
     for (const [id, lane] of [...teamOnly].sort((a, b) => a[1].name.localeCompare(b[1].name))) {
-      out.push({ key: `t${id}`, label: lane.name, sub: "Team", tasks: lane.tasks, busy: [], person: false });
+      out.push({ key: `t${id}`, label: lane.name, sub: "Team", color: lane.color, tasks: lane.tasks, busy: [], person: false });
     }
     const loose = tasks.filter((t) => t.assignees.length === 0 && !t.team);
     if (loose.length) out.push({ key: "none", label: "Unassigned", tasks: loose, busy: [], person: false });
@@ -172,7 +173,10 @@ export const WeekLanes: React.FC<{
           {lanes.map((lane) => (
             <tr key={lane.key} className="align-top">
               <td className="border-b border-white/[0.06] px-2 py-1.5">
-                <div className="truncate font-medium">{lane.label}</div>
+                <div className="flex items-center gap-1.5 truncate font-medium">
+                  {lane.color && <span className="size-2 shrink-0 rounded-full" style={{ background: lane.color }} />}
+                  {lane.label}
+                </div>
                 {lane.sub && <div className="text-[11px] text-muted-foreground">{lane.sub}</div>}
               </td>
               {days.map((day) => {
