@@ -37,6 +37,7 @@ from app.db.models import (
     GrowattPlantDaily,
     GrowattStringDaily,
 )
+from app.services import epi_fit
 from app.services.growatt_common import INACTIVE_MAX_A, R, S, _bucket, _day_bounds, _integrate_kwh, capacity_check
 from app.services.growatt_layout import load_layout, load_layout_orientations
 from app.services.tariff import Pricer, pricer as load_pricer
@@ -305,7 +306,7 @@ def compute_plant_day(
 
     n_str = _strings_day(db, plant.plant_id, day, by_sn, inv_slots, str_slots, str_power, wired, layout, orientations, irr, pr)
     n_inv = _inverters_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, alarms, kwp, until, pr)
-    _plant_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, plant_kwp)
+    _plant_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, plant_kwp, epi_fit.active_factor(db, plant.plant_id))
     return {"strings": n_str, "inverters": n_inv}
 
 
@@ -604,9 +605,11 @@ def _plant_day(
     ppv_points: Dict[str, List[Tuple[datetime, float]]],
     pac_points: Dict[str, List[Tuple[datetime, float]]],
     plant_kwp: Optional[float],
+    system_factor: float = epi_fit.DEFAULT_SYSTEM_FACTOR,
 ) -> None:
     """Populate `GrowattPlantDaily` for `day`, applying POA 200–1200 W/m², stale-value, clipping,
-    and curtailment masks before computing PR, PR', and EPI."""
+    and curtailment masks before computing PR, PR', and EPI. `system_factor`: the plant's fitted
+    model factor (services/epi_fit.py), else the default."""
     from app.services import fleet_settings, growatt_weather
 
     inv_energies: List[float] = []
@@ -684,7 +687,7 @@ def _plant_day(
             if t_mod is None:
                 continue  # no module temperature measured at all: the slot cannot be modelled
             temp_factor = max(0.5, 1.0 + (gamma_pct / 100.0) * (float(t_mod) - 25.0))
-            p_mod_kw = plant_kwp * (float(g) / 1000.0) * temp_factor * 0.985
+            p_mod_kw = plant_kwp * (float(g) / 1000.0) * temp_factor * system_factor
             if p_mod_kw > 0:
                 valid_slots += 1
                 meas_kw_sum += pac_kw
@@ -709,6 +712,7 @@ def _plant_day(
             pr_pct=pr_res.get("pr_pct"),
             pr_temp_corrected_pct=pr_res.get("pr_temp_corrected_pct"),
             epi=epi,
+            system_factor=system_factor if epi is not None else None,
             irradiance_weighted_tmod_c=wk.get("irradiance_weighted_module_temp_c"),
             filtered_slots=valid_slots,
             stale_masked_slots=len(stale_ts),

@@ -65,6 +65,7 @@ _ADDED_COLUMNS = [
     ("growatt_plant_daily", "cloud_midday_pct", "FLOAT", None),
     ("growatt_plant_daily", "sensor_neighbour_ratio", "FLOAT", None),
     ("growatt_plant_daily", "sensor_neighbours", "INTEGER", None),
+    ("growatt_plant_daily", "system_factor", "FLOAT", None),
     ("growatt_iv_sweeps", "sweep_time_ms", "FLOAT", None),
     ("growatt_iv_sweeps", "cell_technology", "VARCHAR(16)", None),
     ("growatt_iv_sweeps", "irradiance_uncertainty_pct", "FLOAT", None),

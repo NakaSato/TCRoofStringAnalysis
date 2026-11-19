@@ -15,8 +15,17 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GroupLabel, HOT_C, Stat, Unit, hhmm, invName } from "./inverters/shared";
 import { inverterThermalSpec, inverterYieldSpec, powerSpec, prTone, waterfallSpec } from "./generation/charts";
 import { InverterTable } from "./generation/InverterTable";
+import type { EpiFactor } from "../api/client";
 
 /** Four figures in one divided frame: 2 × 2 on phones, one row from md. */
+/** How the EPI model's system factor came about, for the EPI hint. */
+const epiBasis = (f: EpiFactor | undefined): string =>
+  !f
+    ? "default factor"
+    : f.basis === "fitted"
+      ? `plant factor ${fmt(f.factor, 3)} from ${f.days_used} clear days`
+      : `default factor ${fmt(f.factor, 3)}${f.status === "rejected" && f.fit_factor != null ? `; fit ${fmt(f.fit_factor, 2)} rejected` : ""}`;
+
 const STAT_ROW = "grid grid-cols-2 overflow-hidden rounded-lg border border-white/[0.06] md:grid-cols-4";
 
 const CHARTS = ["yield", "thermal"] as const;
@@ -122,7 +131,7 @@ export const GenerationPrPage: React.FC = () => {
                   label={iec != null ? "PR · IEC 61724" : "PR · peer-relative"}
                   hint={
                     k.iec_pr_temp_corrected_pct != null
-                      ? `PR' ${fmt(k.iec_pr_temp_corrected_pct, 1)} % (temp-corrected${k.irradiance_weighted_module_temp_c != null ? ` at ${fmt(k.irradiance_weighted_module_temp_c, 1)} °C` : ""})${k.epi != null ? ` · EPI ${fmt(k.epi, 2)} (modelled)` : ""}`
+                      ? `PR' ${fmt(k.iec_pr_temp_corrected_pct, 1)} % (temp-corrected${k.irradiance_weighted_module_temp_c != null ? ` at ${fmt(k.irradiance_weighted_module_temp_c, 1)} °C` : ""})${k.epi != null ? ` · EPI ${fmt(k.epi, 2)} (modelled, ${epiBasis(k.epi_factor)})` : ""}`
                       : prDelta != null
                         ? `${prDelta >= 0 ? "+" : ""}${fmt(prDelta, 1)} pts vs target ${fmt(target, 0)} %`
                         : undefined

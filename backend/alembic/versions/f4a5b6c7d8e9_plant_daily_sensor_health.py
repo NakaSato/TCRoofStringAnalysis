@@ -4,7 +4,7 @@ Stale / above-clear-sky slot counts, midday irradiance, Google's midday cloud co
 ratio to neighbouring plants' sensors. `app.db.session.ensure_schema` adds the same columns at
 startup, so each is skipped when present.
 
-Revision ID: b8c9d0e1f2a3
+Revision ID: f4a5b6c7d8e9
 Revises: a4b5c6d7e8f9
 Create Date: 2026-11-18 22:00:00
 
@@ -15,7 +15,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "b8c9d0e1f2a3"
+revision: str = "f4a5b6c7d8e9"
 down_revision: Union[str, None] = "a4b5c6d7e8f9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
