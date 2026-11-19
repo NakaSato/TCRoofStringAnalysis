@@ -77,7 +77,7 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,logoBlob_,typedDate_,setSyncInterval,intervalSync,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
+vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,logoBlob_,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
 const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV'; api.CONFIG.LOGO_FILE_ID = '1Ic106EgW9ceYs8JOAXSfViAwh1YFqb4T';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
@@ -226,3 +226,24 @@ try {
   api.menuSyncAll(); drain();
   console.log('_log capped:', log.getLastRow() - 1 === 1000, '· rows', log.getLastRow() - 1, '· header kept:', log.cells['1,1'] !== undefined && !/^old/.test(log.cells['1,1']), '· newest last:', /สั่งอ่านทุกไฟล์/.test(log.cells[`${log.getLastRow()},2`]));
 } catch (e) { console.log('section 11 failed:', e.stack); }
+// 12) archive: closed problems of a past year move to "รายงานการแก้ไข_เก็บ_<พ.ศ.>", open ones stay; that year is not synced again
+try {
+  delete props.job;
+  const hr = [...Array(20).keys()].map(i => i + 1).find(r => Object.keys(T.cells).some(k => k.startsWith(r + ',') && T.cells[k] === 'รหัสปัญหา'));
+  const head = {}; for (let c = 1; c <= T.cols; c++) { const v = T.cells[`${hr},${c}`]; if (v) head[String(v).trim()] = c; }
+  const before = T.getLastRow() - hr;
+  const add = (key, found, status) => { const r = T.getLastRow() + 1; T.rows = Math.max(T.rows, r); T.cells[`${r},${head['รหัสปัญหา']}`] = key; T.cells[`${r},${head['วันที่พบ']}`] = found; T.cells[`${r},${head['สถานะ']}`] = status; };
+  add('P1-001|OLD1|20250305', '05/03/2568', 'ปิดงาน'); add('P1-001|OLD2|20250610', '10/06/2568', 'กำลังแก้ไข'); add('P1-002|OLD3|20251201', '01/12/2568', 'แก้ไขแล้ว');
+  let e1 = ''; try { api.archiveYear(new Date().getFullYear()); } catch (e) { e1 = e.message; }
+  const msg = api.archiveYear(2568);
+  const arch = Object.values(files).find(f => f.name === 'รายงานการแก้ไข_เก็บ_2568' && f.parent === root.id);
+  const aRows = arch && arch.ss.sheets[0].getLastRow() - 1;
+  const left = Object.keys(T.cells).filter(k => /OLD/.test(T.cells[k])).map(k => T.cells[k]);
+  console.log(msg);
+  console.log('this year refused:', /ปีก่อนปีนี้/.test(e1), '· archive in root:', !!arch, '· archived rows:', aRows,
+    '· open row stays:', left.join() === 'P1-001|OLD2|20250610', '· other rows kept:', T.getLastRow() - hr === before + 1);
+  const again = api.archiveYear(2568); console.log('run again:', again);
+  let e2 = ''; try { api.syncMonth('2025-06'); } catch (e) { e2 = e.message; } console.log('sync of an archived year refused:', /ย้ายปัญหาไปไฟล์เก็บแล้ว/.test(e2));
+  add('P1-003|OLD4|20250701', '01/07/2568', 'ปิดงาน'); const m3 = api.archiveYear(2025);
+  console.log('second run adds to the same file:', m3, '· rows now', arch.ss.sheets[0].getLastRow() - 1);
+} catch (e) { console.log('section 12 failed:', e.stack); }
