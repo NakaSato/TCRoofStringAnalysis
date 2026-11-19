@@ -290,6 +290,9 @@ export interface OmRoundItem {
 export interface OmRoundPreview {
   items: OmRoundItem[];
   unscheduled: Array<{ plant_id: number; name: string }>;
+  /** left out: one task would span max_task_days or more */
+  too_long: Array<{ plant_id: number; name: string }>;
+  max_task_days: number;
   start_day: string;
   end_day: string | null;
   crews: number;

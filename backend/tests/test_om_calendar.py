@@ -397,3 +397,29 @@ def test_blocked_plant_cleanup_removes_plan_links_and_settings(api):
         remove_blocked_plants(db, [P2])
         assert db.scalars(select(OmPlanPlant.plant_id)).all() == [P1]
         assert db.get(OmPlantSettings, P2) is None
+
+
+def test_plan_keeps_its_inactive_team(api):
+    f, client, ids, admin, eng, eng2 = api
+    team = client.post("/growatt/calendar/teams", headers=admin, json={"name": "Crew South"}).json()
+    pid = _plan(client, admin, default_team_id=team["id"]).json()["id"]
+    client.patch(f"/growatt/calendar/teams/{team['id']}", headers=admin, json={"active": False})
+    # the plan can still be paused or edited with its (now inactive) team ...
+    res = client.patch(f"/growatt/calendar/plans/{pid}", headers=admin, json={"active": False})
+    assert res.status_code == 200, res.text
+    assert client.patch(f"/growatt/calendar/plans/{pid}", headers=admin, json={"note": "x", "default_team_id": team["id"]}).status_code == 200
+    # ... but can't be switched to an inactive team it doesn't already have
+    other = _plan(client, admin).json()["id"]
+    assert client.patch(f"/growatt/calendar/plans/{other}", headers=admin, json={"default_team_id": team["id"]}).status_code == 422
+
+
+def test_round_leaves_out_plants_too_long_for_one_task(api):
+    f, client, ids, admin, eng, eng2 = api
+    client.put(f"/growatt/plants/{P1}/om-settings", headers=admin, json={"cleaning_crew_days": 60})
+    q = {"plant_ids": [P1, P2], "start_day": "2026-11-23", "crews": 1, "group_by": "none"}
+    body = client.post("/growatt/calendar/rounds/preview", headers=admin, json=q).json()
+    assert [x["plant_id"] for x in body["too_long"]] == [P1]
+    assert [x["plant_id"] for x in body["items"]] == [P2] and body["items"][0]["start_day"] == "2026-11-23"
+    # the preview saves as shown
+    res = client.post("/growatt/calendar/rounds", headers=admin, json={"items": body["items"]})
+    assert res.status_code == 201, res.text

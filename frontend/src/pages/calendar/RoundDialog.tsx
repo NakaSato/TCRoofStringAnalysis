@@ -199,6 +199,14 @@ export const RoundDialog: React.FC<{ plantIds: number[] | null; onClose: () => v
                 </AlertDescription>
               </Alert>
             )}
+            {preview.too_long.length > 0 && (
+              <Alert>
+                <AlertDescription>
+                  Left out: {preview.too_long.map((u) => u.name).join(", ")}. Each one's crew-days would make a single task last {preview.max_task_days} days or more. Plan
+                  {preview.too_long.length === 1 ? " it" : " them"} as separate tasks.
+                </AlertDescription>
+              </Alert>
+            )}
             <Table containerClassName="table-wrap max-h-[50vh]">
               <TableHeader>
                 <TableRow>

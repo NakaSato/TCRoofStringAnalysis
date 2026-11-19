@@ -154,7 +154,8 @@ _PLAN_FIELDS = ("name", "task_type", "every_n", "unit", "season_from_month", "se
                 "duration_days", "default_team_id", "starts_on", "ends_on", "active", "note")
 
 
-def _check_plan(db: Session, v: Dict[str, Any]) -> None:
+def _check_plan(db: Session, v: Dict[str, Any], current_team: Optional[int] = None) -> None:
+    """`current_team`: the plan's saved team, accepted even when it has since been made inactive."""
     if v["task_type"] not in cal.TASK_TYPES:
         raise ValueError(f"task_type must be one of {', '.join(cal.TASK_TYPES)}")
     if v["unit"] not in ("week", "month"):
@@ -174,7 +175,7 @@ def _check_plan(db: Session, v: Dict[str, Any]) -> None:
     if v.get("ends_on") is not None and v["ends_on"] < v["starts_on"]:
         raise ValueError("ends_on is before starts_on")
     if v.get("default_team_id") is not None:
-        cal._check_team(db, v["default_team_id"])
+        cal._check_team(db, v["default_team_id"], current_team)
     if not (v.get("name") or "").strip():
         raise ValueError("A plan needs a name")
 
@@ -235,7 +236,7 @@ def update_plan(db: Session, user: User, p: OmPlan, changes: Dict[str, Any]) -> 
     for k in ("name", "task_type", "every_n", "unit", "duration_days", "starts_on", "active"):
         if v[k] is None:
             v[k] = getattr(p, k)
-    _check_plan(db, v)
+    _check_plan(db, v, current_team=p.default_team_id)
     plants = _check_plants(db, changes["plant_ids"]) if changes.get("plant_ids") is not None else None
     users = _check_users(db, changes["assignee_ids"]) if changes.get("assignee_ids") is not None else None
     for k in _PLAN_FIELDS:
@@ -543,9 +544,17 @@ def round_preview(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
         inputs.append(om_planning.RoundPlant(i, s.cleaning_crew_days if s else None, (today - lc).days if lc else None, group))
     weekdays = om_planning.WORKDAYS + ((5,) if payload.get("include_saturday") else ())
     hol = holidays(db)
-    res = om_planning.schedule_round(
-        inputs, start, crews, weekdays=weekdays, holidays=hol, group=group_by != "none", horizon_days=ROUND_HORIZON_DAYS
-    )
+    def run(ps: List[om_planning.RoundPlant]) -> om_planning.RoundResult:
+        return om_planning.schedule_round(
+            ps, start, crews, weekdays=weekdays, holidays=hol, group=group_by != "none", horizon_days=ROUND_HORIZON_DAYS
+        )
+
+    res = run(inputs)
+    # A plant whose task would span the task limit can't be saved as one task: leave it out of the round
+    # (listed in `too_long`) and schedule the rest without it, so a preview always saves as shown.
+    too_long = sorted(s.plant_id for s in res.slots if (s.end_day - s.start_day).days >= cal.MAX_TASK_DAYS)
+    if too_long:
+        res = run([p for p in inputs if p.plant_id not in set(too_long)])
     by_id = {p.plant_id: p for p in inputs}
     items = []
     for s in res.slots:
@@ -570,6 +579,8 @@ def round_preview(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "items": items,
         "unscheduled": [{"plant_id": i, "name": plants[i][1]} for i in res.unscheduled],
+        "too_long": [{"plant_id": i, "name": plants[i][1]} for i in too_long],
+        "max_task_days": cal.MAX_TASK_DAYS,
         "start_day": start.isoformat(),
         "end_day": end.isoformat() if end else None,
         "crews": crews,
