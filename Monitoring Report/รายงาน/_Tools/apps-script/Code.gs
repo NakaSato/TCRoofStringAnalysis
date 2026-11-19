@@ -104,6 +104,7 @@ const ISSUE_DATES = ['วันที่พบ', 'วันเข้าแก้
 const STATIONS = 'สถานี';
 const INVERTERS = 'Inverter';
 const LOG = '_log';
+const LOG_KEEP_ROWS = 1000;  // _log keeps this many newest lines (under its header); older ones are deleted
 const EVENT_SYNC = 'String Check: ซิงก์ Overview';              // titles of the events setup() creates
 const EVENT_CREATE = 'String Check: สร้างไฟล์เดือนถัดไป';
 const MAX_PLANNED = 12;      // event triggers planned at a time (Apps Script allows 20 triggers per script)
@@ -132,10 +133,11 @@ const INFO_INV0 = 11;        // first inverter row in the info sheet
 const DAY_INV0 = 17;         // first inverter row in a day sheet
 const TEMP_OVERVIEW = '_overview_tmp';
 const JOB_KEYS = ['job', 'ym', 'idx', 'folder', 'ov', 'ovTemp', 'only', 'made', 'skipped', 'errors', 'warn', 'fails',
-  'full', 'sig', 'since', 'began', 'same', 'root'];
+  'full', 'sig', 'since', 'began', 'same', 'root', 'why'];
 const SYNC_VERSION = '7';            // raised when sync starts repairing something new: every file is read once
 const SYNC_INTERVALS = [1, 5, 10, 15, 30, 60, 120, 240, 360, 720];   // minutes; what a time trigger can do
-const SYNC_MARGIN_MS = 15 * 60000;   // a file edited this long before the last sync started is read again, to be safe
+const SYNC_MARGIN_MS = 15 * 60000;   // a file with no edit time on record (seen_<ym>) edited this long before the last sync started is read again
+const SEEN_MAX_CHARS = 8500;         // seen_<ym> must fit one script property (9 kB); bigger = not kept, the margin rule applies
 const WATCHDOG_MIN = 7;      // Google stops a run at 6 minutes; this trigger, set before the work, carries the job on
 const NEXT_RUN_MS = 10000;   // pause between two runs of a job
 const COPY_UNTIL_S = 300;    // create job: plants are copied until this second of a run (a copy takes about 5 s)
@@ -357,10 +359,13 @@ function nothingNew_(ym) {
     const last = JSON.parse(props.getProperty(`synced_${ym}`) || 'null');
     if (!last || !last.f || !last.ov || !last.fin || last.v !== SYNC_VERSION || (last.err && last.err.length)) return false;
     if (last.root !== rootId_()) return false;   // the last sync was of another root folder
+    // files edited lately: nothing new when each one still has the edit time it had when it was last read
     const since = new Date(Number(last.t) - SYNC_MARGIN_MS).toISOString();
-    const edited = Drive.Files.list({ q: `'${last.f}' in parents and trashed = false and modifiedTime > '${since}'`,
-      pageSize: 1, fields: 'files(id)' }).files;
-    if (edited && edited.length) return false;
+    const seen = readSeen_(props, ym);
+    const page = Drive.Files.list({ q: `'${last.f}' in parents and trashed = false and modifiedTime > '${since}'`,
+      pageSize: 1000, fields: 'nextPageToken, files(id,modifiedTime)' });
+    if (page.nextPageToken) return false;
+    if ((page.files || []).some(f => !seen || seen[fileKey_(f.id)] !== stamp_(new Date(f.modifiedTime).getTime()))) return false;
     // the Overview: untouched since the sync wrote it, or already compared at this edit time
     const at = Drive.Files.get(last.ov, { fields: 'modifiedTime' }).modifiedTime;
     if (new Date(at).getTime() <= Number(last.fin) || props.getProperty('ovSame') === at) return true;
@@ -1120,23 +1125,32 @@ function syncBatch_(props, p, t0) {
   // sync says what it said then, as long as the Overview's plants and inverters are the same too.
   let last = null;
   try { last = JSON.parse(props.getProperty(`synced_${p.ym}`) || 'null'); } catch (e) { last = null; }
-  if (last && last.f !== p.folder) last = null;          // the last sync was of another folder (CONFIG changed since)
+  const otherFolder = !!(last && last.f !== p.folder);
+  if (otherFolder) last = null;                          // the last sync was of another folder (CONFIG changed since)
   let since = Number(p.since || 0);
   if (!p.began) {
     const sig = signature_([stations, inverters]);
     since = !p.full && last && last.sig === sig && last.v === SYNC_VERSION ? Number(last.t) - SYNC_MARGIN_MS : 0;
-    p.sig = sig; p.began = String(t0);
-    props.setProperties({ sig: sig, since: String(since), began: p.began });
+    // why every file is read (shown in _log)
+    const why = since ? '' : p.full ? 'สั่งอ่านทุกไฟล์' : otherFolder ? 'โฟลเดอร์เดือนเปลี่ยน'
+      : !last ? 'ไม่มีบันทึกซิงก์ครั้งก่อน' : last.v !== SYNC_VERSION ? 'สคริปต์รุ่นใหม่' : 'แท็บสถานี/Inverter ใน Overview เปลี่ยน';
+    p.sig = sig; p.began = String(t0); p.why = why;
+    props.setProperties({ sig: sig, since: String(since), began: p.began, why: why });
   }
   const retry = since && last && last.err ? last.err : [];   // plants that could not be read last time
+  // file → its edit time when it was last read: a file is read again only when that time changes, so one edit
+  // is read once (a file with no time on record falls back to the margin rule above)
+  const seen = readSeen_(props, p.ym) || {};
 
   while (i < stations.length && (Date.now() - t0) / 1000 < CONFIG.RUN_SECONDS) {
     const s = stations[i];
     const file = plantFile_(files, s, p.ym);
+    const key = file && fileKey_(file.id), was = file && seen[key];
     if (!file) {
       skipped++;
-    } else if (since > 0 && file.edited < since && retry.indexOf(s.code) < 0) {
+    } else if (since > 0 && retry.indexOf(s.code) < 0 && (was !== undefined ? was === stamp_(file.edited) : file.edited < since)) {
       same++;
+      seen[key] = stamp_(file.edited);
     } else {
       try {
         const r = syncPlant_(file.id, s, inverters[s.code] || [], y, m, lastDay);
@@ -1144,9 +1158,11 @@ function syncBatch_(props, p, t0) {
         Object.keys(r.invStatus).forEach(sn => { invStatus[sn] = r.invStatus[sn]; });
         r.warnings.forEach(w => warnings.push(w));
         made++;
+        seen[key] = stamp_(file.edited);                 // the time listed before the read: an edit during it is read next time
       } catch (e) {
         console.error(`${s.code}: ${e}`);
         errors.push(s.code);
+        delete seen[key];
       }
     }
     i++;
@@ -1157,12 +1173,28 @@ function syncBatch_(props, p, t0) {
   writeInverterStatus_(overview, invStatus);
   props.setProperties({ idx: String(i), made: String(made), skipped: String(skipped), same: String(same),
     errors: errors.join(','), warn: warnings.join('\n').slice(0, 8000) });
+  if (i >= stations.length) {
+    // the end: files of no plant (notes, old copies) are taken as seen, files no longer there are dropped
+    const plantIds = new Set();
+    stations.forEach(st => { const f = plantFile_(files, st, p.ym); if (f) plantIds.add(f.id); });
+    const kept = {};
+    files.forEach(f => {
+      const k = fileKey_(f.id);
+      if (!plantIds.has(f.id)) kept[k] = stamp_(f.edited);
+      else if (seen[k] !== undefined) kept[k] = seen[k];
+    });
+    saveSeen_(props, p.ym, kept);
+    dropOldSeen_(props, p.ym);
+  } else {
+    saveSeen_(props, p.ym, seen);
+  }
 
   if (i < stations.length) {
     console.log(`ซิงก์ ${p.ym}: ${i}/${stations.length} สถานี — ทำต่ออัตโนมัติ`);
     return false;
   }
-  const summary = `ซิงก์ ${p.ym}: อ่าน ${made} สถานี` + (same ? `, ไม่มีการแก้ไข ${same} สถานี (ไม่ต้องอ่าน)` : '') +
+  const summary = `ซิงก์ ${p.ym}: อ่าน ${made} สถานี` + (p.why ? ` (อ่านทุกไฟล์: ${p.why})` : '') +
+    (same ? `, ไม่มีการแก้ไข ${same} สถานี (ไม่ต้องอ่าน)` : '') +
     (skipped ? `, ยังไม่มีไฟล์ ${skipped} สถานี` : '') +
     (errors.length ? `, อ่านไม่ได้ ${errors.length} สถานี (${errors.join(', ')}) — จะอ่านใหม่ในการซิงก์ครั้งถัดไป` : '');
   // a sync that found nothing new leaves no line in _log (an interval sync would fill it)
@@ -1173,6 +1205,27 @@ function syncBatch_(props, p, t0) {
   note_(props, summary);
   console.log(summary + (warnings.length ? `\n${warnings.join('\n')}` : ''));
   return true;
+}
+
+/** seen_<ym>: file → edit time when last read, keyed by the end of the file id (short, to fit one property). */
+function fileKey_(id) { return String(id).slice(-12); }
+function stamp_(ms) { return Math.round(ms).toString(36); }
+function readSeen_(props, ym) {
+  try { return JSON.parse(props.getProperty(`seen_${ym}`) || 'null'); } catch (e) { return null; }
+}
+/** Removes seen_<ym> of months before last month (they are not synced on their own any more), except `keep`. */
+function dropOldSeen_(props, keep) {
+  const [y, m] = ym_(new Date()).split('-').map(Number);
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+  props.getKeys().forEach(k => {
+    const ym = k.indexOf('seen_') === 0 ? k.slice(5) : '';
+    if (ym && ym < prev && ym !== keep) props.deleteProperty(k);
+  });
+}
+function saveSeen_(props, ym, seen) {
+  const text = JSON.stringify(seen);
+  if (text.length > SEEN_MAX_CHARS) props.deleteProperty(`seen_${ym}`);
+  else props.setProperty(`seen_${ym}`, text);
 }
 
 /** Day sheets to read: up to today for the current month, the whole month for a past one, none for a future one. */
@@ -1523,6 +1576,8 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     const r = log.getLastRow() + 1;
     ensureSize_(log, r + lines.length - 1, 2);
     log.getRange(r, 1, lines.length, 2).setValues(lines);
+    const extra = log.getLastRow() - 1 - LOG_KEEP_ROWS;   // row 1 is the header
+    if (extra > 0) log.deleteRows(2, extra);
   }
 }
 
