@@ -12,12 +12,12 @@ class Sheet {
   deleteRows(a, n) { const c = {}; for (const k in this.cells) { const [r, col] = k.split(',').map(Number); if (r < a) c[k] = this.cells[k]; else if (r >= a + n) c[`${r - n},${col}`] = this.cells[k]; } this.cells = c; this.rows -= n; } deleteColumns(a, n) { this.cols -= n; }
   insertRowsAfter(a, n) { if (a !== this.rows) throw new Error('insertRowsAfter not at end'); this.rows += n; }
   insertColumnsAfter(a, n) { if (a !== this.cols) throw new Error('insertColsAfter not at end'); this.cols += n; }
-  insertImage(b, c, r) { if (!b) throw new Error('no blob'); this.images = (this.images || 0) + 1; const o = { setHeight: () => o, setWidth: () => o }; return o; } getImages() { return Array(this.images || 0).fill(0); } setHiddenGridlines() { return this; } setFrozenRows() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules() {}
+  insertImage(b, c, r) { if (!b) throw new Error('no blob'); const sh = this, o = { c, r, setHeight: () => o, setWidth: () => o, getAnchorCell: () => ({ getRow: () => o.r, getColumn: () => o.c }), remove: () => { sh.images = sh.images.filter(x => x !== o); } }; this.images = [...(this.images || []), o]; return o; } getImages() { return [...(this.images || [])]; } setHiddenGridlines() { return this; } setFrozenRows() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules() {}
   _ext() { let r = 0, c = 0; for (const k in this.cells) { if (this.cells[k] === '' ) continue; const [a, b] = k.split(',').map(Number); r = Math.max(r, a); c = Math.max(c, b); } return [r, c]; }
   getLastRow() { return this._ext()[0]; } getLastColumn() { return this._ext()[1]; }
   getDataRange() { const [r, c] = this._ext(); return this.getRange(1, 1, Math.max(r, 1), Math.max(c, 1)); }
   appendRow(v) { const r = this.getLastRow() + 1; if (r > this.rows) this.rows = r; v.forEach((x, i) => { this.cells[`${r},${i + 1}`] = x; }); }
-  copyTo(ss) { const s = new Sheet(ss, 'Copy' + (++seq), ++seq); Object.assign(s, { rows: this.rows, cols: this.cols, cells: { ...this.cells }, images: this.images || 0 }); ss.sheets.push(s); return s; }
+  copyTo(ss) { const s = new Sheet(ss, 'Copy' + (++seq), ++seq); Object.assign(s, { rows: this.rows, cols: this.cols, cells: { ...this.cells }, images: [] }); (this.images || []).forEach(i => s.insertImage('PNG', i.c, i.r)); ss.sheets.push(s); return s; }
   getRange(a, b, c, d) { const [r, col, nr, nc] = typeof a === 'string' ? parseA1(a) : [a, b, c || 1, d || 1];
     if (r < 1 || col < 1 || nr < 1 || nc < 1 || r + nr - 1 > this.rows || col + nc - 1 > this.cols) throw new Error(`range oob ${this.name} ${JSON.stringify([a, b, c, d])} (sheet ${this.rows}x${this.cols})`);
     return new Range(this, r, col, nr, nc); }
@@ -77,7 +77,7 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
+vm.createContext(ctx); vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,removeLogos,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
 const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
@@ -92,6 +92,9 @@ const folder = Object.values(files).find(f => f.name === ym);
 const plant = code => Object.values(files).find(f => f.parent === folder.id && f.name.startsWith(code) && !f.trashed);
 console.log('created', Object.values(files).filter(f => f.parent === folder.id && !f.trashed).length, 'files for', ym, '· today is day', today);
 console.log('old xlsx trashed:', oldX.trashed, '· unrelated xlsx trashed:', other.trashed);
+{ const days = plant('P1-001').ss.sheets.filter(x => x.name.startsWith('วันที่')); days.forEach(x => x.insertImage('PNG', 12, 1)); days[0].insertImage('PNG', 4, 20);
+  api.CONFIG.RUN_SECONDS = 0; console.log('remove logos, no time:', api.removeLogos(), '· progress kept:', props['logoRemoved_' + ym]); api.CONFIG.RUN_SECONDS = 240;
+  console.log('remove logos:', api.removeLogos(), '· logos left:', days.reduce((a, x) => a + x.getImages().filter(i => i.r <= 4).length, 0), '· photo kept:', days[0].getImages().length === 1, '· progress cleared:', !('logoRemoved_' + ym in props)); }
 const sm = plant('P1-002').ss.getSheetByName('สรุปเดือน'); sm.cells['3,1'] = '=old'; 
 // 2) reporter types into P1-001 (several inverters) and P3-002
 const p1 = plant('P1-001').ss, L1 = api.layout_(p1.getSheetByName('_ข้อมูลสถานี').getLastRow() - 10);

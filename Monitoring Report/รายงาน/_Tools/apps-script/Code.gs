@@ -161,6 +161,7 @@ function onOpen() {
     .addItem('ตั้งรอบซิงก์อัตโนมัติ (ทุก … นาที)', 'menuInterval')
     .addItem('อ่านเวลาจากปฏิทินใหม่', 'menuPlan')
     .addItem('ยกเลิกงานที่ค้าง', 'menuCancel')
+    .addItem('ลบโลโก้ออกจากไฟล์เดือนนี้และเดือนหน้า', 'removeLogos')
     .addSeparator()
     .addItem('ย้ายปัญหาที่ปิดแล้วของปีเก่าไปไฟล์เก็บ…', 'menuArchive')
     .addToUi();
@@ -736,6 +737,44 @@ function buildTemplate_(ym, folder, n) {
   info.hideSheet();
   SpreadsheetApp.flush();
   return ss.getId();
+}
+
+/**
+ * Menu: removes the old logo from the day sheets of this month's and next month's plant files.
+ * Only an image anchored where the logo was (rows 1-4, column L or M) is removed; other images stay.
+ * Works for about CONFIG.RUN_SECONDS; run it again to continue from the next file
+ * (progress in the script property logoRemoved_<yyyy-MM>, cleared when every file is done).
+ */
+function removeLogos() {
+  const props = PropertiesService.getScriptProperties();
+  const months = [ym_(new Date()), nextYm_()];
+  const t0 = Date.now();
+  let removed = 0, opened = 0, left = 0;
+  months.forEach(ym => {
+    const folder = findMonthFolder_(ym);
+    if (!folder) return;
+    const files = folderFiles_(folder.getId());
+    const names = [...files.keys()]
+      .filter(name => name.indexOf('_') !== 0 && name.slice(-ym.length - 1) === `_${ym}`).sort();
+    const key = `logoRemoved_${ym}`;
+    let i = Number(props.getProperty(key) || 0);
+    for (; i < names.length && (Date.now() - t0) / 1000 < CONFIG.RUN_SECONDS; i++) {
+      SpreadsheetApp.openById(files.get(names[i]).id).getSheets()
+        .filter(sh => /^วันที่ \d+$/.test(sh.getName()))
+        .forEach(sh => sh.getImages().forEach(img => {
+          const at = img.getAnchorCell();
+          if (at.getRow() <= 4 && at.getColumn() >= 12) { img.remove(); removed++; }
+        }));
+      opened++;
+    }
+    left += names.length - i;
+    props.setProperty(key, String(i));
+  });
+  if (!left) months.forEach(ym => props.deleteProperty(`logoRemoved_${ym}`));
+  const msg = `ลบโลโก้แล้ว ${removed} รูป (เปิด ${opened} ไฟล์)` +
+    (left ? ` — เหลืออีก ${left} ไฟล์ กดเมนูนี้อีกครั้งเพื่อทำต่อ` : ' — ครบทุกไฟล์แล้ว');
+  toast_(msg);
+  return msg;
 }
 
 /** Row numbers of a day sheet for a plant with n inverters. */
