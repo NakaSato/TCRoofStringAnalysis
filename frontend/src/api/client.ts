@@ -33,6 +33,8 @@ import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, Instr
 import type {
   OmAssignees,
   OmDue,
+  OmFeedLink,
+  OmFeedStatus,
   OmPlanBody,
   OmPlanList,
   OmPlanSaved,
@@ -476,6 +478,9 @@ export const api = {
   patchOmTeam: (id: number, body: Partial<OmTeamBody>) =>
     apiFetch<OmTeam>(`/growatt/calendar/teams/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteOmTeam: (id: number) => apiFetch<void>(`/growatt/calendar/teams/${id}`, { method: "DELETE" }),
+  getOmFeed: () => apiFetch<OmFeedStatus>("/growatt/calendar/feed"),
+  newOmFeedLink: () => apiFetch<OmFeedLink>("/growatt/calendar/feed", { method: "POST" }),
+  deleteOmFeed: () => apiFetch<void>("/growatt/calendar/feed", { method: "DELETE" }),
   listOmPlans: () => apiFetch<OmPlanList>("/growatt/calendar/plans"),
   createOmPlan: (body: OmPlanBody) => apiFetch<OmPlanSaved>("/growatt/calendar/plans", { method: "POST", body: JSON.stringify(body) }),
   patchOmPlan: (id: number, body: Partial<OmPlanBody>) =>

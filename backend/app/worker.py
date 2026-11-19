@@ -33,6 +33,10 @@ Schedule (plant-local time, Asia/Bangkok):
                                then pushes the new alarm events of the logs it read (services/push.py)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
     push_test          not scheduled: queued by POST /push/test, sends the test notifications
+    om_plans           00:40   Calendar Team recurring plans: planned tasks up to 90 days ahead
+    om_reminders       18:00   Calendar Team: push "Tomorrow: …" to each person with planned work
+                               starting tomorrow (services/om_reminders.py; off without push)
+    om_weekly          Mon 07:30  Calendar Team: push each person's week and overdue count
     rules_yesterday    00:45   daily string / inverter rows for yesterday + decision rules (counts only),
                                then the EPI system factor of plants not fitted yet (services/epi_fit.py)
     rules_today        every WORKER_HISTORY_INTERVAL_MIN (10) min, 06–20: the same for today so far
@@ -98,6 +102,8 @@ class Schedule:
     covered_by: Tuple[str, ...] = ()
     # `every` jobs only: plant-local [from, to) windows the job does not start in
     skip: Tuple[Tuple[dtime, dtime], ...] = ()
+    # `at` jobs only: plant-local weekdays (0 = Monday) the job runs on; None = every day
+    weekdays: Optional[Tuple[int, ...]] = None
 
     def is_due(self, now: datetime, last: Optional[datetime]) -> bool:
         """`now` and `last` are timezone-aware."""
@@ -112,6 +118,8 @@ class Schedule:
         assert self.at is not None
         local = now.astimezone(jobs.PLANT_TZ)
         slot = local.replace(hour=self.at.hour, minute=self.at.minute, second=0, microsecond=0)
+        if self.weekdays is not None and slot.weekday() not in self.weekdays:
+            return False
         if not (slot <= local < slot + GRACE):
             return False
         return last is None or last < slot
@@ -150,6 +158,8 @@ def default_schedule() -> List[Schedule]:
         Schedule("alarms_yesterday", at=dtime(0, 30)),
         # Calendar Team recurring plans → planned tasks 90 days ahead (DB only, no Growatt calls)
         Schedule("om_plans", at=dtime(0, 40)),
+        Schedule("om_reminders", at=dtime(18, 0)),
+        Schedule("om_weekly", at=dtime(7, 30), weekdays=(0,)),
         Schedule("rules_yesterday", at=dtime(0, 45)),
         # Growatt's own figures for yesterday, after its late alarms / rules; done long before 05:30 fleet
         Schedule("growatt_energy", at=dtime(0, 50)),

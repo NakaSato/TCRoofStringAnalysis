@@ -13,6 +13,7 @@ from app.api.routes import (
     analysis,
     assistant,
     auth,
+    calendar_feed,
     datasets,
     growatt,
     maintenance,
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
     api_router = APIRouter()
     api_router.include_router(auth.router)  # /auth/login is the only route open without a token
     api_router.include_router(report.router)  # PWA Report sheet: shared key (X-Report-Key), no login
+    api_router.include_router(calendar_feed.router)  # ICS feed: the secret in the URL is the key, no login
     # Every data route needs a signed-in user. Growatt routes scope engineers to their assigned
     # plants per route (app.auth.require_plant_*); fleet settings and jobs are admin only.
     api_router.include_router(growatt.router, dependencies=[Depends(get_current_user)])
