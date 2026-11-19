@@ -4,7 +4,6 @@
  * (`/growatt/plants/{id}/events`); the cleaning dates are what Phase 4 measures recovery from.
  * Engineers and admins of the plant record and edit; delete = admin or whoever recorded it. */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { api } from "../../api/client";
 import type { GrowattInverter, Issue, SiteEvent, SiteEventBody, SiteEventList, SiteEventType } from "../../api/client";
@@ -441,9 +440,9 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
                   <TableCell className="num whitespace-nowrap text-right text-xs">{thb(e.cost_thb)}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">
                     {e.issue ? (
-                      <Link to={`/issues?plant=${plantId}&status=all`} className="text-solar-300 hover:underline" title={`Issue #${e.issue.id}`}>
+                      <span className="text-slate-300" title={`Issue #${e.issue.id}`}>
                         {e.issue.rule} · {e.issue.status}
-                      </Link>
+                      </span>
                     ) : (
                       <span className="text-slate-500">—</span>
                     )}

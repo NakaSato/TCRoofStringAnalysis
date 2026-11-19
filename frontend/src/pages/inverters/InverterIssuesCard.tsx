@@ -192,10 +192,7 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
           </div>
         ) : (
           <div className="text-xs text-slate-500">
-            No active issue for this inverter or its strings.{" "}
-            <Link className="text-sky-300 hover:underline" to={`/issues?plant=${plantId}`}>
-              All issues of the plant
-            </Link>
+            No active issue for this inverter or its strings.
           </div>
         )}
         {error ? (

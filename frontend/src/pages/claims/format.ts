@@ -104,7 +104,7 @@ export function evidenceHref(key: string, c: Claim): { label: string; href: stri
     case "iv_sweep":
       return c.device_sn && c.string_nos.length ? { label: "I-V sweeps", href: stringHref(c.plant_id, c.device_sn, c.string_nos[0]) } : null;
     case "second_source":
-      return { label: "Plant issues", href: `/issues?plant=${c.plant_id}&status=all` };
+      return { label: "Plant inverters", href: c.device_sn ? inverterHref(c.plant_id, c.device_sn) : plantPath(c.plant_id, "inverters") };
     case "site_log":
       return { label: "Site log", href: plantPath(c.plant_id, "maintenance") };
     case "weather":
@@ -117,7 +117,7 @@ export function evidenceHref(key: string, c: Claim): { label: string; href: stri
 export function linkHref(kind: ClaimLinkKind, c: Claim): string {
   switch (kind) {
     case "issue":
-      return `/issues?plant=${c.plant_id}&status=all`;
+      return c.device_sn ? inverterHref(c.plant_id, c.device_sn) : plantPath(c.plant_id, "inverters");
     case "iv_sweep":
       return c.device_sn && c.string_nos.length ? stringHref(c.plant_id, c.device_sn, c.string_nos[0]) : plantPath(c.plant_id, "strings");
     case "site_log":

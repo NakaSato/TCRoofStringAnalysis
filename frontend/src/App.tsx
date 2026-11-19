@@ -22,7 +22,6 @@ const StringAnalysisPage = page(() => import("./pages/StringAnalysisPage"), "Str
 const StringLayoutPage = page(() => import("./pages/StringLayoutPage"), "StringLayoutPage");
 const StringDetailPage = page(() => import("./pages/StringDetailPage"), "StringDetailPage");
 const PlantMaintenancePage = page(() => import("./pages/PlantMaintenancePage"), "PlantMaintenancePage");
-const SheSafetyPage = page(() => import("./pages/SheSafetyPage"), "SheSafetyPage");
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
 const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
 const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAlarmPage");
@@ -32,7 +31,6 @@ const PlantSensorsPage = page(() => import("./pages/SensorsPage"), "PlantSensors
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
 const SystemLogsPage = page(() => import("./pages/SystemLogsPage"), "SystemLogsPage");
 const AiUsagePage = page(() => import("./pages/AiUsagePage"), "AiUsagePage");
-const IssuesPage = page(() => import("./pages/IssuesPage"), "IssuesPage");
 const RuleReviewPage = page(() => import("./pages/RuleReviewPage"), "RuleReviewPage");
 const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
 const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
@@ -106,12 +104,10 @@ export const App: React.FC = () => {
             <Route path="map" element={<PlantMapPage />} />
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
-            <Route path="issues" element={<IssuesPage />} />
             <Route path="tools" element={<ToolsPage />} />
             <Route path="claims" element={<ClaimsPage />} />
             <Route path="rules" element={<AdminOnly><RuleReviewPage /></AdminOnly>} />
             <Route path="sensors" element={<SensorsPage />} />
-            <Route path="she" element={<AdminOnly><SheSafetyPage /></AdminOnly>} />
             <Route path="settings" element={<PlantSettingsPage />} />
             <Route path="users" element={<AdminOnly><UsersPage /></AdminOnly>} />
             <Route path="logs" element={<AdminOnly><SystemLogsPage /></AdminOnly>} />

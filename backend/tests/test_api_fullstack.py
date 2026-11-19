@@ -215,13 +215,6 @@ def test_om_crud_and_she(client: TestClient):
     assert len(cm_list) >= 5
 
 
-    # SH&E Dashboard & PTW
-    she = client.get("/api/she/dashboard").json()
-    assert she["kpis"]["lti_count"] == 0
-    assert len(she["ptw_permits"]) >= 3
-
-
-
 def test_data_routes_require_login(client: TestClient):
     for path in ("/api/plants", "/api/pm-tasks", "/api/plants/1/analysis/latest",
                  "/api/growatt/plants", "/plants"):

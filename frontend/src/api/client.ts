@@ -20,7 +20,7 @@ export type * from "./types/events";
 export type * from "./types/tools";
 export type * from "./types/claims";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
-import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, PTWPermit, Plant, RCARecord, StringSpec } from "./types/legacy";
+import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay, FleetRadarRain, PlantRadarRain, RainRadar } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
@@ -384,17 +384,6 @@ export const api = {
   updateRcaRecord: (id: number, payload: Partial<RCARecord>) =>
     apiFetch<RCARecord>(`/rca/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deleteRcaRecord: (id: number) => apiFetch<void>(`/rca/${id}`, { method: "DELETE" }),
-
-  // SH&E & PTW
-  getSheDashboard: (plantId: number) =>
-    apiFetch<{ kpis: Record<string, number>; ptw_permits: PTWPermit[]; checklist: Record<string, any>[] }>(
-      `/she/dashboard?plant_id=${plantId}`
-    ),
-  createPtwPermit: (payload: Partial<PTWPermit>) =>
-    apiFetch<PTWPermit>("/ptw", { method: "POST", body: JSON.stringify(payload) }),
-  updatePtwPermit: (id: number, payload: Partial<PTWPermit>) =>
-    apiFetch<PTWPermit>(`/ptw/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deletePtwPermit: (id: number) => apiFetch<void>(`/ptw/${id}`, { method: "DELETE" }),
 
   // System → Logs (admin only)
   listSystemLogs: (params: SystemLogQuery = {}) => {

@@ -7,7 +7,6 @@
  * `rules_*` run.
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { RefreshCw, Scale } from "lucide-react";
 import { api } from "../api/client";
 import type { RuleSettings, RulesOut, Tariff, TariffOut } from "../api/client";
@@ -105,12 +104,7 @@ export const RuleReviewPage: React.FC = () => {
         title="Rule review"
         description="Calibrate the decision rules before engineers see them. A rule in shadow mode records issues for this review only; turn it live when it keeps about 1 false alarm or fewer per 10 confirmed."
         actions={
-          <>
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/issues?view=shadow">Shadow issues</Link>
-            </Button>
-            {refresh}
-          </>
+refresh
         }
       />
       {error && <div className="callout-crit">{error}</div>}
@@ -146,9 +140,7 @@ export const RuleReviewPage: React.FC = () => {
                         <span className="num text-slate-400">{r.rule}</span> {r.name}
                       </TableCell>
                       <TableCell className="num text-right">
-                        <Link to={`/issues?${r.shadow ? "view=shadow&" : ""}status=all&rule=${r.rule}`} className="hover:underline">
-                          {fmtInt(r.issues)}
-                        </Link>
+                        {fmtInt(r.issues)}
                       </TableCell>
                       <TableCell className="num text-right">{fmtInt(r.active)}</TableCell>
                       <TableCell className="num text-right">{fmtInt(r.auto_closed)}</TableCell>

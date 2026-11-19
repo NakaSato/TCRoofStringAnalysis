@@ -209,7 +209,11 @@ def test_sync_meters_registers_by_bus_address_and_retention_prunes(client):  # n
         {"type": 3, "device_sn": "env", "datalogger_sn": "ENVDL"},
         {"type": 4, "device_sn": "INVA", "datalogger_sn": DL},
     ]
-    fake.list_meters.return_value = [{"address": "36", "device_name": "CHNT_THREE", "device_type": "71"}, {"address": "x"}]
+    fake.list_meters.return_value = [
+        {"address": "36", "device_name": "CHNT_THREE", "device_type": "71"},
+        {"address": "36", "device_name": "CHNT_ONE", "device_type": "70"},  # same address listed twice
+        {"address": "x"},
+    ]
     assert growatt_sync.sync_meters(s, fake, PLANT) == 1
     fake.list_meters.assert_called_once_with(DL, refresh=True)
     m = s.get(GrowattMeter, (DL, ADDR))

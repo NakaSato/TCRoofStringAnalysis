@@ -27,25 +27,33 @@ def sync_meters(db: Session, client: GrowattClient, plant_id: int, now: Optional
             if d.get("type") == 3 and str(d.get("device_sn") or "").lower() == "meter" and d.get("datalogger_sn")
         }
     )
-    rows: List[Dict[str, Any]] = []
+    rows: Dict[tuple, Dict[str, Any]] = {}
     for dl in dataloggers:
         for m in _retry(lambda: client.list_meters(dl, refresh=True), f"{dl} meter_list"):
             try:
                 addr = int(str(m.get("address")))
             except ValueError:
                 continue
-            rows.append(
-                {
-                    "datalogger_sn": dl,
-                    "address": addr,
-                    "plant_id": plant_id,
-                    "device_name": m.get("device_name"),
-                    "device_type": str(m.get("device_type")) if m.get("device_type") not in (None, "") else None,
-                    # lost / lastUpdateTime are realtime: never stored
-                    "synced_at": now or datetime.now().astimezone(),
-                }
-            )
-    _upsert(db, GrowattMeter, rows)
+            if (dl, addr) in rows:
+                # meter_list can name one bus address twice (e.g. CHNT_THREE type 71 and CHNT_ONE
+                # type 70 on 18 Nov 2026); readings are keyed by (datalogger, address), so keep the
+                # first entry: two rows with one key make Postgres refuse the whole upsert
+                log.warning(
+                    "plant %s: meter_list names %s address %s twice (%s / %s); keeping %s",
+                    plant_id, dl, addr, rows[(dl, addr)]["device_name"], m.get("device_name"),
+                    rows[(dl, addr)]["device_name"],
+                )
+                continue
+            rows[(dl, addr)] = {
+                "datalogger_sn": dl,
+                "address": addr,
+                "plant_id": plant_id,
+                "device_name": m.get("device_name"),
+                "device_type": str(m.get("device_type")) if m.get("device_type") not in (None, "") else None,
+                # lost / lastUpdateTime are realtime: never stored
+                "synced_at": now or datetime.now().astimezone(),
+            }
+    _upsert(db, GrowattMeter, list(rows.values()))
     db.commit()
     return len(rows)
 
