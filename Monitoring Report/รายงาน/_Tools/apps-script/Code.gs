@@ -29,7 +29,10 @@
  *     Columns the script does not know (e.g. ผลการตรวจสอบ) are kept as typed.
  *   - Overview "Inverter": columns "Inverter Status" and "สถานะ ณ วันที่" (added if missing) = the newest
  *     status typed in the day sheets
- *   - Overview "สถานี": จำนวน Inverter, จำนวนสตริงรวม (formulas over "Inverter") and ไฟล์รายงาน (link)
+ *   - Overview "สถานี": จำนวน Inverter, จำนวนสตริงรวม (formulas over "Inverter"), ไฟล์รายงาน (link) and
+ *     รายงานล่าสุด (added if missing) = the newest day whose day sheet has a checked inverter row
+ *   - Overview "รายงานการแก้ไข" box รายงานวันนี้ (added next to the other boxes if missing) = "xxx/233":
+ *     plants whose รายงานล่าสุด is today, out of every plant in "สถานี" (a formula: it goes back to 0 at midnight)
  *
  * Where things are: the root folder is the folder the Overview sheet is in (rootId_), so the
  * folder "String Check" sits next to the Overview, with the month folders "yyyy-MM" inside "String Check".
@@ -99,6 +102,8 @@ const INFO = '_ข้อมูลสถานี';
 const SUMMARY = 'สรุปเดือน';
 const ISSUES = 'รายงานการแก้ไข';   // Overview sheets
 const ISSUE_DATES = ['วันที่พบ', 'วันเข้าแก้ไข', 'วันที่แก้ไขเสร็จ'];   // shown as text dd/mm/พ.ศ. in the Overview
+const LAST_REPORT = 'รายงานล่าสุด';   // Overview "สถานี": the newest day a plant's day sheet was filled (dd/mm/พ.ศ.)
+const REPORTED_TODAY = 'รายงานวันนี้';  // Overview "รายงานการแก้ไข" box: plants with a report today / all plants
 const STATIONS = 'สถานี';
 const INVERTERS = 'Inverter';
 const LOG = '_log';
@@ -133,7 +138,7 @@ const DAY_INV0 = 17;         // first inverter row in a day sheet
 const TEMP_OVERVIEW = '_overview_tmp';
 const JOB_KEYS = ['job', 'ym', 'idx', 'folder', 'ov', 'ovTemp', 'only', 'made', 'skipped', 'errors', 'warn', 'fails',
   'full', 'sig', 'since', 'began', 'same', 'root', 'why'];
-const SYNC_VERSION = '7';            // raised when sync starts repairing something new: every file is read once
+const SYNC_VERSION = '8';            // raised when sync starts repairing something new: every file is read once
 const SYNC_INTERVALS = [1, 5, 10, 15, 30, 60, 120, 240, 360, 720];   // minutes; what a time trigger can do
 const SYNC_MARGIN_MS = 15 * 60000;   // a file with no edit time on record (seen_<ym>) edited this long before the last sync started is read again
 const SEEN_MAX_CHARS = 8500;         // seen_<ym> must fit one script property (9 kB); bigger = not kept, the margin rule applies
@@ -1178,6 +1183,7 @@ function syncBatch_(props, p, t0) {
   // The Overview is written before the position is saved: a run that is cut short repeats its batch.
   upsertIssues_(overview, y, m, results);
   writeInverterStatus_(overview, invStatus);
+  writeLastReport_(overview, p.ym, results);
   props.setProperties({ idx: String(i), made: String(made), skipped: String(skipped), same: String(same),
     errors: errors.join(','), warn: warnings.join('\n').slice(0, 8000) });
   if (i >= stations.length) {
@@ -1351,6 +1357,7 @@ function syncPlant_(id, s, invs, y, m, lastDay) {
       ['fix', 'enter', 'status', 'owner', 'done'].forEach(k => { if (r[k] !== '') ep[k] = r[k]; });   // newest typed value wins
     });
   }
+  out.lastReport = checkedDays.length ? date(checkedDays[checkedDays.length - 1]) : null;
   if (!out.episodes.length) return out;
 
   const gids = sheetIds();
@@ -1524,6 +1531,38 @@ function writeInverterStatus_(overview, invStatus) {
   if (dayChanged) sh.getRange(2, dayCol, n, 1).setNumberFormat('@').setValues(day);
 }
 
+/**
+ * Overview "สถานี" column รายงานล่าสุด: the newest day each read plant has a checked row (dd/mm/พ.ศ.).
+ * A sync of a month never moves the date back into an earlier month (syncMonth of last month), but within
+ * its own month it follows the day sheets (a day cleared by mistake moves the date back).
+ */
+function writeLastReport_(overview, ym, results) {
+  const codes = Object.keys(results).filter(c => results[c].lastReport !== undefined);
+  if (!codes.length) return;
+  const sh = overview.getSheetByName(STATIONS);
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  if (head.indexOf(LAST_REPORT) < 0) {
+    ensureSize_(sh, 1, head.length + 1);
+    sh.getRange(1, head.length + 1).setValue(LAST_REPORT).setFontWeight('bold');
+    head.push(LAST_REPORT);
+  }
+  const col = head.indexOf(LAST_REPORT) + 1, n = sh.getLastRow() - 1;
+  if (n < 1) return;
+  const keys = sh.getRange(2, 1, n, 1).getValues().map(r => String(r[0]).trim());
+  const cur = sh.getRange(2, col, n, 1).getValues();
+  const inMonth = d => d instanceof Date && ym_(d) === ym;
+  let changed = false;
+  keys.forEach((code, k) => {
+    const r = results[code];
+    if (!r || r.lastReport === undefined) return;
+    const was = typedDate_(cur[k][0]), now = r.lastReport;
+    const take = !(was instanceof Date) || inMonth(was) || (now && now > was);
+    const want = take ? (now ? beText_(now) : '') : cur[k][0];
+    if (want !== cur[k][0]) { cur[k][0] = want; changed = true; }
+  });
+  if (changed) sh.getRange(2, col, n, 1).setNumberFormat('@').setValues(cur);
+}
+
 /** After the last plant: summary boxes, "as of" line, the link columns of "สถานี", one line in "_log". */
 function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
   const t = issueTable_(overview), sh = t.sh, r0 = t.headRow + 1;
@@ -1538,6 +1577,15 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     ['กำลังแก้ไข', `=COUNTIF(${st},"กำลังแก้ไข")`],
     ['แก้ไขแล้วเสร็จ', `=${done}`],
   ];
+  // รายงานวันนี้ = plants whose รายงานล่าสุด (สถานี) is today / every plant in สถานี
+  const ss = overview.getSheetByName(STATIONS);
+  const sHead = ss.getRange(1, 1, 1, ss.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const lastCol = sHead.indexOf(LAST_REPORT) + 1;
+  if (lastCol) {
+    const L = letter_(lastCol);
+    boxes.push([REPORTED_TODAY, `=COUNTIF('${STATIONS}'!$${L}$2:$${L},TEXT(TODAY(),"dd/mm/")&(YEAR(TODAY())+543))&"/"&COUNTA('${STATIONS}'!$A$2:$A)`]);
+    addBox_(t, REPORTED_TODAY);
+  }
   const norm = v => String(v).replace(/เเ/g, 'แ').trim();          // the sheet spells some labels with "เเ"
   for (let r = 0; r < t.headRow - 1; r++) {
     t.top[r].forEach((v, c) => {
@@ -1550,8 +1598,7 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
   sh.getRange('A2').setValue(`ข้อมูล ณ วันที่ ${dd} ${TH_MONTH[Number(mm)]} พ.ศ.${Number(yy) + 543} เวลา ${hm} น.`);
 
   // สถานี: counts are formulas over "Inverter"; ไฟล์รายงาน links this month's file
-  const ss = overview.getSheetByName(STATIONS), is = overview.getSheetByName(INVERTERS);
-  const sHead = ss.getRange(1, 1, 1, ss.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const is = overview.getSheetByName(INVERTERS);
   const iHead = is.getRange(1, 1, 1, is.getLastColumn()).getValues()[0].map(h => String(h).trim());
   const iCol = h => { const k = iHead.indexOf(h) + 1; return k ? `${INVERTERS}!$${letter_(k)}:$${letter_(k)}` : null; };
   const code = iCol('รหัส'), used = iCol('ใช้งาน (Y/N)'), strings = iCol('จำนวนสตริง');
@@ -1586,6 +1633,24 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     const extra = log.getLastRow() - 1 - LOG_KEEP_ROWS;   // row 1 is the header
     if (extra > 0) log.deleteRows(2, extra);
   }
+}
+
+/**
+ * A box label missing above the problem table is added in the row of the other labels, right of the last
+ * one (after its merged cells), with that box's format for the label and the number under it.
+ */
+function addBox_(t, label) {
+  if (t.top.some(r => r.some(v => String(v).trim() === label))) return;
+  const r = t.top.findIndex((row, i) => i < t.headRow - 1 && row.some(v => String(v).trim() === 'ปัญหาทั้งหมด'));
+  if (r < 0) return;
+  let c = 0;
+  t.top[r].forEach((v, k) => { if (String(v).trim() !== '') c = k + 1; });
+  const cell = t.sh.getRange(r + 1, c), merged = cell.getMergedRanges();
+  const end = merged.length ? merged[0].getLastColumn() : c, at = end + 1;
+  ensureSize_(t.sh, r + 2, at + (end - c));
+  t.sh.getRange(r + 1, c, 2, end - c + 1).copyFormatToRange(t.sh, at, at + (end - c), r + 1, r + 2);
+  t.sh.getRange(r + 1, at).setValue(label);
+  t.top[r][at - 1] = label;
 }
 
 // ============================================================ archive: closed problems of a past year
