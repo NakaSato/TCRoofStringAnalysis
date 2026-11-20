@@ -23,8 +23,9 @@ import type {
   UserProfile,
 } from "./client";
 import { ApiError, getStoredUser } from "./client";
+import { TOOLS_MOCK, onMockReset } from "./mockFlags";
 
-export const TOOLS_MOCK: boolean = import.meta.env.DEV || import.meta.env.VITE_TOOLS_MOCK === "1";
+export { TOOLS_MOCK };
 
 const DUE_SOON_DAYS = 30;
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
@@ -53,6 +54,10 @@ interface Row {
 let rows: Row[] | null = null;
 let nextId = 1000;
 let plantIds: number[] = [];
+onMockReset(() => {
+  rows = null;
+  plantIds = [];
+});
 
 const me = (): { id: number; name: string } => {
   const u: UserProfile | null = getStoredUser();
@@ -153,7 +158,7 @@ function seed(): Row[] {
     created_by: holder,
   });
 
-  return [
+  const seeded: Row[] = [
     {
       base: base(1, "MT-001", "Thermal inspection drone", "drone", "DJI", "Mavic 3T", { thermal_resolution: "640×512", camera: "48 MP", batteries: 4 }, null),
       history: [
@@ -216,6 +221,9 @@ function seed(): Row[] {
       checkouts: [],
     },
   ];
+  // a tool with an open check-out is out, as check-out itself records it
+  for (const r of seeded) if (r.base.status === "available" && r.checkouts.some((c) => !c.returned_at)) r.base.status = "checked_out";
+  return seeded;
 }
 
 function load(): Row[] {
@@ -231,7 +239,10 @@ const find = (id: number): Row => {
 export const toolsMock = {
   /** mock only: plants the seeded check-outs may point at (the user's own plants) */
   setPlants(ids: number[]) {
-    if (!rows && ids.length) plantIds = ids;
+    if (!ids.length) return;
+    // seeded before the plant list arrived: seed again on the real plants
+    if (rows && !plantIds.length) rows = null;
+    plantIds = ids;
   },
 
   listInstruments: (includeRetired = false): Promise<InstrumentList> => {

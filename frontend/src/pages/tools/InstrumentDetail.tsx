@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toolsApi } from "./useInstruments";
 import { DUE_KIND, DUE_STATE, STATUS, categoryOf, fmtDay, missingPvRating, relDays, specValue, thb } from "./format";
+import { safeHref } from "@/lib/safeUrl";
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex justify-between gap-3 border-b border-white/[0.05] py-1.5 text-xs last:border-0">
@@ -141,8 +142,8 @@ export const InstrumentDetail: React.FC<{
                         <TableCell className="num whitespace-nowrap">{fmtDay(h.day)}</TableCell>
                         <TableCell className="num whitespace-nowrap">{fmtDay(h.next_due)}</TableCell>
                         <TableCell className="num">
-                          {h.url ? (
-                            <a href={h.url} target="_blank" rel="noreferrer" className="hover:text-solar-400">
+                          {safeHref(h.url) ? (
+                            <a href={safeHref(h.url)} target="_blank" rel="noreferrer" className="hover:text-solar-400">
                               {h.number ?? "Link"}
                             </a>
                           ) : (

@@ -324,11 +324,13 @@ function parseDay_(values, where) {
 function issueTable_(overview) {
   const sh = overview.getSheetByName(ISSUES);
   if (!sh) throw new Error(`ไม่พบชีต "${ISSUES}" ในไฟล์ Overview`);
-  const width = sh.getLastColumn();
-  const top = sh.getRange(1, 1, Math.min(20, sh.getMaxRows()), width).getValues();
+  const top = sh.getRange(1, 1, Math.min(20, sh.getMaxRows()), sh.getLastColumn()).getValues();
   const headRow = top.findIndex(r => r.some(v => String(v).trim() === 'รหัสปัญหา')) + 1;
   if (!headRow) throw new Error(`ไม่พบหัวตาราง "รหัสปัญหา" ในชีต "${ISSUES}"`);
-  const head = top[headRow - 1].map(h => String(h).trim());
+  // the table is as wide as its header: a summary box above it may reach further right
+  let width = 0;
+  top[headRow - 1].forEach((h, k) => { if (String(h).trim() !== '') width = k + 1; });
+  const head = top[headRow - 1].slice(0, width).map(h => String(h).trim());
   const col = {};
   head.forEach((h, k) => { if (h) col[h] = k + 1; });
   ['วันที่พบ', 'สถานะ'].forEach(h => { if (!col[h]) throw new Error(`ชีต "${ISSUES}" ไม่มีคอลัมน์ "${h}"`); });
@@ -471,6 +473,9 @@ function writeLastReport_(overview, ym, results) {
   const cur = sh.getRange(2, col, n, 1).getValues();
   const inMonth = d => d instanceof Date && ym_(d) === ym;
   let changed = false;
+  cur.forEach(r => {                                    // a date typed by hand: shown as พ.ศ. text like the rest
+    if (r[0] instanceof Date) { r[0] = beText_(typedDate_(r[0])); changed = true; }
+  });
   keys.forEach((code, k) => {
     const r = results[code];
     if (!r || r.lastReport === undefined) return;
@@ -620,18 +625,39 @@ function todaySheet_(overview, sHead, nPlants) {
 
 /**
  * A box label missing above the problem table is added in the row of the other labels, right of the last
- * one (after its merged cells), with that box's format for the label and the number under it.
+ * one (after its merged cells) and never over a hidden column (_open_station), with that box's format and
+ * merges: the label across its width, the number under it across its width and rows (e.g. K4:M4 + K5:M6).
+ * A label an earlier version put into a hidden column is taken out and the box made again.
  */
 function addBox_(t, label) {
-  if (t.top.some(r => r.some(v => String(v).trim() === label))) return;
+  const sh = t.sh;
+  const hidden = col => col <= sh.getMaxColumns() && sh.isColumnHiddenByUser(col);
+  let found = false;
+  t.top.forEach((row, i) => row.forEach((v, k) => {
+    if (String(v).trim() !== label) return;
+    if (i < t.headRow - 1 && hidden(k + 1)) {           // out of sight: take the label and its number out
+      sh.getRange(i + 1, k + 1, 2, 1).clearContent();
+      row[k] = '';
+    } else found = true;
+  }));
+  if (found) return;
   const r = t.top.findIndex((row, i) => i < t.headRow - 1 && row.some(v => String(v).trim() === 'ปัญหาทั้งหมด'));
   if (r < 0) return;
   let c = 0;
-  t.top[r].forEach((v, k) => { if (String(v).trim() !== '') c = k + 1; });
-  const cell = t.sh.getRange(r + 1, c), merged = cell.getMergedRanges();
-  const end = merged.length ? merged[0].getLastColumn() : c, at = end + 1;
-  ensureSize_(t.sh, r + 2, at + (end - c));
-  t.sh.getRange(r + 1, c, 2, end - c + 1).copyFormatToRange(t.sh, at, at + (end - c), r + 1, r + 2);
-  t.sh.getRange(r + 1, at).setValue(label);
+  t.top[r].forEach((v, k) => { if (String(v).trim() !== '' && !hidden(k + 1)) c = k + 1; });
+  const span = (row, col) => { const m = sh.getRange(row, col).getMergedRanges(); return m.length ? m[0] : null; };
+  const lab = span(r + 1, c), val = span(r + 2, c);
+  const w = (lab ? lab.getLastColumn() : c) - c + 1;
+  const bottom = val ? Math.max(val.getLastRow(), r + 2) : r + 2;   // the number's cell may span rows
+  let at = c + w;
+  for (let k = 0; k < w; k++) if (hidden(at + k)) { at += k + 1; k = -1; }   // w visible columns in a row
+  ensureSize_(sh, bottom, at + w - 1);
+  sh.getRange(r + 1, c, bottom - r, w)
+    .copyTo(sh.getRange(r + 1, at, bottom - r, w), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  // merges are made here: copying a format does not merge the cells it is copied to
+  sh.getRange(r + 1, at, bottom - r, w).breakApart();
+  if (w > 1) sh.getRange(r + 1, at, 1, w).merge();
+  if (w > 1 || bottom > r + 2) sh.getRange(r + 2, at, bottom - r - 1, w).merge();
+  sh.getRange(r + 1, at).setValue(label);
   t.top[r][at - 1] = label;
 }

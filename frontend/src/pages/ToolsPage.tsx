@@ -403,7 +403,7 @@ export const ToolsPage: React.FC = () => {
               <TabsTrigger value="due" className="px-3 py-2.5 text-sm">
                 Due dates{" "}
                 <span className={cn("num", s?.overdue ? "text-red-300" : s?.due_soon ? "text-amber-300" : "text-muted-foreground")}>
-                  {fmtInt((s?.overdue ?? 0) + (s?.due_soon ?? 0))}
+                  {s ? fmtInt(s.overdue + s.due_soon) : "—"}
                 </span>
               </TabsTrigger>
             </TabsList>

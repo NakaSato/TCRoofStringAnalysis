@@ -8,21 +8,30 @@ function archivedYears_() {
 /**
  * Moves the problems of year `year` (พ.ศ. or ค.ศ.) whose สถานะ is แก้ไขแล้ว / ปิดงาน from the Overview's
  * "รายงานการแก้ไข" into the Google Sheet "<ARCHIVE_PREFIX><พ.ศ.>" in the root folder (made when missing).
- * Open problems stay: a problem that goes on into the next months needs its row. Only a year before this
- * one, and never last month (it can still be synced). Rows already in the archive are not added twice, so
- * a run that stopped half-way can be run again. That year's months are not synced afterwards.
+ * Open problems stay: a problem that goes on into the next months needs its row. Only a year that is over
+ * including last month, which can still be synced (in January, last year's December still can: that year
+ * waits until February). Rows already in the archive are not added twice, so a run that stopped half-way
+ * can be run again. That year's months are not synced afterwards.
  */
 function archiveYear(year) {
   let y = Number(year);
   if (y >= 2400) y -= 543;
   const now = new Date(), lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   if (!(y >= 2000) || y >= now.getFullYear()) throw new Error(`ย้ายได้เฉพาะปีก่อนปีนี้ (ได้รับ: ${year})`);
+  if (y >= lastMonth.getFullYear()) {                   // January: last year's December can still be synced
+    throw new Error(`ปี พ.ศ. ${y + 543} ยังซิงก์เดือนธันวาคมได้ — ย้ายได้ตั้งแต่เดือนกุมภาพันธ์`);
+  }
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('job')) throw new Error(`มีงานค้างอยู่ (${status()}) — รอให้เสร็จก่อน`);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) throw new Error('มีงานอื่นกำลังทำงาน — ลองใหม่อีกครั้ง');
   try {
-    const overview = SpreadsheetApp.openById(overviewFile_().getId());
+    // checked under the lock: a scheduled sync cannot start in between (a job of an old root folder is dropped)
+    if (dropStaleJob_(props, props.getProperties()).job) throw new Error(`มีงานค้างอยู่ (${status()}) — รอให้เสร็จก่อน`);
+    const file = overviewFile_();
+    if (file.getMimeType() !== MimeType.GOOGLE_SHEETS) {
+      throw new Error('Overview ยังเป็นไฟล์ .xlsx — ให้รัน convertOverview() หนึ่งครั้งก่อน');
+    }
+    const overview = SpreadsheetApp.openById(file.getId());
     const t = issueTable_(overview), sh = t.sh;
     const n = Math.max(sh.getLastRow() - t.headRow, 0);
     if (!n) return `ไม่มีปัญหาในตาราง`;
@@ -31,6 +40,7 @@ function archiveYear(year) {
     const raw = values.map((r, i) => r.map((v, k) => formulas[i][k] || v));
     const keyCol = t.col['รหัสปัญหา'] - 1, foundCol = t.col['วันที่พบ'] - 1, stCol = t.col['สถานะ'] - 1;
     const moving = [], staying = [];
+    const noCol = t.col['No.'] ? t.col['No.'] - 1 : -1;
     raw.forEach((r, i) => {
       const found = typedDate_(values[i][foundCol]);
       const go = String(r[keyCol] || '').trim() !== '' && found instanceof Date && found.getFullYear() === y &&
@@ -57,13 +67,15 @@ function archiveYear(year) {
     if (add.length) {
       const r0 = ash.getLastRow() + 1;
       ensureSize_(ash, r0 + add.length - 1, t.width);
-      ash.getRange(r0, 1, add.length, t.width).setNumberFormat('@');   // dates stay dd/mm/พ.ศ. text
+      // only the date columns as text (dates stay dd/mm/พ.ศ.): a text cell would keep =HYPERLINK(...) as text
+      ISSUE_DATES.forEach(h => { if (t.col[h]) ash.getRange(r0, t.col[h], add.length, 1).setNumberFormat('@'); });
       ash.getRange(r0, 1, add.length, t.width).setValues(add);
     }
     SpreadsheetApp.flush();
 
     // 2) the Overview keeps the other rows: written over the old ones, the rows left below cleared
     if (staying.length) {
+      if (noCol >= 0) staying.forEach((r, i) => { r[noCol] = i + 1; });   // numbered 1… again, as upsertIssues_ does
       ISSUE_DATES.forEach(h => { if (t.col[h]) sh.getRange(t.headRow + 1, t.col[h], staying.length, 1).setNumberFormat('@'); });
       sh.getRange(t.headRow + 1, 1, staying.length, t.width).setValues(staying);
     }

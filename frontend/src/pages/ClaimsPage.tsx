@@ -301,7 +301,7 @@ export const ClaimsPage: React.FC = () => {
   const anyFilter = query.trim() !== "" || type !== ALL || status !== ALL || withParam !== ALL || plantParam != null || wait !== ALL;
   const clearFilters = () => setUrl({ q: null, type: null, status: null, with: null, plant: null, wait: null });
   const pickWait = (w: (typeof WAIT)[number]) => setUrl({ tab: null, status: null, wait: wait === w ? null : w });
-  const count = (f: (c: Claim) => boolean) => fmtInt(all.filter(f).length);
+  const count = (f: (c: Claim) => boolean) => (data ? fmtInt(all.filter(f).length) : "—"); // not read yet ≠ none
 
   return (
     <div className="flex flex-col gap-4">
@@ -382,7 +382,7 @@ export const ClaimsPage: React.FC = () => {
                 Closed <span className="num text-muted-foreground">{count((c) => !isOpen(c))}</span>
               </TabsTrigger>
               <TabsTrigger value="all" className="px-3 py-2.5 text-sm">
-                All <span className="num text-muted-foreground">{fmtInt(all.length)}</span>
+                All <span className="num text-muted-foreground">{count(() => true)}</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>

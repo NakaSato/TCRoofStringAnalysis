@@ -30,8 +30,8 @@ export function useInstruments(includeRetired: boolean) {
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
 
-  // mock only: let the seeded check-outs point at the user's own plants
-  if (TOOLS_MOCK && growattPlants.length) toolsMock.setPlants(growattPlants.slice(0, 5).map((p) => p.plant_id));
+  // mock only: let the seeded check-outs point at the user's own plants (then read again)
+  const plantKey = TOOLS_MOCK ? growattPlants.slice(0, 5).map((p) => p.plant_id).join(",") : "";
 
   const reload = useCallback(async () => {
     const n = ++seq.current;
@@ -50,12 +50,13 @@ export function useInstruments(includeRetired: boolean) {
   }, [includeRetired]);
 
   useEffect(() => {
+    if (plantKey) toolsMock.setPlants(plantKey.split(",").map(Number));
     void reload();
     const t = setInterval(() => {
       if (!document.hidden) void reload();
     }, REFRESH_MS);
     return () => clearInterval(t);
-  }, [reload]);
+  }, [reload, plantKey]);
 
   return { data, loading, error, reload, mock: TOOLS_MOCK };
 }
