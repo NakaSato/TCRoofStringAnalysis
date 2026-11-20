@@ -267,7 +267,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.list:
         with SessionLocal() as db:
             for s in schedule:
-                when = f"every {s.every}" if s.every else f"daily {s.at:%H:%M}"
+                days = "daily" if not s.weekdays else ",".join(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[d] for d in s.weekdays)
+                when = f"every {s.every}" if s.every else f"{days} {s.at:%H:%M}"
                 print(f"{s.job:18} {when:22} last start: {jobs.last_started(db, s.job)}")
         return 0
     if args.once:

@@ -3,7 +3,7 @@
  * task's length; `onMove`). */
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import type { OmBusyBlock, OmPerson, OmTask } from "../../api/client";
+import type { OmBusyBlock, OmPerson, OmTask, OmTeam } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { cn } from "@/lib/utils";
 import { fmtInt } from "../../components/ui";
@@ -159,31 +159,44 @@ export const WeekLanes: React.FC<{
   tasks: OmTask[];
   busy: OmBusyBlock[];
   people: OmPerson[];
+  /** teams with their members: a team's task is also each member's work */
+  teams: OmTeam[];
+  /** narrowed to one person: only their lane (plus team / unassigned lanes for what it doesn't show) */
+  only?: number | null;
   me: number | undefined;
   onOpen: (t: OmTask) => void;
   onCreate: (day: string) => void;
   onMove?: (t: OmTask, day: string) => void;
-}> = ({ from, today, tasks, busy, people, me, onOpen, onCreate, onMove }) => {
+}> = ({ from, today, tasks, busy, people, teams, only, me, onOpen, onCreate, onMove }) => {
   const days = daysBetween(from, addDays(from, 6));
   const drop = useDrop(tasks, onMove);
   const lanes = useMemo<Lane[]>(() => {
     const out: Lane[] = [];
     const seen = new Set<number>();
+    const members = new Map(teams.map((t) => [t.id, new Set(t.members.map((m) => m.id))]));
+    // a person's work: assigned directly or through a team they are in (as the API's user filter)
+    // narrowed to one person, the API already returned only their work (an inactive team's members are not listed here)
+    const isMine = (t: OmTask, id: number) =>
+      id === only || t.assignees.some((a) => a.id === id) || (!!t.team && !!members.get(t.team.id)?.has(id));
     const persons = [...people];
-    for (const t of tasks) for (const a of t.assignees) if (!persons.some((p) => p.id === a.id)) persons.push(a);
-    for (const b of busy) for (const a of b.assignees) if (!persons.some((p) => p.id === a.id)) persons.push(a);
+    if (only == null) {
+      for (const t of tasks) for (const a of t.assignees) if (!persons.some((p) => p.id === a.id)) persons.push(a);
+      for (const b of busy) for (const a of b.assignees) if (!persons.some((p) => p.id === a.id)) persons.push(a);
+    }
     persons.sort((a, b) => (a.id === me ? -1 : b.id === me ? 1 : personName(a).localeCompare(personName(b))));
+    const shown = new Set<number>();
     for (const p of persons) {
       if (seen.has(p.id)) continue;
       seen.add(p.id);
-      const mine = tasks.filter((t) => t.assignees.some((a) => a.id === p.id));
+      const mine = tasks.filter((t) => isMine(t, p.id));
+      for (const t of mine) shown.add(t.id);
       const blocked = busy.filter((b) => b.assignees.some((a) => a.id === p.id));
       out.push({ key: `u${p.id}`, label: personName(p) + (p.id === me ? " (you)" : ""), tasks: mine, busy: blocked, person: true });
     }
-    // a team gets a lane for its team-only work (e.g. a contractor crew with no logins)
+    // a team gets a lane for team work no person lane shows (e.g. a contractor crew with no logins)
     const teamOnly = new Map<number, { name: string; color: string | null; tasks: OmTask[] }>();
     for (const t of tasks) {
-      if (!t.team || t.assignees.length) continue;
+      if (!t.team || shown.has(t.id) || t.assignees.length) continue;
       const lane = teamOnly.get(t.team.id) ?? { name: t.team.name, color: t.team.color, tasks: [] };
       lane.tasks.push(t);
       teamOnly.set(t.team.id, lane);
@@ -194,7 +207,7 @@ export const WeekLanes: React.FC<{
     const loose = tasks.filter((t) => t.assignees.length === 0 && !t.team);
     if (loose.length) out.push({ key: "none", label: "Unassigned", tasks: loose, busy: [], person: false });
     return out;
-  }, [tasks, busy, people, me]);
+  }, [tasks, busy, people, teams, only, me]);
 
   return (
     <div className="table-wrap overflow-x-auto">

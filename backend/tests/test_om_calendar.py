@@ -10,7 +10,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.auth import hash_password
-from app.db.models import GrowattInverter, GrowattPlant, OmTask, OmTaskHistory, SiteEvent, User, UserPlantAssignment
+from app.db.models import (
+    GrowattInverter,
+    GrowattIssue,
+    GrowattPlant,
+    OmTask,
+    OmTaskHistory,
+    OmTeam,
+    OmTeamMember,
+    SiteEvent,
+    User,
+    UserPlantAssignment,
+)
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
@@ -423,3 +434,99 @@ def test_round_leaves_out_plants_too_long_for_one_task(api):
     # the preview saves as shown
     res = client.post("/growatt/calendar/rounds", headers=admin, json={"items": body["items"]})
     assert res.status_code == 201, res.text
+
+
+# --------------------------------------------------------------------------- audit fixes (#68, #70)
+
+
+def _issue(f, plant, shadow):
+    with f() as db:
+        i = GrowattIssue(plant_id=plant, rule="R1", tier="P2", opened_day=TODAY, last_seen_day=TODAY, shadow=shadow)
+        db.add(i)
+        db.commit()
+        return i.id
+
+
+def test_shadow_issue_stays_hidden_from_engineers(api):
+    f, client, ids, admin, eng, eng2 = api
+    shadow = _issue(f, P1, shadow=True)
+    live = _issue(f, P1, shadow=False)
+    t = _task(client, admin, P1, start_day="2026-11-18", issue_id=shadow, assignee_ids=[ids["eng"]])
+    assert t["issue_id"] == shadow and t["issue"]["id"] == shadow  # the admin sees the link
+
+    # list, one task and its history: no shadow id anywhere for the engineer
+    row = client.get(f"/growatt/calendar/tasks?{RANGE}", headers=eng).json()["tasks"][0]
+    assert row["issue_id"] is None and row["issue"] is None
+    client.patch(f"/growatt/plants/{P1}/tasks/{t['id']}", headers=admin, json={"issue_id": live})
+    client.patch(f"/growatt/plants/{P1}/tasks/{t['id']}", headers=admin, json={"issue_id": shadow, "title": "Back"})
+    one = client.get(f"/growatt/plants/{P1}/tasks/{t['id']}", headers=eng).json()
+    assert one["issue_id"] is None
+    assert all("issue_id" not in h["change"] for h in one["history"])
+    assert any(h["change"].get("title") == [None, "Back"] for h in one["history"])  # the rest of that entry stays
+    assert any("issue_id" in h["change"] for h in client.get(f"/growatt/plants/{P1}/tasks/{t['id']}", headers=admin).json()["history"])
+
+    # editing what they see (issue_id null) keeps the admin's link
+    res = client.patch(f"/growatt/plants/{P1}/tasks/{t['id']}", headers=eng, json={"issue_id": None, "note": "ladder"})
+    assert res.status_code == 200, res.text
+    with f() as db:
+        assert db.get(OmTask, t["id"]).issue_id == shadow
+
+    # done works for the engineer; the event is not linked and the shadow issue stays open
+    res = client.post(f"/growatt/plants/{P1}/tasks/{t['id']}/done", headers=eng, json={"close_issue": True})
+    assert res.status_code == 200, res.text
+    with f() as db:
+        ev = db.get(SiteEvent, res.json()["site_event_id"])
+        assert ev.issue_id is None
+        assert db.get(GrowattIssue, shadow).status == "open"
+
+    # an admin finishing a shadow-linked task still links and closes it
+    t2 = _task(client, admin, P1, start_day="2026-11-18", issue_id=shadow)
+    res = client.post(f"/growatt/plants/{P1}/tasks/{t2['id']}/done", headers=admin, json={"close_issue": True})
+    assert res.status_code == 200, res.text
+    with f() as db:
+        assert db.get(SiteEvent, res.json()["site_event_id"]).issue_id == shadow
+        assert db.get(GrowattIssue, shadow).status == "resolved"
+
+
+def test_plan_counts_and_assignees_are_scoped_for_engineers(api):
+    f, client, ids, admin, eng, eng2 = api
+    with f() as db:  # eng3 works only on P2, which eng cannot see
+        eng3 = User(username="eng3", email="eng3@example.com", full_name="Third", hashed_password=hash_password("x" * 8), role="engineer")
+        db.add(eng3)
+        db.flush()
+        db.add(UserPlantAssignment(user_id=eng3.id, plant_id=P2))
+        db.commit()
+        eng3_id = eng3.id
+    res = _plan(client, admin, every_n=1, unit="week", assignee_ids=[ids["eng"], eng3_id])
+    assert res.status_code == 201, res.text
+    plan_id = res.json()["id"]
+    per_plant = {pid: sum(1 for t in _plan_tasks(f, plan_id) if t.plant_id == pid and t.start_day >= TODAY) for pid in (P1, P2)}
+    assert per_plant[P1] and per_plant[P2]
+
+    full = next(p for p in client.get("/growatt/calendar/plans", headers=admin).json()["plans"] if p["id"] == plan_id)
+    assert full["upcoming_tasks"] == per_plant[P1] + per_plant[P2]
+    assert {a["id"] for a in full["assignees"]} == {ids["eng"], eng3_id}
+    mine = next(p for p in client.get("/growatt/calendar/plans", headers=eng).json()["plans"] if p["id"] == plan_id)
+    assert mine["plant_ids"] == [P1] and mine["upcoming_tasks"] == per_plant[P1]
+    assert {a["id"] for a in mine["assignees"]} == {ids["eng"]}  # eng3 shares no plant with eng
+
+
+def test_busy_blocks_and_my_work_include_team_tasks(api):
+    f, client, ids, admin, eng, eng2 = api
+    with f() as db:
+        team = OmTeam(name="Crew")
+        db.add(team)
+        db.flush()
+        db.add(OmTeamMember(team_id=team.id, user_id=ids["eng2"]))
+        db.commit()
+        team_id = team.id
+    # P2 work of eng2's team (no direct assignee): eng sees only a Busy block in eng2's lane
+    _task(client, admin, P2, task_type="repair", title="Secret", start_day="2026-11-26", team_id=team_id)
+    body = client.get(f"/growatt/calendar/tasks?{RANGE}", headers=eng).json()
+    assert body["tasks"] == [] and len(body["busy"]) == 1
+    assert [a["id"] for a in body["busy"][0]["assignees"]] == [ids["eng2"]] and "Secret" not in str(body)
+    assert len(client.get(f"/growatt/calendar/tasks?{RANGE}&user_id={ids['eng2']}", headers=eng).json()["busy"]) == 1
+    assert client.get(f"/growatt/calendar/tasks?{RANGE}&user_id={ids['eng']}", headers=eng).json()["busy"] == []
+    # eng2 sees it in full under their own filter
+    mine = client.get(f"/growatt/calendar/tasks?{RANGE}&user_id={ids['eng2']}", headers=eng2).json()
+    assert [t["title"] for t in mine["tasks"]] == ["Secret"]

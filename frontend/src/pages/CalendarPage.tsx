@@ -331,7 +331,7 @@ export const CalendarPage: React.FC = () => {
               onMove={move}
             />
           ) : view === "week" ? (
-            <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} me={me} onOpen={open} onCreate={create} onMove={move} />
+            <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} teams={lanes?.teams ?? []} only={userId} me={me} onOpen={open} onCreate={create} onMove={move} />
           ) : (
             <TaskList tasks={tasks} onOpen={open} />
           )}

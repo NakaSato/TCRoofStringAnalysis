@@ -216,10 +216,13 @@ def _serialize_all(db: Session, rows: List[OmTask], allow_shadow: bool) -> List[
             inverters[sn] = alias or sn
     teams = {t.id: t for t in db.scalars(select(OmTeam).where(OmTeam.id.in_(team_ids)))} if team_ids else {}
     issues: Dict[int, GrowattIssue] = {}
+    hidden: Set[int] = set()  # shadow issues: engineers see neither their id nor their details
     if iids:
         for i in db.scalars(select(GrowattIssue).where(GrowattIssue.id.in_(iids))):
             if allow_shadow or not i.shadow:
                 issues[i.id] = i
+            else:
+                hidden.add(i.id)
     assignees: Dict[int, List[Dict[str, Any]]] = {}
     for tid, u in db.execute(
         select(OmTaskAssignee.task_id, User).join(User, User.id == OmTaskAssignee.user_id).where(OmTaskAssignee.task_id.in_(tids))
@@ -247,7 +250,7 @@ def _serialize_all(db: Session, rows: List[OmTask], allow_shadow: bool) -> List[
             "overdue": t.status in ACTIVE and t.end_day < today,
             "team": {"id": team.id, "name": team.name, "color": team.color} if team else None,
             "assignees": sorted(assignees.get(t.id, []), key=lambda a: (a["full_name"] or a["username"] or "").lower()),
-            "issue_id": t.issue_id,
+            "issue_id": None if t.issue_id in hidden else t.issue_id,
             "issue": (
                 {"id": i.id, "rule": i.rule, "status": i.status, "string_no": i.string_no, "device_sn": i.device_sn}
                 if i is not None
@@ -267,13 +270,32 @@ def _serialize_all(db: Session, rows: List[OmTask], allow_shadow: bool) -> List[
     return out
 
 
+def _shadow_ids(db: Session, ids: Set[int]) -> Set[int]:
+    if not ids:
+        return set()
+    return set(db.scalars(select(GrowattIssue.id).where(GrowattIssue.id.in_(ids), GrowattIssue.shadow.is_(True))))
+
+
+def _is_shadow(db: Session, issue_id: Optional[int]) -> bool:
+    return issue_id is not None and bool(_shadow_ids(db, {issue_id}))
+
+
 def one(db: Session, t: OmTask, allow_shadow: bool, history: bool = False) -> Dict[str, Any]:
     out = _serialize_all(db, [t], allow_shadow)[0]
     if history:
-        rows = db.scalars(select(OmTaskHistory).where(OmTaskHistory.task_id == t.id).order_by(OmTaskHistory.id.desc()))
-        out["history"] = [
-            {"at": h.at.isoformat() if h.at else None, "by": h.by, "change": h.change, "comment": h.comment} for h in rows
-        ]
+        rows = list(db.scalars(select(OmTaskHistory).where(OmTaskHistory.task_id == t.id).order_by(OmTaskHistory.id.desc())))
+        hidden: Set[int] = set()
+        if not allow_shadow:
+            linked = {v for h in rows for v in ((h.change or {}).get("issue_id") or []) if isinstance(v, int)}
+            hidden = _shadow_ids(db, linked)
+        out["history"] = []
+        for h in rows:
+            change = dict(h.change or {})
+            if hidden and any(v in hidden for v in change.get("issue_id") or []):
+                change.pop("issue_id")  # a link to a shadow issue: not shown to engineers
+                if not change and not h.comment:
+                    continue
+            out["history"].append({"at": h.at.isoformat() if h.at else None, "by": h.by, "change": change, "comment": h.comment})
     return out
 
 
@@ -285,28 +307,37 @@ def _busy_blocks(
     until: date,
     user_id: Optional[int],
 ) -> List[Dict[str, Any]]:
-    """Tasks on plants outside `allowed` assigned to a visible user: dates and those users only."""
+    """Tasks on plants outside `allowed` that are a visible user's work (assigned directly or via a
+    team they are in): dates and those users only."""
     want = visible if user_id is None else visible & {user_id}
     if not want:
         return []
-    q = (
-        select(OmTask.id, OmTask.start_day, OmTask.end_day, OmTaskAssignee.user_id)
-        .join(OmTaskAssignee, OmTaskAssignee.task_id == OmTask.id)
-        .where(
-            OmTask.start_day <= until,
-            OmTask.end_day >= since,
-            OmTask.status.in_(("planned", "in_progress", "done")),
-            OmTaskAssignee.user_id.in_(want),
-        )
+    # a person's work: assigned directly or through a team they are in (as `list_tasks(user_id=)`)
+    teams_of: Dict[int, Set[int]] = {}
+    for team_id, uid in db.execute(select(OmTeamMember.team_id, OmTeamMember.user_id).where(OmTeamMember.user_id.in_(want))):
+        teams_of.setdefault(team_id, set()).add(uid)
+    q = select(OmTask.id, OmTask.start_day, OmTask.end_day, OmTask.team_id).where(
+        OmTask.start_day <= until,
+        OmTask.end_day >= since,
+        OmTask.status.in_(("planned", "in_progress", "done")),
+        or_(
+            OmTask.id.in_(select(OmTaskAssignee.task_id).where(OmTaskAssignee.user_id.in_(want))),
+            OmTask.team_id.in_(teams_of) if teams_of else false(),
+        ),
     )
     if allowed:
         q = q.where(OmTask.plant_id.not_in(allowed))
     blocks: Dict[int, Dict[str, Any]] = {}
-    for tid, s, e, uid in db.execute(q):
-        b = blocks.setdefault(tid, {"start_day": s, "end_day": e, "uids": set()})
-        b["uids"].add(uid)
+    for tid, s, e, team_id in db.execute(q):
+        blocks[tid] = {"start_day": s, "end_day": e, "uids": set(teams_of.get(team_id, set()) if team_id is not None else ())}
     if not blocks:
         return []
+    for tid, uid in db.execute(
+        select(OmTaskAssignee.task_id, OmTaskAssignee.user_id).where(
+            OmTaskAssignee.task_id.in_(blocks), OmTaskAssignee.user_id.in_(want)
+        )
+    ):
+        blocks[tid]["uids"].add(uid)
     uids = set().union(*(b["uids"] for b in blocks.values()))
     users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(uids)))}
     out = []
@@ -454,6 +485,8 @@ def update_task(db: Session, user: User, t: OmTask, changes: Dict[str, Any], com
     """Change the fields present in `changes` (null clears an optional field). A done task keeps
     everything but its note: its record is the Site log event."""
     who = _who(user)
+    if user.role != "admin" and "issue_id" in changes and changes["issue_id"] is None and _is_shadow(db, t.issue_id):
+        changes = {k: v for k, v in changes.items() if k != "issue_id"}  # they never saw the link: keep it
     if t.status == "done" and set(changes) - {"note"}:
         raise TaskConflict("This task is done: only its note can change (edit the Site log event instead)")
     if changes.get("status") == "done":
@@ -520,6 +553,9 @@ def mark_done(db: Session, user: User, t: OmTask, body: Dict[str, Any]) -> OmTas
     if t.title:
         note = f"{t.title}: {note}" if _clean(note) else t.title
     who = _who(user)
+    issue_id = t.issue_id
+    if user.role != "admin" and _is_shadow(db, issue_id):
+        issue_id = None  # an engineer finishes the work; the shadow issue stays the admin's to close
     ev = site_events.create_event(
         db,
         t.plant_id,
@@ -530,8 +566,8 @@ def mark_done(db: Session, user: User, t: OmTask, body: Dict[str, Any]) -> OmTas
             "device_sn": t.device_sn,
             "string_no": t.string_no,
             "cost_thb": body.get("cost_thb"),
-            "issue_id": t.issue_id,
-            "close_issue": bool(body.get("close_issue")) and t.issue_id is not None,
+            "issue_id": issue_id,
+            "close_issue": bool(body.get("close_issue")) and issue_id is not None,
             "note": note,
         },
         who,

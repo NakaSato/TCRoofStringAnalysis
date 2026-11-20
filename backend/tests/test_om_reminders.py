@@ -246,3 +246,94 @@ def test_feed_includes_team_work_and_stops_for_an_inactive_user(env):
         db.get(User, ids["crew"]).is_active = False
         db.commit()
     assert client.get(path).status_code == 404
+
+
+# --------------------------------------------------------------------------- audit fixes (#70)
+
+
+def test_feed_status_times_are_utc():
+    class Row:
+        created_at = datetime(2026, 11, 19, 15, 54, 3)  # as SQLite gives it back: naive UTC
+        last_used_at = None
+
+    class Db:
+        def get(self, model, key):
+            return Row()
+
+    st = om_ics.status(Db(), User(id=1))
+    assert st["created_at"] == "2026-11-19T15:54:03+00:00" and st["last_used_at"] is None
+
+
+def test_feed_status_times_are_utc_from_the_db(env):
+    f, ids = env
+    client, hdr = _client(f)
+    eng = hdr("engineer", "engineer123")
+    client.post("/growatt/calendar/feed", headers=eng)
+    st = client.get("/growatt/calendar/feed", headers=eng).json()
+    assert st["created_at"].endswith("+00:00")
+
+
+@pytest.mark.parametrize("n", [74, 75, 76, 149, 150, 151, 224, 225, 300])
+def test_fold_keeps_every_line_within_75_octets(n):
+    line = "X" * n
+    parts = om_ics._fold(line)
+    assert all(len(p.encode()) <= 75 for p in parts), [len(p) for p in parts]
+    assert parts[0] + "".join(p[1:] for p in parts[1:]) == line
+
+
+def test_fold_does_not_split_a_thai_character():
+    line = "SUMMARY:" + "ทำความสะอาด" * 10
+    parts = om_ics._fold(line)
+    assert all(len(p.encode()) <= 75 for p in parts)
+    assert parts[0] + "".join(p[1:] for p in parts[1:]) == line
+
+
+class FlakySender:
+    """FCM answers: tok-eng fails (transient), tok-crew is gone, the rest accepted."""
+
+    def __init__(self):
+        self.msgs = []
+
+    def __call__(self, msgs):
+        self.msgs.extend(msgs)
+        return ["unavailable" if m.token == "tok-eng" else (om_reminders.push.GONE if m.token == "tok-crew" else None) for m in msgs]
+
+
+def test_failed_push_is_retried_next_run(env):
+    f, ids = env
+    tomorrow = date(2026, 11, 24)
+    with f() as db:
+        _add(db, P1, tomorrow, users=[ids["eng"], ids["crew"], ids["admin"]])
+        detail = om_reminders.notify_tomorrow(db, sender=FlakySender(), now=NOW)
+        assert detail["sent"] == 1 and detail["failed"] == 1 and detail["removed"] == 1 and detail["retry"] == 1
+        # admin reached; crew has no device left (marked: nothing to retry); eng failed: not marked
+        assert {m.user_id for m in db.scalars(select(OmPushMark))} == {ids["admin"], ids["crew"]}
+        s = Sender()
+        again = om_reminders.notify_tomorrow(db, sender=s, now=NOW)
+        assert [m.token for m in s.msgs] == ["tok-eng"] and again["sent"] == 1 and again["already"] == 1
+
+
+def test_one_failed_device_does_not_block_marking_when_another_accepted(env):
+    f, ids = env
+    with f() as db:
+        db.add(PushToken(user_id=ids["eng"], token="tok-eng-2", created_at=NOW, last_seen_at=NOW))
+        db.commit()
+        _add(db, P1, date(2026, 11, 24), users=[ids["eng"]])
+        om_reminders.notify_tomorrow(db, sender=FlakySender(), now=NOW)
+        assert {m.user_id for m in db.scalars(select(OmPushMark))} == {ids["eng"]}
+
+
+def test_retention_prunes_om_push_marks(env, monkeypatch):
+    from app.services import jobs
+
+    f, ids = env
+    with f() as db:
+        db.add_all([
+            OmPushMark(user_id=ids["eng"], kind="tomorrow", day=date(2026, 10, 1), tasks=1, pushed_at=NOW),
+            OmPushMark(user_id=ids["eng"], kind="tomorrow", day=date(2026, 11, 20), tasks=1, pushed_at=NOW),
+        ])
+        db.commit()
+        monkeypatch.setattr(jobs, "_today", lambda: TODAY)
+        status, detail = jobs.job_retention(db)
+        assert status == "ok" and detail["om_push_marks"] == 1
+        assert [m.day for m in db.scalars(select(OmPushMark))] == [date(2026, 11, 20)]

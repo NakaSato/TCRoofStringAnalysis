@@ -241,7 +241,7 @@ def delete_calendar_team(
 @router.get("/calendar/plans")
 def list_calendar_plans(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
     """Admins: every plan. Engineers: plans covering their plants (read only, their plants only)."""
-    return om_plans.list_plans(db, allowed_plant_ids(db, user))
+    return om_plans.list_plans(db, allowed_plant_ids(db, user), cal.visible_user_ids(db, user))
 
 
 @router.post("/calendar/plans", status_code=201)

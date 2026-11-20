@@ -139,6 +139,10 @@ export const PlansDialog: React.FC<{
   const valid = !!draft && draft.name.trim() !== "" && draft.plant_ids.length > 0 && draft.every_n >= 1 && (draft.season_from_month == null) === (draft.season_to_month == null);
   const people = users.filter((u) => u.role === "admin" || u.role === "engineer");
 
+  // keep the plan's own team selectable while it is inactive (only active teams are listed)
+  const planTeam = draft?.id != null ? plans?.find((p) => p.id === draft.id)?.team : null;
+  const teamOptions = planTeam && !teams.some((t) => t.id === planTeam.id) ? [...teams, { ...planTeam, active: false, members: [] }] : teams;
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
@@ -336,7 +340,7 @@ export const PlansDialog: React.FC<{
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NONE}>No team</SelectItem>
-                  {teams.map((t) => (
+                  {teamOptions.map((t) => (
                     <SelectItem key={t.id} value={String(t.id)}>
                       {t.name}
                     </SelectItem>

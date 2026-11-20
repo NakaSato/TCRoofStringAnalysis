@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, false, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -68,7 +68,11 @@ def holidays(db: Session) -> Set[date]:
 # --------------------------------------------------------------------------- plans: reading
 
 
-def _plan_rows(db: Session, plans: List[OmPlan], allowed: Optional[Set[int]]) -> List[Dict[str, Any]]:
+def _plan_rows(
+    db: Session, plans: List[OmPlan], allowed: Optional[Set[int]], visible: Optional[Set[int]] = None
+) -> List[Dict[str, Any]]:
+    """`allowed` = the caller's plants and `visible` = the users whose work they may see (None = all:
+    admin); an engineer gets only those plants, those plants' upcoming tasks and those assignees."""
     if not plans:
         return []
     ids = [p.id for p in plans]
@@ -81,17 +85,15 @@ def _plan_rows(db: Session, plans: List[OmPlan], allowed: Optional[Set[int]]) ->
     for pid, u in db.execute(
         select(OmPlanAssignee.plan_id, User).join(User, User.id == OmPlanAssignee.user_id).where(OmPlanAssignee.plan_id.in_(ids))
     ):
-        users.setdefault(pid, []).append(cal._user_row(u))
+        if visible is None or u.id in visible:
+            users.setdefault(pid, []).append(cal._user_row(u))
     team_ids = {p.default_team_id for p in plans if p.default_team_id is not None}
     teams = {t.id: t for t in db.scalars(select(OmTeam).where(OmTeam.id.in_(team_ids)))} if team_ids else {}
     today = cal._today()
-    upcoming = dict(
-        db.execute(
-            select(OmTask.plan_id, func.count())
-            .where(OmTask.plan_id.in_(ids), OmTask.status == "planned", OmTask.start_day >= today)
-            .group_by(OmTask.plan_id)
-        ).all()
-    )
+    uq = select(OmTask.plan_id, func.count()).where(OmTask.plan_id.in_(ids), OmTask.status == "planned", OmTask.start_day >= today)
+    if allowed is not None:
+        uq = uq.where(OmTask.plant_id.in_(allowed) if allowed else false())
+    upcoming = dict(db.execute(uq.group_by(OmTask.plan_id)).all())
     hol = holidays(db)
     out = []
     for p in plans:
@@ -128,12 +130,12 @@ def _plan_rows(db: Session, plans: List[OmPlan], allowed: Optional[Set[int]]) ->
     return out
 
 
-def list_plans(db: Session, allowed: Optional[Set[int]]) -> Dict[str, Any]:
+def list_plans(db: Session, allowed: Optional[Set[int]], visible: Optional[Set[int]] = None) -> Dict[str, Any]:
     """Admins: every plan. Engineers: plans covering at least one of their plants (only those shown)."""
     q = select(OmPlan).order_by(OmPlan.active.desc(), OmPlan.name)
     if allowed is not None:
         q = q.where(OmPlan.id.in_(select(OmPlanPlant.plan_id).where(OmPlanPlant.plant_id.in_(allowed or {-1}))))
-    return {"plans": _plan_rows(db, list(db.scalars(q)), allowed), "presets": PRESETS, "horizon_days": HORIZON_DAYS}
+    return {"plans": _plan_rows(db, list(db.scalars(q)), allowed, visible), "presets": PRESETS, "horizon_days": HORIZON_DAYS}
 
 
 def get_plan(db: Session, plan_id: int) -> OmPlan:

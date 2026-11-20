@@ -1,6 +1,6 @@
 # Plan & Spec: Calendar Team (O&M and cleaning planning)
 
-Status: **Phases 1–2 built 2026-11-19** (Phase 1: tasks, teams, calendar page, Upcoming work card, migration `a6b7c8d9e0f1`; Phase 2: recurring plans + nightly `om_plans` job, Due view, cleaning rounds, per-plant crew-days / cost, drag to move, migration `7a1c2e9b4d60`; Phase 3: push reminders `om_reminders` / `om_weekly`, per-user ICS feed, migration `8b2d4f6a1c93`), Phase 4 not started · Created 2026-11-19 · Owner: Chanthawat
+Status: **Phases 1–3 built 2026-11-19** (Phase 1: tasks, teams, calendar page, Upcoming work card, migration `a6b7c8d9e0f1`; Phase 2: recurring plans + nightly `om_plans` job, Due view, cleaning rounds, per-plant crew-days / cost, drag to move, migration `7a1c2e9b4d60`; Phase 3: push reminders `om_reminders` / `om_weekly`, per-user ICS feed, migration `8b2d4f6a1c93`), Phase 4 not started · Created 2026-11-19 · Owner: Chanthawat
 Related: [`decision-rules.md`](decision-rules.md) §6 (site log, soiling wallet R12, R13), `services/site_events.py`, `solar_core/om_management.py` (legacy demo PM schedule)
 
 A shared **team calendar** where admins and engineers plan O&M work per plant: a weekly plan for the crews, a monthly plan for the fleet, recurring preventive maintenance, and **panel-cleaning rounds** for the dry season. When planned work is finished, it becomes a Site log event. The Site log already records work that was done; the calendar adds work that is planned.
