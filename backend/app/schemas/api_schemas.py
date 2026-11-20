@@ -622,3 +622,97 @@ class SiteEventPatch(BaseModel):
             if out.get(k, 0) is None:
                 out.pop(k)
         return out
+
+
+# --------------------------------------------------------------------------- claims (docs/plans/claims.md)
+
+ClaimType = Literal["inverter_warranty", "module_warranty", "equipment_warranty", "insurance", "workmanship"]
+ClaimCause = Literal[
+    "lightning", "storm_wind", "flood", "fire", "theft", "animal",
+    "manufacturing_defect", "degradation", "installation", "unknown", "other",
+]
+ClaimStatusName = Literal[
+    "draft", "submitted", "under_review", "info_requested", "approved", "rejected", "fulfilled", "closed", "withdrawn",
+]
+ClaimLinkKind = Literal["issue", "iv_sweep", "site_log"]
+
+
+class ClaimLinkBody(BaseModel):
+    kind: ClaimLinkKind
+    ref_id: int = Field(ge=1)
+
+
+class ClaimPatch(BaseModel):
+    """Change a claim: only the fields sent change; null clears an optional one (type, cause,
+    plant and counterparty are required on the claim, so null there means "unchanged")."""
+
+    type: Optional[ClaimType] = None
+    cause: Optional[ClaimCause] = None
+    plant_id: Optional[int] = None
+    device_sn: Optional[str] = Field(default=None, max_length=64)
+    string_nos: Optional[List[int]] = Field(default=None, max_length=64)
+    module_serials: Optional[List[str]] = Field(default=None, max_length=200)
+    device_label: Optional[str] = Field(default=None, max_length=120)
+    counterparty: Optional[str] = Field(default=None, max_length=120)
+    counterparty_ref: Optional[str] = Field(default=None, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    incident_day: Optional[date] = None
+    discovered_day: Optional[date] = None
+    warranty_end_day: Optional[date] = None
+
+    @field_validator("string_nos")
+    @classmethod
+    def _string_nos(cls, v: Optional[List[int]]) -> Optional[List[int]]:
+        if v is not None and any(n < 1 or n > 64 for n in v):
+            raise ValueError("string numbers are 1–64")
+        return v
+
+    @field_validator("module_serials")
+    @classmethod
+    def _serials(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None and any(len(s) > 64 for s in v):
+            raise ValueError("a module serial is at most 64 characters")
+        return v
+
+    def changes(self) -> Dict[str, Any]:
+        """The fields sent, under the service's names (`type` → `claim_type`); lists null → empty."""
+        out = self.model_dump(exclude_unset=True)
+        if "type" in out:
+            out["claim_type"] = out.pop("type")
+        for k in ("string_nos", "module_serials"):
+            if k in out and out[k] is None:
+                out[k] = []
+        return out
+
+
+class ClaimCreate(ClaimPatch):
+    """A new claim (always a draft). `links` are linked at once (records of the same plant)."""
+
+    type: ClaimType  # type: ignore[assignment]
+    cause: ClaimCause  # type: ignore[assignment]
+    plant_id: int  # type: ignore[assignment]
+    counterparty: str = Field(min_length=1, max_length=120)  # type: ignore[assignment]
+    links: List[ClaimLinkBody] = Field(default_factory=list, max_length=50)
+
+
+class ClaimStatusChange(BaseModel):
+    status: ClaimStatusName
+    note: str = Field(min_length=1, max_length=2000)
+    next_action_day: Optional[date] = None
+    new_sn: Optional[str] = Field(default=None, max_length=64)
+
+
+class ClaimEventCreate(BaseModel):
+    kind: Literal["note", "message", "shipment"]
+    day: Optional[date] = None
+    direction: Optional[Literal["out", "in"]] = None
+    summary: str = Field(min_length=1, max_length=2000)
+    carrier: Optional[str] = Field(default=None, max_length=64)
+    tracking_no: Optional[str] = Field(default=None, max_length=64)
+    sn: Optional[str] = Field(default=None, max_length=64)
+
+
+class ClaimEvidenceSet(BaseModel):
+    done: bool
+    url: Optional[str] = Field(default=None, max_length=1000)
+    note: Optional[str] = Field(default=None, max_length=2000)

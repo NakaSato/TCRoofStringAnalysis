@@ -19,7 +19,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { newClaimHref } from "@/lib/claimLinks";
-import { CLAIMS_MOCK } from "@/api/mockFlags";
 
 const DAYS = 30;
 
@@ -154,13 +153,11 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
           {label}: active issues of the inverter and its strings, and the last {DAYS} days of the daily rule table · stored history · lost
           energy estimated
         </CardDescription>
-        {CLAIMS_MOCK && (
-          <CardAction>
-            <Button size="xs" variant="outline" asChild title="Open a warranty claim for this inverter">
-              <Link to={newClaimHref("inverter", { plantId, sn })}>Open claim</Link>
-            </Button>
-          </CardAction>
-        )}
+        <CardAction>
+          <Button size="xs" variant="outline" asChild title="Open a warranty claim for this inverter">
+            <Link to={newClaimHref("inverter", { plantId, sn })}>Open claim</Link>
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         {issues == null ? (

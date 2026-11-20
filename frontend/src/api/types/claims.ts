@@ -122,7 +122,7 @@ export interface ClaimList {
     waiting_them: number;
     followup_overdue: number;
   };
-  meta: { source: "db" | "mock"; today: string };
+  meta: { source: "db"; today: string };
 }
 
 export interface ClaimBody {

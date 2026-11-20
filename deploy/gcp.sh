@@ -501,7 +501,7 @@ cmd_frontend() {
   [ -n "$run_url" ] || echo "Cloud Run URL not found: the assistant chat will go through Hosting (no streaming)"
   (cd frontend && bun install --frozen-lockfile && \
     VITE_API_BASE_URL=/api VITE_ASSISTANT_API_BASE_URL="${run_url:+${run_url}/api}" \
-    VITE_TOOLS_MOCK="$TOOLS_MOCK" VITE_CLAIMS_MOCK="$CLAIMS_MOCK" bun run build)
+    VITE_TOOLS_MOCK="$TOOLS_MOCK" bun run build)
   log "Deploying Firebase Hosting"
   bunx firebase-tools deploy --only hosting --project "$PROJECT"
   echo; echo "Live at https://${PROJECT}.web.app"

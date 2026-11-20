@@ -24,7 +24,6 @@ import { Panel, fmt } from "../ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CLAIMS_MOCK } from "@/api/mockFlags";
 
 /** A ratio (0.968) as a percentage of the reference ("96.8%"); "—" when there is none. */
 const pct = (ratio: number | null | undefined): string => (ratio == null ? "—" : `${fmt(ratio * 100, 1)}%`);
@@ -432,7 +431,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                       <ShieldCheck className="mr-1 h-3 w-3" /> Module test candidate (2 sources)
                     </Badge>
                   ) : null}
-                  {CLAIMS_MOCK && active.module_test_candidate ? (
+                  {active.module_test_candidate ? (
                     <Button variant="ghost" size="xs" asChild title="Open a module warranty claim with this sweep linked">
                       <Link to={newClaimHref("sweep", { plantId, sn, stringNo, ref: active.id })}>Open claim</Link>
                     </Button>

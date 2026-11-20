@@ -1,6 +1,6 @@
 # Plan & Spec: Operations → Claims (frontend)
 
-Status: **Frontend built on mock data 2026-11-19** (backend `/claims` not started) · Created 2026-11-19 · Owner: Chanthawat
+Status: **Built 2026-11-20**: frontend 2026-11-19 on mock data, backend `/claims` 2026-11-20 (mock removed) · Created 2026-11-19 · Owner: Chanthawat
 
 A new **Claims** page in the sidebar's **Operations** group. It tracks every **warranty and insurance claim** for plant equipment: a failed Growatt inverter sent for RMA, modules below warranted power, a lightning-damaged datalogger, storm damage claimed on insurance. For each claim it shows what failed, at which plant, who the claim is with, what evidence is attached, and where the claim stands. This plan covers the frontend. It lists only the API the page needs (§8); the backend gets its own plan.
 
@@ -167,6 +167,14 @@ The backend checks status transitions (409 on an invalid one), computes `waiting
 5. Evidence checklist with links into the app.
 6. Entry points from Issues, Inverters and the I-V sweep panel (`from=` prefill, "already open" check).
 7. `bun run lint && bun run build`. Run as admin and as engineer: the engineer sees only claims on assigned plants, cannot change status or delete, and `window.__apiLog` shows only `/claims*` plus the sidebar's fleet calls.
+
+## 9a. Backend as built (2026-11-20)
+
+- Tables (SQL only, kept indefinitely, migration `9c3e5a7b2d14`): `claims`, `claim_events` (timeline; an `edit` keeps old → new in `detail`), `claim_evidence` (a row only once an item is set; the item list per type is in `services/claims.py`), `claim_links` (unique per claim, kind, ref). `plant_id` has no FK, like `site_events`: claims are kept when a plant is blocked.
+- `services/claims.py` owns the numbering (CL-YYYY-NNN, the next after the year's highest, so a deleted draft's number is never reused), `TRANSITIONS`, `WAITING`, the evidence checklist (police report required for theft), `followup_overdue` and the summary. Routes in `api/routes/claims.py`.
+- Access (§11 Q3 as the mock had it): everyone works on claims of their plants (others answer 404): create, edit open claims, evidence, links, notes / messages / shipments. Admins only: status changes, editing a closed / withdrawn claim, deleting a draft.
+- Checks: an inverter warranty needs `device_sn`; an SN must be an inverter of the plant; strings need their inverter; incident / discovered days not in the future, discovered ≥ incident; linked records must be of the claim's plant (shadow issues: admins only, and their label is hidden from engineers); a claim with links cannot move to another plant; evidence links only http(s) or an app path.
+- Tests: `backend/tests/test_claims.py`.
 
 ## 10. Later (not v1)
 
