@@ -24,7 +24,11 @@ def sync_inverter_history(
     retries: int = 3,
     stop_before: Optional[datetime] = None,
 ) -> tuple[int, int]:
-    """Fetch and upsert MAX history for one inverter. Returns (inverter_rows, string_rows)."""
+    """Fetch and upsert MAX history for one inverter. Returns (inverter_rows, string_rows).
+
+    With `stop_before` (incremental runs) only records from that time on are written: the last
+    page Growatt answers holds up to 100 records, most of them stored by earlier runs, and
+    rewriting them made `history` write ~30x more rows than it added (Nov 2026)."""
     n_inv = n_str = 0
     for a, b in _date_chunks(start, end):
         records: List[Dict[str, Any]] = _retry(
@@ -33,9 +37,12 @@ def sync_inverter_history(
             retries,
         )
         inv_rows, str_rows = parse_max_records(inverter.device_sn, records)
+        if stop_before is not None:
+            inv_rows = [r for r in inv_rows if r["timestamp"] >= stop_before]
+            str_rows = [r for r in str_rows if r["timestamp"] >= stop_before]
         _upsert(db, GrowattInverterReading, inv_rows)
         _upsert(db, GrowattStringReading, str_rows)
-        _store_raw(db, inverter.device_sn, records)
+        _store_raw(db, inverter.device_sn, records, stop_before)
         n_inv += len(inv_rows)
         n_str += len(str_rows)
     latest = db.scalar(
