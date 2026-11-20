@@ -30,8 +30,9 @@ import type {
   UserProfile,
 } from "./client";
 import { ApiError, api, getStoredUser } from "./client";
+import { CLAIMS_MOCK, onMockReset } from "./mockFlags";
 
-export const CLAIMS_MOCK: boolean = import.meta.env.DEV || import.meta.env.VITE_CLAIMS_MOCK === "1";
+export { CLAIMS_MOCK };
 
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
 const addDays = (day: string, n: number) => {
@@ -113,6 +114,10 @@ interface Row {
 let rows: Row[] | null = null;
 let nextId = 1000;
 let plants: Array<{ id: number; name: string }> = [];
+onMockReset(() => {
+  rows = null;
+  plants = [];
+});
 
 const me = (): { name: string; admin: boolean } => {
   const u: UserProfile | null = getStoredUser();

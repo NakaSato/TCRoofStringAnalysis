@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { CLAIMS_MOCK } from "@/api/mockFlags";
 
 export const TIERS: IssueTier[] = ["P1", "P2", "P3", "P4", "Info"];
 
@@ -237,7 +238,7 @@ export const IssueActions: React.FC<{ issue: Issue; onAction: (a: Exclude<IssueA
       <Button size="xs" variant="ghost" onClick={() => onAction("dismiss")}>
         Dismiss
       </Button>
-      {issue.device_sn && (
+      {CLAIMS_MOCK && issue.device_sn && (
         <Button size="xs" variant="ghost" asChild title="Open a warranty / insurance claim from this issue">
           <Link to={newClaimHref("issue", { plantId: issue.plant_id, sn: issue.device_sn, stringNo: issue.string_no, ref: issue.id })}>Claim</Link>
         </Button>

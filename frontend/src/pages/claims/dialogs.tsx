@@ -18,6 +18,7 @@ import { DayInput, Field, Footer, useSubmit } from "../tools/dialogs";
 import { claimsApi } from "./useClaims";
 import { CAUSE, CAUSE_KEYS, LINK_KIND, STATUS, TRANSITIONS, TRANSITION_LABEL, TYPE, TYPE_KEYS, isOpen } from "./format";
 import type { Prefill } from "./format";
+import { Spinner } from "@/components/ui/spinner";
 
 const str = (s: string) => (s.trim() ? s.trim() : null);
 const issueLabel = (i: Issue) => `#${i.id} ${i.rule} ${i.name}${i.string_no != null ? ` · PV${i.string_no}` : ""} (${i.status})`;
@@ -562,7 +563,7 @@ export const EvidenceDialog: React.FC<{ target: { claim: Claim; item: ClaimEvide
   });
   useEffect(() => {
     if (!target) return;
-    setDone(target.item.done || !target.item.url);
+    setDone(target.item.done); // the app never ticks an item on its own
     setUrl(target.item.url ?? "");
     setNote(target.item.note ?? "");
     setError(null);
@@ -660,7 +661,17 @@ export const LinkDialog: React.FC<{ claim: Claim | null; onClose: () => void; on
             <Field id="l-issue" label="Issue" hint={issues && !issues.length ? "No issues for this plant / inverter" : claim.device_sn ? `Issues of ${claim.device_sn} and plant-wide ones` : undefined}>
               <Select value={ref} onValueChange={setRef} disabled={!issues?.length}>
                 <SelectTrigger id="l-issue" size="sm" className="w-full">
-                  <SelectValue placeholder={issues == null ? "Loading…" : "Pick an issue"} />
+                  <SelectValue
+                    placeholder={
+                      issues == null ? (
+                        <span className="flex items-center gap-1.5">
+                          <Spinner className="size-3" /> Reading issues
+                        </span>
+                      ) : (
+                        "Pick an issue"
+                      )
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {(issues ?? []).map((i) => (

@@ -38,6 +38,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
 import { Spinner } from "@/components/ui/spinner";
+import { CLAIMS_MOCK, TOOLS_MOCK } from "../api/mockFlags";
 
 interface NavItem {
   to: string;
@@ -60,8 +61,9 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
-      { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },
-      { to: "/tools", label: "Measuring Tools", icon: Ruler, description: "Drones, meters & testers: who has them, calibration & due dates" },
+      // mock-only pages until the backend has /claims and /tools (api/mockFlags.ts): hidden when off
+      ...(CLAIMS_MOCK ? [{ to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" }] : []),
+      ...(TOOLS_MOCK ? [{ to: "/tools", label: "Measuring Tools", icon: Ruler, description: "Drones, meters & testers: who has them, calibration & due dates" }] : []),
     ],
   },
   {

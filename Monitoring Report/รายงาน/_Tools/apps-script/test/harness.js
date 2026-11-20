@@ -10,7 +10,8 @@ const colN = s => s.split('').reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0)
 function parseA1(a) { const m = /^\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(a); if (!m) throw new Error('bad A1 ' + a);
   const c1 = colN(m[1]), r1 = +m[2], c2 = m[3] ? colN(m[3]) : c1, r2 = m[4] ? +m[4] : r1; return [r1, c1, r2 - r1 + 1, c2 - c1 + 1]; }
 class Sheet {
-  constructor(ss, name, id) { Object.assign(this, { ss, name, id, rows: 1000, cols: 26, cells: {}, merges: [], hidden: false }); }
+  constructor(ss, name, id) { Object.assign(this, { ss, name, id, rows: 1000, cols: 26, cells: {}, merges: [], hidden: false, hiddenCols: new Set(), fmt: {}, textFormulas: [] }); }
+  isColumnHiddenByUser(c) { return this.hiddenCols.has(c); } hideColumns(c, n = 1) { for (let k = 0; k < n; k++) this.hiddenCols.add(c + k); }
   setName(n) { this.name = n; return this; } getName() { return this.name; } getSheetId() { return this.id; }
   getMaxRows() { return this.rows; } getMaxColumns() { return this.cols; }
   deleteRows(a, n) { const c = {}; for (const k in this.cells) { const [r, col] = k.split(',').map(Number); if (r < a) c[k] = this.cells[k]; else if (r >= a + n) c[`${r - n},${col}`] = this.cells[k]; } this.cells = c; this.rows -= n; } deleteColumns(a, n) { this.cols -= n; }
@@ -21,7 +22,7 @@ class Sheet {
   getLastRow() { return this._ext()[0]; } getLastColumn() { return this._ext()[1]; }
   getDataRange() { const [r, c] = this._ext(); return this.getRange(1, 1, Math.max(r, 1), Math.max(c, 1)); }
   appendRow(v) { const r = this.getLastRow() + 1; if (r > this.rows) this.rows = r; v.forEach((x, i) => { this.cells[`${r},${i + 1}`] = x; }); }
-  copyTo(ss) { const s = new Sheet(ss, 'Copy' + (++seq), ++seq); Object.assign(s, { rows: this.rows, cols: this.cols, cells: { ...this.cells }, images: [] }); (this.images || []).forEach(i => s.insertImage('PNG', i.c, i.r)); ss.sheets.push(s); return s; }
+  copyTo(ss) { const s = new Sheet(ss, 'Copy' + (++seq), ++seq); Object.assign(s, { rows: this.rows, cols: this.cols, cells: { ...this.cells }, images: [], merges: this.merges.map(m => [...m]), hiddenCols: new Set(this.hiddenCols), fmt: { ...this.fmt } }); (this.images || []).forEach(i => s.insertImage('PNG', i.c, i.r)); ss.sheets.push(s); return s; }
   getRange(a, b, c, d) { const [r, col, nr, nc] = typeof a === 'string' ? parseA1(a) : [a, b, c || 1, d || 1];
     if (r < 1 || col < 1 || nr < 1 || nc < 1 || r + nr - 1 > this.rows || col + nc - 1 > this.cols) throw new Error(`range oob ${this.name} ${JSON.stringify([a, b, c, d])} (sheet ${this.rows}x${this.cols})`);
     return new Range(this, r, col, nr, nc); }
@@ -34,11 +35,24 @@ class Range { constructor(sh, r, c, nr, nc) { Object.assign(this, { sh, r, c, nr
   getValue() { return this.getValues()[0][0]; }
   clearContent() { for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) delete this.sh.cells[`${this.r + i},${this.c + j}`]; return this; }
   _set(v2d, f) { if (v2d.length !== this.nr || v2d.some(x => x.length !== this.nc)) throw new Error(`dims mismatch ${this.sh.name} r${this.r}c${this.c}: range ${this.nr}x${this.nc}, data ${v2d.length}x${(v2d[0] || []).length}`);
-    v2d.forEach((row, i) => row.forEach((v, j) => { if (v === undefined || v === null) throw new Error('undefined value'); if (f && !isF(v)) throw new Error('not a formula: ' + v); this.sh.cells[`${this.r + i},${this.c + j}`] = v; })); return this; }
+    v2d.forEach((row, i) => row.forEach((v, j) => { if (v === undefined || v === null) throw new Error('undefined value'); if (f && !isF(v)) throw new Error('not a formula: ' + v); const key = `${this.r + i},${this.c + j}`; if (isF(v) && this.sh.fmt[key] === '@') this.sh.textFormulas.push(key); this.sh.cells[key] = v; })); return this; }
   setValues(v) { return this._set(v); } setFormulas(v) { return this._set(v, true); }
   setValue(v) { this.sh.cells[`${this.r},${this.c}`] = v; return this; } setFormula(v) { if (!isF(v)) throw new Error('not formula ' + v); return this.setValue(v); }
-  merge() { return this; } mergeAcross() { return this; } getMergedRanges() { return []; } copyFormatToRange() {} getFormula() { return this.getFormulas()[0][0]; } breakApart() { return this; } }
-for (const m of ['setFontFamily', 'setFontSize', 'setHorizontalAlignment', 'setVerticalAlignment', 'setWrap', 'setFontWeight', 'setBackground', 'setNumberFormat', 'setDataValidation', 'setBorder', 'setFontColor']) Range.prototype[m] = function () { return this; };
+  _box() { return [this.r, this.c, this.r + this.nr - 1, this.c + this.nc - 1]; }
+  getRow() { return this.r; } getColumn() { return this.c; } getLastRow() { return this.r + this.nr - 1; } getLastColumn() { return this.c + this.nc - 1; }
+  // merges as Sheets keeps them: a merge may not cut through another one (Sheets refuses that)
+  merge() { const [r1, c1, r2, c2] = this._box(); const keep = [];
+    for (const m of this.sh.merges) { const [a, b, c, d] = m; const meets = a <= r2 && c >= r1 && b <= c2 && d >= c1; const inside = a >= r1 && c <= r2 && b >= c1 && d <= c2;
+      if (meets && !inside) throw new Error(`merge ${this.sh.name} ${JSON.stringify(this._box())} cuts through ${JSON.stringify(m)}`); if (!meets) keep.push(m); }
+    if (this.nr * this.nc > 1) keep.push(this._box()); this.sh.merges = keep; return this; }
+  mergeAcross() { return this; }
+  getMergedRanges() { const [r1, c1, r2, c2] = this._box(); return this.sh.merges.filter(([a, b, c, d]) => a <= r2 && c >= r1 && b <= c2 && d >= c1).map(([a, b, c, d]) => new Range(this.sh, a, b, c - a + 1, d - b + 1)); }
+  breakApart() { const [r1, c1, r2, c2] = this._box(); this.sh.merges = this.sh.merges.filter(([a, b, c, d]) => !(a <= r2 && c >= r1 && b <= c2 && d >= c1)); return this; }
+  setNumberFormat(f) { for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) this.sh.fmt[`${this.r + i},${this.c + j}`] = f; return this; }
+  // copyTo(PASTE_FORMAT): formats only; merges are not carried over here (the code must make them itself)
+  copyTo(dest, type) { if (type !== 'PASTE_FORMAT') throw new Error('copyTo: only PASTE_FORMAT is mocked'); for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) { const f = this.sh.fmt[`${this.r + i},${this.c + j}`]; const k = `${dest.r + i},${dest.c + j}`; if (f === undefined) delete dest.sh.fmt[k]; else dest.sh.fmt[k] = f; } ctx.__formatCopies = (ctx.__formatCopies || []).concat([[this._box(), dest._box()]]); }
+  copyFormatToRange() {} getFormula() { return this.getFormulas()[0][0]; } }
+for (const m of ['setFontFamily', 'setFontSize', 'setHorizontalAlignment', 'setVerticalAlignment', 'setWrap', 'setFontWeight', 'setBackground', 'setDataValidation', 'setBorder', 'setFontColor']) Range.prototype[m] = function () { return this; };
 class SS { constructor(id, name) { this.id = id; this.name = name; this.sheets = [new Sheet(this, 'Sheet1', ++seq)]; }
   getId() { return this.id; } getSheets() { return this.sheets; } setSpreadsheetLocale() {} setSpreadsheetTimeZone(z) { this.tz = z; } getSpreadsheetTimeZone() { return this.tz || "Etc/GMT"; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
@@ -57,6 +71,8 @@ const GS = 'application/vnd.google-apps.spreadsheet';
 const root = new File('1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV', 'root', 'folder', null);
 new File('ovx', '00_Overview_รายงานการแก้ไข.xlsx', 'xlsx', root.id);
 const props = {}; const triggers = []; const events = [];
+// as on the live sheet: each summary box = label (row 4) over its number (rows 5–6), merged; _open_station hidden
+function liveLayout(s) { [[1, 3], [4, 4], [5, 6], [7, 7], [8, 10], [11, 13]].forEach(([a, b]) => { if (b > a) s.merges.push([4, a, 4, b]); s.merges.push([5, a, 6, b]); }); s.hiddenCols.add(14); }
 const chain = () => new Proxy(function () {}, { get: (t, k) => k === 'build' ? () => ({}) : (...a) => chain(), apply: () => chain() });
 const pad = (n, w = 2) => String(n).padStart(w, '0');
 function fmt(d, tz, f) { const b = new Date(d.getTime() + 7 * 3600000); const o = { yyyy: b.getUTCFullYear(), MM: pad(b.getUTCMonth() + 1), M: b.getUTCMonth() + 1, dd: pad(b.getUTCDate()), d: b.getUTCDate(), HH: pad(b.getUTCHours()), mm: pad(b.getUTCMinutes()) };
@@ -67,10 +83,10 @@ function apiValues(ss, a1) { const m = /^'(.+)'!(.+)$/.exec(a1); const sh = ss.g
   while (out.length && !out[out.length - 1].length) out.pop(); return out.length ? out : undefined; }
 const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN, Array,
   MimeType: { GOOGLE_SHEETS: GS },
-  SpreadsheetApp: { getActiveSpreadsheet: () => ctx.__bound || null, create: n => { const id = 'f' + (++seq); const ss = new SS(id, n); new File(id, n, GS, null, ss); return ss; }, openById: id => { if (!files[id] || !files[id].ss) throw new Error('cannot open ' + id); return files[id].ss; }, flush() {}, newDataValidation: () => chain(), newConditionalFormatRule: () => chain(), BorderStyle: { SOLID: 1, SOLID_MEDIUM: 2 } },
+  SpreadsheetApp: { getActiveSpreadsheet: () => ctx.__bound || null, create: n => { const id = 'f' + (++seq); const ss = new SS(id, n); new File(id, n, GS, null, ss); return ss; }, openById: id => { if (!files[id] || !files[id].ss) throw new Error('cannot open ' + id); return files[id].ss; }, flush() {}, CopyPasteType: { PASTE_FORMAT: 'PASTE_FORMAT' }, newDataValidation: () => chain(), newConditionalFormatRule: () => chain(), BorderStyle: { SOLID: 1, SOLID_MEDIUM: 2 } },
   DriveApp: { getFolderById: id => files[id], getFileById: id => { if (id === '1Ic106EgW9ceYs8JOAXSfViAwh1YFqb4T') return { getBlob: () => 'PNG' }; if (!files[id]) throw new Error('no file ' + id); return files[id]; } },
   Drive: { Files: { list: o => { ctx.__lists = (ctx.__lists || 0) + 1; const all = /^'(.+)' in parents and trashed = false$/.exec(o.q); if (all) { ctx.__lists--; ctx.__folderLists = (ctx.__folderLists || 0) + 1; return { files: Object.values(files).filter(f => f.parent === all[1] && !f.trashed).map(f => ({ id: f.id, name: f.name, modifiedTime: f.getLastUpdated().toISOString() })) }; } const m = /^'(.+)' in parents and trashed = false and modifiedTime > '(.+)'$/.exec(o.q); if (!m) throw new Error('bad q ' + o.q); const t = new Date(m[2]).getTime(); return { files: Object.values(files).filter(f => f.parent === m[1] && !f.trashed && f.getLastUpdated().getTime() > t).slice(0, o.pageSize).map(f => ({ id: f.id, modifiedTime: f.getLastUpdated().toISOString() })) }; },
-    get: id => ({ modifiedTime: new Date(ctx.__ovEdit || 0).toISOString() }), copy: (res, id) => { const nid = 'f' + (++seq); const ss = new SS(nid, res.name); ss.sheets = Object.keys(ov).map(n => { const s = new Sheet(ss, n, ++seq); s.rows = ov[n].rows; s.cols = ov[n].cols; for (const k in ov[n].cells) { const v = ov[n].cells[k]; s.cells[k] = v && v.__date ? new Date(v.__date) : v; } return s; }); new File(nid, res.name, GS, res.parents[0], ss); return { id: nid }; } } },
+    get: id => ({ modifiedTime: new Date(ctx.__ovEdit || 0).toISOString() }), copy: (res, id) => { const nid = 'f' + (++seq); const ss = new SS(nid, res.name); ss.sheets = Object.keys(ov).map(n => { const s = new Sheet(ss, n, ++seq); s.rows = ov[n].rows; s.cols = ov[n].cols; for (const k in ov[n].cells) { const v = ov[n].cells[k]; s.cells[k] = v && v.__date ? new Date(v.__date) : v; } if (n === 'รายงานการแก้ไข') liveLayout(s); return s; }); new File(nid, res.name, GS, res.parents[0], ss); return { id: nid }; } } },
   Sheets: { Spreadsheets: { batchUpdate: (req, id) => { if (!req.requests[0].mergeCells) { ctx.__fmt = (ctx.__fmt || 0) + 1; ctx.__reqs = req.requests; req.requests.filter(q => q.updateCells).forEach(q => { const u = q.updateCells; const sh = files[id].ss.sheets.find(x => x.id === u.start.sheetId); sh.cells[`${u.start.rowIndex + 1},${u.start.columnIndex + 1}`] = u.rows[0].values[0].userEnteredValue.stringValue; }); return; } ctx.__today = (ctx.__today || 0) + 1; const sm = files[id].ss.sheets.find(x => x.id === req.requests[0].mergeCells.range.sheetId); sm.cells['4,1'] = req.requests[1].repeatCell.cell.userEnteredValue.formulaValue; }, get: id => ({ sheets: files[id].ss.sheets.map(s => ({ properties: { sheetId: s.id, title: s.name } })) }),
     Values: { batchGet: (id, o) => ({ valueRanges: o.ranges.map(r => ({ values: apiValues(files[id].ss, r) })) }),
       update: (req, id, range) => { ctx.__sub = (ctx.__sub || 0) + 1; const m = /^'(.+)'!(.+)$/.exec(range); files[id].ss.getSheetByName(m[1]).getRange(m[2]).setValue(req.values[0][0]); }, batchUpdate: (req, id) => { ctx.__writes = (ctx.__writes || 0) + 1; req.data.forEach(d => { const m = /^'(.+)'!(.+)$/.exec(d.range); const [r, c, nr, nc] = parseA1(m[2]); files[id].ss.getSheetByName(m[1]).getRange(r, c, nr, nc).setValues(d.values); }); } } } },
@@ -81,7 +97,7 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(readCode(codePath) + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,removeLogos,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
+vm.createContext(ctx); vm.runInContext(readCode(codePath) + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,removeLogos,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,writeLastReport_,addBox_,issueTable_,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
 const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
@@ -123,7 +139,7 @@ console.log('--- Overview สถานี row 2'); show(st, [2]);
 console.log('--- _log'); show(O.getSheetByName('_log'), [1, 2, 3, 4]);
 { const lc = Object.keys(st.cells).find(k => k.startsWith('1,') && st.cells[k] === 'รายงานล่าสุด'); const c = lc && +lc.split(',')[1];
   const filled = Object.keys(st.cells).filter(k => c && +k.split(',')[1] === c && +k.split(',')[0] > 1 && st.cells[k] !== '').map(k => st.cells[`${k.split(',')[0]},1`] + '=' + st.cells[k]);
-  console.log('รายงานล่าสุด column', c, ':', filled.join(' '), '· box', Object.keys(T.cells).filter(k => T.cells[k] === 'รายงานวันนี้').join(), '→', T.cells['5,12']); }
+  const at = Object.keys(T.cells).find(k => T.cells[k] === 'รายงานวันนี้'); console.log('รายงานล่าสุด column', c, ':', filled.join(' '), '· box', at, '→', at && T.cells[`5,${at.split(',')[1]}`]); }
 { const R = O.getSheetByName('รายงานวันนี้'); console.log('sheet รายงานวันนี้ at', O.sheets.indexOf(R), ':'); show(R, [1, 2, 3, 4, 5]); console.log('   grid', R.rows, 'x', R.cols); }
 // 4) idempotency
 api.syncNow(); drain(); const snap = sh => JSON.stringify(Object.entries(sh.cells).filter(([k, v]) => v !== '' && k !== '2,1').sort());
@@ -257,3 +273,51 @@ try {
   add('P1-003|OLD4|20250701', '01/07/2568', 'ปิดงาน'); const m3 = api.archiveYear(2025);
   console.log('second run adds to the same file:', m3, '· rows now', arch.ss.sheets[0].getLastRow() - 1);
 } catch (e) { console.log('section 12 failed:', e.stack); }
+// 13) audit fixes: the รายงานวันนี้ box (#66), archive formulas / January / lock (#64), dates typed by hand (#66)
+try {
+  delete props.job;
+  const box = () => Object.keys(T.cells).filter(k => T.cells[k] === 'รายงานวันนี้' && +k.split(',')[0] < 9);
+  const m = () => JSON.stringify(T.merges.filter(x => x[1] >= 14).sort());
+  const [lab] = box(), bc = lab && +lab.split(',')[1];
+  console.log('box: label', lab, '(O4 = 4,15) · visible:', bc && !T.hiddenCols.has(bc), '· number under it:', /^=COUNTIF/.test(T.cells[`5,${bc}`] || ''),
+    '· merges', m(), '(want [4,15,4,17] + [5,15,6,17]) · format copied over rows 4–6:', JSON.stringify((ctx.__formatCopies || []).slice(-1)[0]));
+  // a sheet an older version wrote: label + number in the hidden _open_station column → moved, cleared there
+  Object.keys(T.cells).filter(k => +k.split(',')[0] < 9 && +k.split(',')[1] >= 14).forEach(k => delete T.cells[k]);
+  T.merges = T.merges.filter(x => x[1] < 14); T.cells['4,14'] = 'รายงานวันนี้'; T.cells['5,14'] = '=COUNTIF(x)';
+  api.syncNow(); drain();
+  console.log('hidden box repaired: label now', box().join(), '· N4/N5 cleared:', !T.cells['4,14'] && !T.cells['5,14'], '· merges', m());
+  // the table is as wide as its header: archive / sync never touch the box columns
+  console.log('table width = header (14):', api.issueTable_(O).width);
+
+  // archive: =HYPERLINK keeps working (only date columns are text), the rows left are numbered 1…
+  const hr = 9, head = {}; for (let c = 1; c <= 14; c++) { const v = T.cells[`${hr},${c}`]; if (v) head[String(v).trim()] = c; }
+  const add = (key, found, status, link) => { const r = T.getLastRow() + 1; T.rows = Math.max(T.rows, r); T.cells[`${r},${head['No.']}`] = 99; T.cells[`${r},${head['รหัสปัญหา']}`] = key; T.cells[`${r},${head['วันที่พบ']}`] = found; T.cells[`${r},${head['สถานะ']}`] = status; if (link) T.cells[`${r},${head['รายงาน']}`] = link; };
+  props.archived = '[]';
+  add('P1-001|OLD9|20240305', '05/03/2567', 'ปิดงาน', '=HYPERLINK("https://docs.google.com/spreadsheets/d/x/edit","เปิด")');
+  api.archiveYear(2024);
+  const a24 = Object.values(files).find(f => f.name === 'รายงานการแก้ไข_เก็บ_2567').ss.sheets[0];
+  const linkCell = Object.keys(a24.cells).find(k => /HYPERLINK/.test(a24.cells[k]));
+  const nos = []; for (let r = hr + 1; r <= T.getLastRow(); r++) if (T.cells[`${r},${head['รหัสปัญหา']}`]) nos.push(T.cells[`${r},${head['No.']}`]);
+  console.log('archive: link kept as a formula:', !!linkCell && a24.fmt[linkCell] !== '@' && a24.textFormulas.length === 0,
+    '· date column text:', a24.fmt[`2,${head['วันที่พบ']}`] === '@', '· No. left 1…n:', nos.every((v, i) => v === i + 1), `(${nos.length} rows)`);
+
+  // January: last year's December can still be synced, so that year is refused until February
+  const RealDate = ctx.Date;
+  const at2 = (y, mo) => class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(y, mo, 15, 12); } static now() { return new RealDate(y, mo, 15, 12).getTime(); } };
+  ctx.Date = at2(2027, 0); let ej = ''; try { api.archiveYear(2026); } catch (e) { ej = e.message; }
+  ctx.Date = at2(2027, 1); let ef = ''; try { api.archiveYear(2026); } catch (e) { ef = e.message; }
+  ctx.Date = RealDate;
+  console.log('January refuses last year:', /กุมภาพันธ์/.test(ej), '· February allows it:', !/กุมภาพันธ์/.test(ef), ef ? `(${ef.slice(0, 60)})` : '');
+
+  // a job is checked under the lock; one left by another root folder no longer blocks
+  props.job = 'sync'; props.ym = '2026-11'; props.root = api.rootId_(); let eb = ''; try { api.archiveYear(2023); } catch (e) { eb = e.message; }
+  props.root = 'OLD_ROOT'; let eo = ''; try { api.archiveYear(2023); } catch (e) { eo = e.message; }
+  console.log('active job refuses:', /มีงานค้าง/.test(eb), '· old-root job dropped:', !/มีงานค้าง/.test(eo) && !props.job);
+
+  // รายงานล่าสุด: a date typed by hand into a row the sync does not touch is written back as พ.ศ. text
+  const S = O.getSheetByName('สถานี'); const shead = []; for (let c = 1; c <= S.cols; c++) shead.push(String(S.cells[`1,${c}`] || '').trim());
+  const lc = shead.indexOf('รายงานล่าสุด') + 1, codeA = S.cells['2,1'], codeB = S.cells['3,1'];
+  S.cells[`3,${lc}`] = new Date(2026, 10, 3);
+  api.writeLastReport_(O, '2026-11', { [codeA]: { lastReport: new Date(2026, 10, 20) } });
+  console.log('typed date normalised:', S.cells[`3,${lc}`], '(want "03/11/2569") · synced row:', S.cells[`2,${lc}`], '· codes', codeA, codeB);
+} catch (e) { console.log('section 13 failed:', e.stack); }

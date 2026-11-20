@@ -37,7 +37,8 @@ export function useClaims() {
     .map((p) => p.plant_id)
     .join(",");
   const seedKey = CLAIMS_MOCK ? plantKey : "";
-  if (CLAIMS_MOCK && growattPlants.length) claimsMock.setPlants(growattPlants.slice(0, 5).map((p) => ({ id: p.plant_id, name: p.name })));
+  const seedPlants = useRef(growattPlants);
+  seedPlants.current = growattPlants;
 
   const reload = useCallback(async () => {
     const n = ++seq.current;
@@ -56,6 +57,7 @@ export function useClaims() {
   }, []);
 
   useEffect(() => {
+    if (seedKey) claimsMock.setPlants(seedPlants.current.slice(0, 5).map((p) => ({ id: p.plant_id, name: p.name })));
     void reload();
     const t = setInterval(() => {
       if (!document.hidden) void reload();

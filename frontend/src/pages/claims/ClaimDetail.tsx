@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { claimsApi } from "./useClaims";
 import { StatusBadge, WaitingText } from "./ClaimTable";
 import { CAUSE, LINK_KIND, STATUS, TYPE, evidenceHref, fmtDay, inverterHref, isOpen, linkHref, relDays, stringHref } from "./format";
+import { safeHref } from "@/lib/safeUrl";
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex justify-between gap-3 border-b border-white/[0.05] py-1.5 text-xs last:border-0">
@@ -262,8 +263,8 @@ export const ClaimDetail: React.FC<{
                         {e.note && <span className="block text-[11px] text-muted-foreground">{e.note}</span>}
                         {e.done && e.by && <span className="block text-[11px] text-slate-500">{[e.by, e.at?.slice(0, 16)].filter(Boolean).join(" · ")}</span>}
                       </span>
-                      {e.url && (
-                        <a href={e.url} target="_blank" rel="noreferrer" className="hover:text-solar-400">
+                      {safeHref(e.url) && (
+                        <a href={safeHref(e.url)} target="_blank" rel="noreferrer" className="hover:text-solar-400">
                           File
                         </a>
                       )}
