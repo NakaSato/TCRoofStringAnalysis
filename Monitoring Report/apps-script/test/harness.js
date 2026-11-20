@@ -1,5 +1,9 @@
 const fs = require('fs'), vm = require('vm');
 const [codePath, sheetPath, apiPath] = process.argv.slice(2);
+// codePath: the script folder (every *.gs in name order, as clasp pushes them) or one .gs file
+const readCode = p => fs.statSync(p).isDirectory()
+  ? fs.readdirSync(p).filter(f => f.endsWith('.gs')).sort().map(f => fs.readFileSync(require('path').join(p, f), 'utf8')).join('\n')
+  : fs.readFileSync(p, 'utf8');
 const src = JSON.parse(fs.readFileSync(sheetPath, 'utf8'));
 const api = JSON.parse(fs.readFileSync(apiPath, 'utf8'));
 
@@ -80,7 +84,7 @@ function world(opts = {}) {
     },
   };
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(codePath, 'utf8') + '\n;this.C = {CHECK_HOURS, DEFAULT_FETCH, FETCH_WINDOW, DASH, FIRST_ROW, REPORT_URL};', ctx, { filename: 'Code.gs' });
+  vm.runInContext(readCode(codePath) + '\n;this.C = {CHECK_HOURS, DEFAULT_FETCH, FETCH_WINDOW, DASH, FIRST_ROW, REPORT_URL};', ctx, { filename: 'apps-script' });
   w.ctx = ctx; return w;
 }
 // API stand-in: the saved sample holds check 09 only; other hours come back unpublished (no checks).

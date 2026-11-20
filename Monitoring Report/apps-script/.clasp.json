@@ -1,4 +1,13 @@
 {
   "scriptId": "10-WJgCWwhDa7st3CaLRlL889cNqKcnc5wf_UVzhsmJBK9JTK69rhlc2K",
-  "rootDir": "."
+  "rootDir": ".",
+  "filePushOrder": [
+    "00_Config.gs",
+    "01_Menu.gs",
+    "02_Auto.gs",
+    "03_Archive.gs",
+    "04_Fill.gs",
+    "05_Api.gs",
+    "06_Helpers.gs"
+  ]
 }

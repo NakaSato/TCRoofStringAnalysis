@@ -1,4 +1,5 @@
-# Upload only the script and its manifest (never the local test files)
+# Upload only the script files and the manifest (never the local test files)
 **/**
-!Code.gs
+!*.gs
 !appsscript.json
+test/**
