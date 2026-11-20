@@ -152,13 +152,25 @@ def _deliver(
     tokens: Dict[int, List[str]] = {}
     for uid, token in db.execute(select(PushToken.user_id, PushToken.token).where(PushToken.user_id.in_(todo))):
         tokens.setdefault(uid, []).append(token)
+    owners = [uid for uid, (data, _) in todo.items() for _tok in tokens.get(uid, [])]
     msgs = [push.Msg(tok, data) for uid, (data, _) in todo.items() for tok in tokens.get(uid, [])]
-    counts = push._send(db, send, msgs) if msgs else {"sent": 0, "failed": 0, "removed": 0}
-    # after the send: if it raised (FCM unreachable), the next run tries again
+    counts, results = push._send_each(db, send, msgs) if msgs else ({"sent": 0, "failed": 0, "removed": 0}, [])
+    # Marks are written after the send (if it raised, FCM unreachable, the next run tries again)
+    # and only for people reached: one device accepted, or none left to try (all gone / none
+    # registered). Anyone whose every message failed for another reason is tried again next run.
+    reached: Set[int] = set()
+    retry: Set[int] = set()
+    for uid, r in zip(owners, results):
+        if r is None:
+            reached.add(uid)
+        elif r != push.GONE:
+            retry.add(uid)
+    retry -= reached
     for uid, (_, n) in todo.items():
-        db.add(OmPushMark(user_id=uid, kind=kind, day=day, tasks=n, pushed_at=now))
+        if uid not in retry:
+            db.add(OmPushMark(user_id=uid, kind=kind, day=day, tasks=n, pushed_at=now))
     db.commit()
-    return {**detail, **counts}
+    return {**detail, **counts, "retry": len(retry)}
 
 
 def _off(db: Session) -> Optional[Dict[str, Any]]:

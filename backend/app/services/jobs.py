@@ -365,6 +365,9 @@ def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     from app.services import push
 
     detail["alarm_push_marks"] = push.prune(db, _today())
+    from app.services import om_reminders
+
+    detail["om_push_marks"] = om_reminders.prune(db, _today())
     detail["log_rows"] = prune_logs(db, datetime.now(timezone.utc), settings.log_retention_days, settings.log_max_rows)
     return "ok", detail
 

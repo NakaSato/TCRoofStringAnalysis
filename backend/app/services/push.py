@@ -206,6 +206,11 @@ def _sender(sender: Optional[Sender]) -> Optional[Sender]:
 
 def _send(db: Session, sender: Sender, msgs: List[Msg]) -> Dict[str, int]:
     """Send, delete the tokens FCM no longer knows, and count the outcomes."""
+    return _send_each(db, sender, msgs)[0]
+
+
+def _send_each(db: Session, sender: Sender, msgs: List[Msg]) -> Tuple[Dict[str, int], List[Optional[str]]]:
+    """As `_send`, plus each message's result (None = accepted, GONE, else an error name)."""
     results = sender(msgs)
     gone = {m.token for m, r in zip(msgs, results) if r == GONE}
     if gone:
@@ -214,7 +219,7 @@ def _send(db: Session, sender: Sender, msgs: List[Msg]) -> Dict[str, int]:
     failed = [r for r in results if r not in (None, GONE)]
     if failed:
         log.warning("push: %d of %d messages failed (%s)", len(failed), len(msgs), ", ".join(sorted(set(failed))))
-    return {"sent": sum(1 for r in results if r is None), "failed": len(failed), "removed": len(gone)}
+    return {"sent": sum(1 for r in results if r is None), "failed": len(failed), "removed": len(gone)}, results
 
 
 # ---- new alarm events --------------------------------------------------------------------------

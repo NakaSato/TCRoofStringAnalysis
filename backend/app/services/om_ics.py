@@ -35,12 +35,20 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """SQLite drops tzinfo: the stored value is UTC."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 def status(db: Session, user: User) -> Dict[str, Any]:
     row = db.get(OmIcsFeed, user.id)
+    created, used = (_utc(row.created_at), _utc(row.last_used_at)) if row else (None, None)
     return {
         "enabled": row is not None,
-        "created_at": row.created_at.isoformat() if row else None,
-        "last_used_at": row.last_used_at.isoformat() if row and row.last_used_at else None,
+        "created_at": created.isoformat() if created else None,
+        "last_used_at": used.isoformat() if used else None,
         "past_days": PAST_DAYS,
         "ahead_days": AHEAD_DAYS,
     }
@@ -78,7 +86,7 @@ def user_for(db: Session, token: str) -> Optional[User]:
         return None
     now = datetime.now(timezone.utc)
     last = row.last_used_at
-    if last is None or now - (last if last.tzinfo else last.replace(tzinfo=timezone.utc)) >= TOUCH_EVERY:
+    if last is None or now - _utc(last) >= TOUCH_EVERY:  # type: ignore[operator]
         row.last_used_at = now
         db.commit()
     return user
@@ -106,7 +114,7 @@ def _fold(line: str) -> List[str]:
     """RFC 5545 §3.1: lines of at most 75 octets, continued with a leading space."""
     out: List[str] = []
     raw = line.encode()
-    while len(raw) > 75:
+    while len(raw) > (75 if not out else 74):  # a continuation line is 74 octets + its leading space
         cut = 75 if not out else 74
         while cut > 0 and (raw[cut] & 0xC0) == 0x80:  # don't split a UTF-8 character
             cut -= 1
@@ -117,9 +125,7 @@ def _fold(line: str) -> List[str]:
 
 
 def _stamp(dt: Optional[datetime]) -> str:
-    dt = dt or datetime.now(timezone.utc)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+    dt = _utc(dt) or datetime.now(timezone.utc)
     return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 

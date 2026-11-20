@@ -36,7 +36,7 @@ def upgrade() -> None:
     if "om_ics_feeds" not in have:
         op.create_table(
             "om_ics_feeds",
-            sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+            sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, autoincrement=False),
             sa.Column("token_hash", sa.String(64), nullable=False, unique=True),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
