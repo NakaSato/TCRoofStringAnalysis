@@ -77,7 +77,8 @@ def sync_meter_history(
     retries: int = 3,
     stop_before: Optional[datetime] = None,
 ) -> int:
-    """Fetch and upsert one meter's history. Returns rows written."""
+    """Fetch and upsert one meter's history. Returns rows written.
+    With `stop_before` only records from that time on are written (see `sync_inverter_history`)."""
     n = 0
     for a, b in _date_chunks(start, end):
         records = _retry(
@@ -86,6 +87,8 @@ def sync_meter_history(
             retries,
         )
         rows = parse_meter_records(meter.datalogger_sn, meter.address, records)
+        if stop_before is not None:
+            rows = [r for r in rows if r["timestamp"] >= stop_before]
         _upsert(db, GrowattMeterReading, rows)
         n += len(rows)
     latest = db.scalar(
