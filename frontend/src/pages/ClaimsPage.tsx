@@ -92,7 +92,7 @@ export const ClaimsPage: React.FC = () => {
   const claimId = /^\d+$/.test(url.get("claim") ?? "") ? Number(url.get("claim")) : null;
   const prefill = useMemo(() => readPrefill(url), [url]);
 
-  const { data, loading, error, reload, mock } = useClaims();
+  const { data, loading, error, reload } = useClaims();
   const [version, setVersion] = useState(0);
   const changed = useCallback(() => {
     setVersion((v) => v + 1);
@@ -199,7 +199,7 @@ export const ClaimsPage: React.FC = () => {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [rows.length > 0, firstRead, mock, actionError]);
+  }, [rows.length > 0, firstRead, actionError]);
   useEffect(() => setPage(0), [tab, query, type, status, withParam, plantParam, wait, sort, desc]);
   const { pageNo } = pageBounds(rows.length, fit.pageSize, page);
   const shown = rows.slice(pageNo * fit.pageSize, (pageNo + 1) * fit.pageSize);
@@ -322,15 +322,6 @@ export const ClaimsPage: React.FC = () => {
         </div>
       </div>
 
-      {mock && (
-        <Alert variant="warn">
-          <AlertTitle>Mock data</AlertTitle>
-          <AlertDescription>
-            The backend has no <code>/claims</code> API yet. These claims are examples (serials start with MOCK, references are made up), and
-            changes stay in this tab only: a reload starts over and nothing is saved. Linked issues are read from the real Issues API.
-          </AlertDescription>
-        </Alert>
-      )}
       {error && !data && (
         <Alert variant="destructive">
           <AlertTitle>Could not load the claims</AlertTitle>

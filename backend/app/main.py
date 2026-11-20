@@ -14,6 +14,7 @@ from app.api.routes import (
     assistant,
     auth,
     calendar_feed,
+    claims,
     datasets,
     growatt,
     maintenance,
@@ -77,6 +78,8 @@ def create_app() -> FastAPI:
     api_router.include_router(assistant.router, dependencies=[Depends(get_current_user)])
     # Alarm push notifications: each user manages only their own devices
     api_router.include_router(push.router, dependencies=[Depends(get_current_user)])
+    # Claims: scoped to the user's plants per route; status changes and delete are admin only
+    api_router.include_router(claims.router, dependencies=[Depends(get_current_user)])
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
     # Growatt plants an engineer is assigned, so they are admin only.
     admin_only = [Depends(require_admin)]
