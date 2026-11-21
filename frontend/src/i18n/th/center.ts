@@ -107,8 +107,8 @@ export const TH_CENTER: Record<string, string> = {
   "Could not load the inverter-side figures": "โหลดตัวเลขฝั่งอินเวอร์เตอร์ไม่สำเร็จ",
   "Could not load the PWA meter report": "โหลดรายงานมิเตอร์ PWA ไม่สำเร็จ",
   "Inverter-side baht use the default tariff": "ยอดบาทฝั่งอินเวอร์เตอร์ใช้อัตราค่าไฟเริ่มต้น",
-  "No tariff has been saved yet (PUT /growatt/tariff), so the inverter-side ฿ are priced at the built-in default rates.":
-    "ยังไม่ได้บันทึกอัตราค่าไฟ (PUT /growatt/tariff) ยอด ฿ ฝั่งอินเวอร์เตอร์จึงคิดตามอัตราเริ่มต้นของระบบ",
+  "No tariff has been saved yet (Settings → Price per kWh), so the inverter-side ฿ are priced at the built-in default rates.":
+    "ยังไม่ได้บันทึกอัตราค่าไฟ (ตั้งค่า → ราคาต่อหน่วย) ยอด ฿ ฝั่งอินเวอร์เตอร์จึงคิดตามอัตราเริ่มต้นของระบบ",
 
   // ---- tile groups ----
   Billing: "การเรียกเก็บ",

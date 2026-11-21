@@ -528,6 +528,34 @@ def test_rule_settings_routes_are_gone_and_tariff_routes_work(tmp_path):
         assert tariff.pricer(db).thb(9001, 2.0, 2.0) == pytest.approx(7.0)
 
 
+def test_tariff_pwa_contract_and_pwa_rates_route(tmp_path):
+    """Settings page: GET carries the PWA contract prices; POST pwa-rates (admin) gives PWA plants
+    without a rate the book price and keeps a rate already entered; engineers see their plants only."""
+    from app.db.models import PwaMeterSite
+    from app.services import pwa_meter
+
+    f, client, admin, eng = _api(tmp_path)
+    with f() as db:
+        for sid, pid in (("P1-1", 9001), ("P1-2", 9002)):
+            db.add(PwaMeterSite(site_id=sid, phase=1, name=sid, kwp=100.0, growatt_plant_id=pid))
+        db.commit()
+    book = pwa_meter.criteria()["tariff"]["book_price_thb_per_kwh"]
+    t = client.get("/growatt/tariff", headers=admin).json()
+    assert t["pwa_contract"]["book_price_thb_per_kwh"] == book and t["pwa_contract"]["plant_ids"] == [9001, 9002]
+    client.put("/growatt/tariff", json={**{k: t[k] for k in tariff.DEFAULT_TARIFF}, "plant_rates": {"9002": {"thb_per_kwh": 3.1, "basis": "PPA"}}}, headers=admin)
+
+    assert client.post("/growatt/tariff/pwa-rates", headers=eng).status_code == 403
+    r = client.post("/growatt/tariff/pwa-rates", headers=admin).json()
+    assert r["added"] == 1 and r["kept"] == 1 and r["applied"] is True and r["plants"] == [9001]
+    rates = r["tariff"]["plant_rates"]
+    assert rates["9001"] == {"thb_per_kwh": book, "basis": "PWA contract"} and rates["9002"]["thb_per_kwh"] == 3.1
+    again = client.post("/growatt/tariff/pwa-rates", headers=admin).json()
+    assert again["added"] == 0 and again["applied"] is False and again["published"] is None
+
+    e = client.get("/growatt/tariff", headers=eng).json()
+    assert e["plant_rates"] == {"9001": rates["9001"]} and e["pwa_contract"]["plant_ids"] == [9001]
+
+
 def test_day_rates_weight_tou_by_stored_power_and_scope_by_plant(tmp_path):
     """Fleet revenue prices each plant's yield at its own rate: flat PPA, else TOU weighted by
     the on-peak share of its stored power that day; no power yet = off-peak (never inflated)."""

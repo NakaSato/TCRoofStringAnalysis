@@ -80,6 +80,55 @@ export interface TariffRates {
   meta: { source: "db"; estimated: boolean };
 }
 
+/** Flat price for one plant (PPA / PWA contract), used instead of the TOU rates. */
+export interface PlantRate {
+  thb_per_kwh: number;
+  basis: string | null;
+}
+
+/** The tariff as saved (`PUT /growatt/tariff`): TOU on / off-peak + Ft, on-peak days
+ * (0 = Monday) and hours, holidays (off-peak) and per-plant flat rates. */
+export interface Tariff {
+  on_peak_thb: number;
+  off_peak_thb: number;
+  ft_thb: number;
+  on_peak_days: number[];
+  on_peak_start: string;
+  on_peak_end: string;
+  holidays: string[];
+  valid_from: string | null;
+  plant_rates: Record<string, PlantRate>;
+}
+
+/** PWA contract prices from the meter criteria file (read only); `plant_ids` = the visible
+ * PWA meter-report plants. */
+export interface PwaContractPrices {
+  book_price_thb_per_kwh: number;
+  tou_net_thb_per_kwh?: number;
+  tou_p90_thb_per_kwh?: number;
+  pwa_grid_price_thb_per_kwh?: number;
+  note?: string;
+  criteria_version?: string | null;
+  plant_ids: number[];
+}
+
+export interface TariffOut extends Tariff {
+  source: "default" | "saved";
+  updated_by: string | null;
+  updated_at: string | null;
+  pwa_contract: PwaContractPrices | null;
+  published?: { sink: string | null; written: number; deferred?: boolean; error?: string } | null;
+}
+
+export interface PwaRatesResult {
+  added: number;
+  kept: number;
+  applied: boolean;
+  plants: number[];
+  tariff: TariffOut;
+  published: TariffOut["published"];
+}
+
 export interface StringRuleDay {
   day: string;
   gated_slots: number;

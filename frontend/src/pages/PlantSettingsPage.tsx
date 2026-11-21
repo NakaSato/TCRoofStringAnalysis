@@ -1,256 +1,98 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Save, Sliders, Cpu, CheckCircle2, Globe2, Layers } from "lucide-react";
-import { useAppContext, usePlantHref } from "../context/AppContext";
-import { api, FleetModuleOut, StringSpec } from "../api/client";
-import { PageHeader, Panel } from "../components/ui";
-import { FleetModulePanel } from "../components/FleetModulePanel";
+import React from "react";
+import { Banknote, Cpu, Layers } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { useAppContext } from "../context/AppContext";
 import { isAdmin } from "../auth/access";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { pick, useUrlState } from "@/lib/useUrlState";
+import { cn } from "@/lib/utils";
 import { useI18n } from "../i18n";
+import { ModuleSettings } from "./settings/ModuleSettings";
+import { PriceSettings } from "./settings/PriceSettings";
+import { PlantLinks } from "./settings/PlantLinks";
 
+const SECTIONS = ["module", "price", "plant"] as const;
+type Section = (typeof SECTIONS)[number];
+
+const META: Record<Section, { label: string; hint: string; icon: LucideIcon }> = {
+  module: { label: "PV module", hint: "Ratings every string uses", icon: Cpu },
+  price: { label: "Price per kWh", hint: "TOU, Ft, flat rates, PWA", icon: Banknote },
+  plant: { label: "Per-plant settings", hint: "Where they live", icon: Layers },
+};
+
+/**
+ * Settings (`/settings?tab=module|price|plant`): fleet-wide settings, one section at a time.
+ * Sections pick from a side menu on wide screens and from line tabs on phones. Each editable
+ * section saves on its own (sticky bar while there are unsaved changes).
+ */
 export const PlantSettingsPage: React.FC = () => {
-  const { activePlant, refreshAll, user } = useAppContext();
-  const plantHref = usePlantHref();
+  const { user } = useAppContext();
   const { t } = useI18n();
-  const admin = isAdmin(user); // the legacy plant / string-spec form is admin only
-  const [name, setName] = useState("");
-  const [location, setLocation] = useState("");
-  const [lat, setLat] = useState(13.7563);
-  const [lon, setLon] = useState(100.5018);
-  const [lossFactor, setLossFactor] = useState(0.04);
-  const [specs, setSpecs] = useState<StringSpec[]>([]);
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
-  const [fleetModule, setFleetModule] = useState<FleetModuleOut | null>(null);
-
-  useEffect(() => {
-    api.getFleetModule().then(setFleetModule).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (activePlant) {
-      setName(activePlant.name);
-      setLocation(activePlant.location);
-      setLat(activePlant.latitude);
-      setLon(activePlant.longitude);
-      setLossFactor(activePlant.system_loss_factor);
-      setSpecs(activePlant.string_specs || []);
-    }
-  }, [activePlant]);
-
-  const handleSavePlant = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activePlant) return;
-    setSavedMsg(null);
-    await api.updatePlant(activePlant.id, {
-      ...activePlant,
-      name,
-      location,
-      latitude: lat,
-      longitude: lon,
-      system_loss_factor: lossFactor,
-    });
-    await api.updatePlantStrings(activePlant.id, specs);
-    await refreshAll();
-    setSavedMsg("Legacy plant and string specifications saved.");
-  };
-
-  const updateSpecField = (idx: number, field: keyof StringSpec, value: any) => {
-    const copy = [...specs];
-    copy[idx] = { ...copy[idx], [field]: value };
-    setSpecs(copy);
-  };
+  const [url, setUrl] = useUrlState();
+  const tab = pick(url.get("tab"), SECTIONS, "module");
+  const go = (s: string) => setUrl({ tab: s === "module" ? null : s });
+  const admin = isAdmin(user);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        icon={Globe2}
-        eyebrow={t("System · Settings")}
-        title={t("Settings")}
-        description={t("Fleet-wide settings that apply to every Growatt plant. Settings that belong to one plant live on that plant's tabs.")}
-      />
-
-      {savedMsg && (
-        <div className="callout-ok flex items-center gap-2 font-medium">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-          <span>{t(savedMsg)}</span>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <h1 className="text-lg font-semibold">{t("Settings")}</h1>
+          <p className="text-xs text-muted-foreground">
+            {t("Fleet-wide settings that apply to every Growatt plant. Settings that belong to one plant live on that plant's tabs.")}
+          </p>
         </div>
-      )}
+        <Badge variant={admin ? "info" : "neutral"}>{admin ? t("Admin: can edit") : t("Read only")}</Badge>
+      </div>
 
-      <FleetModulePanel module={fleetModule} onSaved={setFleetModule} />
+      {/* phones: line tabs */}
+      <Tabs value={tab} onValueChange={go} className="lg:hidden">
+        <TabsList variant="line" className="w-full justify-start overflow-x-auto">
+          {SECTIONS.map((s) => (
+            <TabsTrigger key={s} value={s}>
+              {t(META[s].label)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
-      <Panel icon={Layers} title={t("Per-plant settings")} subtitle={t("Not global: set these on the selected plant")}>
-        <ul className="space-y-2 text-xs text-slate-300">
-          <li>
-            <Link to={plantHref("string-layout")} className="font-semibold text-sky-300 underline">
-              {t("String Layout")}
-            </Link>{" "}
-            {t("— modules per string and module Wp for one plant (blank Wp uses the fleet module above).")}
-          </li>
-          {admin && (
-            <li>
-              <Link to="/users" className="font-semibold text-sky-300 underline">
-                {t("Users & Access")}
-              </Link>{" "}
-              {t("— which plants each engineer can see.")}
-            </li>
-          )}
-        </ul>
-      </Panel>
+      <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)]">
+        {/* wide screens: side menu */}
+        <nav aria-label={t("Settings sections")} className="hidden lg:block">
+          <ul className="sticky top-4 space-y-1">
+            {SECTIONS.map((s) => {
+              const { icon: Icon, label, hint } = META[s];
+              const active = s === tab;
+              return (
+                <li key={s}>
+                  <button
+                    type="button"
+                    onClick={() => go(s)}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
+                      active ? "bg-white/[0.06] text-white" : "text-muted-foreground hover:bg-white/[0.03] hover:text-white"
+                    )}
+                  >
+                    <Icon className={cn("mt-0.5 size-4 shrink-0", active && "text-solar-400")} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{t(label)}</span>
+                      <span className="block text-[11px] text-muted-foreground">{t(hint)}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
 
-      {admin && (
-      <details className="group">
-        <summary className="cursor-pointer select-none text-xs font-semibold text-slate-400 hover:text-slate-200">
-          {t("Legacy analysis plant (uploaded / simulated datasets, not Growatt plants)")}
-        </summary>
-      <form onSubmit={handleSavePlant} className="mt-4 space-y-6">
-        <Panel icon={Sliders} title={t("General Plant Metadata")} subtitle={t("Geolocation and baseline system loss parameters")}>
-          <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-5">
-            <div className="md:col-span-2">
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Plant Name")}</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Location")}</Label>
-              <Input value={location} onChange={(e) => setLocation(e.target.value)} />
-            </div>
-            <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Latitude / Longitude")}</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={lat}
-                  onChange={(e) => setLat(Number(e.target.value))}
-                  className="num"
-                />
-                <Input
-                  type="number"
-                  step="0.0001"
-                  value={lon}
-                  onChange={(e) => setLon(Number(e.target.value))}
-                  className="num"
-                />
-              </div>
-            </div>
-            <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("System Loss Factor")}</Label>
-              <Input
-                type="number"
-                step="0.005"
-                value={lossFactor}
-                onChange={(e) => setLossFactor(Number(e.target.value))}
-                className="num"
-              />
-            </div>
-          </div>
-        </Panel>
-
-        <Panel
-          icon={Cpu}
-          title={t("Per-String Electrical Specifications")}
-          subtitle={t("STC nameplate parameters for each PV string and MPPT channel")}
-        >
-          <Table containerClassName="table-wrap">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("String ID")}</TableHead>
-                  <TableHead>{t("Inverter")}</TableHead>
-                  <TableHead>MPPT</TableHead>
-                  <TableHead>{t("Modules")}</TableHead>
-                  <TableHead>Module Wp</TableHead>
-                  <TableHead>Voc STC (V)</TableHead>
-                  <TableHead>Vmp STC (V)</TableHead>
-                  <TableHead>Isc STC (A)</TableHead>
-                  <TableHead>Imp STC (A)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {specs.map((s, idx) => (
-                  <TableRow key={s.string_id}>
-                    <TableCell className="num whitespace-nowrap font-bold text-solar-400">{s.string_id}</TableCell>
-                    <TableCell>
-                      <Input
-                        value={s.inverter_id}
-                        onChange={(e) => updateSpecField(idx, "inverter_id", e.target.value)}
-                        className="h-7 px-2 text-[11px] num w-28"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        value={s.mppt_id}
-                        onChange={(e) => updateSpecField(idx, "mppt_id", e.target.value)}
-                        className="h-7 px-2 text-[11px] num w-24"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        value={s.modules_per_string}
-                        onChange={(e) => updateSpecField(idx, "modules_per_string", Number(e.target.value))}
-                        className="h-7 px-2 text-[11px] num w-20"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        value={s.module_wp}
-                        onChange={(e) => updateSpecField(idx, "module_wp", Number(e.target.value))}
-                        className="h-7 px-2 text-[11px] num w-24"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        value={s.voc_stc}
-                        onChange={(e) => updateSpecField(idx, "voc_stc", Number(e.target.value))}
-                        className="h-7 px-2 text-[11px] num w-24"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        value={s.vmp_stc}
-                        onChange={(e) => updateSpecField(idx, "vmp_stc", Number(e.target.value))}
-                        className="h-7 px-2 text-[11px] num w-24"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={s.isc_stc}
-                        onChange={(e) => updateSpecField(idx, "isc_stc", Number(e.target.value))}
-                        className="h-7 px-2 text-[11px] num w-24"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={s.imp_stc}
-                        onChange={(e) => updateSpecField(idx, "imp_stc", Number(e.target.value))}
-                        className="h-7 px-2 text-[11px] num w-24"
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-          </Table>
-        </Panel>
-
-        <Button type="submit" variant="default">
-          <Save className="size-4" />
-          {t("Save legacy plant & strings")}
-        </Button>
-      </form>
-      </details>
-      )}
+        <div className="min-w-0">
+          {tab === "module" && <ModuleSettings />}
+          {tab === "price" && <PriceSettings />}
+          {tab === "plant" && <PlantLinks />}
+        </div>
+      </div>
     </div>
   );
 };

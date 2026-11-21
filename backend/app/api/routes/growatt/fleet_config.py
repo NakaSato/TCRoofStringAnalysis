@@ -89,11 +89,46 @@ def _publish_safely(db: Session, fn: Any) -> Dict[str, Any]:
 
 
 @router.get("/tariff")
-def get_tariff(db: Session = Depends(get_db), _user: User = Depends(get_current_user)) -> Dict[str, Any]:
-    """Electricity tariff (TOU + Ft, per-plant PPA rates). `source = "default"` until an admin saves it."""
+def get_tariff(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Electricity tariff (TOU + Ft, per-plant PPA rates). `source = "default"` until an admin saves it.
+    `pwa_contract` = the PWA contract prices from the meter criteria file (read only, for the
+    Settings page; not part of the tariff and not published). Engineers get the plant rates and
+    PWA plant ids of their own plants only."""
     from app.services import tariff
 
-    return tariff.get_tariff(db)
+    allowed = allowed_plant_ids(db, user)
+    t = tariff.get_tariff(db)
+    if allowed is not None:
+        t["plant_rates"] = {k: v for k, v in (t.get("plant_rates") or {}).items() if int(k) in allowed}
+    return {**t, "pwa_contract": _pwa_contract(db, allowed)}
+
+
+def _pwa_contract(db: Session, allowed: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+    from app.services import pwa_meter, tariff
+
+    try:
+        c = pwa_meter.criteria()
+        ids = sorted(int(k) for k in tariff.pwa_plant_rates(db))
+    except Exception:  # noqa: BLE001 — no criteria file / table: the page shows no PWA block
+        return None
+    if allowed is not None:
+        ids = [i for i in ids if i in allowed]
+    return {**c.get("tariff", {}), "criteria_version": c.get("version"), "plant_ids": ids}
+
+
+@router.post("/tariff/pwa-rates")
+def post_tariff_pwa_rates(db: Session = Depends(get_db), user: User = Depends(require_admin)) -> Dict[str, Any]:
+    """Give every PWA meter-report plant without a flat rate the contract's book price (admin);
+    rates already entered are kept. Publishes `config/tariff` when something was added."""
+    from app.services import daily_summary, tariff
+
+    who = user.username or user.email
+    res = tariff.fill_pwa_plant_rates(db, who, apply=True)
+    published = None
+    if res["applied"]:
+        audit.info("%s set the PWA contract price on %d plants", who, res["added"])
+        published = _publish_safely(db, lambda: daily_summary.publish_config(db))
+    return {**res, "tariff": {**tariff.get_tariff(db), "pwa_contract": _pwa_contract(db)}, "published": published}
 
 
 @router.get("/tariff/rates")
@@ -121,4 +156,4 @@ def put_tariff(payload: Tariff, db: Session = Depends(get_db), user: User = Depe
     for k in tariff.DEFAULT_TARIFF:
         if old.get(k) != saved.get(k):
             audit.info("%s changed tariff %s: %s -> %s", who, k, old.get(k), saved.get(k))
-    return {**saved, "published": _publish_safely(db, lambda: daily_summary.publish_config(db))}
+    return {**saved, "pwa_contract": _pwa_contract(db), "published": _publish_safely(db, lambda: daily_summary.publish_config(db))}
