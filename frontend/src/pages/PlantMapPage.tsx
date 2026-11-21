@@ -315,8 +315,9 @@ export const PlantMapPage: React.FC = () => {
     g.clearLayers();
     const b = BASEMAPS[basemap];
     const size = b.big ? { tileSize: 512, zoomOffset: -1 } : {};
-    L.tileLayer(b.url, { maxZoom: 19, maxNativeZoom: b.maxNativeZoom, attribution: b.attribution, ...size }).addTo(g);
-    if (b.labels) L.tileLayer(b.labels, { maxZoom: 19, maxNativeZoom: b.maxNativeZoom, opacity: 0.85 }).addTo(g);
+    // crossOrigin: CORS responses, so the service worker can cache them (see vite.config.ts)
+    L.tileLayer(b.url, { maxZoom: 19, maxNativeZoom: b.maxNativeZoom, attribution: b.attribution, crossOrigin: true, ...size }).addTo(g);
+    if (b.labels) L.tileLayer(b.labels, { maxZoom: 19, maxNativeZoom: b.maxNativeZoom, opacity: 0.85, crossOrigin: true }).addTo(g);
   }, [basemap]);
 
   // markers: rebuilt when the list, the live status or the filter changes

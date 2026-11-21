@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     // Installable PWA. The service worker precaches the app's own static build only: `/api/**`
     // is never cached or served offline (live values must never be stored in the browser), and
-    // no runtime caching is configured, so API calls always go to the network.
+    // the only runtime caching is map imagery (see `runtimeCaching`), so API calls always go to the network.
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: "auto",
@@ -43,7 +43,30 @@ export default defineConfig({
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
-        runtimeCaching: [],
+        // Map imagery only (static pictures of the ground, no plant data): basemap / satellite
+        // tiles and the plant directory's roof thumbnails. Loaded with CORS (`crossOrigin`) so the
+        // responses are not opaque. Longdo / RainViewer radar tiles are left to the HTTP cache:
+        // they are live snapshots and carry the Longdo key.
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => /(^|\.)arcgisonline\.com$/.test(url.hostname) && url.pathname.includes("/MapServer/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "map-esri",
+              expiration: { maxEntries: 3000, maxAgeSeconds: 30 * 24 * 3600, purgeOnQuotaError: true },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+          {
+            urlPattern: ({ url }) => url.hostname === "api.mapbox.com" && url.pathname.startsWith("/styles/v1/") && url.pathname.includes("/tiles/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "map-mapbox",
+              expiration: { maxEntries: 1500, maxAgeSeconds: 7 * 24 * 3600, purgeOnQuotaError: true },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
       devOptions: { enabled: false },
     }),

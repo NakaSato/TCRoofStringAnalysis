@@ -129,6 +129,7 @@ export const PlantThumbnail: React.FC<{
       {showPhoto ? (
         <img
           src={satelliteUrl(lat, lon)}
+          crossOrigin="anonymous" // CORS response, so the service worker can cache it
           alt={`Satellite view of ${name}`}
           title="Satellite imagery: Esri World Imagery"
           loading="lazy"

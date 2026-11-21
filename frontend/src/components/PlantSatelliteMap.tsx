@@ -29,7 +29,7 @@ const PlantSatelliteMap: React.FC<{
   useEffect(() => {
     if (!el.current) return;
     const m = L.map(el.current, { scrollWheelZoom: false, attributionControl: true, maxZoom: 19 });
-    L.tileLayer(ESRI_IMAGERY, { maxZoom: 19, maxNativeZoom: 19, attribution: ESRI_ATTRIBUTION }).addTo(m);
+    L.tileLayer(ESRI_IMAGERY, { maxZoom: 19, maxNativeZoom: 19, attribution: ESRI_ATTRIBUTION, crossOrigin: true }).addTo(m);
     m.attributionControl.setPrefix(false);
     // circle marker: no image assets, so nothing breaks in the Vite bundle
     marker.current = L.circleMarker([0, 0], {
