@@ -155,9 +155,10 @@ A GCP budget **only sends alerts; it does not stop spending by itself**, and bil
 
 ### 4.2 Layer 2: budget and alerts
 - Budget `tcroof-monthly` of **฿3,000** on project `tcroof-string-analysis` (2026-11-13; the guard trips at ฿2,880). It replaces the ฿500 budget.
+- **2026-11-21: budget lowered to ฿1,000** (guard trips at ฿960). Planned spend (≈ ฿2,566) is over the trip point, so billing is disabled and everything stops partway through each month (about day 11; this month around Nov 26–27) until billing is re-linked. Decided by the user with that trade-off known.
 - Email at **50 %, 90 % and 100 %** of actual spend, and at **100 % of forecast spend**.
 - The budget also publishes to Pub/Sub topic `tcroof-budget`, which drives layer 3.
-- `deploy/gcp.sh` change: `BUDGET_AMOUNT` defaults to `3000THB` and `setup` updates the budget in place.
+- `deploy/gcp.sh` change: `BUDGET_AMOUNT` defaults to `1000THB` (was `3000THB` until 2026-11-21) and `setup` updates the budget in place.
 
 ### 4.3 Layer 3: automatic stop (Cloud Run function `tcroof-cost-guard`)
 The function listens to `tcroof-budget` and acts on `costAmount` against the budget amount:
