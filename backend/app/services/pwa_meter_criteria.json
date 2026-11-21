@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-21c",
+  "version": "2026-11-21d",
   "source": "PWA solar rooftop phases 1-2 daily meter reports (Cewe meters) under contract ธพ.(บล) 20/2566; TFRS 16 model v1.0",
   "units": {
     "energy": "kWh",
@@ -152,6 +152,26 @@
     },
     "gap_kwh": "sum over low and high days of (inverter_kwh * site median ratio - meter_kwh), floored at 0 (high days offset meter read-time shifts) + inverter_kwh * median ratio on meter-missing days",
     "label": "estimated"
+  },
+  "billing": {
+    "note": "monthly billing view (GET /pwa/meter/billing): per site and calendar month, billed meter kWh priced at tariff.book_price_thb_per_kwh, the contract's energy (modelled) and the shortfall split into engineering causes; each month's losses come from summary() and meter_check() over that month alone, so PI_free is the month's",
+    "shortfall_kwh": "contract_kwh - meter_kwh, both summed over the days that have a contract figure; negative = above contract",
+    "causes": ["outage", "under", "meter_gap", "curtailment"],
+    "recoverable_causes": ["outage", "under", "meter_gap"],
+    "recoverable_note": "energy O&M can win back: shorter outages, fixing under-performance, and meter readings that missed energy the inverters made; curtailment follows PWA's own load (a PM / contract matter), and the rest of the shortfall (weather, the model) is not explained",
+    "unexplained_kwh": "shortfall_kwh - (outage + under + meter_gap + curtailment); weather against the modelled contract, model error, or losses the criteria do not see. The meter gap and under-performance can overlap on a day the meter read low",
+    "cause_owner": {
+      "outage": "O&M",
+      "under": "O&M",
+      "meter_gap": "O&M + PEA",
+      "curtailment": "PM"
+    },
+    "cause_action": {
+      "outage": "Shorten outages: find the cause, restore within 3 days",
+      "under": "Inspect the site: soiling, strings, inverter derating",
+      "meter_gap": "Check the meter and its readings with PEA / PWA",
+      "curtailment": "Agree the export limit with PWA (PM)"
+    }
   },
   "tfrs16": {
     "remeasure_threshold": 0.05,

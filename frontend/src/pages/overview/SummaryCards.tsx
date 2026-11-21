@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { HOT_C, LOW_PCT, invName, isSwitchedOff, limitPct } from "../inverters/shared";
 import type { LiveInverter } from "../inverters/shared";
+import { useI18n } from "../../i18n";
 
 const Count: React.FC<{ level: "ok" | "warn" | "crit" | "off"; n: number; label: string }> = ({ level, n, label }) => (
   <span className="inline-flex items-center gap-1" title={label || undefined}>
@@ -42,6 +43,7 @@ export const InvertersOnlineTile: React.FC<{
   unanswered: number;
 }> = ({ ov, href, recs, liveLoading, online, liveLoaded, unanswered }) => {
   const { inverters, kpis } = ov;
+  const { t } = useI18n();
   const s = useMemo(() => {
     const withYield = inverters.filter((i) => i.yield_today_kwh != null);
     const avg = withYield.length ? withYield.reduce((a, i) => a + (i.yield_today_kwh as number), 0) / withYield.length : null;
@@ -75,20 +77,20 @@ export const InvertersOnlineTile: React.FC<{
 
   return (
     <StatTile
-      label="Inverters online"
+      label={t("Inverters online")}
       href={href}
-      linkLabel="Open Inverters"
-      tag={liveLoading && !recs.length ? "Live…" : recs.length ? "Live" : undefined}
+      linkLabel={t("Open Inverters")}
+      tag={liveLoading && !recs.length ? t("Live…") : recs.length ? t("Live") : undefined}
       value={`${online ?? "—"} / ${kpis.inverter_count ?? "—"}`}
       tone={fault > 0 ? "text-red-300" : online != null && kpis.inverter_count && online < kpis.inverter_count ? "text-amber-300" : "text-emerald-300"}
       meter={
         total > 0 ? (
           <Meter
             segments={[
-              { pct: (normal / total) * 100, className: "bg-emerald-400", title: `${normal} normal` },
-              { pct: ((waiting + other) / total) * 100, className: "bg-amber-400", title: `${waiting} waiting${other ? `, ${other} other` : ""}` },
-              { pct: (fault / total) * 100, className: "bg-red-500", title: `${fault} fault` },
-              { pct: (offline / total) * 100, className: "bg-slate-500", title: `${offline} offline (no record today)` },
+              { pct: (normal / total) * 100, className: "bg-emerald-400", title: t("{n} normal", { n: normal }) },
+              { pct: ((waiting + other) / total) * 100, className: "bg-amber-400", title: `${t("{n} waiting", { n: waiting })}${other ? t(", {n} other", { n: other }) : ""}` },
+              { pct: (fault / total) * 100, className: "bg-red-500", title: t("{n} fault", { n: fault }) },
+              { pct: (offline / total) * 100, className: "bg-slate-500", title: t("{n} offline (no record today)", { n: offline }) },
             ]}
           />
         ) : undefined
@@ -98,20 +100,20 @@ export const InvertersOnlineTile: React.FC<{
           <Spinner className="size-3" />
         ) : (
           <>
-            {fault > 0 && <Count level="crit" n={fault} label="fault" />}
-            {offline > 0 && <Count level="off" n={offline} label="offline" />}
-            {waiting > 0 && <Count level="warn" n={waiting} label="waiting" />}
-            {other > 0 && <Count level="warn" n={other} label="other" />}
-            {liveLoaded && unanswered > 0 && <Count level="off" n={unanswered} label="no answer" />}
-            {fault + offline + waiting + other + unanswered === 0 && normal > 0 && <span>all normal</span>}
+            {fault > 0 && <Count level="crit" n={fault} label={t("fault")} />}
+            {offline > 0 && <Count level="off" n={offline} label={t("offline")} />}
+            {waiting > 0 && <Count level="warn" n={waiting} label={t("waiting")} />}
+            {other > 0 && <Count level="warn" n={other} label={t("other")} />}
+            {liveLoaded && unanswered > 0 && <Count level="off" n={unanswered} label={t("no answer")} />}
+            {fault + offline + waiting + other + unanswered === 0 && normal > 0 && <span>{t("all normal")}</span>}
             {lowWarn && s.lowest && (
-              <span className="num text-amber-300" title={`${fmt(s.lowest.yield_today_kwh, 1)} kWh, ${fmt(s.lowestPct, 0)}% of the plant average (stored day)`}>
-                low {invName(s.lowest)} {fmt(s.lowestPct, 0)}%
+              <span className="num text-amber-300" title={t("{kwh} kWh, {pct}% of the plant average (stored day)", { kwh: fmt(s.lowest.yield_today_kwh, 1), pct: fmt(s.lowestPct, 0) })}>
+                {t("low {name} {pct}%", { name: invName(s.lowest), pct: fmt(s.lowestPct, 0) })}
               </span>
             )}
-            {s.limited > 0 && <span className="num text-amber-300" title="Active power rate below 100 %">{s.limited} limited</span>}
-            {s.off > 0 && <span className="num text-red-300" title="Switched off in the inverter settings">{s.off} off</span>}
-            {hot && <Mini label={`Hottest inverter (stored day)${s.hottest ? ` · ${invName(s.hottest)}` : ""}`} value={fmt(kpis.max_temp_c, 0)} unit="°C" tone="text-amber-300" />}
+            {s.limited > 0 && <span className="num text-amber-300" title={t("Active power rate below 100 %")}>{t("{n} limited", { n: s.limited })}</span>}
+            {s.off > 0 && <span className="num text-red-300" title={t("Switched off in the inverter settings")}>{t("{n} off", { n: s.off })}</span>}
+            {hot && <Mini label={`${t("Hottest inverter (stored day)")}${s.hottest ? ` · ${invName(s.hottest)}` : ""}`} value={fmt(kpis.max_temp_c, 0)} unit="°C" tone="text-amber-300" />}
           </>
         )
       }
@@ -125,6 +127,7 @@ export const InvertersOnlineTile: React.FC<{
  */
 export const StringHealthTile: React.FC<{ ov: GrowattPlantOverview; href: string }> = ({ ov, href }) => {
   const { kpis, strings } = ov;
+  const { t, locale } = useI18n();
   const loss = strings.reduce((a, s) => a + (s.energy_loss_kwh ?? 0), 0);
   const total = kpis.string_count || 0;
   const critical = kpis.critical_strings ?? 0;
@@ -132,10 +135,10 @@ export const StringHealthTile: React.FC<{ ov: GrowattPlantOverview; href: string
 
   return (
     <StatTile
-      label="String health"
+      label={t("String health")}
       href={href}
-      linkLabel="Open String Diagnostics"
-      tag={ov.meta.day ? new Date(`${ov.meta.day}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : undefined}
+      linkLabel={t("Open String Diagnostics")}
+      tag={ov.meta.day ? new Date(`${ov.meta.day}T00:00:00`).toLocaleDateString(locale, { day: "numeric", month: "short" }) : undefined}
       value={fmt(kpis.avg_health_score, 1)}
       unit="/ 100"
       tone={critical > 0 ? "text-red-300" : warning > 0 ? "text-amber-300" : "text-emerald-300"}
@@ -143,9 +146,9 @@ export const StringHealthTile: React.FC<{ ov: GrowattPlantOverview; href: string
         total > 0 ? (
           <Meter
             segments={[
-              { pct: (kpis.healthy_strings / total) * 100, className: "bg-emerald-400", title: `${kpis.healthy_strings} healthy` },
-              { pct: (warning / total) * 100, className: "bg-amber-400", title: `${warning} warning` },
-              { pct: (critical / total) * 100, className: "bg-red-500", title: `${critical} critical` },
+              { pct: (kpis.healthy_strings / total) * 100, className: "bg-emerald-400", title: t("{n} healthy", { n: kpis.healthy_strings }) },
+              { pct: (warning / total) * 100, className: "bg-amber-400", title: t("{n} warning", { n: warning }) },
+              { pct: (critical / total) * 100, className: "bg-red-500", title: t("{n} critical", { n: critical }) },
             ]}
           />
         ) : undefined
@@ -155,7 +158,7 @@ export const StringHealthTile: React.FC<{ ov: GrowattPlantOverview; href: string
           <Count level="ok" n={kpis.healthy_strings} label="" />
           <Count level="warn" n={warning} label="" />
           <Count level="crit" n={critical} label="" />
-          <Mini label="Estimated loss vs peers (modelled, stored day)" value={strings.length ? fmt(loss, 1) : "—"} unit="kWh loss" />
+          <Mini label={t("Estimated loss vs peers (modelled, stored day)")} value={strings.length ? fmt(loss, 1) : "—"} unit={t("kWh loss")} />
         </>
       }
     />

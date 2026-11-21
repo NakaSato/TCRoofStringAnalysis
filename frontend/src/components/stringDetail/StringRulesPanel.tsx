@@ -16,6 +16,7 @@ import { SERIES, STATUS } from "../chartTheme";
 import { Panel, fmt } from "../ui";
 import { IssueActionDialog, IssueActions, StatusBadgeIssue, TierBadge, evidenceText, thb } from "../issues";
 import { Badge } from "@/components/ui/badge";
+import { useI18n } from "../../i18n";
 
 const DAYS = 30;
 
@@ -28,6 +29,7 @@ const dayList = (end: string, n: number): string[] => {
 
 export const StringRulesPanel: React.FC<{ plantId: number; sn: string; stringNo: number }> = ({ plantId, sn, stringNo }) => {
   const { user } = useAppContext();
+  const { t } = useI18n();
   const admin = isAdmin(user);
   const [daily, setDaily] = useState<RuleDaily<StringRuleDay> | null>(null);
   const [issues, setIssues] = useState<Issue[] | null>(null);
@@ -71,18 +73,18 @@ export const StringRulesPanel: React.FC<{ plantId: number; sn: string; stringNo:
       panels: [
         {
           key: "r",
-          title: "Median current vs peers (ratio, gated slots)",
+          title: t("Median current vs peers (ratio, gated slots)"),
           weight: 1.4,
           yMin: 0,
           yMax: 1.2,
           refLines: [
             { y: 0.95, label: "R5 0.95", color: SERIES.reference },
-            { y: 0.85, label: "Low 0.85", color: STATUS.warn },
+            { y: 0.85, label: t("Low 0.85"), color: STATUS.warn },
           ],
           series: [
             {
               key: "ratio",
-              name: "Ratio",
+              name: t("Ratio"),
               type: "bar",
               color: STATUS.none,
               y: ratio,
@@ -93,42 +95,42 @@ export const StringRulesPanel: React.FC<{ plantId: number; sn: string; stringNo:
         },
         {
           key: "m",
-          title: "Minutes (min)",
+          title: t("Minutes (min)"),
           series: [
-            { key: "low", name: "Low (< 85 %)", type: "bar", color: STATUS.warn, y: get("low_min"), format: (v) => `${fmt(v, 0)} min` },
-            { key: "open", name: "Open (~0 A)", type: "bar", color: STATUS.crit, y: get("open_min"), format: (v) => `${fmt(v, 0)} min` },
+            { key: "low", name: t("Low (< 85 %)"), type: "bar", color: STATUS.warn, y: get("low_min"), format: (v) => `${fmt(v, 0)} min` },
+            { key: "open", name: t("Open (~0 A)"), type: "bar", color: STATUS.crit, y: get("open_min"), format: (v) => `${fmt(v, 0)} min` },
           ],
         },
       ],
       tipExtra: (i) => {
         const d = by.get(days[i]);
-        if (!d) return [{ label: "Data", value: "no daily row" }];
+        if (!d) return [{ label: t("Data"), value: t("no daily row") }];
         return [
-          { label: "Gated slots", value: String(d.gated_slots) },
-          { label: "Lost (est.)", value: d.lost_kwh_est == null ? "—" : `${fmt(d.lost_kwh_est, 2)} kWh` },
+          { label: t("Gated slots"), value: String(d.gated_slots) },
+          { label: t("Lost (est.)"), value: d.lost_kwh_est == null ? "—" : `${fmt(d.lost_kwh_est, 2)} kWh` },
         ];
       },
     };
-  }, [daily]);
+  }, [daily, t]);
 
   const onDone = (i: Issue) => setIssues((xs) => (xs ? xs.map((x) => (x.id === i.id ? i : x)) : xs));
 
   return (
-    <Panel icon={Scale} title="Decision rules" subtitle={`Open issues and the last ${DAYS} days of the daily rule table · stored history · lost energy estimated`}>
+    <Panel icon={Scale} title={t("Decision rules")} subtitle={t("Open issues and the last {n} days of the daily rule table · stored history · lost energy estimated", { n: DAYS })}>
       <div className="space-y-4">
         {issues && issues.length > 0 && (
           <div className="space-y-2">
             {issues.map((i) => (
               <div key={i.id} className="flex flex-wrap items-center gap-2 rounded-md border border-white/[0.07] px-3 py-2 text-xs">
                 <TierBadge tier={i.tier} />
-                {i.shadow && <Badge variant="neutral" title="Rule in shadow mode: engineers don't see this">Shadow</Badge>}
+                {i.shadow && <Badge variant="neutral" title={t("Rule in shadow mode: engineers don't see this")}>{t("Shadow")}</Badge>}
                 <span className="font-medium text-white">
                   {i.rule} {i.name}
-                  {i.string_no == null && " (inverter)"}
+                  {i.string_no == null && ` (${t("inverter")})`}
                 </span>
                 <span className="text-slate-400">{evidenceText(i)}</span>
-                <span className="text-slate-500">since {i.opened_day}</span>
-                <span className="num">{thb(i.thb_per_day_est)}/day est.</span>
+                <span className="text-slate-500">{t("since {day}", { day: i.opened_day })}</span>
+                <span className="num">{t("{thb}/day est.", { thb: thb(i.thb_per_day_est) })}</span>
                 <StatusBadgeIssue issue={i} />
                 <div className="ml-auto">
                   <IssueActions issue={i} onAction={(action) => setDialog({ issue: i, action })} />
@@ -137,11 +139,11 @@ export const StringRulesPanel: React.FC<{ plantId: number; sn: string; stringNo:
             ))}
           </div>
         )}
-        {issues && issues.length === 0 && <div className="text-xs text-slate-500">No open issue for this string.</div>}
+        {issues && issues.length === 0 && <div className="text-xs text-slate-500">{t("No open issue for this string.")}</div>}
         {error ? (
-          <div className="text-xs text-slate-500">Daily rule data unavailable: {error}</div>
+          <div className="text-xs text-slate-500">{t("Daily rule data unavailable: {error}", { error })}</div>
         ) : (
-          <PanelChart spec={spec} height={260} emptyLabel="No daily rule rows yet (the worker's rules jobs compute them)." />
+          <PanelChart spec={spec} height={260} emptyLabel={t("No daily rule rows yet (the worker's rules jobs compute them).")} />
         )}
       </div>
       <IssueActionDialog issue={dialog?.issue ?? null} action={dialog?.action ?? null} onClose={() => setDialog(null)} onDone={onDone} />

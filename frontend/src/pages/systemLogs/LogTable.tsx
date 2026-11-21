@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LEVEL_VIEW, bkk, shortLogger } from "./shared";
+import { dateLocale, translate, useI18n } from "../../i18n";
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   const [done, setDone] = useState(false);
+  const { t } = useI18n();
   return (
     <Button
       variant="ghost"
@@ -22,7 +24,7 @@ const CopyButton: React.FC<{ text: string }> = ({ text }) => {
         });
       }}
     >
-      {done ? <Check /> : <Copy />} {done ? "Copied" : "Copy"}
+      {done ? <Check /> : <Copy />} {done ? t("Copied") : t("Copy")}
     </Button>
   );
 };
@@ -45,17 +47,17 @@ const LEVEL_ROW: Partial<Record<SystemLogLevel, string>> = {
 const dayLabel = (day: string) => {
   const today = bkk(new Date().toISOString()).day;
   const yesterday = bkk(new Date(Date.now() - 86_400_000).toISOString()).day;
-  if (day === today) return "Today";
-  if (day === yesterday) return "Yesterday";
-  return new Date(`${day}T12:00:00+07:00`).toLocaleDateString("en-GB", { timeZone: "Asia/Bangkok", weekday: "short", day: "numeric", month: "short" });
+  if (day === today) return translate("Today");
+  if (day === yesterday) return translate("Yesterday");
+  return new Date(`${day}T12:00:00+07:00`).toLocaleDateString(dateLocale(), { timeZone: "Asia/Bangkok", weekday: "short", day: "numeric", month: "short" });
 };
 
 const ago = (iso: string) => {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s} s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86_400) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min ago`;
-  return `${Math.floor(s / 86_400)} d ago`;
+  if (s < 60) return translate("{n} s ago", { n: s });
+  if (s < 3600) return translate("{n} min ago", { n: Math.floor(s / 60) });
+  if (s < 86_400) return translate("{h} h {m} min ago", { h: Math.floor(s / 3600), m: Math.floor((s % 3600) / 60) });
+  return translate("{n} d ago", { n: Math.floor(s / 86_400) });
 };
 
 const DetailBlock: React.FC<{ label: string; tone?: "crit"; children: React.ReactNode }> = ({ label, tone, children }) => (
@@ -80,7 +82,9 @@ export const LogTable: React.FC<{
   onToggle: (id: number) => void;
   onRun: (r: SystemLogEntry) => void;
   onSource: (source: SystemLogSource) => void;
-}> = ({ items, open, onToggle, onRun, onSource }) => (
+}> = ({ items, open, onToggle, onRun, onSource }) => {
+  const { t } = useI18n();
+  return (
   <Table containerClassName="table-wrap max-h-[720px] overflow-auto" className="min-w-[760px] table-fixed">
     <colgroup>
       <col className="w-9" />
@@ -93,19 +97,19 @@ export const LogTable: React.FC<{
     <TableHeader className="sticky top-0 z-20 shadow-[0_1px_0_rgba(255,255,255,0.06)]">
       <TableRow>
         <TableHead className="pr-0">
-          <span className="sr-only">Expand</span>
+          <span className="sr-only">{t("Expand")}</span>
         </TableHead>
-        <TableHead>Time</TableHead>
-        <TableHead>Level</TableHead>
-        <TableHead>Source</TableHead>
-        <TableHead>Logger · message</TableHead>
-        <TableHead className="text-right">Job run</TableHead>
+        <TableHead>{t("Time")}</TableHead>
+        <TableHead>{t("Level")}</TableHead>
+        <TableHead>{t("Source")}</TableHead>
+        <TableHead>{t("Logger · message")}</TableHead>
+        <TableHead className="text-right">{t("Job run")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
       {items.map((r, i) => {
-        const t = bkk(r.ts);
-        const newDay = i === 0 || bkk(items[i - 1].ts).day !== t.day;
+        const at = bkk(r.ts);
+        const newDay = i === 0 || bkk(items[i - 1].ts).day !== at.day;
         const isOpen = open.has(r.id);
         const detailId = `log-${r.id}-detail`;
         return (
@@ -113,8 +117,8 @@ export const LogTable: React.FC<{
             {newDay && (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={6} className="bg-ink-900/70 py-1.5">
-                  <span className="text-[11px] font-semibold text-slate-300">{dayLabel(t.day)}</span>
-                  <span className="num ml-2 text-[11px] text-slate-500">{t.day}</span>
+                  <span className="text-[11px] font-semibold text-slate-300">{dayLabel(at.day)}</span>
+                  <span className="num ml-2 text-[11px] text-slate-500">{at.day}</span>
                 </TableCell>
               </TableRow>
             )}
@@ -143,10 +147,10 @@ export const LogTable: React.FC<{
               <TableCell className="num whitespace-nowrap text-slate-300">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="cursor-default">{t.time}</span>
+                    <span className="cursor-default">{at.time}</span>
                   </TooltipTrigger>
                   <TooltipContent side="right">
-                    {t.day} {t.time} Bangkok · {ago(r.ts)}
+                    {t("{day} {time} Bangkok · {ago}", { day: at.day, time: at.time, ago: ago(r.ts) })}
                   </TooltipContent>
                 </Tooltip>
               </TableCell>
@@ -158,7 +162,7 @@ export const LogTable: React.FC<{
               <TableCell>
                 <button
                   type="button"
-                  title={`Show only ${r.source}${r.host ? ` · host ${r.host}` : ""}`}
+                  title={`${t("Show only {source}", { source: r.source })}${r.host ? t(" · host {host}", { host: r.host }) : ""}`}
                   className="rounded-md px-1.5 py-0.5 text-[11px] text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-slate-200"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -175,11 +179,11 @@ export const LogTable: React.FC<{
                   </span>
                   {r.exc_text && (
                     <span className="shrink-0 rounded bg-red-500/10 px-1 text-[10px] font-medium text-red-300 ring-1 ring-red-400/20">
-                      traceback
+                      {t("traceback")}
                     </span>
                   )}
                   {r.request_id && (
-                    <span className="num hidden shrink-0 text-slate-600 xl:inline" title="Request id">
+                    <span className="num hidden shrink-0 text-slate-600 xl:inline" title={t("Request id")}>
                       req {r.request_id.slice(0, 8)}
                     </span>
                   )}
@@ -191,13 +195,13 @@ export const LogTable: React.FC<{
                   <button
                     type="button"
                     className="num inline-flex max-w-full items-center gap-1 truncate rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-300 transition-colors hover:border-solar-400/40 hover:bg-solar-500/10 hover:text-solar-200"
-                    title="Show only this job run"
+                    title={t("Show only this job run")}
                     onClick={(e) => {
                       e.stopPropagation();
                       onRun(r);
                     }}
                   >
-                    <span className="truncate">{r.job ?? "run"}</span>
+                    <span className="truncate">{r.job ?? t("run")}</span>
                     <span className="text-slate-500">#{r.run_id}</span>
                   </button>
                 ) : (
@@ -213,10 +217,10 @@ export const LogTable: React.FC<{
                 <TableCell colSpan={5} className="pt-1 pb-4">
                   <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px]">
                     {[
-                      ["Record", `#${r.id}`],
-                      ["Logger", r.logger],
-                      ["Host", r.host],
-                      ["Request", r.request_id],
+                      [t("Record"), `#${r.id}`],
+                      [t("Logger"), r.logger],
+                      [t("Host"), r.host],
+                      [t("Request"), r.request_id],
                       ["UTC", r.ts],
                     ]
                       .filter(([, v]) => v)
@@ -231,13 +235,13 @@ export const LogTable: React.FC<{
                     </span>
                   </div>
                   <div className="space-y-3">
-                    <DetailBlock label="Message">{r.message}</DetailBlock>
+                    <DetailBlock label={t("Message")}>{r.message}</DetailBlock>
                     {r.exc_text && (
-                      <DetailBlock label="Traceback" tone="crit">
+                      <DetailBlock label={t("Traceback")} tone="crit">
                         {r.exc_text}
                       </DetailBlock>
                     )}
-                    {r.extra && <DetailBlock label="Extra">{JSON.stringify(r.extra, null, 2)}</DetailBlock>}
+                    {r.extra && <DetailBlock label={t("Extra")}>{JSON.stringify(r.extra, null, 2)}</DetailBlock>}
                   </div>
                 </TableCell>
               </TableRow>
@@ -247,4 +251,5 @@ export const LogTable: React.FC<{
       })}
     </TableBody>
   </Table>
-);
+  );
+};

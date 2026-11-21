@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { MoreHorizontal, Plus } from "lucide-react";
 import type { Claim, ClaimEvidence } from "../api/client";
 import { useAppContext } from "../context/AppContext";
+import { useI18n } from "../i18n";
 import { isAdmin } from "../auth/access";
 import { plantToday } from "../context/alarmLogStore";
 import { pick, useUrlState } from "@/lib/useUrlState";
@@ -79,6 +80,7 @@ const Stat: React.FC<{ label: string; value: number | null; tone?: string; activ
 export const ClaimsPage: React.FC = () => {
   const { user, growattPlants } = useAppContext();
   const admin = isAdmin(user);
+  const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   const tab = pick(url.get("tab"), TABS, "open");
   const query = url.get("q") ?? "";
@@ -101,7 +103,7 @@ export const ClaimsPage: React.FC = () => {
 
   const today = data?.meta.today ?? plantToday();
   const plantNames = useMemo(() => new Map(growattPlants.map((p) => [p.plant_id, p.name])), [growattPlants]);
-  const plantName = useCallback((id: number) => plantNames.get(id) ?? `Plant ${id}`, [plantNames]);
+  const plantName = useCallback((id: number) => plantNames.get(id) ?? t("Plant {id}", { id }), [plantNames, t]);
 
   const all = useMemo(() => data?.claims ?? [], [data]);
   const counterparties = useMemo(() => [...new Set(["Growatt", ...all.map((c) => c.counterparty)])].filter((x) => x && x !== "—").sort(), [all]);
@@ -212,23 +214,23 @@ export const ClaimsPage: React.FC = () => {
     <div className="inline-flex items-center gap-1">
       {admin && TRANSITIONS[c.status].length > 0 && (
         <Button size="xs" variant="outline" onClick={() => setStatusOf(c)}>
-          Status
+          {t("Status")}
         </Button>
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon-xs" variant="ghost" aria-label={`More for ${c.number}`}>
+          <Button size="icon-xs" variant="ghost" aria-label={t("More for {name}", { name: c.number })}>
             <MoreHorizontal />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onSelect={() => open(c)}>Open</DropdownMenuItem>
-          {canEdit(c) && <DropdownMenuItem onSelect={() => setEditing(c)}>Edit</DropdownMenuItem>}
+          <DropdownMenuItem onSelect={() => open(c)}>{t("Open claim")}</DropdownMenuItem>
+          {canEdit(c) && <DropdownMenuItem onSelect={() => setEditing(c)}>{t("Edit")}</DropdownMenuItem>}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setEventOf({ claim: c, kind: "note" })}>Add note</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setEventOf({ claim: c, kind: "message" })}>Add message</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setEventOf({ claim: c, kind: "shipment" })}>Add shipment</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setLinkOf(c)}>Link a record</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setEventOf({ claim: c, kind: "note" })}>{t("Add note")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setEventOf({ claim: c, kind: "message" })}>{t("Add message")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setEventOf({ claim: c, kind: "shipment" })}>{t("Add shipment")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setLinkOf(c)}>{t("Link a record")}</DropdownMenuItem>
           {admin && c.status === "draft" && (
             <>
               <DropdownMenuSeparator />
@@ -236,14 +238,14 @@ export const ClaimsPage: React.FC = () => {
                 variant="destructive"
                 onSelect={() =>
                   setConfirm({
-                    title: `Delete ${c.number}`,
-                    text: "The draft, its evidence ticks and its timeline are deleted. Only a draft can be deleted; withdraw a submitted claim instead.",
-                    label: "Delete",
+                    title: t("Delete {name}", { name: c.number }),
+                    text: t("The draft, its evidence ticks and its timeline are deleted. Only a draft can be deleted; withdraw a submitted claim instead."),
+                    label: t("Delete"),
                     run: () => claimsApi.deleteClaim(c.id),
                   })
                 }
               >
-                Delete draft
+                {t("Delete draft")}
               </DropdownMenuItem>
             </>
           )}
@@ -307,24 +309,24 @@ export const ClaimsPage: React.FC = () => {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
-          <h1 className="text-lg font-semibold">Claims</h1>
-          <p className="text-xs text-muted-foreground">Warranty & insurance claims: what failed, who has the claim, the evidence, and where each claim stands</p>
+          <h1 className="text-lg font-semibold">{t("Claims")}</h1>
+          <p className="text-xs text-muted-foreground">{t("Warranty & insurance claims: what failed, who has the claim, the evidence, and where each claim stands")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
-            {loading ? "Refreshing…" : "Refresh"}
+            {loading ? t("Refreshing…") : t("Refresh")}
           </Button>
           <Button size="sm" onClick={() => setUrl({ new: "blank", claim: null })}>
             <Plus data-icon="inline-start" />
-            New claim
+            {t("New claim")}
           </Button>
         </div>
       </div>
 
       {error && !data && (
         <Alert variant="destructive">
-          <AlertTitle>Could not load the claims</AlertTitle>
+          <AlertTitle>{t("Could not load the claims")}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -333,7 +335,7 @@ export const ClaimsPage: React.FC = () => {
           <AlertDescription className="flex items-center justify-between gap-2">
             {actionError}
             <Button size="xs" variant="ghost" onClick={() => setActionError(null)}>
-              Dismiss
+              {t("Dismiss")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -341,23 +343,23 @@ export const ClaimsPage: React.FC = () => {
 
       <Card className="py-0">
         <CardContent className="grid grid-cols-2 divide-white/[0.06] px-0 lg:grid-cols-4 lg:divide-x">
-          <Stat label="Open" value={s?.open ?? null} tone="text-foreground" active={tab === "open" && wait === ALL} onClick={() => setUrl({ tab: null, wait: null, status: null })} />
+          <Stat label={t("Open")} value={s?.open ?? null} tone="text-foreground" active={tab === "open" && wait === ALL} onClick={() => setUrl({ tab: null, wait: null, status: null })} />
           <Stat
-            label="Waiting on us"
+            label={t("Waiting on us")}
             value={s?.waiting_us ?? null}
             tone="text-amber-300"
             active={wait === "us"}
             onClick={() => pickWait("us")}
-            title="Drafts, info requested, rejected (decide: appeal or close), fulfilled (close it)"
+            title={t("Drafts, info requested, rejected (decide: appeal or close), fulfilled (close it)")}
           />
-          <Stat label="Waiting on them" value={s?.waiting_them ?? null} tone="text-sky-300" active={wait === "them"} onClick={() => pickWait("them")} />
+          <Stat label={t("Waiting on them")} value={s?.waiting_them ?? null} tone="text-sky-300" active={wait === "them"} onClick={() => pickWait("them")} />
           <Stat
-            label="Follow up"
+            label={t("Follow up")}
             value={s?.followup_overdue ?? null}
             tone="text-red-300"
             active={wait === "followup"}
             onClick={() => pickWait("followup")}
-            title="Next action day has passed"
+            title={t("Next action day has passed")}
           />
         </CardContent>
       </Card>
@@ -367,61 +369,61 @@ export const ClaimsPage: React.FC = () => {
           <Tabs value={tab} onValueChange={(v) => setUrl({ tab: v === "open" ? null : v, wait: v === "closed" ? null : wait })}>
             <TabsList variant="line" className="border-0 p-0">
               <TabsTrigger value="open" className="px-3 py-2.5 text-sm">
-                Open <span className="num text-muted-foreground">{count(isOpen)}</span>
+                {t("Open")} <span className="num text-muted-foreground">{count(isOpen)}</span>
               </TabsTrigger>
               <TabsTrigger value="closed" className="px-3 py-2.5 text-sm">
-                Closed <span className="num text-muted-foreground">{count((c) => !isOpen(c))}</span>
+                {t("Closed")} <span className="num text-muted-foreground">{count((c) => !isOpen(c))}</span>
               </TabsTrigger>
               <TabsTrigger value="all" className="px-3 py-2.5 text-sm">
-                All <span className="num text-muted-foreground">{count(() => true)}</span>
+                {t("All")} <span className="num text-muted-foreground">{count(() => true)}</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
           <div className="flex items-center gap-2 pb-2">
-            <Input className="h-8 w-64" placeholder="Search no., plant, SN, reference" value={query} onChange={(e) => setUrl({ q: e.target.value })} aria-label="Search claims" />
+            <Input className="h-8 w-64" placeholder={t("Search no., plant, SN, reference")} value={query} onChange={(e) => setUrl({ q: e.target.value })} aria-label={t("Search claims")} />
             <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rows.length}>
-              Export CSV
+              {t("Export CSV")}
             </Button>
           </div>
         </div>
 
         <CardContent className="flex flex-wrap items-center gap-2 border-b py-3">
           <Select value={type} onValueChange={(v) => setUrl({ type: v === ALL ? null : v })}>
-            <SelectTrigger size="sm" className="w-44" aria-label="Type">
+            <SelectTrigger size="sm" className="w-44" aria-label={t("Type")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={ALL}>{t("All types")}</SelectItem>
               </SelectGroup>
               <SelectSeparator />
-              {TYPE_KEYS.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {TYPE[t].label} ({all.filter((c) => c.type === t).length})
+              {TYPE_KEYS.map((k) => (
+                <SelectItem key={k} value={k}>
+                  {t(TYPE[k].label)} ({all.filter((c) => c.type === k).length})
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={(v) => setUrl({ status: v === ALL ? null : v, tab: v !== ALL ? "all" : null })}>
-            <SelectTrigger size="sm" className="w-40" aria-label="Status">
+            <SelectTrigger size="sm" className="w-40" aria-label={t("Status")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All statuses</SelectItem>
+              <SelectItem value={ALL}>{t("All statuses")}</SelectItem>
               <SelectSeparator />
               {STATUS_KEYS.map((k) => (
                 <SelectItem key={k} value={k}>
-                  {STATUS[k].label}
+                  {t(STATUS[k].label)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={counterparties.includes(withParam) ? withParam : ALL} onValueChange={(v) => setUrl({ with: v === ALL ? null : v })}>
-            <SelectTrigger size="sm" className="w-48" aria-label="Claim with">
+            <SelectTrigger size="sm" className="w-48" aria-label={t("Claim with")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>Anyone</SelectItem>
+              <SelectItem value={ALL}>{t("Anyone")}</SelectItem>
               <SelectSeparator />
               {counterparties.map((x) => (
                 <SelectItem key={x} value={x}>
@@ -431,11 +433,11 @@ export const ClaimsPage: React.FC = () => {
             </SelectContent>
           </Select>
           <Select value={plantParam != null ? String(plantParam) : ALL} onValueChange={(v) => setUrl({ plant: v === ALL ? null : v })}>
-            <SelectTrigger size="sm" className="w-56" aria-label="Plant">
+            <SelectTrigger size="sm" className="w-56" aria-label={t("Plant")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All plants</SelectItem>
+              <SelectItem value={ALL}>{t("All plants")}</SelectItem>
               <SelectSeparator />
               {plantsInUse.map((id) => (
                 <SelectItem key={id} value={String(id)}>
@@ -446,7 +448,7 @@ export const ClaimsPage: React.FC = () => {
           </Select>
           {anyFilter && (
             <Button variant="ghost" size="sm" onClick={clearFilters} className="ml-auto">
-              Clear
+              {t("Clear")}
             </Button>
           )}
         </CardContent>
@@ -458,9 +460,9 @@ export const ClaimsPage: React.FC = () => {
             ) : (
               <Empty className="h-full">
                 <EmptyHeader>
-                  <EmptyTitle>{!data ? "Claims unavailable" : anyFilter ? "No matching claims" : tab === "closed" ? "No closed claims" : "No open claims"}</EmptyTitle>
+                  <EmptyTitle>{!data ? t("Claims unavailable") : anyFilter ? t("No matching claims") : tab === "closed" ? t("No closed claims") : t("No open claims")}</EmptyTitle>
                   {!data && error && <EmptyDescription>{error}</EmptyDescription>}
-                  {data && !anyFilter && tab !== "closed" && <EmptyDescription>Start one with “New claim”, or from an issue or inverter.</EmptyDescription>}
+                  {data && !anyFilter && tab !== "closed" && <EmptyDescription>{t("Start one with “New claim”, or from an issue or inverter.")}</EmptyDescription>}
                 </EmptyHeader>
               </Empty>
             )
@@ -495,7 +497,7 @@ export const ClaimsPage: React.FC = () => {
           evidence: (item) => setEvidenceOf({ claim: d, item }),
           toggleEvidence: (item) => guard(item.label, () => claimsApi.setClaimEvidence(d.id, item.key, { done: !item.done })),
           link: () => setLinkOf(d),
-          unlink: (linkId) => guard("Unlink", () => claimsApi.deleteClaimLink(d.id, linkId)),
+          unlink: (linkId) => guard(t("Unlink"), () => claimsApi.deleteClaimLink(d.id, linkId)),
         })}
       />
       <ClaimDialog

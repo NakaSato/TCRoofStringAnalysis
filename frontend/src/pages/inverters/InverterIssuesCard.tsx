@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { newClaimHref } from "@/lib/claimLinks";
+import { useI18n } from "@/i18n";
 
 const DAYS = 30;
 
@@ -41,6 +42,7 @@ const stack = (rows: Array<Array<number | null>>): Array<{ y: Array<number | nul
 
 export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: string }> = ({ plantId, sn, label }) => {
   const { user } = useAppContext();
+  const { t } = useI18n();
   const plantHref = usePlantHref();
   const admin = isAdmin(user);
   const [daily, setDaily] = useState<RuleDaily<InverterRuleDay> | null>(null);
@@ -80,10 +82,10 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
     const by = new Map(daily.days.map((d) => [d.day, d]));
     const get = (k: keyof InverterRuleDay) => days.map((d) => (by.get(d)?.[k] ?? null) as number | null);
     const parts = [
-      { key: "fault", name: "Fault", color: STATUS.crit, v: get("fault_min") },
-      { key: "off", name: "Off", color: SERIES.temp, v: get("off_min") },
-      { key: "standby", name: "Standby", color: STATUS.warn, v: get("standby_min") },
-      { key: "nodata", name: "No data", color: STATUS.none, v: get("no_data_min") },
+      { key: "fault", name: t("Fault"), color: STATUS.crit, v: get("fault_min") },
+      { key: "off", name: t("Off"), color: SERIES.temp, v: get("off_min") },
+      { key: "standby", name: t("Standby"), color: STATUS.warn, v: get("standby_min") },
+      { key: "nodata", name: t("No data"), color: STATUS.none, v: get("no_data_min") },
     ];
     const stacked = stack(parts.map((p) => p.v));
     const yf = get("yf_vs_median_pct");
@@ -94,7 +96,7 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
       panels: [
         {
           key: "down",
-          title: "Minutes not producing in daylight (min)",
+          title: t("Minutes not producing in daylight (min)"),
           weight: 1.2,
           series: parts.map((p, i) => ({
             key: p.key,
@@ -108,12 +110,12 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
         },
         {
           key: "yf",
-          title: "Specific yield vs the plant's other inverters (%)",
-          refLines: [{ y: 0, label: "Median", color: SERIES.reference }],
+          title: t("Specific yield vs the plant's other inverters (%)"),
+          refLines: [{ y: 0, label: t("Median"), color: SERIES.reference }],
           series: [
             {
               key: "yf",
-              name: "vs median",
+              name: t("vs median"),
               type: "bar",
               color: STATUS.none,
               y: yf,
@@ -125,51 +127,53 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
       ],
       tipExtra: (i) => {
         const d = by.get(days[i]);
-        if (!d) return [{ label: "Data", value: "no daily row" }];
+        if (!d) return [{ label: t("Data"), value: t("no daily row") }];
         const lost = [d.lost_fault_kwh_est, d.lost_off_kwh_est, d.lost_standby_kwh_est, d.lost_no_data_kwh_est].filter(
           (x): x is number => x != null
         );
         return [
-          { label: "Fault", value: `${fmt(d.fault_min, 0)} min` },
-          { label: "Off", value: `${fmt(d.off_min, 0)} min` },
-          { label: "Standby", value: `${fmt(d.standby_min, 0)} min` },
-          { label: "No data", value: `${fmt(d.no_data_min, 0)} min` },
-          { label: "Daylight", value: d.daylight_min == null ? "—" : `${fmt(d.daylight_min, 0)} min` },
-          { label: "Energy", value: d.energy_kwh == null ? "—" : `${fmt(d.energy_kwh, 1)} kWh` },
-          { label: "Lost (est.)", value: lost.length ? `${fmt(lost.reduce((a, x) => a + x, 0), 1)} kWh` : "—" },
-          { label: "Power-limited", value: `${fmt(d.limited_min, 0)} min` },
+          { label: t("Fault"), value: t("{n} min", { n: fmt(d.fault_min, 0) }) },
+          { label: t("Off"), value: t("{n} min", { n: fmt(d.off_min, 0) }) },
+          { label: t("Standby"), value: t("{n} min", { n: fmt(d.standby_min, 0) }) },
+          { label: t("No data"), value: t("{n} min", { n: fmt(d.no_data_min, 0) }) },
+          { label: t("Daylight"), value: d.daylight_min == null ? "—" : t("{n} min", { n: fmt(d.daylight_min, 0) }) },
+          { label: t("Energy"), value: d.energy_kwh == null ? "—" : `${fmt(d.energy_kwh, 1)} kWh` },
+          { label: t("Lost (est.)"), value: lost.length ? `${fmt(lost.reduce((a, x) => a + x, 0), 1)} kWh` : "—" },
+          { label: t("Power-limited"), value: t("{n} min", { n: fmt(d.limited_min, 0) }) },
         ];
       },
     };
-  }, [daily]);
+  }, [daily, t]);
 
   const onDone = (i: Issue) => setIssues((xs) => (xs ? xs.map((x) => (x.id === i.id ? i : x)) : xs));
 
   return (
     <Card className="gap-0">
       <CardHeader className="pb-4">
-        <CardTitle>Decision rules</CardTitle>
+        <CardTitle>{t("Decision rules")}</CardTitle>
         <CardDescription>
-          {label}: active issues of the inverter and its strings, and the last {DAYS} days of the daily rule table · stored history · lost
-          energy estimated
+          {t("{name}: active issues of the inverter and its strings, and the last {n} days of the daily rule table · stored history · lost energy estimated", {
+            name: label,
+            n: DAYS,
+          })}
         </CardDescription>
         <CardAction>
-          <Button size="xs" variant="outline" asChild title="Open a warranty claim for this inverter">
-            <Link to={newClaimHref("inverter", { plantId, sn })}>Open claim</Link>
+          <Button size="xs" variant="outline" asChild title={t("Open a warranty claim for this inverter")}>
+            <Link to={newClaimHref("inverter", { plantId, sn })}>{t("Open claim")}</Link>
           </Button>
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         {issues == null ? (
-          <LoadingState label="Loading issues" shape="lines" />
+          <LoadingState label={t("Loading issues")} shape="lines" />
         ) : issues.length > 0 ? (
           <div className="space-y-2">
             {issues.map((i) => (
               <div key={i.id} className="flex flex-wrap items-center gap-2 rounded-md border border-white/[0.07] px-3 py-2 text-xs">
                 <TierBadge tier={i.tier} />
                 {i.shadow && (
-                  <Badge variant="neutral" title="Rule in shadow mode: engineers don't see this">
-                    Shadow
+                  <Badge variant="neutral" title={t("Rule in shadow mode: engineers don't see this")}>
+                    {t("Shadow")}
                   </Badge>
                 )}
                 <span className="font-medium text-white">
@@ -177,12 +181,12 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
                 </span>
                 {i.string_no != null && (
                   <Link className="text-sky-300 hover:underline" to={issueHref(i)}>
-                    String {i.string_no}
+                    {t("String {n}", { n: i.string_no })}
                   </Link>
                 )}
                 <span className="text-slate-400">{evidenceText(i)}</span>
-                <span className="text-slate-500">since {i.opened_day}</span>
-                <span className="num">{thb(i.thb_per_day_est)}/day est.</span>
+                <span className="text-slate-500">{t("since {day}", { day: i.opened_day })}</span>
+                <span className="num">{t("{v}/day est.", { v: thb(i.thb_per_day_est) })}</span>
                 <StatusBadgeIssue issue={i} />
                 <div className="ml-auto">
                   <IssueActions issue={i} onAction={(action) => setDialog({ issue: i, action })} />
@@ -192,18 +196,18 @@ export const InverterIssuesCard: React.FC<{ plantId: number; sn: string; label: 
           </div>
         ) : (
           <div className="text-xs text-slate-500">
-            No active issue for this inverter or its strings.
+            {t("No active issue for this inverter or its strings.")}
           </div>
         )}
         {error ? (
-          <div className="text-xs text-slate-500">Daily rule data unavailable: {error}</div>
+          <div className="text-xs text-slate-500">{t("Daily rule data unavailable: {error}", { error })}</div>
         ) : (
-          <PanelChart spec={spec} height={300} emptyLabel="No daily rule rows yet (the worker's rules jobs compute them)." />
+          <PanelChart spec={spec} height={300} emptyLabel={t("No daily rule rows yet (the worker's rules jobs compute them).")} />
         )}
         <div className="text-[11px] text-slate-500">
-          Strings in depth:{" "}
+          {t("Strings in depth:")}{" "}
           <Link className="text-sky-300 hover:underline" to={`${plantHref("strings")}?inv=${encodeURIComponent(sn)}`}>
-            String Diagnostics
+            {t("String Diagnostics")}
           </Link>
         </div>
       </CardContent>

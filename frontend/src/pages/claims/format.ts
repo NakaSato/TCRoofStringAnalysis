@@ -2,6 +2,7 @@
  * through the URL (`/claims?new=…`). Day / CSV helpers are shared with Measuring Tools. */
 import type { Claim, ClaimCause, ClaimLinkKind, ClaimStatus, ClaimType } from "../../api/client";
 import { plantPath } from "../../context/routes";
+import { translate } from "../../i18n";
 
 export { addDays, daysBetween, downloadCsv, fmtDay, relDays } from "../tools/format";
 
@@ -40,7 +41,7 @@ export const TRANSITION_LABEL: Record<ClaimStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   fulfilled: "Fulfilled (replaced / repaired / paid)",
-  closed: "Close",
+  closed: "Close claim",
   withdrawn: "Withdraw",
 };
 
@@ -77,12 +78,12 @@ export const LINK_KIND: Record<ClaimLinkKind, string> = { issue: "Issue", iv_swe
 export const WAIT = ["us", "them", "followup"] as const;
 export type Wait = (typeof WAIT)[number];
 
-/** what failed, one line: inverter SN · PV3, 4 · device */
+/** what failed, one line: inverter SN · PV3, 4 · device (display text: translated) */
 export const whatText = (c: Pick<Claim, "device_sn" | "string_nos" | "device_label" | "module_serials">) => {
   const parts = [
     c.device_sn,
     c.string_nos.length ? `PV${c.string_nos.join(", ")}` : null,
-    c.module_serials.length ? `${c.module_serials.length} module${c.module_serials.length === 1 ? "" : "s"}` : null,
+    c.module_serials.length ? translate(c.module_serials.length === 1 ? "{n} module" : "{n} modules", { n: c.module_serials.length }) : null,
     c.device_label,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : "—";

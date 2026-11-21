@@ -14,7 +14,7 @@
 - An issue an engineer resolved or dismissed is not reopened by findings of that day or
   earlier; a later finding opens a new issue.
 
-Baht and kWh are estimates; `shadow` issues are for Rule review (admins) only.
+Baht and kWh are estimates; `shadow` issues are for admins only.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -410,40 +410,3 @@ def apply_action(
         i.note = note.strip() or None
     db.commit()
     return i
-
-
-def review(db: Session, since: date) -> List[Dict[str, Any]]:
-    """Rule review: per rule, the issues opened since `since` (shadow and live), how they ended
-    and the estimated baht they found, with the rule's enabled / shadow flags."""
-    cfg = growatt_rules.rule_settings(db)
-    stats: Dict[str, Dict[str, Any]] = {
-        r: {
-            "rule": r, "name": n, **cfg["rules"][r],
-            "issues": 0, "active": 0, "auto_closed": 0, "resolved": 0, "dismissed": 0,
-            "confirmed": 0, "false_alarm": 0, "thb_total_est": 0.0, "plants": set(),
-        }
-        for r, n in growatt_rules.RULE_NAMES.items()
-    }
-    for i in db.scalars(select(GrowattIssue).where(GrowattIssue.opened_day >= since)):
-        s = stats.get(i.rule)
-        if s is None:
-            continue
-        s["issues"] += 1
-        s["plants"].add(i.plant_id)
-        if i.status in ACTIVE:
-            s["active"] += 1
-        elif i.close_reason == "auto":
-            s["auto_closed"] += 1
-        elif i.close_reason in CLOSED:
-            s[i.close_reason] += 1
-        if i.feedback in ("confirmed", "false_alarm"):
-            s[i.feedback] += 1
-        s["thb_total_est"] += i.thb_total_est or 0.0
-    out = []
-    for s in stats.values():
-        judged = s["confirmed"] + s["false_alarm"]
-        s["plants"] = len(s["plants"])
-        s["thb_total_est"] = round(s["thb_total_est"], 0)
-        s["precision_pct"] = round(s["confirmed"] / judged * 100, 1) if judged else None
-        out.append(s)
-    return out

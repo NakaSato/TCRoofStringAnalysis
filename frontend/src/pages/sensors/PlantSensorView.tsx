@@ -25,21 +25,24 @@ import { dayLabel, fromDate, toDate } from "@/lib/day";
 import { FIELDS, shiftDay, minutesBetween, fmtAge } from "./format";
 import { useSensorDayChart } from "./useSensorDayChart";
 import { Row } from "./SensorInfo";
+import { translate, useI18n } from "../../i18n";
 
 /** One plain sentence on why the sensor has its status. */
 const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: { late_min: number; offline_min: number }) => {
   const age = l?.last_update_time ? fmtAge(minutesBetween(l.last_update_time, now)) : null;
   switch (st) {
     case "online":
-      return `Uploading normally · last upload ${age ?? "—"}`;
+      return translate("Uploading normally · last upload {age}", { age: age ?? "—" });
     case "late":
-      return `Last upload ${age ?? "—"}: later than the ${th.late_min} min it should take`;
+      return translate("Last upload {age}: later than the {n} min it should take", { age: age ?? "—", n: th.late_min });
     case "offline":
-      return l?.lost ? `Growatt reports the sensor as lost · last upload ${age ?? "never"}` : `No upload for over ${th.offline_min} min · last ${age ?? "never"}`;
+      return l?.lost
+        ? translate("Growatt reports the sensor as lost · last upload {age}", { age: age ?? translate("never") })
+        : translate("No upload for over {n} min · last {age}", { n: th.offline_min, age: age ?? translate("never") });
     case "not_synced":
-      return "Nothing stored yet and not checked live";
+      return translate("Nothing stored yet and not checked live");
     default:
-      return l?.listed === false ? "Its datalogger no longer lists this sensor" : "Live check in progress…";
+      return translate(l?.listed === false ? "Its datalogger no longer lists this sensor" : "Live check in progress…");
   }
 };
 
@@ -54,6 +57,8 @@ const ALERT_VARIANT: Record<SensorStatus, "warn" | "destructive" | "default" | n
 
 /** What the O&M team can do about a sensor's state (shown under the reason). */
 const statusAdvice = (st: SensorStatus, l: SensorLiveRow | null) =>
+  translate(statusAdviceEn(st, l));
+const statusAdviceEn = (st: SensorStatus, l: SensorLiveRow | null) =>
   st === "offline"
     ? l?.lost
       ? "Check the sensor's power and its RS485 link to the datalogger."
@@ -96,6 +101,7 @@ export const PlantSensorView: React.FC<{
   refreshing: boolean;
 }> = ({ sensors, selected, now, until, onPick, thresholds, notes, onRefresh, refreshing }) => {
   const sensor = selected ?? sensors[0] ?? null;
+  const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   // time-of-day window (?from=&to=, HH:MM): day numbers and chart cover it only; "from" after "to" = whole day
   const timeFrom = pickTime(url.get("from"));
@@ -191,7 +197,7 @@ export const PlantSensorView: React.FC<{
     <div className="flex flex-col gap-4">
       {sensors.length > 1 && (
         <Tabs value={sensor.key} onValueChange={onPick}>
-          <TabsList variant="line" aria-label="Sensors of this plant">
+          <TabsList variant="line" aria-label={t("Sensors of this plant")}>
             {sensors.map((s) => (
               <TabsTrigger key={s.key} value={s.key} className="num">
                 <Led level={STATUS_VIEW[s.st].level === "info" ? "off" : STATUS_VIEW[s.st].level} />
@@ -205,22 +211,27 @@ export const PlantSensorView: React.FC<{
       {/* stored day (Plant Overview's weather tile links here) */}
       <Card id="weather-station" className="scroll-mt-4">
         <CardHeader className="max-sm:grid-cols-1!">
-          <CardTitle>{isToday ? "Today" : dayLabel(day)}</CardTitle>
+          <CardTitle>{isToday ? t("Today") : dayLabel(day)}</CardTitle>
           <CardDescription>
-            Stored 5-min records{windowed ? ` · ${timeFrom || "00:00"}–${timeTo || "24:00"} only` : ""}
-            {badWindow ? " · “From” is after “To”: whole day shown" : ""}
-            {pts.length ? ` · ${fmtInt(pts.length)} from ${pts[0].timestamp.slice(11, 16)} to ${pts[pts.length - 1].timestamp.slice(11, 16)}` : ""}
-            {tailPts.length ? ` · + ${tailPts.length} from Growatt live to ${tailPts[tailPts.length - 1].timestamp.slice(11, 16)}, not stored yet` : ""}
-            {isToday && liveDayError ? ` · Today's live records failed: ${liveDayError}` : ""}
+            {t("Stored 5-min records")}
+            {windowed ? ` · ${t("{from}–{to} only", { from: timeFrom || "00:00", to: timeTo || "24:00" })}` : ""}
+            {badWindow ? ` · ${t("“From” is after “To”: whole day shown")}` : ""}
+            {pts.length
+              ? ` · ${t("{n} from {from} to {to}", { n: fmtInt(pts.length), from: pts[0].timestamp.slice(11, 16), to: pts[pts.length - 1].timestamp.slice(11, 16) })}`
+              : ""}
+            {tailPts.length
+              ? ` · ${t("+ {n} from Growatt live to {to}, not stored yet", { n: tailPts.length, to: tailPts[tailPts.length - 1].timestamp.slice(11, 16) })}`
+              : ""}
+            {isToday && liveDayError ? ` · ${t("Today's live records failed: {error}", { error: liveDayError })}` : ""}
           </CardDescription>
           <CardAction className="flex flex-wrap items-center justify-end gap-2 max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:mt-2 max-sm:justify-self-start max-sm:justify-start">
             <ButtonGroup>
-              <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
+              <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label={t("Previous day")}>
                 <ChevronLeft />
               </Button>
               <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="num min-w-36" aria-label="Day">
+                  <Button variant="outline" size="sm" className="num min-w-36" aria-label={t("Day")}>
                     {dayLabel(day)}
                   </Button>
                 </PopoverTrigger>
@@ -238,24 +249,24 @@ export const PlantSensorView: React.FC<{
                   />
                 </PopoverContent>
               </Popover>
-              <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={isToday} aria-label="Next day">
+              <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={isToday} aria-label={t("Next day")}>
                 <ChevronRight />
               </Button>
             </ButtonGroup>
             <Button variant="outline" size="sm" onClick={() => setDay(today)} disabled={isToday}>
-              Today
+              {t("Today")}
             </Button>
-            <ButtonGroup aria-label="Time of day">
-              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeFrom} onChange={(e) => setUrl({ from: e.target.value })} aria-label="From time" />
-              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeTo} onChange={(e) => setUrl({ to: e.target.value })} aria-label="To time" />
+            <ButtonGroup aria-label={t("Time of day")}>
+              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeFrom} onChange={(e) => setUrl({ from: e.target.value })} aria-label={t("From time")} />
+              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeTo} onChange={(e) => setUrl({ to: e.target.value })} aria-label={t("To time")} />
             </ButtonGroup>
             {(timeFrom || timeTo) && (
-              <Button variant="ghost" size="sm" onClick={() => setUrl({ from: null, to: null })} title="Show the whole day">
+              <Button variant="ghost" size="sm" onClick={() => setUrl({ from: null, to: null })} title={t("Show the whole day")}>
                 <X data-icon="inline-start" />
-                Whole day
+                {t("Whole day")}
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!pts.length} title="Download this day's stored 5-min records as CSV">
+            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!pts.length} title={t("Download this day's stored 5-min records as CSV")}>
               <Download data-icon="inline-start" />
               CSV
             </Button>
@@ -267,7 +278,7 @@ export const PlantSensorView: React.FC<{
             // bottom rule, and the ones on the outer edge are clipped under the frame
             <div className="flex flex-wrap overflow-hidden rounded-lg border border-white/[0.06]">
               {dayKpis.map(([label, v, d, unit]) => (
-                <Stat key={label} label={label} className={KPI_CELL}>
+                <Stat key={label} label={t(label)} className={KPI_CELL}>
                   {fmt(v, d)} <span className="text-xs font-normal text-muted-foreground">{unit}</span>
                 </Stat>
               ))}
@@ -278,7 +289,7 @@ export const PlantSensorView: React.FC<{
                   hint={
                     iecPr.pr_pct == null
                       ? iecPr.reason ?? undefined
-                      : `Yf ${fmt(iecPr.final_yield_h, 2)} h ÷ Yr ${fmt(iecPr.reference_yield_h, 2)} h · ${fmt(iecPr.coverage_pct, 0)}% coverage`
+                      : `Yf ${fmt(iecPr.final_yield_h, 2)} h ÷ Yr ${fmt(iecPr.reference_yield_h, 2)} h · ${t("{pct}% coverage", { pct: fmt(iecPr.coverage_pct, 0) })}`
                   }
                 >
                   <span className={iecPr.pr_pct == null ? "text-muted-foreground" : iecPr.pr_pct >= 80 ? "text-emerald-300" : "text-amber-300"}>{fmt(iecPr.pr_pct, 1)}</span>
@@ -291,25 +302,34 @@ export const PlantSensorView: React.FC<{
             <div className="flex flex-col gap-1.5">
               <PanelChart spec={daySpec} height={120 + daySpec.panels.length * 110} legendToggle onBrush={zoomTo} />
               <p className="text-[11px] text-muted-foreground max-sm:hidden">
-                Drag across the chart to zoom in to that time{windowed ? " (“Whole day” zooms out)" : ""} · click a legend item to hide or show it.
+                {t(
+                  windowed
+                    ? "Drag across the chart to zoom in to that time (“Whole day” zooms out) · click a legend item to hide or show it."
+                    : "Drag across the chart to zoom in to that time · click a legend item to hide or show it."
+                )}
               </p>
             </div>
           ) : !dayStored && !storedError ? (
-            <LoadingState label="Loading stored readings…" shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
+            <LoadingState label={t("Loading stored readings…")} shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
           ) : (
             <Empty className="border border-dashed border-white/[0.08] py-10">
               <EmptyHeader>
                 <EmptyTitle>
-                  {windowed ? "No readings stored in this time window" : isToday ? "No readings stored today" : `No readings stored for ${dayLabel(day)}`}
+                  {windowed
+                    ? t("No readings stored in this time window")
+                    : isToday
+                      ? t("No readings stored today")
+                      : t("No readings stored for {day}", { day: dayLabel(day) })}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {storedError ?? (isToday ? "The worker stores this sensor's 5-min records every 10 min; nothing has arrived for today yet." : "Raw readings are kept for 90 days.")}
+                  {storedError ??
+                    t(isToday ? "The worker stores this sensor's 5-min records every 10 min; nothing has arrived for today yet." : "Raw readings are kept for 90 days.")}
                 </EmptyDescription>
               </EmptyHeader>
               {!storedError && sensor.last_reading_at && sensor.last_reading_at.slice(0, 10) !== day && (
                 <EmptyContent>
                   <Button variant="outline" size="sm" onClick={() => setDay(sensor.last_reading_at!.slice(0, 10))}>
-                    Show {dayLabel(sensor.last_reading_at.slice(0, 10))}, the newest stored day
+                    {t("Show {day}, the newest stored day", { day: dayLabel(sensor.last_reading_at.slice(0, 10)) })}
                   </Button>
                 </EmptyContent>
               )}
@@ -328,12 +348,12 @@ export const PlantSensorView: React.FC<{
             <StatusBadge status={view.label} level={view.level} />
           </CardTitle>
           <CardDescription>
-            {[sensor.device_name, sensor.phase != null ? `Phase ${sensor.phase}` : null, "Growatt weather sensor"].filter(Boolean).join(" · ")}
+            {[sensor.device_name, sensor.phase != null ? t("Phase {n}", { n: sensor.phase }) : null, t("Growatt weather sensor")].filter(Boolean).join(" · ")}
           </CardDescription>
           <CardAction>
             <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
               {refreshing ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
-              Refresh
+              {t("Refresh")}
             </Button>
           </CardAction>
         </CardHeader>
@@ -348,21 +368,21 @@ export const PlantSensorView: React.FC<{
             <p className="text-sm text-slate-300">{statusWhy(st, l, now, th)}</p>
           )}
           {plantFlags.length > 0 && <FlagList flags={plantFlags} />}
-          {(detailError || readingError) && <p className="text-[11px] text-amber-300">Live request failed: {detailError ?? readingError}</p>}
+          {(detailError || readingError) && <p className="text-[11px] text-amber-300">{t("Live request failed: {error}", { error: detailError ?? readingError })}</p>}
           <div className="grid gap-x-8 rounded-lg border border-white/[0.06] px-4 py-2 md:grid-cols-2">
             <div>
-              <Row label="Datalogger SN">{sensor.datalogger_sn}</Row>
-              <Row label="Bus address">{sensor.address}</Row>
-              <Row label="Device name">{sensor.device_name ?? "—"}</Row>
-              <Row label="Phase (Growatt account)">{sensor.phase ?? "—"}</Row>
+              <Row label={t("Datalogger SN")}>{sensor.datalogger_sn}</Row>
+              <Row label={t("Bus address")}>{sensor.address}</Row>
+              <Row label={t("Device name")}>{sensor.device_name ?? "—"}</Row>
+              <Row label={t("Phase (Growatt account)")}>{sensor.phase ?? "—"}</Row>
             </div>
             <div>
-              <Row label="Growatt says lost">{l?.lost == null ? "—" : l.lost ? "Yes" : "No"}</Row>
-              <Row label="Listed by datalogger">{l?.listed == null ? "—" : l.listed ? "Yes" : "No"}</Row>
-              <Row label="Last upload (plant time)">{l?.last_update_time ?? "—"}</Row>
-              <Row label="Status rule">
+              <Row label={t("Growatt says lost")}>{l?.lost == null ? "—" : l.lost ? t("Yes") : t("No")}</Row>
+              <Row label={t("Listed by datalogger")}>{l?.listed == null ? "—" : l.listed ? t("Yes") : t("No")}</Row>
+              <Row label={t("Last upload (plant time)")}>{l?.last_update_time ?? "—"}</Row>
+              <Row label={t("Status rule")}>
                 <span className="text-xs">
-                  online ≤ {th.late_min} min · late ≤ {th.offline_min} min
+                  {t("online ≤ {late} min · late ≤ {offline} min", { late: th.late_min, offline: th.offline_min })}
                 </span>
               </Row>
             </div>
@@ -372,7 +392,7 @@ export const PlantSensorView: React.FC<{
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" size="sm" className="self-start">
                   <ChevronDown data-icon="inline-start" className={cn("transition-transform", detailsOpen && "rotate-180")} />
-                  Raw record ({Object.keys(raw).length} fields, admin only)
+                  {t("Raw record ({n} fields, admin only)", { n: Object.keys(raw).length })}
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent>
@@ -392,7 +412,7 @@ export const PlantSensorView: React.FC<{
       </Card>
 
       <p className="text-[11px] text-muted-foreground">
-        “—” = no value.
+        {t("“—” = no value.")}
         {notes.length ? ` ${notes.join(" · ")}` : ""}
       </p>
     </div>

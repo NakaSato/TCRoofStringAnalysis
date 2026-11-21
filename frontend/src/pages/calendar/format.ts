@@ -1,6 +1,7 @@
 /** Calendar Team: labels, colours and plant-local day helpers ("YYYY-MM-DD" strings). */
 import type { OmBusyBlock, OmPerson, OmTask, OmTaskStatus, OmTaskType } from "../../api/client";
 import { fromDate, toDate } from "@/lib/day";
+import { dateLocale, translate } from "@/i18n";
 
 export const TASK_TYPES: ReadonlyArray<{ value: OmTaskType; label: string }> = [
   { value: "cleaning", label: "Cleaning" },
@@ -105,12 +106,17 @@ export const rangeFor = (view: View, day: string): { from: string; to: string } 
 
 export const covers = (t: { start_day: string; end_day: string }, day: string) => t.start_day <= day && day <= t.end_day;
 
-export const shortDay = (day: string) => toDate(day).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+export const shortDay = (day: string) => toDate(day).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
 export const spanLabel = (t: { start_day: string; end_day: string }) =>
   t.start_day === t.end_day ? shortDay(t.start_day) : `${shortDay(t.start_day)} → ${shortDay(t.end_day)}`;
-export const monthLabel = (day: string) => toDate(day).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+export const monthLabel = (day: string) => toDate(day).toLocaleDateString(dateLocale(), { month: "long", year: "numeric" });
 export const weekLabel = (from: string) => `${shortDay(from)} – ${shortDay(addDays(from, 6))} ${from.slice(0, 4)}`;
 export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/** weekday name for display in the UI language, i = 0 (Monday) … 6 (Sunday); 1 Jan 2024 was a Monday */
+export const weekdayName = (i: number, style: "short" | "long" = "short") =>
+  new Date(2024, 0, 1 + i).toLocaleDateString(dateLocale(), { weekday: style });
+/** month name for display in the UI language, i = 0 (January) … 11 */
+export const monthName = (i: number, style: "short" | "long" = "short") => new Date(2024, i, 1).toLocaleDateString(dateLocale(), { month: style });
 
 export type Entry = OmTask | OmBusyBlock;
 
@@ -145,9 +151,12 @@ export const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Fri
 
 /** "Every 2 months · Nov–Apr · Mondays" */
 export const planRule = (p: { every_n: number; unit: "week" | "month"; season_from_month: number | null; season_to_month: number | null; weekday: number | null }) => {
-  const every = p.every_n === 1 ? `Every ${p.unit}` : `Every ${p.every_n} ${p.unit}s`;
-  const season = p.season_from_month && p.season_to_month ? ` · ${MONTHS[p.season_from_month - 1]}–${MONTHS[p.season_to_month - 1]}` : "";
-  const day = p.weekday != null ? ` · ${WEEKDAY_NAMES[p.weekday]}s` : "";
+  const every =
+    p.unit === "week"
+      ? p.every_n === 1 ? translate("Every week") : translate("Every {n} weeks", { n: p.every_n })
+      : p.every_n === 1 ? translate("Every month") : translate("Every {n} months", { n: p.every_n });
+  const season = p.season_from_month && p.season_to_month ? ` · ${monthName(p.season_from_month - 1)}–${monthName(p.season_to_month - 1)}` : "";
+  const day = p.weekday != null ? ` · ${translate("{day}s", { day: weekdayName(p.weekday, "long") })}` : "";
   return every + season + day;
 };
 

@@ -24,6 +24,7 @@ import { Panel, fmt } from "../ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useI18n } from "../../i18n";
 
 /** A ratio (0.968) as a percentage of the reference ("96.8%"); "—" when there is none. */
 const pct = (ratio: number | null | undefined): string => (ratio == null ? "—" : `${fmt(ratio * 100, 1)}%`);
@@ -44,7 +45,7 @@ const FLAG_TEXT: Record<string, string> = {
   series_resistance_up: "series resistance up",
   shunt_resistance_down: "shunt resistance down",
 };
-const flagText = (flags: string[]): string => flags.map((f) => FLAG_TEXT[f] ?? f).join(", ");
+const flagText = (flags: string[], t: (en: string) => string): string => flags.map((f) => (FLAG_TEXT[f] ? t(FLAG_TEXT[f]) : f)).join(", ");
 
 export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringNo: number }> = ({
   plantId,
@@ -52,6 +53,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
   stringNo,
 }) => {
   const { user } = useAppContext();
+  const { t } = useI18n();
   const canEdit = user?.role === "admin" || user?.role === "engineer";
 
   const [sweeps, setSweeps] = useState<IvSweep[]>([]);
@@ -137,7 +139,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
     if (refPts.length > 0) {
       current.push({
         key: "ref-i",
-        name: "STC Reference (Datasheet · modelled)",
+        name: t("STC Reference (Datasheet · modelled)"),
         type: "line",
         dash: "dash",
         width: 1.5,
@@ -150,7 +152,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
     if (rawPts.length > 0) {
       current.push({
         key: "raw-i",
-        name: `Measured (${fmt(active.irradiance_wm2, 0)} W/m², ${fmt(active.module_temp_c, 1)} °C)`,
+        name: t("Measured ({g} W/m², {t} °C)", { g: fmt(active.irradiance_wm2, 0), t: fmt(active.module_temp_c, 1) }),
         type: "line",
         dash: "dot",
         width: 1.5,
@@ -161,7 +163,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
       });
       power.push({
         key: "raw-p",
-        name: "Measured P-V",
+        name: t("Measured P-V"),
         type: "line",
         dash: "dot",
         width: 1.5,
@@ -211,14 +213,14 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
       xKind: "linear",
       xZero: true,
       x: basePts.map((p) => p.v),
-      xLabel: "String DC voltage (V)",
+      xLabel: t("String DC voltage (V)"),
       xTipNumber: (v) => `${fmt(v, 0)} V`,
       panels: [
-        { key: "i", title: "Current (A)", series: current },
-        { key: "p", title: "Power (W)", series: power },
+        { key: "i", title: t("Current (A)"), series: current },
+        { key: "p", title: t("Power (W)"), series: power },
       ],
     };
-  }, [active]);
+  }, [active, t]);
 
   const toggleIr = async (sweep: IvSweep) => {
     try {
@@ -235,13 +237,13 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
     e.preventDefault();
     setSubmitErr(null);
     const g = Number(irrG);
-    const t = Number(tempC);
-    if (!Number.isFinite(g) || g <= 0 || !Number.isFinite(t)) {
-      setSubmitErr("Irradiance G (W/m²) and module temperature T (°C) are required to interpret an I-V curve.");
+    const tempVal = Number(tempC);
+    if (!Number.isFinite(g) || g <= 0 || !Number.isFinite(tempVal)) {
+      setSubmitErr(t("Irradiance G (W/m²) and module temperature T (°C) are required to interpret an I-V curve."));
       return;
     }
     if (!csvText.trim()) {
-      setSubmitErr("Provide (V, I) points (one pair per line: V, I).");
+      setSubmitErr(t("Provide (V, I) points (one pair per line: V, I)."));
       return;
     }
     setSubmitting(true);
@@ -251,7 +253,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
         string_no: stringNo,
         swept_at: sweptAt.length === 16 ? `${sweptAt}:00` : sweptAt,
         irradiance_wm2: g,
-        module_temp_c: t,
+        module_temp_c: tempVal,
         irradiance_change_pct: irrChangePct.trim() !== "" ? Number(irrChangePct) : null,
         dead_band_pct: deadBandPct.trim() !== "" ? Number(deadBandPct) : 5.0,
         temp_change_k_per_min: tempChangeK.trim() !== "" ? Number(tempChangeK) : null,
@@ -281,13 +283,13 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
   return (
     <Panel
       icon={Zap}
-      title="Measured I-V curve analysis · IEC 60891 STC"
-      subtitle="Sweep conditions (G ≥ 700 W/m², ΔG ≤ 2%), IEC 60891 Procedure 1 STC translation with cross-checks, fault signatures, and module-test candidates (two sources)"
+      title={t("Measured I-V curve analysis · IEC 60891 STC")}
+      subtitle={t("Sweep conditions (G ≥ 700 W/m², ΔG ≤ 2%), IEC 60891 Procedure 1 STC translation with cross-checks, fault signatures, and module-test candidates (two sources)")}
       actions={
         canEdit ? (
           <Button variant="outline" size="xs" onClick={() => setShowUpload((v) => !v)}>
             <Plus data-icon="inline-start" className="h-3.5 w-3.5" />
-            {showUpload ? "Cancel" : "Ingest I-V sweep"}
+            {showUpload ? t("Cancel") : t("Ingest I-V sweep")}
           </Button>
         ) : undefined
       }
@@ -295,46 +297,46 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
       <div className="space-y-4">
         {showUpload && (
           <form onSubmit={handleUpload} className="space-y-3 rounded-lg border border-white/[0.08] bg-ink-950/60 p-3.5 text-xs">
-            <div className="font-semibold text-white">Ingest field or online smart I-V sweep (requires G, T, and timestamp)</div>
+            <div className="font-semibold text-white">{t("Ingest field or online smart I-V sweep (requires G, T, and timestamp)")}</div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Sweep time</span>
+                <span className="text-[11px] text-slate-400">{t("Sweep time")}</span>
                 <Input type="datetime-local" value={sweptAt} onChange={(e) => setSweptAt(e.target.value)} className="num h-8 text-xs" required />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">POA G (W/m² ≥ 700)</span>
+                <span className="text-[11px] text-slate-400">{t("POA G (W/m² ≥ 700)")}</span>
                 <Input type="number" step="1" value={irrG} onChange={(e) => setIrrG(e.target.value)} className="num h-8 text-xs" required />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Back-of-module T (°C)</span>
+                <span className="text-[11px] text-slate-400">{t("Back-of-module T (°C)")}</span>
                 <Input type="number" step="0.1" value={tempC} onChange={(e) => setTempC(e.target.value)} className="num h-8 text-xs" required />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Sweep ΔG (% ≤ 2%)</span>
+                <span className="text-[11px] text-slate-400">{t("Sweep ΔG (% ≤ 2%)")}</span>
                 <Input type="number" step="0.1" value={irrChangePct} onChange={(e) => setIrrChangePct(e.target.value)} className="num h-8 text-xs" />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Dead band (±%)</span>
+                <span className="text-[11px] text-slate-400">{t("Dead band (±%)")}</span>
                 <Input type="number" step="0.5" value={deadBandPct} onChange={(e) => setDeadBandPct(e.target.value)} className="num h-8 text-xs" />
               </label>
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">T change, last minute (K ≤ 1)</span>
-                <Input type="number" step="0.1" min="0" value={tempChangeK} onChange={(e) => setTempChangeK(e.target.value)} placeholder="optional" className="num h-8 text-xs" />
+                <span className="text-[11px] text-slate-400">{t("T change, last minute (K ≤ 1)")}</span>
+                <Input type="number" step="0.1" min="0" value={tempChangeK} onChange={(e) => setTempChangeK(e.target.value)} placeholder={t("optional")} className="num h-8 text-xs" />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Sweep duration (ms)</span>
-                <Input type="number" step="1" min="1" value={sweepMs} onChange={(e) => setSweepMs(e.target.value)} placeholder="optional" className="num h-8 text-xs" />
+                <span className="text-[11px] text-slate-400">{t("Sweep duration (ms)")}</span>
+                <Input type="number" step="1" min="1" value={sweepMs} onChange={(e) => setSweepMs(e.target.value)} placeholder={t("optional")} className="num h-8 text-xs" />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Cell technology</span>
+                <span className="text-[11px] text-slate-400">{t("Cell technology")}</span>
                 <select
                   value={cellTech}
                   onChange={(e) => setCellTech(e.target.value as IvCellTechnology | "")}
                   className="h-8 w-full rounded-md border border-white/10 bg-ink-900 px-2 text-xs text-white focus:outline-none"
                 >
-                  <option value="">Not given</option>
+                  <option value="">{t("Not given")}</option>
                   <option value="perc">PERC</option>
                   <option value="topcon">TOPCon</option>
                   <option value="hjt">HJT</option>
@@ -342,20 +344,20 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Sensor uncertainty (±%, k=2)</span>
-                <Input type="number" step="0.1" min="0.1" value={sensorUncPct} onChange={(e) => setSensorUncPct(e.target.value)} placeholder="optional" className="num h-8 text-xs" />
+                <span className="text-[11px] text-slate-400">{t("Sensor uncertainty (±%, k=2)")}</span>
+                <Input type="number" step="0.1" min="0.1" value={sensorUncPct} onChange={(e) => setSensorUncPct(e.target.value)} placeholder={t("optional")} className="num h-8 text-xs" />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Sensor off array plane (° ≤ 2)</span>
-                <Input type="number" step="0.1" min="0" value={sensorOffDeg} onChange={(e) => setSensorOffDeg(e.target.value)} placeholder="optional" className="num h-8 text-xs" />
+                <span className="text-[11px] text-slate-400">{t("Sensor off array plane (° ≤ 2)")}</span>
+                <Input type="number" step="0.1" min="0" value={sensorOffDeg} onChange={(e) => setSensorOffDeg(e.target.value)} placeholder={t("optional")} className="num h-8 text-xs" />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">Pmax, opposite sweep (W)</span>
-                <Input type="number" step="1" min="1" value={reversePmax} onChange={(e) => setReversePmax(e.target.value)} placeholder="optional" className="num h-8 text-xs" />
+                <span className="text-[11px] text-slate-400">{t("Pmax, opposite sweep (W)")}</span>
+                <Input type="number" step="1" min="1" value={reversePmax} onChange={(e) => setReversePmax(e.target.value)} placeholder={t("optional")} className="num h-8 text-xs" />
               </label>
             </div>
             <label className="block space-y-1">
-              <span className="text-[11px] text-slate-400">Curve points (one V, I pair per line, e.g. `0, 13.8` ... `820, 0`)</span>
+              <span className="text-[11px] text-slate-400">{t("Curve points (one V, I pair per line, e.g. `0, 13.8` ... `820, 0`)")}</span>
               <textarea
                 rows={4}
                 value={csvText}
@@ -368,11 +370,11 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="inline-flex items-center gap-2 text-slate-300">
                 <input type="checkbox" checked={irConfirmed} onChange={(e) => setIrConfirmed(e.target.checked)} />
-                Confirmed by IR thermography (drone / handheld IR)
+                {t("Confirmed by IR thermography (drone / handheld IR)")}
               </label>
               <Button type="submit" size="xs" disabled={submitting}>
                 <Upload data-icon="inline-start" className="h-3.5 w-3.5" />
-                {submitting ? "Translating to STC…" : "Analyze & Store Sweep"}
+                {submitting ? t("Translating to STC…") : t("Analyze & Store Sweep")}
               </Button>
             </div>
             {submitErr && <div className="text-xs text-red-400">{submitErr}</div>}
@@ -382,10 +384,11 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
         {error && <div className="text-xs text-red-400">{error}</div>}
 
         {loading && sweeps.length === 0 ? (
-          <div className="text-xs text-slate-500">Loading stored I-V sweeps…</div>
+          <div className="text-xs text-slate-500">{t("Loading stored I-V sweeps…")}</div>
         ) : sweeps.length === 0 ? (
           <div className="text-xs text-slate-500">
-            No field or online smart I-V sweeps stored for this string yet. Use <strong>Ingest I-V sweep</strong> to translate a measured sweep to STC (IEC 60891 Procedure 1) and classify fault signatures.
+            {t("No field or online smart I-V sweeps stored for this string yet. Use")} <strong>{t("Ingest I-V sweep")}</strong>{" "}
+            {t("to translate a measured sweep to STC (IEC 60891 Procedure 1) and classify fault signatures.")}
           </div>
         ) : (
           active && (
@@ -411,35 +414,35 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <Badge variant={active.quality_gate_passed ? "ok" : "warn"}>
                     {active.quality_gate_passed
-                      ? "Valid sweep (G ≥ 700 W/m², stable)"
-                      : active.gate_reasons?.join(" · ") || "Unstable conditions"}
+                      ? t("Valid sweep (G ≥ 700 W/m², stable)")
+                      : active.gate_reasons?.join(" · ") || t("Unstable conditions")}
                   </Badge>
                   {active.classification?.gate_warnings?.map((w) => (
                     <Badge key={w} variant="warn">{w}</Badge>
                   ))}
                   {active.classification?.stc_comparison_valid === false ? (
-                    <Badge variant="neutral" title="Below the STC gate, or a stepped curve: the translated power is for comparison only">
-                      STC power not judged
+                    <Badge variant="neutral" title={t("Below the STC gate, or a stepped curve: the translated power is for comparison only")}>
+                      {t("STC power not judged")}
                     </Badge>
                   ) : active.classification?.in_dead_band ? (
-                    <Badge variant="neutral">Inside ±{fmt(active.classification.dead_band_pct, 0)}% dead band</Badge>
+                    <Badge variant="neutral">{t("Inside ±{v}% dead band", { v: fmt(active.classification.dead_band_pct, 0) })}</Badge>
                   ) : (
-                    <Badge variant="crit">Outside dead band ({fmt(active.pmax_dev_pct, 1)}%)</Badge>
+                    <Badge variant="crit">{t("Outside dead band ({v}%)", { v: fmt(active.pmax_dev_pct, 1) })}</Badge>
                   )}
                   {active.module_test_candidate ? (
-                    <Badge variant="crit" title="Below warranted power, agreed by two sources. A string sweep is not warranty evidence: test its modules one by one.">
-                      <ShieldCheck className="mr-1 h-3 w-3" /> Module test candidate (2 sources)
+                    <Badge variant="crit" title={t("Below warranted power, agreed by two sources. A string sweep is not warranty evidence: test its modules one by one.")}>
+                      <ShieldCheck className="mr-1 h-3 w-3" /> {t("Module test candidate (2 sources)")}
                     </Badge>
                   ) : null}
                   {active.module_test_candidate ? (
-                    <Button variant="ghost" size="xs" asChild title="Open a module warranty claim with this sweep linked">
-                      <Link to={newClaimHref("sweep", { plantId, sn, stringNo, ref: active.id })}>Open claim</Link>
+                    <Button variant="ghost" size="xs" asChild title={t("Open a module warranty claim with this sweep linked")}>
+                      <Link to={newClaimHref("sweep", { plantId, sn, stringNo, ref: active.id })}>{t("Open claim")}</Link>
                     </Button>
                   ) : null}
                   {canEdit && (
-                    <Button variant="ghost" size="xs" onClick={() => toggleIr(active)} title="Toggle IR thermography confirmation (2nd source for a module-test candidate)">
+                    <Button variant="ghost" size="xs" onClick={() => toggleIr(active)} title={t("Toggle IR thermography confirmation (2nd source for a module-test candidate)")}>
                       <Flame className={`mr-1 h-3.5 w-3.5 ${active.ir_confirmed ? "text-amber-400" : "text-slate-500"}`} />
-                      {active.ir_confirmed ? "IR confirmed" : "Mark IR confirmed"}
+                      {active.ir_confirmed ? t("IR confirmed") : t("Mark IR confirmed")}
                     </Button>
                   )}
                 </div>
@@ -457,14 +460,19 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                     <div className="space-y-0.5">
                       <div className="font-semibold text-white">
                         {active.classification.observation} · <span className="num text-solar-300">{active.classification.signature}</span>
-                        {active.ticket_recommended ? " · Ticket recommended" : ""}
+                        {active.ticket_recommended ? ` · ${t("Ticket recommended")}` : ""}
                       </div>
                       <div className="text-slate-300">
                         {active.classification.likely_cause} — {active.classification.recommended_action}
                       </div>
                       <div className="num text-[11px] text-slate-400">
-                        Expected STC Pmax: {fmt(active.expected_pmax_stc_w, 0)} W · Measured STC Pmax: {fmt(active.p_max_stc_w, 0)} W ({fmt(active.pmax_dev_pct, 1)}%) · Two-source warranty check:{" "}
-                        {active.ir_confirmed ? "IR confirmed" : "IR not marked"} / {active.timeseries_trend_confirmed ? "Time-series trend confirmed" : "No open time-series trend"}
+                        {t("Expected STC Pmax: {exp} W · Measured STC Pmax: {meas} W ({dev}%) · Two-source warranty check: {ir} / {trend}", {
+                          exp: fmt(active.expected_pmax_stc_w, 0),
+                          meas: fmt(active.p_max_stc_w, 0),
+                          dev: fmt(active.pmax_dev_pct, 1),
+                          ir: active.ir_confirmed ? t("IR confirmed") : t("IR not marked"),
+                          trend: active.timeseries_trend_confirmed ? t("Time-series trend confirmed") : t("No open time-series trend"),
+                        })}
                       </div>
                     </div>
                   </div>
@@ -476,20 +484,20 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                 <div className="space-y-1 rounded-lg bg-ink-950/60 p-2.5 text-[11px] text-slate-300">
                   {active.comparison.peer.setup_error_suspected && (
                     <div className="font-semibold text-amber-400">
-                      Isc is low on every string swept together: check the irradiance sensor and setup before acting on the strings.
+                      {t("Isc is low on every string swept together: check the irradiance sensor and setup before acting on the strings.")}
                     </div>
                   )}
                   <div className="num">
-                    <span className="text-slate-500">vs same-time peers: </span>
+                    <span className="text-slate-500">{t("vs same-time peers:")} </span>
                     {active.comparison.peer.ratios ? (
                       <>
                         Pmax {pct(active.comparison.peer.ratios.p_max)} · Isc {pct(active.comparison.peer.ratios.i_sc)} · Voc{" "}
                         {pct(active.comparison.peer.ratios.v_oc)} · FF {pct(active.comparison.peer.ratios.fill_factor)}{" "}
                         <span className="text-slate-500">
-                          (median of strings {active.comparison.peer.peer_strings.join(", ")}, within {active.comparison.peer.window_min} min)
+                          {t("(median of strings {list}, within {n} min)", { list: active.comparison.peer.peer_strings.join(", "), n: active.comparison.peer.window_min })}
                         </span>
                         {active.comparison.peer.flags.length > 0 && (
-                          <span className="ml-1 font-semibold text-amber-400">Below peers: {flagText(active.comparison.peer.flags)}</span>
+                          <span className="ml-1 font-semibold text-amber-400">{t("Below peers: {list}", { list: flagText(active.comparison.peer.flags, t) })}</span>
                         )}
                       </>
                     ) : (
@@ -497,32 +505,36 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                     )}
                   </div>
                   <div className="num">
-                    <span className="text-slate-500">vs first sweep of this string: </span>
+                    <span className="text-slate-500">{t("vs first sweep of this string:")} </span>
                     {active.comparison.baseline ? (
                       <>
-                        Pmax {pct(active.comparison.baseline.ratios.p_max)} · FF {pct(active.comparison.baseline.ratios.fill_factor)} · Rs slope{" "}
-                        {pct(active.comparison.baseline.ratios.slope_voc)} · Rsh slope {pct(active.comparison.baseline.ratios.slope_isc)}{" "}
+                        Pmax {pct(active.comparison.baseline.ratios.p_max)} · FF {pct(active.comparison.baseline.ratios.fill_factor)} · {t("Rs slope")}{" "}
+                        {pct(active.comparison.baseline.ratios.slope_voc)} · {t("Rsh slope")} {pct(active.comparison.baseline.ratios.slope_isc)}{" "}
                         <span className="text-slate-500">({active.comparison.baseline.swept_at.slice(0, 16)})</span>
                         {active.comparison.baseline.flags.length > 0 && (
-                          <span className="ml-1 font-semibold text-amber-400">{flagText(active.comparison.baseline.flags)}</span>
+                          <span className="ml-1 font-semibold text-amber-400">{flagText(active.comparison.baseline.flags, t)}</span>
                         )}
                       </>
                     ) : (
-                      <span className="text-slate-500">— no earlier valid sweep</span>
+                      <span className="text-slate-500">— {t("no earlier valid sweep")}</span>
                     )}
                   </div>
                   {(active.iec60891?.procedure_2 || active.iec60891?.site_reference) && (
                     <div className="num text-slate-400">
                       {active.iec60891.procedure_2 && (
                         <>
-                          Procedure 2 cross-check ({active.iec60891.procedure_2.coefficients === "assumed" ? "assumed" : "fleet module"} coefficients): {fmt(active.iec60891.procedure_2.p_max_stc_w, 0)} W (
-                          {fmt(active.iec60891.procedure_2.diff_vs_procedure_1_pct, 1)}% vs Procedure 1)
+                          {t(
+                            active.iec60891.procedure_2.coefficients === "assumed"
+                              ? "Procedure 2 cross-check (assumed coefficients): {p} W ({d}% vs Procedure 1)"
+                              : "Procedure 2 cross-check (fleet module coefficients): {p} W ({d}% vs Procedure 1)",
+                            { p: fmt(active.iec60891.procedure_2.p_max_stc_w, 0), d: fmt(active.iec60891.procedure_2.diff_vs_procedure_1_pct, 1) }
+                          )}
                         </>
                       )}
                       {active.iec60891.procedure_2 && active.iec60891.site_reference ? " · " : ""}
                       {active.iec60891.site_reference && (
                         <>
-                          Pmax at 1000 W/m², {fmt(active.iec60891.site_reference.t_c, 0)} °C: {fmt(active.iec60891.site_reference.parameters.p_max_w, 0)} W
+                          {t("Pmax at 1000 W/m², {t} °C: {p} W", { t: fmt(active.iec60891.site_reference.t_c, 0), p: fmt(active.iec60891.site_reference.parameters.p_max_w, 0) })}
                         </>
                       )}
                     </div>
@@ -531,19 +543,19 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                     <div className="num text-slate-400">
                       {active.iec60891.procedure_4 && (
                         <>
-                          Procedure 4 cross-check (default ε): {fmt(active.iec60891.procedure_4.p_max_stc_w, 0)} W (
-                          {fmt(active.iec60891.procedure_4.diff_vs_procedure_1_pct, 1)}% vs Procedure 1)
+                          {t("Procedure 4 cross-check (default ε): {p} W ({d}% vs Procedure 1)", { p: fmt(active.iec60891.procedure_4.p_max_stc_w, 0), d: fmt(active.iec60891.procedure_4.diff_vs_procedure_1_pct, 1) })}
                         </>
                       )}
                       {active.iec60891.procedure_4 && active.iec60891.procedure_dynamic ? " · " : ""}
                       {active.iec60891.procedure_dynamic && (
                         <>
-                          Dynamic procedure: {fmt(active.iec60891.procedure_dynamic.p_max_stc_w, 0)} W (
-                          {fmt(active.iec60891.procedure_dynamic.diff_vs_procedure_1_pct, 1)}% vs Procedure 1;{" "}
-                          {active.iec60891.procedure_dynamic.shunt_neglected
-                            ? "shunt current negligible"
-                            : `Rsh ${fmt(active.iec60891.procedure_dynamic.r_sh_ohm, 0)} Ω from this curve`}
-                          )
+                          {t("Dynamic procedure: {p} W ({d}% vs Procedure 1; {shunt})", {
+                            p: fmt(active.iec60891.procedure_dynamic.p_max_stc_w, 0),
+                            d: fmt(active.iec60891.procedure_dynamic.diff_vs_procedure_1_pct, 1),
+                            shunt: active.iec60891.procedure_dynamic.shunt_neglected
+                              ? t("shunt current negligible")
+                              : t("Rsh {r} Ω from this curve", { r: fmt(active.iec60891.procedure_dynamic.r_sh_ohm, 0) }),
+                          })}
                         </>
                       )}
                     </div>
@@ -551,17 +563,17 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                   {(active.classification?.equivalent_cell_temp || active.classification?.forward_reverse) && (
                     <div className="num text-slate-400">
                       {active.classification.equivalent_cell_temp && (
-                        <span title="Worked out from Voc and the datasheet; right only when the string's Voc is healthy. Not used for the translation.">
-                          Cell temperature from Voc (modelled): {fmt(active.classification.equivalent_cell_temp.t_c, 1)} °C (
-                          {active.classification.equivalent_cell_temp.diff_vs_measured_k > 0 ? "+" : ""}
-                          {fmt(active.classification.equivalent_cell_temp.diff_vs_measured_k, 1)} K vs measured)
+                        <span title={t("Worked out from Voc and the datasheet; right only when the string's Voc is healthy. Not used for the translation.")}>
+                          {t("Cell temperature from Voc (modelled): {t} °C ({d} K vs measured)", {
+                            t: fmt(active.classification.equivalent_cell_temp.t_c, 1),
+                            d: `${active.classification.equivalent_cell_temp.diff_vs_measured_k > 0 ? "+" : ""}${fmt(active.classification.equivalent_cell_temp.diff_vs_measured_k, 1)}`,
+                          })}
                         </span>
                       )}
                       {active.classification.equivalent_cell_temp && active.classification.forward_reverse ? " · " : ""}
                       {active.classification.forward_reverse && (
                         <>
-                          Opposite sweep Pmax {fmt(active.classification.forward_reverse.reverse_pmax_w, 0)} W: differs by{" "}
-                          {fmt(active.classification.forward_reverse.diff_pct, 1)}%
+                          {t("Opposite sweep Pmax {p} W: differs by {d}%", { p: fmt(active.classification.forward_reverse.reverse_pmax_w, 0), d: fmt(active.classification.forward_reverse.diff_pct, 1) })}
                         </>
                       )}
                     </div>
@@ -570,14 +582,13 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                     <div
                       className="num text-slate-400"
                       title={active.classification.uncertainty.components
-                        .map((c) => `${UNCERTAINTY_TEXT[c.name] ?? c.name} ±${fmt(c.pct, 1)}% (${c.source === "input" ? "given" : c.source === "procedure_spread" ? "spread between procedures" : "assumed"})`)
+                        .map((c) => `${UNCERTAINTY_TEXT[c.name] ? t(UNCERTAINTY_TEXT[c.name]) : c.name} ±${fmt(c.pct, 1)}% (${c.source === "input" ? t("given") : c.source === "procedure_spread" ? t("spread between procedures") : t("assumed")})`)
                         .join(" · ")}
                     >
-                      Estimated uncertainty of STC Pmax: at least ±{fmt(active.classification.uncertainty.expanded_pct, 1)}% (k = 2;
-                      tracer accuracy and repeatability not included)
+                      {t("Estimated uncertainty of STC Pmax: at least ±{v}% (k = 2; tracer accuracy and repeatability not included)", { v: fmt(active.classification.uncertainty.expanded_pct, 1) })}
                     </div>
                   )}
-                  <div className="text-[10px] text-slate-500">Peer and baseline flag levels are proposed defaults, not from a standard; they do not open tickets.</div>
+                  <div className="text-[10px] text-slate-500">{t("Peer and baseline flag levels are proposed defaults, not from a standard; they do not open tickets.")}</div>
                 </div>
               )}
 
@@ -605,19 +616,19 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                     <div className="num font-bold text-white">{fmt(stcParams.v_mp_v, 1)} V</div>
                   </div>
                   <div className="rounded-lg bg-ink-950/60 p-2.5">
-                    <div className="text-[10px] uppercase text-slate-500">Fill Factor</div>
+                    <div className="text-[10px] uppercase text-slate-500">{t("Fill Factor")}</div>
                     <div className="num font-bold text-white">{fmt(stcParams.fill_factor * 100, 1)} %</div>
                   </div>
-                  <div className="rounded-lg bg-ink-950/60 p-2.5" title="Inverse slope near Voc (-dV/dI)">
-                    <div className="text-[10px] uppercase text-slate-500">Rs (near Voc)</div>
+                  <div className="rounded-lg bg-ink-950/60 p-2.5" title={t("Inverse slope near Voc (-dV/dI)")}>
+                    <div className="text-[10px] uppercase text-slate-500">{t("Rs (near Voc)")}</div>
                     <div className="num font-bold text-white">{fmt(stcParams.slope_voc_ohm, 2)} Ω</div>
                   </div>
-                  <div className="rounded-lg bg-ink-950/60 p-2.5" title="Inverse slope near Isc (-dV/dI)">
-                    <div className="text-[10px] uppercase text-slate-500">Rsh (near Isc)</div>
+                  <div className="rounded-lg bg-ink-950/60 p-2.5" title={t("Inverse slope near Isc (-dV/dI)")}>
+                    <div className="text-[10px] uppercase text-slate-500">{t("Rsh (near Isc)")}</div>
                     <div className="num font-bold text-white">{fmt(stcParams.slope_isc_ohm, 0)} Ω</div>
                   </div>
                   <div className="rounded-lg bg-ink-950/60 p-2.5">
-                    <div className="text-[10px] uppercase text-slate-500">Steps / Notches</div>
+                    <div className="text-[10px] uppercase text-slate-500">{t("Steps / Notches")}</div>
                     <div className={`num font-bold ${stepsCount > 0 ? "text-amber-400" : "text-emerald-400"}`}>
                       {stepsCount}
                     </div>
@@ -629,44 +640,65 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
 
               <div className="space-y-1.5 rounded-lg border border-white/[0.06] bg-ink-950/40 p-3 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-semibold text-slate-200">Site coefficients from this string's sweeps (estimate)</div>
+                  <div className="font-semibold text-slate-200">{t("Site coefficients from this string's sweeps (estimate)")}</div>
                   <Button variant="outline" size="xs" onClick={loadSiteFit} disabled={siteFitBusy}>
                     {siteFitBusy && <Spinner data-icon="inline-start" className="size-3" />}
-                    {siteFit ? "Fit again" : "Fit"}
+                    {siteFit ? t("Fit again") : t("Fit")}
                   </Button>
                 </div>
                 {siteFitErr && <div className="text-red-400">{siteFitErr}</div>}
                 {siteFit && (
                   <div className="num space-y-1 text-slate-300">
                     <div className="text-slate-400">
-                      {siteFit.sweeps} of {siteFit.stored_sweeps} stored handheld sweeps used · irradiance span{" "}
-                      {fmt(siteFit.irradiance_span_wm2, 0)} W/m² · temperature span {fmt(siteFit.temp_span_k, 1)} K
+                      {t("{n} of {total} stored handheld sweeps used · irradiance span {g} W/m² · temperature span {k} K", {
+                        n: siteFit.sweeps,
+                        total: siteFit.stored_sweeps,
+                        g: fmt(siteFit.irradiance_span_wm2, 0),
+                        k: fmt(siteFit.temp_span_k, 1),
+                      })}
                     </div>
                     {siteFit.voc && (
                       <div>
-                        Voc at STC {fmt(siteFit.voc.voc_stc_per_module_v, 2)} V per module (datasheet {fmt(siteFit.voc.datasheet_voc_stc_v, 2)}) · β{" "}
-                        {fmt(siteFit.voc.beta_rel_pct_per_k, 3)} %/K (datasheet {fmt(siteFit.voc.datasheet_beta_rel_pct_per_k, 3)}) · B1{" "}
-                        {fmt(siteFit.voc.b1, 3)} · fit error {fmt(siteFit.voc.fit_rms_pct, 2)}%
+                        {t("Voc at STC {voc} V per module (datasheet {ds}) · β {beta} %/K (datasheet {dsb}) · B1 {b1} · fit error {err}%", {
+                          voc: fmt(siteFit.voc.voc_stc_per_module_v, 2),
+                          ds: fmt(siteFit.voc.datasheet_voc_stc_v, 2),
+                          beta: fmt(siteFit.voc.beta_rel_pct_per_k, 3),
+                          dsb: fmt(siteFit.voc.datasheet_beta_rel_pct_per_k, 3),
+                          b1: fmt(siteFit.voc.b1, 3),
+                          err: fmt(siteFit.voc.fit_rms_pct, 2),
+                        })}
                       </div>
                     )}
                     {siteFit.resistance && (
                       <div>
-                        Rs {fmt(siteFit.resistance.rs_ohm_per_module, 2)} Ω per module · κ {fmt(siteFit.resistance.kappa_ohm_per_k_per_module, 4)} Ω/K per module ·
-                        spread of STC Pmax across the sweeps {fmt(siteFit.resistance.pmax_spread_before_pct, 2)}% → {fmt(siteFit.resistance.pmax_spread_after_pct, 2)}%
+                        {t("Rs {rs} Ω per module · κ {k} Ω/K per module · spread of STC Pmax across the sweeps {a}% → {b}%", {
+                          rs: fmt(siteFit.resistance.rs_ohm_per_module, 2),
+                          k: fmt(siteFit.resistance.kappa_ohm_per_k_per_module, 4),
+                          a: fmt(siteFit.resistance.pmax_spread_before_pct, 2),
+                          b: fmt(siteFit.resistance.pmax_spread_after_pct, 2),
+                        })}
                       </div>
                     )}
                     {siteFit.procedure_3 && (
                       <div>
-                        Procedure 3 ({siteFit.procedure_3.extrapolated ? "extrapolated" : "interpolated"} from the{" "}
-                        {fmt(siteFit.procedure_3.from_irradiance_wm2[0], 0)} and {fmt(siteFit.procedure_3.from_irradiance_wm2[1], 0)} W/m² sweeps): Pmax{" "}
-                        {fmt(siteFit.procedure_3.p_max_w, 0)} W at 1000 W/m², {fmt(siteFit.procedure_3.t_c, 1)} °C
+                        {t(
+                          siteFit.procedure_3.extrapolated
+                            ? "Procedure 3 (extrapolated from the {a} and {b} W/m² sweeps): Pmax {p} W at 1000 W/m², {t} °C"
+                            : "Procedure 3 (interpolated from the {a} and {b} W/m² sweeps): Pmax {p} W at 1000 W/m², {t} °C",
+                          {
+                            a: fmt(siteFit.procedure_3.from_irradiance_wm2[0], 0),
+                            b: fmt(siteFit.procedure_3.from_irradiance_wm2[1], 0),
+                            p: fmt(siteFit.procedure_3.p_max_w, 0),
+                            t: fmt(siteFit.procedure_3.t_c, 1),
+                          }
+                        )}
                       </div>
                     )}
                     {siteFit.reasons.map((r) => (
                       <div key={r} className="text-amber-300/90">{r}</div>
                     ))}
                     <div className="text-[10px] text-slate-500">
-                      Fitted when asked, never stored or applied. "—" = these sweeps cannot determine it. Values worth keeping go into the Fleet PV Module setting (admin).
+                      {t('Fitted when asked, never stored or applied. "—" = these sweeps cannot determine it. Values worth keeping go into the Fleet PV Module setting (admin).')}
                     </div>
                   </div>
                 )}

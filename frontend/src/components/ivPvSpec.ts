@@ -9,6 +9,7 @@ import type { GrowattStringDetail } from "../api/client";
 import type { ChartSeries, PanelChartSpec } from "./PanelChart";
 import { SERIES, STATUS } from "./chartTheme";
 import { fmt } from "./ui";
+import { dateLocale, translate as tr } from "../i18n";
 
 export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelChartSpec | null {
   const { nominal_points, actual_points, measured_scatter, mpp_nominal, mpp_actual } = curve;
@@ -22,7 +23,7 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
   if (nominal_points.length > 0) {
     current.push({
       key: "ref-i",
-      name: "Reference I-V (modelled)",
+      name: tr("Reference I-V (modelled)"),
       type: "line",
       dash: "dash",
       width: 1.5,
@@ -34,8 +35,8 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
   }
   if (actual_points.length > 0) {
     const x = actual_points.map((p) => p.v);
-    current.push({ key: "act-i", name: "Actual I-V (modelled)", type: "line", color: SERIES.ac, x, y: actual_points.map((p) => p.i), format: amps });
-    power.push({ key: "act-p", name: "Actual P-V (modelled)", type: "line", color: SERIES.dc, x, y: actual_points.map((p) => p.p), format: watts });
+    current.push({ key: "act-i", name: tr("Actual I-V (modelled)"), type: "line", color: SERIES.ac, x, y: actual_points.map((p) => p.i), format: amps });
+    power.push({ key: "act-p", name: tr("Actual P-V (modelled)"), type: "line", color: SERIES.dc, x, y: actual_points.map((p) => p.p), format: watts });
   }
   if (measured_scatter.length > 0) {
     // every point carries its record time (and the other quantity) in the tooltip
@@ -45,7 +46,7 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
     const at = (ts: string) => ts.replace("T", " ").slice(range ? 5 : 11, 16);
     current.push({
       key: "meas-i",
-      name: "Measured",
+      name: tr("Measured"),
       type: "points",
       size: 5,
       opacity: 0.75,
@@ -57,7 +58,7 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
     });
     power.push({
       key: "meas-p",
-      name: "Measured",
+      name: tr("Measured"),
       type: "points",
       size: 5,
       opacity: 0.75,
@@ -71,7 +72,7 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
   if (mpp_nominal) {
     power.push({
       key: "mpp-ref",
-      name: `Reference MPP ${fmt(mpp_nominal.p, 0)} W (modelled)`,
+      name: tr("Reference MPP {p} W (modelled)", { p: fmt(mpp_nominal.p, 0) }),
       type: "points",
       symbol: "ring",
       size: 10,
@@ -84,7 +85,7 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
   if (mpp_actual) {
     power.push({
       key: "mpp",
-      name: `Actual MPP ${fmt(mpp_actual.p, 0)} W @ ${fmt(mpp_actual.v, 0)} V`,
+      name: tr("Actual MPP {p} W @ {v} V", { p: fmt(mpp_actual.p, 0), v: fmt(mpp_actual.v, 0) }),
       type: "points",
       symbol: "diamond",
       size: 11,
@@ -99,11 +100,11 @@ export function ivPvSpecFrom(curve: GrowattStringDetail["iv_pv_curve"]): PanelCh
     xKind: "linear",
     xZero: true,
     x: base.map((p) => p.v),
-    xLabel: "String DC voltage (V)",
+    xLabel: tr("String DC voltage (V)"),
     xTipNumber: (v) => `${fmt(v, 0)} V`,
     panels: [
-      { key: "i", title: "Current (A)", series: current },
-      ...(power.length > 0 ? [{ key: "p", title: "Power (W)", series: power }] : []),
+      { key: "i", title: tr("Current (A)"), series: current },
+      ...(power.length > 0 ? [{ key: "p", title: tr("Power (W)"), series: power }] : []),
     ],
   };
 }
@@ -118,12 +119,12 @@ export function stringProfileSpecFrom(detail: GrowattStringDetail): PanelChartSp
     panels: [
       {
         key: "i",
-        title: "DC current (A)",
+        title: tr("DC current (A)"),
         weight: 1.3,
         series: [
           {
             key: "peer",
-            name: "Peer average",
+            name: tr("Peer average"),
             type: "line",
             dash: "dot",
             width: 1.5,
@@ -131,14 +132,14 @@ export function stringProfileSpecFrom(detail: GrowattStringDetail): PanelChartSp
             y: ts.map((r) => r.peer_current_a),
             format: (v) => `${fmt(v, 2)} A`,
           },
-          { key: "i", name: "String current", type: "line", color: SERIES.ac, y: ts.map((r) => r.current_a), format: (v) => `${fmt(v, 2)} A` },
+          { key: "i", name: tr("String current"), type: "line", color: SERIES.ac, y: ts.map((r) => r.current_a), format: (v) => `${fmt(v, 2)} A` },
         ],
       },
       {
         key: "v",
-        title: "MPPT voltage (V)",
+        title: tr("MPPT voltage (V)"),
         zero: false,
-        series: [{ key: "v", name: "MPPT voltage", type: "line", color: SERIES.dc, y: ts.map((r) => r.voltage_v), format: (v) => `${fmt(v, 0)} V` }],
+        series: [{ key: "v", name: tr("MPPT voltage"), type: "line", color: SERIES.dc, y: ts.map((r) => r.voltage_v), format: (v) => `${fmt(v, 0)} V` }],
       },
     ],
   };
@@ -148,7 +149,7 @@ export function stringProfileSpecFrom(detail: GrowattStringDetail): PanelChartSp
 export function stringDailySpecFrom(detail: GrowattStringDetail): PanelChartSpec | null {
   const days = detail.daily ?? [];
   if (days.length < 2) return null;
-  const label = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const label = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
   return {
     xKind: "band",
     x: days.map((d) => d.day),
@@ -157,13 +158,13 @@ export function stringDailySpecFrom(detail: GrowattStringDetail): PanelChartSpec
     panels: [
       {
         key: "e",
-        title: "Energy (kWh)",
+        title: tr("Energy (kWh)"),
         weight: 1.5,
         series: [
-          { key: "e", name: "String energy", type: "bar", color: SERIES.dc, y: days.map((d) => d.energy_kwh), format: (v) => `${fmt(v, 2)} kWh` },
+          { key: "e", name: tr("String energy"), type: "bar", color: SERIES.dc, y: days.map((d) => d.energy_kwh), format: (v) => `${fmt(v, 2)} kWh` },
           {
             key: "peer",
-            name: "Peer average",
+            name: tr("Peer average"),
             type: "line",
             dash: "dot",
             width: 1.5,
@@ -175,8 +176,8 @@ export function stringDailySpecFrom(detail: GrowattStringDetail): PanelChartSpec
       },
       {
         key: "pr",
-        title: "Peer-relative PR (%) · modelled",
-        series: [{ key: "pr", name: "String PR", type: "line", color: SERIES.ac, y: days.map((d) => d.pr_pct), format: (v) => `${fmt(v, 1)}%` }],
+        title: tr("Peer-relative PR (%) · modelled"),
+        series: [{ key: "pr", name: tr("String PR"), type: "line", color: SERIES.ac, y: days.map((d) => d.pr_pct), format: (v) => `${fmt(v, 1)}%` }],
       },
     ],
   };

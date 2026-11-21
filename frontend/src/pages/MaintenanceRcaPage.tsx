@@ -4,6 +4,7 @@ import { useAppContext } from "../context/AppContext";
 import { api, CMWorkOrder, PMTask, RCARecord } from "../api/client";
 import { PageHeader, Panel, StatusBadge, Led, fmt } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
+import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 /** Legacy O&M modules (admin only, local `plants` table); `top` = the site log, shown first. */
 export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top }) => {
   const { activePlant, analysisRun, selectedPlantOverview, setInspectedStringId } = useAppContext();
+  const { t } = useI18n();
   const [pmTasks, setPmTasks] = useState<PMTask[]>([]);
   const [cmOrders, setCmOrders] = useState<CMWorkOrder[]>([]);
   const [rcaRecords, setRcaRecords] = useState<RCARecord[]>([]);
@@ -64,7 +66,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
   const handlePmStatusChange = async (task: PMTask, newStatus: string) => {
     try {
       const updated = await api.updatePmTask(task.id, { ...task, compliance_status: newStatus });
-      setPmTasks(pmTasks.map((t) => (t.id === task.id ? updated : t)));
+      setPmTasks(pmTasks.map((x) => (x.id === task.id ? updated : x)));
     } catch (err: any) {
       alert(err.message);
     }
@@ -114,7 +116,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
 
   const handleRegenerateCm = async () => {
     if (!analysisRun?.id) {
-      alert("No legacy analysis run to build CM work orders from.");
+      alert(t("No legacy analysis run to build CM work orders from."));
       return;
     }
     try {
@@ -172,20 +174,20 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
       {plantAnomalies.length > 0 && (
         <Panel
           icon={Wrench}
-          title={`Detected Plant String & Inverter Fault Alarms (${plantAnomalies.length})`}
-          subtitle={`Real-time string mismatch & underperformance alarms on ${selectedPlantOverview?.plant.name || ""}`}
+          title={t("Detected Plant String & Inverter Fault Alarms ({n})", { n: plantAnomalies.length })}
+          subtitle={t("Real-time string mismatch & underperformance alarms on {name}", { name: selectedPlantOverview?.plant.name || "" })}
           bodyClassName="p-0"
         >
           <Table containerClassName="scroll-x-hint max-h-72 overflow-auto">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Severity</TableHead>
-                  <TableHead>String ID</TableHead>
-                  <TableHead>Inverter SN</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead className="text-right">PR (%)</TableHead>
-                  <TableHead className="text-right">Est. Loss (kWh)</TableHead>
-                  <TableHead>Diagnosis & Recommended Action</TableHead>
+                  <TableHead>{t("Severity")}</TableHead>
+                  <TableHead>{t("String ID")}</TableHead>
+                  <TableHead>{t("Inverter SN")}</TableHead>
+                  <TableHead>{t("Category")}</TableHead>
+                  <TableHead className="text-right">{t("PR (%)")}</TableHead>
+                  <TableHead className="text-right">{t("Est. Loss (kWh)")}</TableHead>
+                  <TableHead>{t("Diagnosis & Recommended Action")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -225,12 +227,12 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
         {/* PM Schedule */}
         <Panel
           icon={CalendarCheck2}
-          title="Preventive Maintenance (PM) Optimization Schedule"
-          subtitle="Across PV Modules, Combiners, Inverters, Transformers & Switchgear"
+          title={t("Preventive Maintenance (PM) Optimization Schedule")}
+          subtitle={t("Across PV Modules, Combiners, Inverters, Transformers & Switchgear")}
           actions={
             <Button onClick={() => setShowPmForm(!showPmForm)} variant="default" size="sm">
               <Plus className="h-3.5 w-3.5" />
-              Add PM Task
+              {t("Add PM Task")}
             </Button>
           }
           bodyClassName="panel-pad space-y-3"
@@ -241,14 +243,14 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                 <Input
                   value={newPmId}
                   onChange={(e) => setNewPmId(e.target.value)}
-                  placeholder="PM ID"
+                  placeholder={t("PM ID")}
                   className="h-7 px-2 text-[11px]"
                   required
                 />
                 <Input
                   value={newPmCat}
                   onChange={(e) => setNewPmCat(e.target.value)}
-                  placeholder="Asset Category"
+                  placeholder={t("Asset Category")}
                   className="h-7 px-2 text-[11px]"
                   required
                 />
@@ -257,10 +259,10 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Monthly">Monthly</SelectItem>
-                    <SelectItem value="Quarterly">Quarterly</SelectItem>
-                    <SelectItem value="Semi-Annual">Semi-Annual</SelectItem>
-                    <SelectItem value="Annual">Annual</SelectItem>
+                    <SelectItem value="Monthly">{t("Monthly")}</SelectItem>
+                    <SelectItem value="Quarterly">{t("Quarterly")}</SelectItem>
+                    <SelectItem value="Semi-Annual">{t("Semi-Annual")}</SelectItem>
+                    <SelectItem value="Annual">{t("Annual")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -268,20 +270,20 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                 <Input
                   value={newPmDesc}
                   onChange={(e) => setNewPmDesc(e.target.value)}
-                  placeholder="Task Description"
+                  placeholder={t("Task Description")}
                   className="h-7 px-2 text-[11px]"
                   required
                 />
                 <Input
                   value={newPmSub}
                   onChange={(e) => setNewPmSub(e.target.value)}
-                  placeholder="Subcontractor"
+                  placeholder={t("Subcontractor")}
                   className="h-7 px-2 text-[11px]"
                   required
                 />
               </div>
               <Button type="submit" variant="default" size="sm">
-                Save PM Task
+                {t("Save PM Task")}
               </Button>
             </form>
           )}
@@ -289,36 +291,36 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
           <Table containerClassName="table-wrap">
               <TableHeader>
                 <TableRow>
-                  <TableHead>PM ID</TableHead>
-                  <TableHead>Asset & Task</TableHead>
-                  <TableHead>Freq</TableHead>
-                  <TableHead>Next Due</TableHead>
-                  <TableHead>Subcontractor</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t("PM ID")}</TableHead>
+                  <TableHead>{t("Asset & Task")}</TableHead>
+                  <TableHead>{t("Freq")}</TableHead>
+                  <TableHead>{t("Next Due")}</TableHead>
+                  <TableHead>{t("Subcontractor")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pmTasks.map((t) => (
-                  <TableRow key={t.id}>
-                    <TableCell className="num whitespace-nowrap font-semibold text-solar-400">{t.pm_id}</TableCell>
+                {pmTasks.map((x) => (
+                  <TableRow key={x.id}>
+                    <TableCell className="num whitespace-nowrap font-semibold text-solar-400">{x.pm_id}</TableCell>
                     <TableCell>
-                      <div className="font-semibold text-slate-100">{t.asset_category}</div>
-                      <div className="text-[11px] text-slate-500">{t.task_description}</div>
+                      <div className="font-semibold text-slate-100">{x.asset_category}</div>
+                      <div className="text-[11px] text-slate-500">{x.task_description}</div>
                     </TableCell>
-                    <TableCell>{t.frequency}</TableCell>
-                    <TableCell className="num whitespace-nowrap text-[11px]">{t.next_due}</TableCell>
-                    <TableCell className="text-[11px] text-slate-400">{t.assigned_subcontractor}</TableCell>
+                    <TableCell>{x.frequency}</TableCell>
+                    <TableCell className="num whitespace-nowrap text-[11px]">{x.next_due}</TableCell>
+                    <TableCell className="text-[11px] text-slate-400">{x.assigned_subcontractor}</TableCell>
                     <TableCell>
-                      <Select value={t.compliance_status} onValueChange={(v) => handlePmStatusChange(t, v)}>
+                      <Select value={x.compliance_status} onValueChange={(v) => handlePmStatusChange(x, v)}>
                         <SelectTrigger size="sm" className="w-32 text-[11px]">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Due Soon">Due Soon</SelectItem>
-                          <SelectItem value="Scheduled">Scheduled</SelectItem>
-                          <SelectItem value="Completed">Completed</SelectItem>
-                          <SelectItem value="Overdue">Overdue</SelectItem>
+                          <SelectItem value="Due Soon">{t("Due Soon")}</SelectItem>
+                          <SelectItem value="Scheduled">{t("Scheduled")}</SelectItem>
+                          <SelectItem value="Completed">{t("Completed")}</SelectItem>
+                          <SelectItem value="Overdue">{t("Overdue")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableCell>
@@ -328,14 +330,14 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            onClick={() => handleDeletePm(t.id)}
+                            onClick={() => handleDeletePm(x.id)}
                             className="text-slate-500 hover:text-red-400"
-                            aria-label="Delete PM Task"
+                            aria-label={t("Delete PM Task")}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Delete PM Task</TooltipContent>
+                        <TooltipContent>{t("Delete PM Task")}</TooltipContent>
                       </Tooltip>
                     </TableCell>
                   </TableRow>
@@ -347,23 +349,23 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
         {/* CM Work Orders */}
         <Panel
           icon={Wrench}
-          title="Corrective Maintenance (CM) & Troubleshooting Work Orders"
-          subtitle="Auto-generated from string fault diagnostics + active Inverter / Switchgear alarms"
+          title={t("Corrective Maintenance (CM) & Troubleshooting Work Orders")}
+          subtitle={t("Auto-generated from string fault diagnostics + active Inverter / Switchgear alarms")}
           actions={
             <Button onClick={handleRegenerateCm} size="sm">
               <RefreshCw className="h-3.5 w-3.5" />
-              Sync from Analysis
+              {t("Sync from Analysis")}
             </Button>
           }
         >
           <Table containerClassName="table-wrap">
               <TableHeader>
                 <TableRow>
-                  <TableHead>WO #</TableHead>
-                  <TableHead>Asset & Symptom</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Troubleshooting Steps</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{t("WO #")}</TableHead>
+                  <TableHead>{t("Asset & Symptom")}</TableHead>
+                  <TableHead>{t("Priority")}</TableHead>
+                  <TableHead>{t("Troubleshooting Steps")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -395,10 +397,10 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Open - Dispatched">Open - Dispatched</SelectItem>
-                          <SelectItem value="In Progress">In Progress</SelectItem>
-                          <SelectItem value="Scheduled">Scheduled</SelectItem>
-                          <SelectItem value="Closed - Verified">Closed - Verified</SelectItem>
+                          <SelectItem value="Open - Dispatched">{t("Open - Dispatched")}</SelectItem>
+                          <SelectItem value="In Progress">{t("In Progress")}</SelectItem>
+                          <SelectItem value="Scheduled">{t("Scheduled")}</SelectItem>
+                          <SelectItem value="Closed - Verified">{t("Closed - Verified")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableCell>
@@ -412,36 +414,36 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
       {/* Root Cause Analysis (RCA) Register */}
       <Panel
         icon={GitFork}
-        title="Root Cause Analysis (RCA) — Inverters, Transformers, Switchgear & PV Strings"
-        subtitle="Structured 5-Why & Fishbone (Ishikawa) Root Cause Analysis with Corrective & Preventive Actions (CAPA)"
+        title={t("Root Cause Analysis (RCA) — Inverters, Transformers, Switchgear & PV Strings")}
+        subtitle={t("Structured 5-Why & Fishbone (Ishikawa) Root Cause Analysis with Corrective & Preventive Actions (CAPA)")}
         actions={
           <Button onClick={() => setShowRcaForm(!showRcaForm)} variant="default" size="sm">
             <Plus className="h-3.5 w-3.5" />
-            {showRcaForm ? "Close RCA Form" : "Log New Equipment Failure RCA"}
+            {showRcaForm ? t("Close RCA Form") : t("Log New Equipment Failure RCA")}
           </Button>
         }
         bodyClassName="panel-pad space-y-4"
       >
         {showRcaForm && (
           <form onSubmit={handleCreateRca} className="callout space-y-3 text-xs">
-            <h5 className="font-bold text-slate-100">Log New 5-Why & Fishbone RCA Record</h5>
+            <h5 className="font-bold text-slate-100">{t("Log New 5-Why & Fishbone RCA Record")}</h5>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Equipment Category</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Equipment Category")}</Label>
                 <Select value={eqCat} onValueChange={(v) => setEqCat(v)}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Inverter">Inverter</SelectItem>
-                    <SelectItem value="Transformer">Transformer</SelectItem>
-                    <SelectItem value="Switchgear">Switchgear</SelectItem>
-                    <SelectItem value="PV String / DC Combiner">PV String / DC Combiner</SelectItem>
+                    <SelectItem value="Inverter">{t("Inverter")}</SelectItem>
+                    <SelectItem value="Transformer">{t("Transformer")}</SelectItem>
+                    <SelectItem value="Switchgear">{t("Switchgear")}</SelectItem>
+                    <SelectItem value="PV String / DC Combiner">{t("PV String / DC Combiner")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Asset ID</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Asset ID")}</Label>
                 <Input
                   value={assetId}
                   onChange={(e) => setAssetId(e.target.value)}
@@ -449,7 +451,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                 />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Downtime (Hours)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Downtime (Hours)")}</Label>
                 <Input
                   type="number"
                   step="0.5"
@@ -459,7 +461,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                 />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Energy Loss (kWh)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Energy Loss (kWh)")}</Label>
                 <Input
                   type="number"
                   step="10"
@@ -471,7 +473,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
             </div>
 
             <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Failure Mode / Alarm Description</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Failure Mode / Alarm Description")}</Label>
               <Input
                 value={failureMode}
                 onChange={(e) => setFailureMode(e.target.value)}
@@ -481,37 +483,37 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 1 (Immediate Symptom)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Why 1 (Immediate Symptom)")}</Label>
                 <Input value={why1} onChange={(e) => setWhy1(e.target.value)} />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 2 (Direct Cause)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Why 2 (Direct Cause)")}</Label>
                 <Input value={why2} onChange={(e) => setWhy2(e.target.value)} />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 3 (Contributing Factor)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Why 3 (Contributing Factor)")}</Label>
                 <Input value={why3} onChange={(e) => setWhy3(e.target.value)} />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 4 (Process Gap)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Why 4 (Process Gap)")}</Label>
                 <Input value={why4} onChange={(e) => setWhy4(e.target.value)} />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Why 5 (Root Cause)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Why 5 (Root Cause)")}</Label>
                 <Input value={why5} onChange={(e) => setWhy5(e.target.value)} />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Fishbone Category</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Fishbone Category")}</Label>
                 <Select value={fishbone} onValueChange={(v) => setFishbone(v)}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Machine / Maintenance PM">Machine / Maintenance PM</SelectItem>
-                    <SelectItem value="Material / Workmanship">Material / Workmanship</SelectItem>
-                    <SelectItem value="Method / Subcontractor QA">Method / Subcontractor QA</SelectItem>
-                    <SelectItem value="Engineering / Protection Coordination">Engineering / Protection Coordination</SelectItem>
-                    <SelectItem value="Environment">Environment</SelectItem>
+                    <SelectItem value="Machine / Maintenance PM">{t("Machine / Maintenance PM")}</SelectItem>
+                    <SelectItem value="Material / Workmanship">{t("Material / Workmanship")}</SelectItem>
+                    <SelectItem value="Method / Subcontractor QA">{t("Method / Subcontractor QA")}</SelectItem>
+                    <SelectItem value="Engineering / Protection Coordination">{t("Engineering / Protection Coordination")}</SelectItem>
+                    <SelectItem value="Environment">{t("Environment")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -519,18 +521,18 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Corrective Action (Immediate Fix)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Corrective Action (Immediate Fix)")}</Label>
                 <Input value={capaC} onChange={(e) => setCapaC(e.target.value)} />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Preventive Action (Long-Term Recurrence Prevention)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Preventive Action (Long-Term Recurrence Prevention)")}</Label>
                 <Input value={capaP} onChange={(e) => setCapaP(e.target.value)} />
               </div>
             </div>
 
             <Button type="submit" variant="default">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Save RCA Record to Register
+              {t("Save RCA Record to Register")}
             </Button>
           </form>
         )}
@@ -538,13 +540,13 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
         <Table containerClassName="table-wrap">
             <TableHeader>
               <TableRow>
-                <TableHead>RCA ID</TableHead>
-                <TableHead>Category & Asset</TableHead>
-                <TableHead>Failure Mode</TableHead>
-                <TableHead>Loss</TableHead>
-                <TableHead>Why 5 Root Cause & Fishbone</TableHead>
-                <TableHead>CAPA (Corrective & Preventive)</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t("RCA ID")}</TableHead>
+                <TableHead>{t("Category & Asset")}</TableHead>
+                <TableHead>{t("Failure Mode")}</TableHead>
+                <TableHead>{t("Loss")}</TableHead>
+                <TableHead>{t("Why 5 Root Cause & Fishbone")}</TableHead>
+                <TableHead>{t("CAPA (Corrective & Preventive)")}</TableHead>
+                <TableHead>{t("Status")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -560,7 +562,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                   </TableCell>
                   <TableCell className="max-w-xs text-slate-200">{rec.failure_mode}</TableCell>
                   <TableCell className="num whitespace-nowrap text-[11px]">
-                    <div className="text-slate-400">{rec.downtime_hours}h</div>
+                    <div className="text-slate-400">{t("{n} h", { n: rec.downtime_hours })}</div>
                     <div className="font-semibold text-red-400">{rec.energy_loss_kwh} kWh</div>
                   </TableCell>
                   <TableCell className="max-w-xs">
@@ -581,9 +583,9 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Open - CAPA Assigned">Open - CAPA Assigned</SelectItem>
-                        <SelectItem value="CAPA In Implementation">CAPA In Implementation</SelectItem>
-                        <SelectItem value="Closed - Verified">Closed - Verified</SelectItem>
+                        <SelectItem value="Open - CAPA Assigned">{t("Open - CAPA Assigned")}</SelectItem>
+                        <SelectItem value="CAPA In Implementation">{t("CAPA In Implementation")}</SelectItem>
+                        <SelectItem value="Closed - Verified">{t("Closed - Verified")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </TableCell>

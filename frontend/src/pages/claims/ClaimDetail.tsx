@@ -14,6 +14,7 @@ import { claimsApi } from "./useClaims";
 import { StatusBadge, WaitingText } from "./ClaimTable";
 import { CAUSE, LINK_KIND, STATUS, TYPE, evidenceHref, fmtDay, inverterHref, isOpen, linkHref, relDays, stringHref } from "./format";
 import { safeHref } from "@/lib/safeUrl";
+import { translate, useI18n } from "../../i18n";
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex justify-between gap-3 border-b border-white/[0.05] py-1.5 text-xs last:border-0">
@@ -35,17 +36,17 @@ const Section: React.FC<{ title: string; right?: React.ReactNode; children: Reac
 const eventText = (e: ClaimEvent, counterparty: string): string => {
   switch (e.kind) {
     case "created":
-      return "Created";
+      return translate("Created");
     case "edit":
-      return "Edited";
+      return translate("Edited");
     case "status":
-      return `${e.from_status ? STATUS[e.from_status].label : "—"} → ${e.to_status ? STATUS[e.to_status].label : "—"}`;
+      return `${e.from_status ? translate(STATUS[e.from_status].label) : "—"} → ${e.to_status ? translate(STATUS[e.to_status].label) : "—"}`;
     case "note":
-      return "Note";
+      return translate("Note");
     case "message":
-      return e.direction === "in" ? `Message from ${counterparty}` : `Message to ${counterparty}`;
+      return translate(e.direction === "in" ? "Message from {name}" : "Message to {name}", { name: counterparty });
     case "shipment":
-      return e.direction === "in" ? "Parcel to us" : `Parcel to ${counterparty}`;
+      return e.direction === "in" ? translate("Parcel to us") : translate("Parcel to {name}", { name: counterparty });
   }
 };
 
@@ -68,6 +69,7 @@ export const ClaimDetail: React.FC<{
   onClose: () => void;
   actions: (d: Detail) => DetailActions;
 }> = ({ id, version, today, plantName, onClose, actions }) => {
+  const { t } = useI18n();
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -103,9 +105,9 @@ export const ClaimDetail: React.FC<{
     <Dialog open={id != null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{c ? `${c.number} · ${TYPE[c.type].label}` : `Claim #${id}`}</DialogTitle>
+          <DialogTitle>{c ? `${c.number} · ${t(TYPE[c.type].label)}` : t("Claim #{id}", { id })}</DialogTitle>
           <DialogDescription>
-            {c ? [c.plant_name ?? plantName(c.plant_id), `with ${c.counterparty}`, c.counterparty_ref && `ref ${c.counterparty_ref}`].filter(Boolean).join(" · ") : " "}
+            {c ? [c.plant_name ?? plantName(c.plant_id), t("with {name}", { name: c.counterparty }), c.counterparty_ref && t("ref {ref}", { ref: c.counterparty_ref })].filter(Boolean).join(" · ") : " "}
           </DialogDescription>
         </DialogHeader>
         {!c || !act ? (
@@ -117,49 +119,49 @@ export const ClaimDetail: React.FC<{
               <WaitingText c={c} />
               {c.next_action_day && isOpen(c) && (
                 <span className={cn("text-xs", c.followup_overdue ? "text-red-300" : "text-muted-foreground")}>
-                  Next action {fmtDay(c.next_action_day)} ({relDays(c.next_action_day, today)})
+                  {t("Next action {day} ({rel})", { day: fmtDay(c.next_action_day), rel: relDays(c.next_action_day, today) })}
                 </span>
               )}
-              {c.followup_overdue && <Badge variant="crit">Follow up</Badge>}
+              {c.followup_overdue && <Badge variant="crit">{t("Follow up")}</Badge>}
               <div className="ml-auto flex flex-wrap gap-1">
                 {act.status && (
                   <Button size="xs" onClick={act.status}>
-                    Change status
+                    {t("Change status")}
                   </Button>
                 )}
                 <Button size="xs" variant="outline" onClick={() => act.event("note")}>
-                  Add note
+                  {t("Add note")}
                 </Button>
                 <Button size="xs" variant="outline" onClick={() => act.event("message")}>
-                  Message
+                  {t("Message")}
                 </Button>
                 <Button size="xs" variant="outline" onClick={() => act.event("shipment")}>
-                  Shipment
+                  {t("Shipment")}
                 </Button>
                 {act.edit && (
                   <Button size="xs" variant="ghost" onClick={act.edit}>
-                    Edit
+                    {t("Edit")}
                   </Button>
                 )}
               </div>
             </div>
 
             <div className="grid gap-5 sm:grid-cols-2">
-              <Section title="What failed">
-                <Row label="Plant">
+              <Section title={t("What failed")}>
+                <Row label={t("Plant")}>
                   <Link to={plantPath(c.plant_id)} className="hover:text-solar-400">
                     {c.plant_name ?? plantName(c.plant_id)}
                   </Link>
                 </Row>
                 {c.device_sn && (
-                  <Row label="Inverter">
+                  <Row label={t("Inverter")}>
                     <Link to={inverterHref(c.plant_id, c.device_sn)} className="num hover:text-solar-400">
                       {c.device_sn}
                     </Link>
                   </Row>
                 )}
                 {c.string_nos.length > 0 && (
-                  <Row label="String(s)">
+                  <Row label={t("String(s)")}>
                     {c.string_nos.map((n, k) => (
                       <React.Fragment key={n}>
                         {k > 0 && ", "}
@@ -174,27 +176,27 @@ export const ClaimDetail: React.FC<{
                     ))}
                   </Row>
                 )}
-                {c.module_serials.length > 0 && <Row label={`Modules (${c.module_serials.length})`}>{<span className="num">{c.module_serials.join(", ")}</span>}</Row>}
-                {c.device_label && <Row label="Damaged">{c.device_label}</Row>}
-                <Row label="Cause">{CAUSE[c.cause]}</Row>
-                <Row label="Incident">{fmtDay(c.incident_day)}</Row>
-                <Row label="Found">{fmtDay(c.discovered_day)}</Row>
-                <Row label="Submitted">{fmtDay(c.submitted_day)}</Row>
-                {c.closed_day && <Row label="Closed">{fmtDay(c.closed_day)}</Row>}
+                {c.module_serials.length > 0 && <Row label={t("Modules ({n})", { n: c.module_serials.length })}>{<span className="num">{c.module_serials.join(", ")}</span>}</Row>}
+                {c.device_label && <Row label={t("Damaged")}>{c.device_label}</Row>}
+                <Row label={t("Cause")}>{t(CAUSE[c.cause])}</Row>
+                <Row label={t("Incident")}>{fmtDay(c.incident_day)}</Row>
+                <Row label={t("Found")}>{fmtDay(c.discovered_day)}</Row>
+                <Row label={t("Submitted")}>{fmtDay(c.submitted_day)}</Row>
+                {c.closed_day && <Row label={t("Closed")}>{fmtDay(c.closed_day)}</Row>}
                 {c.type !== "insurance" && (
-                  <Row label="Warranty ends">
-                    {c.warranty_end_day ? fmtDay(c.warranty_end_day) : <span className="text-muted-foreground" title="Not entered on the claim">—</span>}
+                  <Row label={t("Warranty ends")}>
+                    {c.warranty_end_day ? fmtDay(c.warranty_end_day) : <span className="text-muted-foreground" title={t("Not entered on the claim")}>—</span>}
                   </Row>
                 )}
                 {(c.old_sn || c.new_sn) && c.type === "inverter_warranty" && (
-                  <Row label="Swap">
+                  <Row label={t("Swap")}>
                     <span className="num">
-                      {c.old_sn ?? "—"} → {c.new_sn ?? "not yet"}
+                      {c.old_sn ?? "—"} → {c.new_sn ?? t("not yet")}
                     </span>
                   </Row>
                 )}
                 {c.new_sn && c.type !== "inverter_warranty" && (
-                  <Row label="Replacement SN">
+                  <Row label={t("Replacement SN")}>
                     <span className="num">{c.new_sn}</span>
                   </Row>
                 )}
@@ -203,18 +205,18 @@ export const ClaimDetail: React.FC<{
 
               <div className="flex flex-col gap-5">
                 <Section
-                  title="Linked records"
+                  title={t("Linked records")}
                   right={
                     <Button size="xs" variant="ghost" onClick={act.link}>
-                      Link…
+                      {t("Link…")}
                     </Button>
                   }
                 >
                   {c.links.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">None. Link the issue, I-V sweep or site log entry this claim is about.</p>
+                    <p className="text-xs text-muted-foreground">{t("None. Link the issue, I-V sweep or site log entry this claim is about.")}</p>
                   ) : (
                     c.links.map((l) => (
-                      <Row key={l.id} label={LINK_KIND[l.kind]}>
+                      <Row key={l.id} label={t(LINK_KIND[l.kind])}>
                         <Link to={linkHref(l.kind, c)} className="hover:text-solar-400">
                           #{l.ref_id}
                           {l.label ? ` ${l.label}` : ""}
@@ -225,7 +227,7 @@ export const ClaimDetail: React.FC<{
                           className="ml-1"
                           disabled={busyKey === `l${l.id}`}
                           onClick={() => void busy(`l${l.id}`, () => act.unlink(l.id))}
-                          aria-label="Unlink"
+                          aria-label={t("Unlink")}
                         >
                           ×
                         </Button>
@@ -237,12 +239,12 @@ export const ClaimDetail: React.FC<{
             </div>
 
             <Section
-              title={`Evidence · ${c.evidence_done} of ${c.evidence_required} required`}
+              title={t("Evidence · {done} of {required} required", { done: c.evidence_done, required: c.evidence_required })}
               right={
                 c.evidence_done >= c.evidence_required ? (
-                  <Badge variant="ok">Ready to submit</Badge>
+                  <Badge variant="ok">{t("Ready to submit")}</Badge>
                 ) : (
-                  <Badge variant="warn">{c.evidence_required - c.evidence_done} missing</Badge>
+                  <Badge variant="warn">{t("{n} missing", { n: c.evidence_required - c.evidence_done })}</Badge>
                 )
               }
             >
@@ -255,26 +257,26 @@ export const ClaimDetail: React.FC<{
                         checked={e.done}
                         disabled={busyKey === e.key}
                         onCheckedChange={() => void busy(e.key, () => act.toggleEvidence(e))}
-                        aria-label={`${e.label}: done`}
+                        aria-label={t("{label}: done", { label: e.label })}
                       />
                       <span className={cn("min-w-0 flex-1", e.done && "text-muted-foreground")}>
                         {e.label}
-                        {e.required ? "" : <span className="ml-1 text-[11px] text-muted-foreground">(optional)</span>}
+                        {e.required ? "" : <span className="ml-1 text-[11px] text-muted-foreground">{t("(optional)")}</span>}
                         {e.note && <span className="block text-[11px] text-muted-foreground">{e.note}</span>}
                         {e.done && e.by && <span className="block text-[11px] text-slate-500">{[e.by, e.at?.slice(0, 16)].filter(Boolean).join(" · ")}</span>}
                       </span>
                       {safeHref(e.url) && (
                         <a href={safeHref(e.url)} target="_blank" rel="noreferrer" className="hover:text-solar-400">
-                          File
+                          {t("File")}
                         </a>
                       )}
                       {app && (
-                        <Link to={app.href} className="text-muted-foreground hover:text-solar-400" title="Where the app has it">
-                          {app.label}
+                        <Link to={app.href} className="text-muted-foreground hover:text-solar-400" title={t("Where the app has it")}>
+                          {t(app.label)}
                         </Link>
                       )}
                       <Button size="xs" variant="ghost" onClick={() => act.evidence(e)}>
-                        Edit
+                        {t("Edit")}
                       </Button>
                     </div>
                   );
@@ -282,7 +284,7 @@ export const ClaimDetail: React.FC<{
               </div>
             </Section>
 
-            <Section title="Timeline">
+            <Section title={t("Timeline")}>
               <ol className="flex flex-col">
                 {c.events.map((e) => (
                   <li key={e.id} className="grid grid-cols-[7.5rem_1fr] gap-3 border-b border-white/[0.05] py-2 text-xs last:border-0">

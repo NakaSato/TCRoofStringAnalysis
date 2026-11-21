@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import type { FleetDirectory } from "./useFleetDirectory";
+import { useI18n } from "../../i18n";
 
 export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
   const { loadingCloud, cloudNotice, plantNameFilter, setPlantNameFilter, regionFilter, setRegionFilter, deviceTypeFilter, setDeviceTypeFilter, phaseFilter, setPhaseFilter, deviceSnFilter, setDeviceSnFilter, statusFilter, setStatusFilter, expandedFilters, setExpandedFilters, setCurrentPage, fetchCloudPlants, phaseOptions, handleResetFilters } = d;
+  const { t } = useI18n();
   return (
     <div className="border-b border-white/[0.07] bg-ink-900/70 px-4 py-3.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -17,7 +19,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           {/* Plant name */}
           <div className="flex items-center gap-1.5">
             <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-              Plant name
+              {t("Plant name")}
             </label>
             <Input
               type="text"
@@ -26,7 +28,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 setPlantNameFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Plant name"
+              placeholder={t("Plant name")}
               className="h-7 w-28 px-2 text-[11px]"
             />
           </div>
@@ -34,7 +36,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           {/* Country/Region */}
           <div className="flex items-center gap-1.5">
             <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-              Country/Region
+              {t("Country/Region")}
             </label>
             <Input
               type="text"
@@ -43,7 +45,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 setRegionFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Country/Region"
+              placeholder={t("Country/Region")}
               className="h-7 w-28 px-2 text-[11px]"
             />
           </div>
@@ -51,7 +53,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           {/* Device type */}
           <div className="flex items-center gap-1.5">
             <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-              Device type
+              {t("Device type")}
             </label>
             <Select
               value={deviceTypeFilter}
@@ -64,7 +66,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">All</SelectItem>
+                <SelectItem value="ALL">{t("All")}</SelectItem>
                 <SelectItem value="String Inverter (SCADA)">SCADA String</SelectItem>
                 <SelectItem value="Growatt MAX Inverter">Growatt MAX</SelectItem>
               </SelectContent>
@@ -74,7 +76,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           {/* Project phase (one Growatt account per phase) */}
           <div className="flex items-center gap-1.5">
             <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-              Phase
+              {t("Phase")}
             </label>
             <Select
               value={String(phaseFilter)}
@@ -87,14 +89,14 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">All phases</SelectItem>
+                <SelectItem value="ALL">{t("All phases")}</SelectItem>
                 {phaseOptions.phases.map(([ph, n]) => (
                   <SelectItem key={ph} value={String(ph)}>
-                    Phase {ph} ({n})
+                    {t("Phase {n}", { n: ph })} ({n})
                   </SelectItem>
                 ))}
                 {phaseOptions.untagged > 0 && (
-                  <SelectItem value="NONE">Untagged ({phaseOptions.untagged})</SelectItem>
+                  <SelectItem value="NONE">{t("Untagged")} ({phaseOptions.untagged})</SelectItem>
                 )}
               </SelectContent>
             </Select>
@@ -103,7 +105,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           {/* Device SN */}
           <div className="flex items-center gap-1.5">
             <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-              Plant ID
+              {t("Plant ID")}
             </label>
             <Input
               type="text"
@@ -112,7 +114,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 setDeviceSnFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Plant ID"
+              placeholder={t("Plant ID")}
               className="h-7 w-24 px-2 text-[11px]"
             />
           </div>
@@ -123,7 +125,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             onClick={() => setExpandedFilters((v) => !v)}
             className="inline-flex items-center gap-0.5 px-1 text-[11px] font-medium text-sky-400 transition hover:text-sky-300"
           >
-            {expandedFilters ? "Collapse" : "Expand"}
+            {expandedFilters ? t("Collapse") : t("Expand")}
             {expandedFilters ? (
               <ChevronUp className="h-3.5 w-3.5" />
             ) : (
@@ -137,14 +139,14 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             onClick={() => fetchCloudPlants(false)}
             className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-sky-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-sky-500"
           >
-            Search
+            {t("Search")}
           </button>
           <Button
             type="button"
             onClick={handleResetFilters}
             size="sm"
           >
-            Reset
+            {t("Reset")}
           </Button>
         </div>
 
@@ -156,17 +158,17 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             disabled={loadingCloud}
             variant="ghost"
             size="sm"
-            title="Refresh Growatt Cloud Plants"
+            title={t("Refresh Growatt Cloud Plants")}
           >
             {loadingCloud ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
-            Sync
+            {t("Sync")}
           </Button>
           <Link
             to="/settings"
             className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-sky-500"
           >
             <Plus className="h-3 w-3" />
-            Add Plant
+            {t("Add Plant")}
           </Link>
         </div>
       </div>
@@ -174,7 +176,7 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
       {/* Expandable secondary filters */}
       {expandedFilters && (
         <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-3 text-xs">
-          <span className="text-slate-400">Plant Status:</span>
+          <span className="text-slate-400">{t("Plant Status")}:</span>
           {(["ALL", "Normal", "Faulty", "Disconnected"] as const).map((st) => (
             <button
               key={st}
@@ -188,12 +190,12 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   : "bg-white/5 text-slate-400 hover:text-slate-200"
               }`}
             >
-              {st === "ALL" ? "All Statuses" : st}
+              {st === "ALL" ? t("All Statuses") : t(st)}
             </button>
           ))}
           {cloudNotice && (
             <span className="ml-auto text-[11px] text-amber-300/90">
-              Cloud API status: {cloudNotice}
+              {t("Cloud API status")}: {cloudNotice}
             </span>
           )}
         </div>

@@ -148,6 +148,51 @@ def test_outage_events_and_meter_check(api):
     assert m["gap_mwh"] == pytest.approx(5 * 40 / 1000, abs=0.01)
 
 
+def test_billing_by_month_splits_the_shortfall_into_causes(api):
+    _, client, admin, eng = api
+    b = client.get("/pwa/meter/billing", headers=admin).json()
+    price = b["price_thb_per_kwh"]
+    assert b["months"] == ["2026-03", "2026-04"] and b["window"] == {"start": "2026-03-01", "end": "2026-04-09"}
+    rows = {(r["site_id"], r["month"]): r for r in b["rows"]}
+    mar, apr = rows[("P1-01", "2026-03")], rows[("P1-01", "2026-04")]
+    # March: 23 days at 400 kWh, 5 at 360 (meter low), 3 outage days at 0; contract 31 x 380 (modelled)
+    assert (mar["days"], mar["meter_days"], mar["missing_days"], mar["outage_days"]) == (31, 31, 0, 3)
+    assert mar["billed_kwh"] == 11000 and mar["billed_thb"] == round(11000 * price)
+    assert mar["contract_kwh"] == 31 * 380 and mar["shortfall_kwh"] == 780
+    assert mar["outage_kwh"] > 1000 and mar["meter_gap_kwh"] == pytest.approx(200, abs=10) and mar["curtailment_kwh"] == 0
+    assert mar["recoverable_kwh"] == pytest.approx(mar["outage_kwh"] + mar["under_kwh"] + mar["meter_gap_kwh"], abs=0.2)
+    assert mar["unexplained_kwh"] == pytest.approx(780 - mar["recoverable_kwh"], abs=0.2)
+    # April: 9 days above contract = a negative shortfall, nothing to recover
+    assert (apr["billed_kwh"], apr["shortfall_kwh"], apr["recoverable_kwh"]) == (3600, -180, 0)
+    # curtailment is PM's, not recoverable by O&M
+    cur = rows[("P1-02", "2026-03")]
+    assert cur["curtailment_kwh"] > 0 and cur["recoverable_kwh"] == cur["outage_kwh"] + cur["under_kwh"] + cur["meter_gap_kwh"]
+    sites = {s["site_id"]: s for s in b["sites"]}
+    s1 = sites["P1-01"]
+    assert b["sites"][0]["site_id"] == "P1-01" and s1["rank"] == 1 and s1["months"] == 2
+    assert s1["billed_kwh"] == 14600 and s1["shortfall_kwh"] == 600 and s1["vs_contract_pct"] == pytest.approx(14600 / 15200 * 100, abs=0.1)
+    assert s1["action_cause"] == "outage" and s1["owner"] == "O&M" and s1["action"]
+    assert sites["P1-02"]["top_cause"] == "curtailment" and b["labels"]["recoverable_thb"] == "estimated"
+    # engineers: only their sites; phase filter; empty window
+    e = client.get("/pwa/meter/billing", headers=eng).json()
+    assert {r["site_id"] for r in e["rows"]} == {"P1-01"} and [s["site_id"] for s in e["sites"]] == ["P1-01"]
+    assert client.get("/pwa/meter/billing?phase=2", headers=admin).json()["rows"] == []
+    empty = client.get("/pwa/meter/billing?start=2027-01-01", headers=admin).json()
+    assert (empty["months"], empty["rows"], empty["sites"]) == ([], [], [])
+    assert client.get("/pwa/meter/billing?start=2026-04-01&end=2026-03-01", headers=admin).status_code == 422
+    assert client.get("/pwa/meter/billing").status_code == 401
+
+
+def test_billing_counts_missing_days_from_the_site_start(api):
+    f, *_ = api
+    with f() as db:
+        db.query(PwaMeterDay).filter(PwaMeterDay.site_id == "P1-03", PwaMeterDay.day == date(2026, 3, 5)).delete()
+        db.commit()
+        b = svc.billing(db, None, date(2026, 3, 1), date(2026, 3, 31))
+    r = next(r for r in b["rows"] if r["site_id"] == "P1-03")
+    assert (r["days"], r["meter_days"], r["missing_days"]) == (30, 30, 1)
+
+
 def test_engineer_sees_only_assigned_sites(api):
     _, client, admin, eng = api
     assert [s["site_id"] for s in client.get("/pwa/meter/sites", headers=admin).json()] == ["P1-01", "P1-02", "P1-03"]

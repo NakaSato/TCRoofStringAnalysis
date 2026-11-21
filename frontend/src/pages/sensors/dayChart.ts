@@ -6,6 +6,7 @@ import { fmt } from "../../components/ui";
 import type { ChartSeries, PanelChartSpec, XBand, XMarker } from "../../components/PanelChart";
 import { CATEGORICAL, SERIES, STATUS } from "../../components/chartTheme";
 import { minutesBetween, compass } from "./format";
+import { translate } from "../../i18n";
 
 /** Default x range of a sensor's day chart (plant-local), so days line up and today shows what is left. */
 const CHART_START = "05:00";
@@ -75,17 +76,17 @@ export const sensorDaySpec = (
   const y = (f: GrowattWeatherField) => pts.map((p) => p[f]);
   const panels: PanelChartSpec["panels"] = [];
   const temps: ChartSeries[] = [];
-  if (has("module_temp_c")) temps.push({ key: "mod", name: "Module temp", type: "line", color: SERIES.temp, y: y("module_temp_c"), unit: "°C" });
-  if (has("ambient_temp_c")) temps.push({ key: "amb", name: "Ambient temp", type: "line", color: SERIES.ambient, width: 1.5, y: y("ambient_temp_c"), unit: "°C" });
+  if (has("module_temp_c")) temps.push({ key: "mod", name: translate("Module temp"), type: "line", color: SERIES.temp, y: y("module_temp_c"), unit: "°C" });
+  if (has("ambient_temp_c")) temps.push({ key: "amb", name: translate("Ambient temp"), type: "line", color: SERIES.ambient, width: 1.5, y: y("ambient_temp_c"), unit: "°C" });
   if (has("irradiance_wm2")) {
     const peak = Math.max(0, ...pts.map((p) => p.irradiance_wm2 ?? 0));
     panels.push({
       key: "g",
-      title: "POA irradiance (W/m²)",
+      title: translate("POA irradiance (W/m²)"),
       weight: temps.length ? 1.4 : 1,
       yMin: 0,
       yMax: Math.max(IRR_AXIS_MIN, Math.ceil(peak / 200) * 200),
-      series: [{ key: "g", name: "POA irradiance", type: "line", area: true, color: SERIES.irradiance, y: y("irradiance_wm2"), format: (v) => `${fmt(v, 0)} W/m²` }],
+      series: [{ key: "g", name: translate("POA irradiance"), type: "line", area: true, color: SERIES.irradiance, y: y("irradiance_wm2"), format: (v) => `${fmt(v, 0)} W/m²` }],
     });
   }
   // plant AC power on its own x (the plant's 5-min slots), under irradiance so the two shapes compare
@@ -100,13 +101,13 @@ export const sensorDaySpec = (
   if (o.all && pw.length) {
     const px = pw.map((r) => r.timestamp);
     const series: ChartSeries[] = [
-      { key: "pac", name: "Plant AC power", type: "line", color: SERIES.ac, x: px, y: pw.map((r) => r.pac_kw), format: (v) => `${fmt(v, 1)} kW` },
+      { key: "pac", name: translate("Plant AC power"), type: "line", color: SERIES.ac, x: px, y: pw.map((r) => r.pac_kw), format: (v) => `${fmt(v, 1)} kW` },
     ];
     // a slot summed over fewer inverters than the day's usual count reads low: mark it, don't hide it
     if (pw.some(partial))
       series.push({
         key: "pacPart",
-        name: "Not every inverter reported",
+        name: translate("Not every inverter reported"),
         type: "points",
         size: 6,
         color: STATUS.warn,
@@ -114,30 +115,30 @@ export const sensorDaySpec = (
         y: pw.map((r) => (partial(r) ? r.pac_kw : null)),
         noTip: true,
       });
-    panels.push({ key: "p", title: "Plant AC power (kW)", series });
+    panels.push({ key: "p", title: translate("Plant AC power (kW)"), series });
   }
-  if (temps.length) panels.push({ key: "t", title: "Temperature (°C)", zero: false, series: temps });
+  if (temps.length) panels.push({ key: "t", title: translate("Temperature (°C)"), zero: false, series: temps });
   if (o.all && has("humidity_pct"))
     panels.push({
       key: "h",
-      title: "Humidity (%)",
+      title: translate("Humidity (%)"),
       yMin: 0,
       yMax: 100,
       ticks: [0, 50, 100],
-      series: [{ key: "h", name: "Humidity", type: "line", color: SERIES.secondary, y: y("humidity_pct"), format: (v) => `${fmt(v, 0)} %` }],
+      series: [{ key: "h", name: translate("Humidity"), type: "line", color: SERIES.secondary, y: y("humidity_pct"), format: (v) => `${fmt(v, 0)} %` }],
     });
   if (o.all && has("wind_speed_ms"))
-    panels.push({ key: "w", title: "Wind speed (m/s)", series: [{ key: "w", name: "Wind speed", type: "line", color: WIND_COLOR, y: y("wind_speed_ms"), unit: "m/s" }] });
+    panels.push({ key: "w", title: translate("Wind speed (m/s)"), series: [{ key: "w", name: translate("Wind speed"), type: "line", color: WIND_COLOR, y: y("wind_speed_ms"), unit: "m/s" }] });
   if (o.all && has("wind_dir_deg"))
     panels.push({
       key: "d",
-      title: "Wind direction",
+      title: translate("Wind direction"),
       weight: 0.8,
       yMin: 0,
       yMax: 360,
       ticks: [0, 90, 180, 270, 360],
       tickFormat: (t) => WIND_TICK[Math.round(t / 90)] ?? "",
-      series: [{ key: "d", name: "Wind direction", type: "points", size: 5, color: WIND_COLOR, y: y("wind_dir_deg"), format: (v) => `${fmt(v, 0)}° ${compass(v)}` }],
+      series: [{ key: "d", name: translate("Wind direction"), type: "points", size: 5, color: WIND_COLOR, y: y("wind_dir_deg"), format: (v) => `${fmt(v, 0)}° ${compass(v)}` }],
     });
   if (!panels.length) return null;
 
@@ -151,12 +152,12 @@ export const sensorDaySpec = (
   const bands: XBand[] = [];
   const markers: XMarker[] = [];
   if (o.liveFrom != null && o.liveFrom < pts.length)
-    bands.push({ from: pts[Math.max(0, o.liveFrom - 1)].timestamp, to: last, label: "Live, not stored yet", kind: "live" });
+    bands.push({ from: pts[Math.max(0, o.liveFrom - 1)].timestamp, to: last, label: translate("Live, not stored yet"), kind: "live" });
   if (o.now && o.now.slice(0, 10) === o.day) {
     const now = o.now > last ? o.now : last;
-    if (minutesBetween(last, now) > TRAILING_GAP_MIN) bands.push({ from: last, to: now, label: `No reading since ${last.slice(11, 16)}`, kind: "gap" });
-    if (now < xDomain[1]) bands.push({ from: now, to: xDomain[1], label: "Later today", kind: "muted" });
-    markers.push({ x: now, label: `Now ${now.slice(11, 16)}` });
+    if (minutesBetween(last, now) > TRAILING_GAP_MIN) bands.push({ from: last, to: now, label: translate("No reading since {time}", { time: last.slice(11, 16) }), kind: "gap" });
+    if (now < xDomain[1]) bands.push({ from: now, to: xDomain[1], label: translate("Later today"), kind: "muted" });
+    markers.push({ x: now, label: translate("Now {time}", { time: now.slice(11, 16) }) });
   }
 
   const mod = y("module_temp_c");
@@ -165,10 +166,13 @@ export const sensorDaySpec = (
   const total = o.power?.inverters ?? 0;
   const tipExtra = (i: number) => {
     const rows: Array<{ label: string; value: string }> = [];
-    if (temps.length === 2 && mod[i] != null && amb[i] != null) rows.push({ label: "Module − ambient", value: `${fmt(mod[i]! - amb[i]!, 1)} °C` });
+    if (temps.length === 2 && mod[i] != null && amb[i] != null) rows.push({ label: translate("Module − ambient"), value: `${fmt(mod[i]! - amb[i]!, 1)} °C` });
     const r = o.all ? pwAt.get(pts[i].timestamp) : undefined;
     if (r?.inverters != null && total && (r.inverters < total || r.held))
-      rows.push({ label: "Inverters in AC", value: `${r.inverters} of ${total}${r.held ? ` · ${r.held} held ≤ 10 min` : ""}` });
+      rows.push({
+        label: translate("Inverters in AC"),
+        value: `${translate("{n} of {total}", { n: r.inverters, total })}${r.held ? ` · ${translate("{n} held ≤ 10 min", { n: r.held })}` : ""}`,
+      });
     return rows;
   };
   return {
@@ -176,7 +180,7 @@ export const sensorDaySpec = (
     x: pts.map((p) => p.timestamp),
     xDomain,
     xStep: 5 * 60_000,
-    gaps: "No data",
+    gaps: translate("No data"),
     bands,
     markers,
     panels,

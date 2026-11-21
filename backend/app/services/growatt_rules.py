@@ -16,7 +16,7 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -84,7 +84,7 @@ DEFAULT_RULES: Dict[str, Any] = {
     "r17_pct": 5.0,
     # THB/day above which R2 is P1 (else P2) and R7 is P2 (else P3). Not confirmed yet (plan §9 Q4).
     "p1_thb_per_day": 300.0,
-    # per rule: enabled = evaluated at all; shadow = issues recorded but shown only in Rule review
+    # per rule: enabled = evaluated at all; shadow = issues recorded but shown to admins only
     "rules": {},
 }
 
@@ -109,7 +109,7 @@ RULE_NAMES = {
 
 TIER_ORDER = {"P1": 0, "P2": 1, "P3": 2, "P4": 3, "Info": 4}
 
-# every rule starts in shadow mode (plan §4.4) until Rule review shows it is right often enough
+# every rule starts in shadow mode (plan §4.4); overrides (thresholds, enabled / shadow) live in app_settings `decision_rules`, edited in the DB (the Rule review page and its API were removed 2026-11-21)
 DEFAULT_RULE_STATE = {"enabled": True, "shadow": True}
 
 
@@ -125,62 +125,6 @@ def rule_settings(db: Session) -> Dict[str, Any]:
         for r in RULE_NAMES
     }
     return out
-
-
-def validate_settings(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Clean a rule-settings change: known keys only, each of its default's type; `rules` =
-    {rule: {enabled, shadow}}. Raises ValueError with the offending key."""
-    out: Dict[str, Any] = {}
-    for k, v in payload.items():
-        if k not in DEFAULT_RULES:
-            raise ValueError(f"Unknown setting {k!r}")
-        d = DEFAULT_RULES[k]
-        if k == "rules":
-            if not isinstance(v, dict):
-                raise ValueError("rules must be an object {rule: {enabled, shadow}}")
-            rules: Dict[str, Dict[str, bool]] = {}
-            for r, st in v.items():
-                if r not in RULE_NAMES or not isinstance(st, dict):
-                    raise ValueError(f"Unknown rule {r!r}")
-                bad = [x for x in st if x not in DEFAULT_RULE_STATE or not isinstance(st[x], bool)]
-                if bad:
-                    raise ValueError(f"rules.{r}: only enabled / shadow (true / false)")
-                rules[r] = dict(st)
-            out[k] = rules
-        elif isinstance(d, list):
-            if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):
-                raise ValueError(f"{k} must be a list of words")
-            out[k] = [x.strip().lower() for x in v]
-        else:
-            if isinstance(v, bool) or not isinstance(v, (int, float)):
-                raise ValueError(f"{k} must be a number")
-            if isinstance(d, int) and float(v) != int(v):
-                raise ValueError(f"{k} must be a whole number")
-            if k not in ("r7_pct",) and v < 0:
-                raise ValueError(f"{k} must not be negative")
-            out[k] = int(v) if isinstance(d, int) else float(v)
-    return out
-
-
-def put_rule_settings(db: Session, payload: Dict[str, Any], username: Optional[str]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """Merge a change into the saved overrides. Returns (old, new) effective settings."""
-    clean = validate_settings(payload)
-    old = rule_settings(db)
-    row = db.get(AppSetting, SETTING_KEY)
-    saved = dict(row.value) if row and isinstance(row.value, dict) else {}
-    if "rules" in clean:
-        merged = dict(saved.get("rules") or {})
-        for r, st in clean.pop("rules").items():
-            merged[r] = {**(merged.get(r) or {}), **st}
-        saved["rules"] = merged
-    saved.update(clean)
-    if row is None:
-        db.add(AppSetting(key=SETTING_KEY, value=saved, updated_by=username))
-    else:
-        row.value = saved
-        row.updated_by = username
-    db.commit()
-    return old, rule_settings(db)
 
 
 SENSOR_FLAG_TEXT = {

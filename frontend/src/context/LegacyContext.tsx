@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, AnalysisRun, DatasetInfo, Plant } from "../api/client";
 import { isAdmin } from "../auth/access";
+import { translate } from "../i18n";
 import { useAuth } from "./AuthContext";
 
 export interface LegacyContextValue {
@@ -87,7 +88,7 @@ export const LegacyProvider: React.FC<{ enabled: boolean; children: React.ReactN
           else if (dsList.length > 0) setActiveDataset(await api.getDataset(dsList[0].id));
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load the analysis plant");
+        setError(err instanceof Error ? err.message : translate("Failed to load the analysis plant"));
       } finally {
         setLoaded(true);
         setLoading(false);

@@ -9,6 +9,7 @@ import { fmt } from "../../components/ui";
 import { usePlantHref } from "../../context/AppContext";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -43,6 +44,7 @@ const compare = (a: string | number | null, b: string | number | null, desc: boo
 export const InverterTable: React.FC<{ inverters: OverviewInverter[]; target: number; dayText: string }> = ({ inverters, target, dayText }) => {
   const navigate = useNavigate();
   const plantHref = usePlantHref();
+  const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   const sortParam = url.get("sort");
   const sort: SortKey | null = sortParam ? pick(sortParam, SORT_KEYS, "name") : null;
@@ -62,12 +64,12 @@ export const InverterTable: React.FC<{ inverters: OverviewInverter[]; target: nu
     <Card className="gap-4">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
-          Inverters
+          {t("Inverters")}
           <Badge variant="neutral" className="num">
             {inverters.length}
           </Badge>
         </CardTitle>
-        <CardDescription>Stored day · {dayText}. Click a column to sort, a row to open the inverter.</CardDescription>
+        <CardDescription>{t("Stored day · {day}. Click a column to sort, a row to open the inverter.", { day: dayText })}</CardDescription>
       </CardHeader>
       <CardContent>
         <Table containerClassName="table-wrap">
@@ -91,7 +93,7 @@ export const InverterTable: React.FC<{ inverters: OverviewInverter[]; target: nu
                         active && "text-slate-100"
                       )}
                     >
-                      {c.label}
+                      {t(c.label)}
                       {active && <Arrow className="size-3" />}
                     </button>
                   </TableHead>
@@ -140,8 +142,10 @@ export const InverterTable: React.FC<{ inverters: OverviewInverter[]; target: nu
           </TableBody>
         </Table>
         <p className="mt-3 text-[11px] text-muted-foreground">
-          PR here is peer-relative: each inverter's strings compared with the plant's other strings (modelled), not IEC 61724. Green ≥ target{" "}
-          {fmt(target, 0)} %, amber within 5 pts, red below. Max temperature amber from {HOT_C} °C.
+          {t(
+            "PR here is peer-relative: each inverter's strings compared with the plant's other strings (modelled), not IEC 61724. Green ≥ target {target} %, amber within 5 pts, red below. Max temperature amber from {hot} °C.",
+            { target: fmt(target, 0), hot: HOT_C }
+          )}
         </p>
       </CardContent>
     </Card>

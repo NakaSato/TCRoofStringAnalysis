@@ -42,6 +42,7 @@ import type { StringPeriod } from "./stringDetail/period";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "../i18n";
 
 /** measured values only: the first finite one, else null ("—"), never a typical-looking stand-in */
 const num = (...vals: unknown[]): number | null => {
@@ -96,6 +97,8 @@ const Fact: React.FC<{ label: React.ReactNode; title?: string; children: React.R
 
 export const StringInspectorDrawer: React.FC = () => {
   const { inspectedStringId, setInspectedStringId, analysisRun, activePlant, selectedGrowattPlantId, selectedPlantOverview } = useAppContext();
+  // not remounted on a language switch: re-render through the hook
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const plantHref = usePlantHref();
   const [dispatching, setDispatching] = useState(false);
@@ -169,9 +172,10 @@ export const StringInspectorDrawer: React.FC = () => {
     };
   }, [open, inspectedStringId, peerIds.join("|"), popoverOpen]);
 
-  const ivPvSpec = useMemo(() => (stringDetail ? ivPvSpecFrom(stringDetail.iv_pv_curve) : null), [stringDetail]);
-  const profileSpec = useMemo(() => (stringDetail ? stringProfileSpecFrom(stringDetail) : null), [stringDetail]);
-  const dailySpec = useMemo(() => (stringDetail ? stringDailySpecFrom(stringDetail) : null), [stringDetail]);
+  // the spec builders translate their labels: rebuild on a language switch
+  const ivPvSpec = useMemo(() => (stringDetail ? ivPvSpecFrom(stringDetail.iv_pv_curve) : null), [stringDetail, lang]);
+  const profileSpec = useMemo(() => (stringDetail ? stringProfileSpecFrom(stringDetail) : null), [stringDetail, lang]);
+  const dailySpec = useMemo(() => (stringDetail ? stringDailySpecFrom(stringDetail) : null), [stringDetail, lang]);
 
   if (!open || !row || !analysisRun) return null;
 
@@ -223,14 +227,14 @@ export const StringInspectorDrawer: React.FC = () => {
   const iAvg = ownFigures ? (s?.i_avg ?? null) : num(row.i_avg, row.avg_imp_a);
   const iMax = ownFigures ? (s?.i_max ?? null) : num(row.i_max);
   const pMaxW = ownFigures ? (s?.p_max_w ?? null) : num(row.p_max_w);
-  const peerRef = ownFigures ? "peer mean" : "peer median";
+  const peerRef = ownFigures ? t("peer mean") : t("peer median");
 
   const noGap = lossKwh != null && lossKwh < GAP_NOISE_KWH;
   const peerIndex = Math.max(0, peerIds.indexOf(String(inspectedStringId)));
   const step = (d: 1 | -1) => show(peerIds[(peerIndex + d + peerIds.length) % peerIds.length]);
   const basis = ownFigures ? stringDetail?.peer_basis : row.peer_basis;
   const basisNote =
-    basis === "per_module" ? "scaled per module" : basis === "per_kwp" ? "scaled per kWp" : basis === "raw" ? "raw: module count not set for every string" : null;
+    basis === "per_module" ? t("scaled per module") : basis === "per_kwp" ? t("scaled per kWp") : basis === "raw" ? t("raw: module count not set for every string") : null;
   // the string's own analysis page, same period
   const pageQuery = new URLSearchParams({ sn: deviceSn ?? "", no: String(stringNo ?? "") });
   for (const [k, v] of Object.entries(periodToQuery(period))) if (v) pageQuery.set(k, v);
@@ -241,9 +245,9 @@ export const StringInspectorDrawer: React.FC = () => {
     setDispatchedMsg(null);
     try {
       await api.regenerateCmWorkOrders(analysisRun.id);
-      setDispatchedMsg(`Synced CM work order queue for ${inspectedStringId}.`);
+      setDispatchedMsg(t("Synced CM work order queue for {id}.", { id: inspectedStringId }));
     } catch (err: unknown) {
-      setDispatchedMsg(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+      setDispatchedMsg(t("Failed: {error}", { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setDispatching(false);
     }
@@ -256,16 +260,16 @@ export const StringInspectorDrawer: React.FC = () => {
   };
   const chartBody = (spec: ReturnType<typeof ivPvSpecFrom>, empty: string, onBrush?: (lo: number, hi: number) => void) =>
     loadingDetail ? (
-      <LoadingState label={`Loading ${periodText ?? "the newest stored day"}${winText ? ` ${winText}` : ""}…`} shape="chart" />
+      <LoadingState label={t("Loading {period}…", { period: `${periodText ?? t("the newest stored day")}${winText ? ` ${winText}` : ""}` })} shape="chart" />
     ) : detailError ? (
       <EmptyState
         icon={AlertTriangle}
-        title={winText ? `No stored data ${winText}` : period.day ? `No stored data on ${periodText}` : "Stored day not available"}
+        title={winText ? t("No stored data {window}", { window: winText }) : period.day ? t("No stored data on {day}", { day: periodText }) : t("Stored day not available")}
         description={
           winText
-            ? "This string has no stored records in that time window. Widen it, or pick All day."
+            ? t("This string has no stored records in that time window. Widen it, or pick All day.")
             : period.day
-              ? "This string has no stored records then. Pick another day, or Latest."
+              ? t("This string has no stored records then. Pick another day, or Latest.")
               : detailError
         }
         className="py-8"
@@ -273,7 +277,7 @@ export const StringInspectorDrawer: React.FC = () => {
     ) : spec ? (
       <PanelChart spec={spec} height={300} onBrush={onBrush} />
     ) : (
-      <EmptyState icon={Activity} title="Nothing to draw" description={empty} className="py-8" />
+      <EmptyState icon={Activity} title={t("Nothing to draw")} description={empty} className="py-8" />
     );
 
   const gapTone = noGap ? "ok" : lossKwh == null ? null : tone === "ok" ? "warn" : tone;
@@ -287,7 +291,7 @@ export const StringInspectorDrawer: React.FC = () => {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={`String inspector ${row.string_id}`}
+        aria-label={t("String inspector {id}", { id: row.string_id })}
         className="relative flex h-full w-full flex-col overflow-hidden bg-ink-900 shadow-2xl outline-none animate-in fade-in-0 zoom-in-95 duration-150 sm:h-[86vh] sm:max-w-[74rem] sm:rounded-xl sm:border sm:border-white/10"
       >
         {/* ── Header: SN · MPPT · string + day + actions, live line, strings ──── */}
@@ -295,7 +299,7 @@ export const StringInspectorDrawer: React.FC = () => {
           {/* SN (copies) · MPPT · STR + status, the day shown (any stored day; default = newest), AI Analysis, close */}
           <div className="flex items-start gap-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
-              <div className="flex min-w-0 items-center gap-2" title={`Inverter ${String(row.inverter_id)}`}>
+              <div className="flex min-w-0 items-center gap-2" title={t("Inverter {sn}", { sn: String(row.inverter_id) })}>
                 <h3 className="num flex min-w-0 items-center gap-2 text-lg font-extrabold tracking-tight text-white">
                   {deviceSn ? (
                     <Tooltip>
@@ -303,7 +307,7 @@ export const StringInspectorDrawer: React.FC = () => {
                         <button
                           type="button"
                           onClick={copySn}
-                          aria-label={`Copy inverter SN ${deviceSn}`}
+                          aria-label={t("Copy inverter SN {sn}", { sn: deviceSn })}
                           className="group inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 -mx-1 hover:bg-white/[0.06] focus-visible:outline-1 focus-visible:outline-ring"
                         >
                           <span className="truncate">{deviceSn}</span>
@@ -314,7 +318,7 @@ export const StringInspectorDrawer: React.FC = () => {
                           )}
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="bottom">{copied ? "Copied" : "Click to copy the inverter SN"}</TooltipContent>
+                      <TooltipContent side="bottom">{copied ? t("Copied") : t("Click to copy the inverter SN")}</TooltipContent>
                     </Tooltip>
                   ) : (
                     <span className="truncate">{String(row.inverter_id)}</span>
@@ -333,7 +337,7 @@ export const StringInspectorDrawer: React.FC = () => {
               shownEndDay={stringDetail?.meta.end_day ?? null}
               today={today}
               loading={loadingDetail}
-              hint="Or drag across the 5-min profile chart."
+              hint={t("Or drag across the 5-min profile chart.")}
               onPopoverOpenChange={setPopoverOpen}
             />
           </div>
@@ -341,15 +345,15 @@ export const StringInspectorDrawer: React.FC = () => {
               <Tooltip>
                 <TooltipTrigger asChild>
                   {/* span: a disabled button gets no pointer events, so the tooltip needs a wrapper */}
-                  <span tabIndex={0} aria-label="AI Analysis (coming soon)">
+                  <span tabIndex={0} aria-label={t("AI Analysis (coming soon)")}>
                     <Button variant="outline" size="icon-sm" disabled className="pointer-events-none border-violet-400/40 disabled:opacity-80">
                       <Sparkles className="h-4 w-4 text-violet-300" />
                     </Button>
                   </span>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">AI Analysis · coming soon: a written diagnosis of this string&apos;s day</TooltipContent>
+                <TooltipContent side="bottom">{t("AI Analysis · coming soon: a written diagnosis of this string's day")}</TooltipContent>
               </Tooltip>
-              <Button onClick={close} variant="ghost" size="icon" aria-label="Close string inspector" title="Close (Esc)">
+              <Button onClick={close} variant="ghost" size="icon" aria-label={t("Close string inspector")} title={t("Close (Esc)")}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -358,7 +362,7 @@ export const StringInspectorDrawer: React.FC = () => {
           {/* Strings of the same inverter: one scrollable line, ← / → */}
           {peerIds.length > 1 && (
             <div className="flex items-center gap-1">
-              <Button onClick={() => step(-1)} variant="ghost" size="icon-sm" aria-label="Previous string" title="Previous string (←)">
+              <Button onClick={() => step(-1)} variant="ghost" size="icon-sm" aria-label={t("Previous string")} title={t("Previous string (←)")}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="scroll-x-hint flex min-w-0 flex-1 gap-1 overflow-x-auto py-0.5">
@@ -372,7 +376,7 @@ export const StringInspectorDrawer: React.FC = () => {
                       type="button"
                       onClick={() => show(id)}
                       aria-current={active ? "true" : undefined}
-                      title={`${id} · ${String(p.status ?? "")}`}
+                      title={`${id} · ${p.status ? t(String(p.status)) : ""}`}
                       className={`num inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${
                         active
                           ? "border-solar-400/60 bg-solar-500/20 text-solar-300"
@@ -385,7 +389,7 @@ export const StringInspectorDrawer: React.FC = () => {
                   );
                 })}
               </div>
-              <Button onClick={() => step(1)} variant="ghost" size="icon-sm" aria-label="Next string" title="Next string (→)">
+              <Button onClick={() => step(1)} variant="ghost" size="icon-sm" aria-label={t("Next string")} title={t("Next string (→)")}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <span className="num w-10 shrink-0 text-right text-[11px] text-slate-500">
@@ -411,14 +415,14 @@ export const StringInspectorDrawer: React.FC = () => {
               )}
               {ownFigures ? (
                 <div className="text-slate-300">
-                  Measured {ranged ? "over" : "on"} <span className="num font-semibold text-white">{periodText}</span>
-                  {ranged && day && endDay && <span className="num"> ({daysBetween(day, endDay) + 1} days)</span>}
+                  {ranged ? t("Measured over") : t("Measured on")} <span className="num font-semibold text-white">{periodText}</span>
+                  {ranged && day && endDay && <span className="num"> ({t("{n} days", { n: daysBetween(day, endDay) + 1 })})</span>}
                   {winText && (
                     <>
-                      , <span className="num font-semibold text-white">{winText}</span> only
+                      {t(", only")} <span className="num font-semibold text-white">{winText}</span>
                     </>
                   )}
-                  , compared with the mean of the other strings. Diagnosis, status and health are computed for the whole of{" "}
+                  {t(", compared with the mean of the other strings. Diagnosis, status and health are computed for the whole of")}{" "}
                   <button
                     type="button"
                     className="num font-semibold text-sky-300 hover:underline"
@@ -426,36 +430,36 @@ export const StringInspectorDrawer: React.FC = () => {
                   >
                     {ovDay}
                   </button>{" "}
-                  only.
+                  {t("only.")}
                 </div>
               ) : (
                 <div className="space-y-0.5">
-                  <div className="font-semibold text-slate-100">{String(row.diagnosis || row.primary_diagnosis || "String operating diagnostics")}</div>
+                  <div className="font-semibold text-slate-100">{String(row.diagnosis || row.primary_diagnosis || t("String operating diagnostics"))}</div>
                   {str(row.recommended_action) && <div className="text-[11px] text-slate-400">{String(row.recommended_action)}</div>}
                 </div>
               )}
             </div>
             <div className="grid grid-cols-2 divide-white/[0.06] sm:grid-cols-4 sm:divide-x">
               <Stat
-                label="Health"
-                title={ownFigures ? `Computed by the plant overview for ${ovDay} only` : "String health score of the overview's day"}
+                label={t("Health")}
+                title={ownFigures ? t("Computed by the plant overview for {day} only", { day: ovDay }) : t("String health score of the overview's day")}
                 value={<span className="text-white">{fmt(health, 0)}</span>}
                 unit="/100"
-                foot={ownFigures ? `whole ${ovDay} only` : health != null ? <Meter value={health} tone={tone} /> : null}
+                foot={ownFigures ? t("whole {day} only", { day: ovDay }) : health != null ? <Meter value={health} tone={tone} /> : null}
               />
               <Stat
-                label="String PR"
-                title="Peer-relative PR (modelled): energy vs. the inverter's other strings, not IEC 61724"
+                label={t("String PR")}
+                title={t("Peer-relative PR (modelled): energy vs. the inverter's other strings, not IEC 61724")}
                 value={<span className={ownFigures ? "text-solar-400" : TONE_TEXT[tone]}>{fmt(pr, 1)}</span>}
                 unit="%"
                 foot={`${fmt(energy, 2)} kWh`}
               />
               <Stat
-                label="Current vs peers"
+                label={t("Current vs peers")}
                 title={
                   ownFigures
-                    ? `Day's string current vs. the mean of the other strings, over slots where they carry ≥ ${MISMATCH_MIN_PEER_A} A`
-                    : "Current mismatch against the inverter's other strings"
+                    ? t("Day's string current vs. the mean of the other strings, over slots where they carry ≥ {a} A", { a: MISMATCH_MIN_PEER_A })
+                    : t("Current mismatch against the inverter's other strings")
                 }
                 value={
                   <span className={peerGap == null ? "text-slate-400" : peerGap < -10 ? "text-red-400" : peerGap < -4 ? "text-amber-400" : "text-emerald-400"}>
@@ -464,14 +468,18 @@ export const StringInspectorDrawer: React.FC = () => {
                   </span>
                 }
                 unit="%"
-                foot={`Peak ${fmt(pMaxW == null ? null : pMaxW / 1000, 2)} kW`}
+                foot={t("Peak {v} kW", { v: fmt(pMaxW == null ? null : pMaxW / 1000, 2) })}
               />
               <Stat
-                label="Energy gap"
-                title={`Energy below the expected (${peerRef}) energy of the day${tariff == null ? "; no plant tariff set" : `, at the plant tariff ฿${fmt(tariff, 2)}/kWh`}`}
-                value={noGap ? <span className="text-emerald-400">None</span> : <span className={gapTone ? TONE_TEXT[gapTone] : "text-slate-400"}>{fmt(lossKwh, 1)}</span>}
+                label={t("Energy gap")}
+                title={
+                  tariff == null
+                    ? t("Energy below the expected ({ref}) energy of the day; no plant tariff set", { ref: peerRef })
+                    : t("Energy below the expected ({ref}) energy of the day, at the plant tariff ฿{rate}/kWh", { ref: peerRef, rate: fmt(tariff, 2) })
+                }
+                value={noGap ? <span className="text-emerald-400">{t("None")}</span> : <span className={gapTone ? TONE_TEXT[gapTone] : "text-slate-400"}>{fmt(lossKwh, 1)}</span>}
                 unit={noGap ? undefined : "kWh"}
-                foot={noGap ? "at or above peers" : lossThb == null ? "—" : `≈ ฿${Math.round(lossThb).toLocaleString()} lost`}
+                foot={noGap ? t("at or above peers") : lossThb == null ? "—" : t("≈ ฿{thb} lost", { thb: Math.round(lossThb).toLocaleString() })}
               />
             </div>
           </section>
@@ -487,65 +495,67 @@ export const StringInspectorDrawer: React.FC = () => {
                   </TabsTrigger>
                   <TabsTrigger value="profile">
                     <Activity data-icon="inline-start" className="h-3.5 w-3.5" />
-                    5-min profile
+                    {t("5-min profile")}
                   </TabsTrigger>
                   {ranged && (
                     <TabsTrigger value="daily">
                       <CalendarRange data-icon="inline-start" className="h-3.5 w-3.5" />
-                      Daily
+                      {t("Daily")}
                     </TabsTrigger>
                   )}
                 </TabsList>
                 <span className="text-[11px] text-slate-500">
                   {tab === "iv"
-                    ? `Curves modelled${ranged ? " from the range's peak" : ""} · dots measured`
+                    ? ranged
+                      ? t("Curves modelled from the range's peak · dots measured")
+                      : t("Curves modelled · dots measured")
                     : tab === "daily"
-                      ? "Measured energy · PR modelled"
-                      : "Measured · peer = mean of the other strings"}
+                      ? t("Measured energy · PR modelled")
+                      : t("Measured · peer = mean of the other strings")}
                 </span>
               </div>
               <TabsContent value="iv" className="space-y-3">
-                {chartBody(ivPvSpec, `No record on ${periodText ?? "the day"} has both voltage and current, so no curve can be modelled.`)}
+                {chartBody(ivPvSpec, t("No record on {day} has both voltage and current, so no curve can be modelled.", { day: periodText ?? t("the day") }))}
                 {s && !loadingDetail && (
                   <div className="grid grid-cols-2 gap-3 rounded-lg bg-ink-950/60 p-3 text-center sm:grid-cols-4">
                     <Fact
                       label={
                         <>
-                          V<sub>mpp</sub> / V<sub>oc</sub> est.
+                          V<sub>mpp</sub> / V<sub>oc</sub> {t("est.")}
                         </>
                       }
-                      title="V at the day's peak-power record / open-circuit voltage estimated from the day's highest voltage (modelled)"
+                      title={t("V at the day's peak-power record / open-circuit voltage estimated from the day's highest voltage (modelled)")}
                     >
                       {fmt(s.v_mpp, 0)} / {fmt(s.v_oc_est, 0)} V
                     </Fact>
                     <Fact
                       label={
                         <>
-                          I<sub>mpp</sub> / I<sub>sc</sub> est.
+                          I<sub>mpp</sub> / I<sub>sc</sub> {t("est.")}
                         </>
                       }
-                      title="I at the day's peak-power record / short-circuit current estimated from the day's highest current (modelled)"
+                      title={t("I at the day's peak-power record / short-circuit current estimated from the day's highest current (modelled)")}
                     >
                       {fmt(s.i_mpp, 2)} / {fmt(s.i_sc_est, 2)} A
                     </Fact>
-                    <Fact label="Peak power" title="The record with the day's highest power (measured)">
+                    <Fact label={t("Peak power")} title={t("The record with the day's highest power (measured)")}>
                       {fmt(s.p_max_w, 0)} W
                     </Fact>
-                    <Fact label="Energy / peer mean" title="This string's energy vs. the mean of the inverter's other strings, per 5-min slot (measured)">
+                    <Fact label={t("Energy / peer mean")} title={t("This string's energy vs. the mean of the inverter's other strings, per 5-min slot (measured)")}>
                       {fmt(s.energy_kwh, 2)} / {fmt(s.peer_energy_kwh, 2)} kWh
                     </Fact>
                   </div>
                 )}
               </TabsContent>
               <TabsContent value="profile" className="space-y-2">
-                {chartBody(profileSpec, `No stored records on ${periodText ?? "the day"}${winText ? ` between ${winText}` : ""}.`, ranged ? undefined : zoomTo)}
+                {chartBody(profileSpec, winText ? t("No stored records on {day} between {window}.", { day: periodText ?? t("the day"), window: winText }) : t("No stored records on {day}.", { day: periodText ?? t("the day") }), ranged ? undefined : zoomTo)}
                 {!ranged && (
                   <p className="text-[11px] text-slate-500 max-sm:hidden">
-                    Drag across the chart to look at that time only{windowed ? " (the clock button → All day zooms out)" : ""}.
+                    {windowed ? t("Drag across the chart to look at that time only (the clock button → All day zooms out).") : t("Drag across the chart to look at that time only.")}
                   </p>
                 )}
               </TabsContent>
-              {ranged && <TabsContent value="daily">{chartBody(dailySpec, "No day of the range has stored records.")}</TabsContent>}
+              {ranged && <TabsContent value="daily">{chartBody(dailySpec, t("No day of the range has stored records."))}</TabsContent>}
             </Tabs>
           </section>
 
@@ -554,25 +564,25 @@ export const StringInspectorDrawer: React.FC = () => {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 font-semibold text-slate-100">
                 <Sliders className="h-3.5 w-3.5 text-solar-400" />
-                Operating point
+                {t("Operating point")}
               </div>
               <span className="num text-[11px] text-slate-400">
                 {row.modules != null && (
                   <>
-                    {String(row.modules)} modules{row.module_wp ? ` × ${fmt(row.module_wp, 0)} Wp` : ""} ·{" "}
+                    {t("{n} modules", { n: String(row.modules) })}{row.module_wp ? ` × ${fmt(row.module_wp, 0)} Wp` : ""} ·{" "}
                   </>
                 )}
                 {fmt(row.capacity_kwp, 2)} kWp
               </span>
             </div>
             <div className="space-y-3">
-              <MeterRow label="MPPT voltage" hint="avg / max" value={`${fmt(vAvg, 1)} V`} of={`${fmt(vMax, 1)} V`}>
+              <MeterRow label={t("MPPT voltage")} hint={t("avg / max")} value={`${fmt(vAvg, 1)} V`} of={`${fmt(vMax, 1)} V`}>
                 {vAvg != null && vMax != null && vMax > 0 && <Meter value={vAvg} max={vMax} tone="solar" />}
               </MeterRow>
-              <MeterRow label="String current" hint="avg / peak" value={`${fmt(iAvg, 2)} A`} of={`${fmt(iMax, 2)} A`}>
+              <MeterRow label={t("String current")} hint={t("avg / peak")} value={`${fmt(iAvg, 2)} A`} of={`${fmt(iMax, 2)} A`}>
                 {iAvg != null && iMax != null && iMax > 0 && <Meter value={iAvg} max={iMax} tone="energy" />}
               </MeterRow>
-              <MeterRow label="Energy" hint={`vs. expected (${peerRef})${basisNote ? ` · ${basisNote}` : ""}`} value={`${fmt(energy, 2)} kWh`} of={`${fmt(peerEnergy, 2)} kWh`}>
+              <MeterRow label={t("Energy")} hint={`${t("vs. expected ({ref})", { ref: peerRef })}${basisNote ? ` · ${basisNote}` : ""}`} value={`${fmt(energy, 2)} kWh`} of={`${fmt(peerEnergy, 2)} kWh`}>
                 {energy != null && peerEnergy != null && peerEnergy > 0 && <Meter value={energy} max={peerEnergy} tone={ownFigures ? "solar" : tone} />}
               </MeterRow>
             </div>
@@ -588,7 +598,7 @@ export const StringInspectorDrawer: React.FC = () => {
                 }}
                 size="sm"
               >
-                View CM queue <ArrowUpRight data-icon="inline-end" className="h-3 w-3" />
+                {t("View CM queue")} <ArrowUpRight data-icon="inline-end" className="h-3 w-3" />
               </Button>
             </div>
           )}
@@ -596,12 +606,12 @@ export const StringInspectorDrawer: React.FC = () => {
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] bg-ink-950/70 px-5 py-3">
-          <span className="hidden text-[11px] text-slate-500 sm:inline">Esc close · ← / → string</span>
+          <span className="hidden text-[11px] text-slate-500 sm:inline">{t("Esc close · ← / → string")}</span>
           <div className="flex flex-wrap items-center gap-2">
             {analysisRun.id ? (
               <Button onClick={handleDispatchCm} disabled={dispatching} variant="outline" size="sm">
                 <Wrench data-icon="inline-start" className="h-3.5 w-3.5" />
-                {dispatching ? "Syncing CM queue…" : "Dispatch CM work order"}
+                {dispatching ? t("Syncing CM queue…") : t("Dispatch CM work order")}
               </Button>
             ) : null}
             <Button
@@ -611,9 +621,9 @@ export const StringInspectorDrawer: React.FC = () => {
                 navigate(stringPageHref);
               }}
               disabled={!deviceSn || stringNo == null}
-              title="This string in depth: curves, profile, mismatch by hour, daily energy, records"
+              title={t("This string in depth: curves, profile, mismatch by hour, daily energy, records")}
             >
-              Open full analysis
+              {t("Open full analysis")}
               <ArrowUpRight data-icon="inline-end" className="h-3.5 w-3.5" />
             </Button>
           </div>

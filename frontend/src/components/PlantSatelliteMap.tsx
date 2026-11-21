@@ -5,6 +5,7 @@ import { LocateFixed } from "lucide-react";
 import { fmt } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "../i18n";
 
 /** Esri World Imagery: free satellite tiles, no key; attribution is required. */
 const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -21,6 +22,7 @@ const PlantSatelliteMap: React.FC<{
   heightClass?: string;
 }> = ({ lat, lon, name, capacityKwp, heightClass = "h-60" }) => {
   const el = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
   const map = useRef<L.Map | null>(null);
   const marker = useRef<L.CircleMarker | null>(null);
 
@@ -63,7 +65,7 @@ const PlantSatelliteMap: React.FC<{
 
   return (
     <div className="relative">
-      <div ref={el} className={`plant-map w-full ${heightClass}`} aria-label={`Satellite view of ${name}`} />
+      <div ref={el} className={`plant-map w-full ${heightClass}`} aria-label={t("Satellite view of {name}", { name })} />
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -72,12 +74,12 @@ const PlantSatelliteMap: React.FC<{
             size="icon-sm"
             className="absolute right-2 top-2 z-[400] bg-ink-950/80"
             onClick={() => map.current?.setView([lat, lon], SITE_ZOOM)}
-            aria-label="Recentre on the plant"
+            aria-label={t("Recentre on the plant")}
           >
             <LocateFixed className="h-3.5 w-3.5" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>Recentre on the plant</TooltipContent>
+        <TooltipContent>{t("Recentre on the plant")}</TooltipContent>
       </Tooltip>
     </div>
   );

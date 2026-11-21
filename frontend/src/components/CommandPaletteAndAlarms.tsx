@@ -22,6 +22,7 @@ import { StatusBadge, Led, statusLevel, fmt } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useI18n } from "../i18n";
 
 /* -------------------------------------------------------------------------- */
 /* Command Palette Modal (⌘K / Ctrl+K)                                        */
@@ -47,6 +48,7 @@ export const CommandPaletteModal: React.FC<{
   const { analysisRun, setInspectedStringId, user } = useAppContext();
   const navigate = useNavigate();
   const plantHref = usePlantHref();
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -60,8 +62,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "nav-overview",
         category: "Navigation",
-        title: "Plant Overview",
-        subtitle: "Live plant status, PR ring gauge, Digital Twin & string matrix",
+        title: t("Plant Overview"),
+        subtitle: t("Live plant status, PR ring gauge, Digital Twin & string matrix"),
         icon: LayoutDashboard,
         onSelect: go(plantHref("")),
         path: plantHref(""),
@@ -69,8 +71,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "nav-generation",
         category: "Navigation",
-        title: "Generation & PR",
-        subtitle: "Daily/monthly yield, IEC 61724 PR & energy loss waterfall",
+        title: t("Generation & PR"),
+        subtitle: t("Daily/monthly yield, IEC 61724 PR & energy loss waterfall"),
         icon: TrendingUp,
         onSelect: go(plantHref("generation")),
         path: plantHref("generation"),
@@ -78,8 +80,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "nav-strings",
         category: "Navigation",
-        title: "String Diagnostics & I-V Curves",
-        subtitle: "Peer deviation heatmap, timeseries & single-diode I-V envelope",
+        title: t("String Diagnostics & I-V Curves"),
+        subtitle: t("Peer deviation heatmap, timeseries & single-diode I-V envelope"),
         icon: Activity,
         onSelect: go(plantHref("strings")),
         path: plantHref("strings"),
@@ -87,8 +89,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "nav-maintenance",
         category: "Navigation",
-        title: "Maintenance & RCA",
-        subtitle: "PM optimization schedule, CM work orders & 5-Why / Fishbone RCA",
+        title: t("Maintenance & RCA"),
+        subtitle: t("PM optimization schedule, CM work orders & 5-Why / Fishbone RCA"),
         icon: Wrench,
         onSelect: go(plantHref("maintenance")),
         path: plantHref("maintenance"),
@@ -96,8 +98,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "nav-settings",
         category: "Navigation",
-        title: "Settings",
-        subtitle: "Fleet module & settings that apply to every plant",
+        title: t("Settings"),
+        subtitle: t("Fleet module & settings that apply to every plant"),
         icon: Settings,
         onSelect: go("/settings"),
         path: "/settings",
@@ -134,8 +136,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "act-alarms",
         category: "Quick Actions",
-        title: "Open Alarm Center Drawer",
-        subtitle: "Triage active string fault episodes by severity",
+        title: t("Open Alarm Center Drawer"),
+        subtitle: t("Triage active string fault episodes by severity"),
         icon: Bell,
         onSelect: () => {
           onClose();
@@ -145,8 +147,8 @@ export const CommandPaletteModal: React.FC<{
       {
         id: "act-signout",
         category: "Quick Actions",
-        title: "Sign Out",
-        subtitle: "End this session and return to the login page",
+        title: t("Sign Out"),
+        subtitle: t("End this session and return to the login page"),
         icon: LogOut,
         onSelect: () => {
           onClose();
@@ -157,7 +159,7 @@ export const CommandPaletteModal: React.FC<{
 
     const allowedNav = navItems.filter((n) => !n.path || canAccessPath(user, n.path));
     return [...stringItems, ...allowedNav, ...alarmItems, ...actionItems];
-  }, [analysisRun, navigate, onClose, onOpenAlarms, onSignOut, setInspectedStringId, user, plantHref]);
+  }, [analysisRun, navigate, onClose, onOpenAlarms, onSignOut, setInspectedStringId, user, plantHref, t]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -167,6 +169,7 @@ export const CommandPaletteModal: React.FC<{
         i.title.toLowerCase().includes(q) ||
         i.subtitle.toLowerCase().includes(q) ||
         i.category.toLowerCase().includes(q) ||
+        t(i.category).toLowerCase().includes(q) ||
         (i.badge && i.badge.toLowerCase().includes(q))
     );
   }, [items, query]);
@@ -203,7 +206,7 @@ export const CommandPaletteModal: React.FC<{
         aria-describedby={undefined}
         className="top-20 max-w-2xl translate-y-0 gap-0 overflow-hidden border-white/15 bg-ink-900 p-0 shadow-2xl sm:max-w-2xl"
       >
-        <DialogTitle className="sr-only">Command Palette</DialogTitle>
+        <DialogTitle className="sr-only">{t("Command Palette")}</DialogTitle>
         {/* Search Bar */}
         <div className="flex items-center gap-3 border-b border-white/[0.08] px-4 py-3.5">
           <Search className="h-4 w-4 text-solar-400" />
@@ -211,7 +214,7 @@ export const CommandPaletteModal: React.FC<{
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Jump to any PV string (STR-06), inverter, alarm, or module…"
+            placeholder={t("Jump to any PV string (STR-06), inverter, alarm, or module…")}
             className="w-full bg-transparent text-xs text-slate-100 placeholder:text-slate-500 outline-none"
           />
           <kbd className="num rounded border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[11px] text-slate-400">
@@ -223,7 +226,7 @@ export const CommandPaletteModal: React.FC<{
         <div className="max-h-[420px] overflow-y-auto p-2">
           {filtered.length === 0 ? (
             <div className="py-10 text-center text-xs text-slate-500">
-              No matching strings, alarms, or modules for "{query}"
+              {t("No matching strings, alarms, or modules for \"{q}\"", { q: query })}
             </div>
           ) : (
             <div className="space-y-1">
@@ -255,7 +258,7 @@ export const CommandPaletteModal: React.FC<{
                             {item.title}
                           </span>
                           <span className="text-[11px] uppercase tracking-wider text-slate-500">
-                            {item.category}
+                            {t(item.category)}
                           </span>
                         </div>
                         <div className="truncate text-[11px] text-slate-400">{item.subtitle}</div>
@@ -274,7 +277,7 @@ export const CommandPaletteModal: React.FC<{
 
         {/* Footer hint */}
         <div className="flex items-center justify-between border-t border-white/[0.06] bg-ink-950/60 px-4 py-2 text-[11px] text-slate-500">
-          <span>Use ↑↓ arrows to navigate, Enter to select</span>
+          <span>{t("Use ↑↓ arrows to navigate, Enter to select")}</span>
           <span className="num">⌘K / Ctrl+K</span>
         </div>
       </DialogContent>
@@ -292,6 +295,7 @@ export const AlarmCenterDrawer: React.FC<{
   const { analysisRun, setInspectedStringId } = useAppContext();
   const navigate = useNavigate();
   const plantHref = usePlantHref();
+  const { t } = useI18n();
   const [filter, setFilter] = useState<"all" | "Critical" | "High" | "Medium">("all");
   const [ackedIds, setAckedIds] = useState<Record<number, boolean>>({});
 
@@ -330,13 +334,13 @@ export const AlarmCenterDrawer: React.FC<{
                 <Bell className="h-4 w-4" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-white">SCADA Alarm Center</h3>
+                <h3 className="text-sm font-bold text-white">{t("SCADA Alarm Center")}</h3>
                 <p className="text-[11px] text-slate-400">
-                  {anomalies.length} fault episodes · −{fmt(totalFaultLossKwh, 1)} kWh total loss
+                  {t("{n} fault episodes · −{kwh} kWh total loss", { n: anomalies.length, kwh: fmt(totalFaultLossKwh, 1) })}
                 </p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close alarm center">
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label={t("Close alarm center")}>
               <X className="size-4" />
             </Button>
           </div>
@@ -345,15 +349,15 @@ export const AlarmCenterDrawer: React.FC<{
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
               <TabsList>
-                <TabsTrigger value="all">All ({anomalies.length})</TabsTrigger>
-                <TabsTrigger value="Critical">Critical ({criticalCount})</TabsTrigger>
-                <TabsTrigger value="High">High ({highCount})</TabsTrigger>
-                <TabsTrigger value="Medium">Medium ({mediumCount})</TabsTrigger>
+                <TabsTrigger value="all">{t("All")} ({anomalies.length})</TabsTrigger>
+                <TabsTrigger value="Critical">{t("Critical")} ({criticalCount})</TabsTrigger>
+                <TabsTrigger value="High">{t("High")} ({highCount})</TabsTrigger>
+                <TabsTrigger value="Medium">{t("Medium")} ({mediumCount})</TabsTrigger>
               </TabsList>
             </Tabs>
             <Button variant="ghost" size="sm" onClick={ackAll}>
               <CheckCheck className="size-3.5 text-emerald-400" />
-              Ack All
+              {t("Ack All")}
             </Button>
           </div>
         </div>
@@ -363,7 +367,7 @@ export const AlarmCenterDrawer: React.FC<{
           {visible.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <CheckCircle2 className="h-6 w-6 text-emerald-400" />
-              <div className="text-xs font-medium text-slate-300">No alarms in this severity filter</div>
+              <div className="text-xs font-medium text-slate-300">{t("No alarms in this severity filter")}</div>
             </div>
           ) : (
             visible.map((a) => {
@@ -394,19 +398,19 @@ export const AlarmCenterDrawer: React.FC<{
 
                   <div className="num mt-1.5 grid grid-cols-3 gap-2 rounded-lg border border-white/[0.05] bg-ink-950/60 p-2 text-[11px]">
                     <div>
-                      <span className="text-slate-500">Window</span>
+                      <span className="text-slate-500">{t("Window")}</span>
                       <div className="text-slate-200">
                         {String(a.date)} {a.start_time}–{a.end_time}
                       </div>
                     </div>
                     <div>
-                      <span className="text-slate-500">Operating V / I</span>
+                      <span className="text-slate-500">{t("Operating V / I")}</span>
                       <div className="text-slate-200">
                         {fmt(a.avg_voltage_v, 0)}V · {fmt(a.avg_current_a, 2)}A
                       </div>
                     </div>
                     <div>
-                      <span className="text-slate-500">Yield Loss</span>
+                      <span className="text-slate-500">{t("Yield Loss")}</span>
                       <div className="font-bold text-red-400">−{fmt(a.estimated_loss_kwh, 2)} kWh</div>
                     </div>
                   </div>
@@ -418,7 +422,7 @@ export const AlarmCenterDrawer: React.FC<{
                       }
                       className="text-[11px] font-medium text-slate-400 hover:text-slate-200 cursor-pointer"
                     >
-                      {acked ? "Unacknowledge" : "✓ Acknowledge"}
+                      {acked ? t("Unacknowledge") : t("✓ Acknowledge")}
                     </button>
                     <div className="flex items-center gap-1.5">
                       <Button
@@ -428,7 +432,7 @@ export const AlarmCenterDrawer: React.FC<{
                           setInspectedStringId(String(a.string_id));
                         }}
                       >
-                        Inspect {a.string_id}
+                        {t("Inspect {id}", { id: a.string_id })}
                       </Button>
                       <Button
                         variant="accent"

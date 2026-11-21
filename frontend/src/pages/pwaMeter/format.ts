@@ -1,6 +1,7 @@
 /** PWA Meter: labels, badge tones, period presets and CSV. The issue / flag / cause words come from
  * the backend (pwa_meter_criteria.json) in Thai and are shown as given. */
 import type { PwaDayStatus, PwaMeterWindow } from "../../api/client";
+import { dateLocale } from "../../i18n";
 
 export const TABS = ["sites", "outages", "meter"] as const;
 export type Tab = (typeof TABS)[number];
@@ -17,7 +18,7 @@ export const DAY_STATUS: Record<PwaDayStatus, { label: string; hint: string }> =
   loss_meter: { label: "Meter reading missing", hint: "Meter < 1 kWh while the inverter made ≥ 1 kWh" },
 };
 
-export const WEATHER: Record<string, string> = { clear: "Clear", cloudy: "Cloudy", rain: "Rain" };
+export const WEATHER: Record<string, string> = { clear: "Clear sky", cloudy: "Cloudy", rain: "Rain" };
 
 type Tone = "crit" | "warn" | "info" | "neutral";
 
@@ -59,7 +60,7 @@ export const presetOf = (w: PwaMeterWindow, lastDay: string | null): Preset | nu
 
 export const fmtDay = (s: string | null | undefined): string => {
   if (!s) return "—";
-  return parseDay(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return parseDay(s).toLocaleDateString(dateLocale(), { day: "numeric", month: "short", year: "numeric" });
 };
 
 export const dayMs = (s: string): number => parseDay(s).getTime();

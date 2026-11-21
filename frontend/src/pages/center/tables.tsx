@@ -1,4 +1,4 @@
-/** O&M Dashboard tables: the issues to fix first and one row per plant. Rows come sorted from the
+/** Engineering O&M tables: the issues to fix first and one row per plant. Rows come sorted from the
  * page; these only render. Missing values show "—"; estimated columns say so in the header. */
 import React from "react";
 import { Link } from "react-router-dom";
@@ -9,8 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHead } from "../pwaMeter/tables";
 import { EST, ENTERED, fmtDay, thb } from "./format";
+import { useI18n } from "../../i18n";
 
-const Est: React.FC = () => <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">est.</span>;
+const Est: React.FC = () => {
+  const { t } = useI18n();
+  return <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{t("est.")}</span>;
+};
 
 const tierVariant = (i: OmCenterIssue) => (i.safety || i.tier === "P1" ? "crit" : i.tier === "P2" ? "warn" : "neutral");
 
@@ -22,27 +26,29 @@ const issueHref = (i: OmCenterIssue): string =>
       ? `${plantPath(i.plant_id, "inverters")}?sn=${encodeURIComponent(i.device_sn)}&tab=issues`
       : plantPath(i.plant_id);
 
-export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => (
+export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
+  const { t } = useI18n();
+  return (
   <Table containerClassName="table-wrap">
     <TableHeader>
       <TableRow>
-        <TableHead>Tier</TableHead>
-        <TableHead>Issue</TableHead>
-        <TableHead>Plant</TableHead>
-        <TableHead>Where</TableHead>
-        <TableHead className="text-right" title={`${EST} Mean of the last 3 days the issue fired.`}>
-          ฿ / day
+        <TableHead>{t("Tier")}</TableHead>
+        <TableHead>{t("Issue")}</TableHead>
+        <TableHead>{t("Plant")}</TableHead>
+        <TableHead>{t("Where")}</TableHead>
+        <TableHead className="text-right" title={`${t(EST)} ${t("Mean of the last 3 days the issue fired.")}`}>
+          {t("฿ / day")}
           <Est />
         </TableHead>
-        <TableHead className="text-right" title={EST}>
-          ฿ so far
+        <TableHead className="text-right" title={t(EST)}>
+          {t("฿ so far")}
           <Est />
         </TableHead>
-        <TableHead className="text-right">Age</TableHead>
-        <TableHead>Acknowledged</TableHead>
-        <TableHead>Next visit</TableHead>
-        <TableHead className="text-right" title="฿ / day × days until the plant's next planned visit (Calendar). An estimate.">
-          Cost of waiting
+        <TableHead className="text-right">{t("Age")}</TableHead>
+        <TableHead>{t("Acknowledged")}</TableHead>
+        <TableHead>{t("Next visit")}</TableHead>
+        <TableHead className="text-right" title={t("฿ / day × days until the plant's next planned visit (Calendar). An estimate.")}>
+          {t("Cost of waiting")}
           <Est />
         </TableHead>
       </TableRow>
@@ -51,7 +57,7 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => (
       {rows.map((i) => (
         <TableRow key={i.id}>
           <TableCell>
-            <Badge variant={tierVariant(i)}>{i.safety ? "Safety" : i.tier}</Badge>
+            <Badge variant={tierVariant(i)}>{i.safety ? t("Safety") : i.tier}</Badge>
           </TableCell>
           <TableCell className="whitespace-nowrap">
             <Link to={issueHref(i)} className="hover:text-solar-400">
@@ -59,32 +65,32 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => (
             </Link>
             <span className="num ml-1.5 text-[11px] text-muted-foreground">{i.rule}</span>
             {i.shadow && (
-              <Badge variant="info" className="ml-1.5" title="Rule still in shadow mode: not shown to engineers">
-                Shadow
+              <Badge variant="info" className="ml-1.5" title={t("Rule still in shadow mode: not shown to engineers")}>
+                {t("Shadow")}
               </Badge>
             )}
           </TableCell>
           <TableCell className="max-w-[220px] truncate">
             <Link to={plantPath(i.plant_id)} className="hover:text-solar-400">
-              {i.plant_name ?? `Plant ${i.plant_id}`}
+              {i.plant_name ?? t("Plant {id}", { id: i.plant_id })}
             </Link>
           </TableCell>
           <TableCell className="whitespace-nowrap text-muted-foreground">
-            {i.device_sn ? (i.inverter_name ?? i.device_sn) : "Plant"}
-            {i.string_no != null ? ` · String ${i.string_no}` : ""}
+            {i.device_sn ? (i.inverter_name ?? i.device_sn) : t("Plant")}
+            {i.string_no != null ? ` · ${t("String {n}", { n: i.string_no })}` : ""}
           </TableCell>
           <TableCell className="num text-right">{thb(i.thb_per_day_est)}</TableCell>
           <TableCell className="num text-right">{thb(i.thb_total_est)}</TableCell>
-          <TableCell className="num whitespace-nowrap text-right">{i.age_days} d</TableCell>
+          <TableCell className="num whitespace-nowrap text-right">{t("{n} d", { n: i.age_days })}</TableCell>
           <TableCell className="whitespace-nowrap text-muted-foreground">{i.ack_by ?? "—"}</TableCell>
           <TableCell className="num whitespace-nowrap">
             {i.next_visit ? (
               <Link to={`/calendar?plant=${i.plant_id}`} className="hover:text-solar-400">
                 {fmtDay(i.next_visit)}
-                <span className="ml-1 text-[11px] text-muted-foreground">{i.days_to_visit === 0 ? "today" : `in ${i.days_to_visit} d`}</span>
+                <span className="ml-1 text-[11px] text-muted-foreground">{i.days_to_visit === 0 ? t("today") : t("in {n} d", { n: i.days_to_visit })}</span>
               </Link>
             ) : (
-              <span className="text-amber-300">None planned</span>
+              <span className="text-amber-300">{t("None planned")}</span>
             )}
           </TableCell>
           <TableCell className="num text-right">{thb(i.cost_of_waiting_thb_est)}</TableCell>
@@ -92,7 +98,8 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => (
       ))}
     </TableBody>
   </Table>
-);
+  );
+};
 
 export const PlantSortKeys = ["lost", "name", "share", "perday", "issues", "epi", "pr", "avail", "contract", "clean", "visit", "spend"] as const;
 export type PlantSort = (typeof PlantSortKeys)[number];
@@ -126,23 +133,24 @@ export const PlantsTable: React.FC<{
   sites: Map<number, PwaMeterSiteSummary>;
   onOpenSite: (siteId: string) => void;
 }> = ({ rows, sort, desc, onSort, sites, onOpenSite }) => {
+  const { t } = useI18n();
   const h = { sort, desc, onSort };
   return (
     <Table containerClassName="table-wrap">
       <TableHeader>
         <TableRow>
-          <SortHead k="name" label="Plant" {...h} />
-          <SortHead k="lost" label={<>฿ lost<Est /></>} className="text-right" title={EST} {...h} />
-          <SortHead k="share" label={<>Loss share<Est /></>} className="text-right" title="Lost kWh ÷ (produced + lost kWh) in the period" {...h} />
-          <SortHead k="perday" label={<>฿ / day now<Est /></>} className="text-right" title="Active issues, mean of the last 3 days each fired" {...h} />
-          <SortHead k="issues" label="Issues" className="text-right" {...h} />
-          <SortHead k="avail" label="Availability" className="text-right" title="Inverter minutes not in fault / off / standby ÷ daylight minutes with data" {...h} />
-          <SortHead k="epi" label="EPI" className="text-right" title="Median of the period: measured ÷ modelled energy (modelled). Days with a suspect sensor left out." {...h} />
-          <SortHead k="pr" label="PR′" className="text-right" title="Median temperature-corrected PR of the period. Days with a suspect sensor left out." {...h} />
-          <SortHead k="contract" label={<>Meter vs contract<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">mod.</span></>} className="text-right" title="PWA meter report: billed meter energy ÷ the contract's expected energy (modelled), for the report days in the period. Opens the site's days." {...h} />
-          <SortHead k="clean" label="Since cleaning" className="text-right" title="Days since the last cleaning in the Site log" {...h} />
-          <SortHead k="visit" label="Next visit" {...h} />
-          <SortHead k="spend" label="O&M spend" className="text-right" title={ENTERED} {...h} />
+          <SortHead k="name" label={t("Plant")} {...h} />
+          <SortHead k="lost" label={<>{t("฿ lost")}<Est /></>} className="text-right" title={t(EST)} {...h} />
+          <SortHead k="share" label={<>{t("Loss share")}<Est /></>} className="text-right" title={t("Lost kWh ÷ (produced + lost kWh) in the period")} {...h} />
+          <SortHead k="perday" label={<>{t("฿ / day now")}<Est /></>} className="text-right" title={t("Active issues, mean of the last 3 days each fired")} {...h} />
+          <SortHead k="issues" label={t("Issues")} className="text-right" {...h} />
+          <SortHead k="avail" label={t("Availability")} className="text-right" title={t("Inverter minutes not in fault / off / standby ÷ daylight minutes with data")} {...h} />
+          <SortHead k="epi" label="EPI" className="text-right" title={t("Median of the period: measured ÷ modelled energy (modelled). Days with a suspect sensor left out.")} {...h} />
+          <SortHead k="pr" label="PR′" className="text-right" title={t("Median temperature-corrected PR of the period. Days with a suspect sensor left out.")} {...h} />
+          <SortHead k="contract" label={<>{t("Meter vs contract")}<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{t("mod.")}</span></>} className="text-right" title={t("PWA meter report: billed meter energy ÷ the contract's expected energy (modelled), for the report days in the period. Opens the site's days.")} {...h} />
+          <SortHead k="clean" label={t("Since cleaning")} className="text-right" title={t("Days since the last cleaning in the Site log")} {...h} />
+          <SortHead k="visit" label={t("Next visit")} {...h} />
+          <SortHead k="spend" label={t("O&M spend")} className="text-right" title={t(ENTERED)} {...h} />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -154,7 +162,7 @@ export const PlantsTable: React.FC<{
               </Link>
               <span className="num block text-[11px] text-muted-foreground">
                 {r.capacity_kwp != null ? `${fmt(r.capacity_kwp, 0)} kWp · ` : ""}
-                {r.energy_kwh != null ? `${fmt(r.energy_kwh, 0)} kWh` : "no energy stored"}
+                {r.energy_kwh != null ? `${fmt(r.energy_kwh, 0)} kWh` : t("no energy stored")}
               </span>
             </TableCell>
             <TableCell className="num text-right">{thb(r.lost_thb_est)}</TableCell>
@@ -167,7 +175,7 @@ export const PlantsTable: React.FC<{
             <TableCell className="num text-right">
               {(() => {
                 const site = sites.get(r.plant_id);
-                if (!site) return <span className="text-muted-foreground" title="Not in the PWA meter report">—</span>;
+                if (!site) return <span className="text-muted-foreground" title={t("Not in the PWA meter report")}>—</span>;
                 return (
                   <button type="button" onClick={() => onOpenSite(site.site_id)} className={`hover:underline ${contractTone(site.vs_contract_pct)}`}>
                     {site.vs_contract_pct == null ? "—" : `${fmt(site.vs_contract_pct, 1)} %`}
@@ -175,7 +183,7 @@ export const PlantsTable: React.FC<{
                 );
               })()}
             </TableCell>
-            <TableCell className="num text-right">{r.days_since_cleaning == null ? <span className="text-muted-foreground">None recorded</span> : `${r.days_since_cleaning} d`}</TableCell>
+            <TableCell className="num text-right">{r.days_since_cleaning == null ? <span className="text-muted-foreground">{t("None recorded")}</span> : t("{n} d", { n: r.days_since_cleaning })}</TableCell>
             <TableCell className="num whitespace-nowrap">{r.next_visit ? fmtDay(r.next_visit) : "—"}</TableCell>
             <TableCell className="num text-right">{thb(r.spend_thb)}</TableCell>
           </TableRow>

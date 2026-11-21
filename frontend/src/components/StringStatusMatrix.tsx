@@ -5,6 +5,7 @@ import { inverterStatusLevel } from "../context/PlantContext";
 import { Panel, Led, Meter, statusLevel, fmt } from "./ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { useI18n } from "../i18n";
 
 /**
  * Selected plant's string tiles, grouped by inverter and laid out by MPPT (string n sits on
@@ -13,6 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
  */
 export const StringStatusMatrix: React.FC = () => {
   const { selectedGrowattPlantId, selectedPlantOverview, setInspectedStringId, plantLiveLoading, plantLive } = useAppContext();
+  const { t, locale } = useI18n();
 
   const [selectedInverterSn, setSelectedInverterSn] = useState<string>("ALL");
   const [groupByInverter, setGroupByInverter] = useState(true);
@@ -64,8 +66,8 @@ export const StringStatusMatrix: React.FC = () => {
       key={s.string_id}
       title={
         s.reason === "no_current"
-          ? `${s.string_id}: MPPT voltage present, no string current today (unused input or no light yet)`
-          : `${s.string_id}: input not reported today`
+          ? t("{id}: MPPT voltage present, no string current today (unused input or no light yet)", { id: s.string_id })
+          : t("{id}: input not reported today", { id: s.string_id })
       }
       className="rounded-xl border border-dashed border-white/[0.08] bg-transparent p-3 opacity-70"
     >
@@ -76,9 +78,9 @@ export const StringStatusMatrix: React.FC = () => {
       <div className="num mt-0.5 truncate text-[11px] text-slate-500">
         {s.device_sn} · {s.mppt_id}
       </div>
-      <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Not active</div>
+      <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("Not active")}</div>
       <div className="num mt-2 text-[11px] text-slate-500">
-        {s.reason === "no_current" ? `MPPT ${fmt(s.v_max, 0)}V · 0 A` : "No data"}
+        {s.reason === "no_current" ? `MPPT ${fmt(s.v_max, 0)}V · 0 A` : t("No data")}
       </div>
     </div>
   );
@@ -97,7 +99,7 @@ export const StringStatusMatrix: React.FC = () => {
       <div
         key={s.string_id}
         onClick={() => setInspectedStringId(s.string_id)}
-        title={`Click to inspect ${s.string_id} I-V & P-V curves`}
+        title={t("Click to inspect {id} I-V & P-V curves", { id: s.string_id })}
         className={`group relative cursor-pointer rounded-xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${border}`}
       >
         <div className="flex items-center justify-between">
@@ -114,7 +116,7 @@ export const StringStatusMatrix: React.FC = () => {
             <div className="num text-base font-bold text-white">{pr == null ? "—" : `${fmt(pr, 1)}%`}</div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] uppercase text-slate-500">Peak</div>
+            <div className="text-[10px] uppercase text-slate-500">{t("Peak")}</div>
             <div className="num text-xs font-semibold text-slate-200">{fmt(s.p_max_w / 1000, 2)} kW</div>
           </div>
         </div>
@@ -125,12 +127,12 @@ export const StringStatusMatrix: React.FC = () => {
 
         <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
           {isLive ? (
-            <span className="num text-sky-300" title={`Live record ${s.live_at ?? ""}`}>
-              Now {fmt(s.live_voltage_v, 0)}V · {fmt(s.live_current_a, 1)}A · {fmt((s.live_power_w ?? 0) / 1000, 2)}kW
+            <span className="num text-sky-300" title={t("Live record {at}", { at: s.live_at ?? "" })}>
+              {t("Now")} {fmt(s.live_voltage_v, 0)}V · {fmt(s.live_current_a, 1)}A · {fmt((s.live_power_w ?? 0) / 1000, 2)}kW
             </span>
           ) : (
-            <span className="num" title="Today's average from the database (no live value)">
-              Avg {fmt(s.v_avg, 0)}V · {fmt(s.i_avg, 1)}A
+            <span className="num" title={t("Today's average from the database (no live value)")}>
+              {t("Avg")} {fmt(s.v_avg, 0)}V · {fmt(s.i_avg, 1)}A
             </span>
           )}
           <span className="text-solar-400 opacity-0 transition group-hover:opacity-100">I-V →</span>
@@ -142,17 +144,19 @@ export const StringStatusMatrix: React.FC = () => {
   return (
     <Panel
       icon={Grid3x3}
-      title={`String Status Matrix (${filteredStrings.length} Strings${
-        selectedInverterSn !== "ALL" ? ` on ${selectedInverterSn}` : ""
-      })`}
+      title={
+        selectedInverterSn !== "ALL"
+          ? t("String Status Matrix ({n} Strings on {sn})", { n: filteredStrings.length, sn: selectedInverterSn })
+          : t("String Status Matrix ({n} Strings)", { n: filteredStrings.length })
+      }
       subtitle={
         selectedPlantOverview.live
-          ? `Now = newest Growatt record per string (live; fetched ${new Date(
-              selectedPlantOverview.live.fetched_at
-            ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}). PR & Peak = today from the database. Click a tile for its I-V curve.`
+          ? t("Now = newest Growatt record per string (live; fetched {time}). PR & Peak = today from the database. Click a tile for its I-V curve.", {
+              time: new Date(selectedPlantOverview.live.fetched_at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }),
+            })
           : plantLiveLoading
-          ? "Loading live values… showing today's averages from the database meanwhile. Click a tile for its I-V curve."
-          : "Live values unavailable — showing today's averages from the database. Click a tile for its I-V curve."
+          ? t("Loading live values… showing today's averages from the database meanwhile. Click a tile for its I-V curve.")
+          : t("Live values unavailable — showing today's averages from the database. Click a tile for its I-V curve.")
       }
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -163,17 +167,17 @@ export const StringStatusMatrix: React.FC = () => {
               onChange={(e) => setGroupByInverter(e.target.checked)}
               className="accent-sky-400"
             />
-            Group by inverter
+            {t("Group by inverter")}
           </label>
           <Select value={selectedInverterSn} onValueChange={(v) => setSelectedInverterSn(v)}>
             <SelectTrigger size="sm" className="w-44 text-[11px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">All Inverters ({strings.length} strings)</SelectItem>
+              <SelectItem value="ALL">{t("All Inverters ({n} strings)", { n: strings.length })}</SelectItem>
               {inverters.map((inv) => (
                 <SelectItem key={inv.device_sn} value={inv.device_sn}>
-                  {inv.device_sn} ({inv.string_count} strings)
+                  {t("{sn} ({n} strings)", { sn: inv.device_sn, n: inv.string_count })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -198,7 +202,7 @@ export const StringStatusMatrix: React.FC = () => {
                   {/* spinner only while the live request runs; an inverter missing from the live answer
                       (no record yet today: asleep, offline) says so instead of loading forever */}
                   {status == null && !inv.lost && plantLiveLoading ? (
-                    <Spinner className="size-3" aria-label="Loading live status…" />
+                    <Spinner className="size-3" aria-label={t("Loading live status…")} />
                   ) : (
                     <Led level={lvl} />
                   )}
@@ -206,29 +210,29 @@ export const StringStatusMatrix: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedInverterSn(selectedInverterSn === inv.device_sn ? "ALL" : inv.device_sn)}
                     className="num font-bold text-white hover:text-sky-300"
-                    title="Show only this inverter"
+                    title={t("Show only this inverter")}
                   >
                     {inv.device_sn}
                   </button>
                   <span className="num text-slate-500">{inv.model}</span>
                   {offline ? (
-                    <span className="text-red-300" title="Growatt has no record of this inverter today">
-                      Offline
+                    <span className="text-red-300" title={t("Growatt has no record of this inverter today")}>
+                      {t("Offline")}
                     </span>
                   ) : status === 0 ? (
-                    <span className="text-amber-300" title="Growatt status 0: waiting to start (not producing)">
-                      Waiting
+                    <span className="text-amber-300" title={t("Growatt status 0: waiting to start (not producing)")}>
+                      {t("Waiting")}
                     </span>
                   ) : (
                     status == null &&
-                    !plantLiveLoading && <span className="text-slate-500">Live unavailable</span>
+                    !plantLiveLoading && <span className="text-slate-500">{t("Live unavailable")}</span>
                   )}
-                  <span className="num text-sky-300">{active} active</span>
-                  {inactive > 0 && <span className="num text-slate-500">{inactive} not active</span>}
-                  {crit > 0 && <span className="num text-red-300">{crit} critical</span>}
-                  {warn > 0 && <span className="num text-amber-300">{warn} warning</span>}
+                  <span className="num text-sky-300">{t("{n} active", { n: active })}</span>
+                  {inactive > 0 && <span className="num text-slate-500">{t("{n} not active", { n: inactive })}</span>}
+                  {crit > 0 && <span className="num text-red-300">{t("{n} critical", { n: crit })}</span>}
+                  {warn > 0 && <span className="num text-amber-300">{t("{n} warning", { n: warn })}</span>}
                   <span className="num ml-auto text-slate-400">
-                    Now {fmt(inv.current_ac_kw, 2)} kW · Peak {fmt(inv.peak_ac_kw, 2)} kW
+                    {t("Now {now} kW · Peak {peak} kW", { now: fmt(inv.current_ac_kw, 2), peak: fmt(inv.peak_ac_kw, 2) })}
                   </span>
                 </div>
                 {mppts.length ? (
@@ -245,7 +249,7 @@ export const StringStatusMatrix: React.FC = () => {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-xs text-slate-500">No string data stored for this inverter today.</div>
+                  <div className="text-xs text-slate-500">{t("No string data stored for this inverter today.")}</div>
                 )}
               </section>
             );
@@ -258,7 +262,7 @@ export const StringStatusMatrix: React.FC = () => {
           </div>
           {filteredStrings.length > 64 && (
             <div className="mt-3 text-xs text-slate-500">
-              Showing 64 of {filteredStrings.length} strings. Group by inverter or pick an inverter to see all.
+              {t("Showing 64 of {n} strings. Group by inverter or pick an inverter to see all.", { n: filteredStrings.length })}
             </div>
           )}
         </>

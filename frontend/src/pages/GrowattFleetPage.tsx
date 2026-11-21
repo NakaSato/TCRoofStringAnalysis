@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
+import { dateLocale, translate, useI18n } from "../i18n";
 
 const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
   1: { label: "Normal", level: "ok" },
@@ -20,7 +21,7 @@ const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
 const plantStatus = (s: number | null): { label: string; level: StatusLevel; loading?: boolean } =>
   s == null
     ? { label: LOADING_STATUS, level: "neutral", loading: true }
-    : PLANT_STATUS[s] ?? { label: `Status ${s}`, level: "warn" };
+    : PLANT_STATUS[s] ?? { label: translate("Status {n}", { n: s }), level: "warn" };
 
 const inverterLevel = (inv: GrowattInverter): StatusLevel =>
   inv.lost ? "crit" : inverterStatusLevel(inv.status);
@@ -30,18 +31,19 @@ const sumKnown = (vals: Array<number | null>, div = 1): number | null => {
   return known.length ? known.reduce((a, v) => a + v, 0) / div : null;
 };
 
-const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
 
 const liveLabel = (s: { fetchedAt: string | null; stale: boolean; error: string | null; loading: boolean }) =>
   s.loading
-    ? "Loading live data…"
+    ? translate("Loading live data…")
     : !s.fetchedAt
-    ? "Live data unavailable — power and status not shown."
+    ? translate("Live data unavailable — power and status not shown.")
     : s.stale
-    ? `Live data stale (last ${fmtTime(s.fetchedAt)}).`
-    : `Live · ${fmtTime(s.fetchedAt)}.`;
+    ? translate("Live data stale (last {time}).", { time: fmtTime(s.fetchedAt) })
+    : `${translate("Live")} · ${fmtTime(s.fetchedAt)}.`;
 
 export const GrowattFleetPage: React.FC = () => {
+  const { t } = useI18n();
   // DB registry with realtime overlay, both owned by AppContext
   const { growattPlants, refreshGrowattPlants, growattLiveStatus } = useAppContext();
   const plants = growattPlants.length ? growattPlants : null;
@@ -120,55 +122,55 @@ export const GrowattFleetPage: React.FC = () => {
       <PageHeader
         icon={Radio}
         eyebrow="Growatt OpenAPI v1"
-        title="Growatt Fleet"
-        description={`Plant registry and history from the app database; power and status overlaid live from Growatt (memory cache, not stored). ${liveLabel(growattLiveStatus)}`}
+        title={t("Growatt Fleet")}
+        description={`${t("Plant registry and history from the app database; power and status overlaid live from Growatt (memory cache, not stored).")} ${liveLabel(growattLiveStatus)}`}
         actions={
           <Button variant="ghost" size="sm" onClick={() => loadPlants()} disabled={loading}>
-            {loading ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />} Refresh
+            {loading ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />} {t("Refresh")}
           </Button>
         }
       />
 
       {error && (
         <Panel>
-          <EmptyState icon={AlertTriangle} title="Could not load Growatt plants" description={error} />
+          <EmptyState icon={AlertTriangle} title={t("Could not load Growatt plants")} description={error} />
         </Panel>
       )}
 
-      {!plants && !error && <LoadingState label="Loading plants…" shape="table" />}
+      {!plants && !error && <LoadingState label={t("Loading plants…")} shape="table" />}
 
       {plants && (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <KpiTile label="Plants" value={fmtInt(totals.count)} icon={Radio} tone="solar"
-              hint={totals.abnormal ? `${totals.abnormal} not normal` : totals.unknown ? `${totals.unknown} status unknown` : "All normal"}
+            <KpiTile label={t("Plants")} value={fmtInt(totals.count)} icon={Radio} tone="solar"
+              hint={totals.abnormal ? t("{n} not normal", { n: totals.abnormal }) : totals.unknown ? t("{n} status unknown", { n: totals.unknown }) : t("All normal")}
               hintTone={totals.abnormal ? "crit" : totals.unknown ? "warn" : "ok"} />
-            <KpiTile label="Installed capacity" value={fmt(totals.kwp / 1000, 2)} unit="MWp" icon={Gauge} tone="info" />
-            <KpiTile label="Current power" value={fmt(totals.kw, 0)} unit="kW" icon={Zap} tone="energy" />
-            <KpiTile label="Lifetime energy" value={fmt(totals.mwh, 0)} unit="MWh" icon={Zap} tone="ok" />
+            <KpiTile label={t("Installed capacity")} value={fmt(totals.kwp / 1000, 2)} unit="MWp" icon={Gauge} tone="info" />
+            <KpiTile label={t("Current power")} value={fmt(totals.kw, 0)} unit="kW" icon={Zap} tone="energy" />
+            <KpiTile label={t("Lifetime energy")} value={fmt(totals.mwh, 0)} unit="MWh" icon={Zap} tone="ok" />
           </div>
 
           <div className="grid gap-6 xl:grid-cols-5">
             <Panel
               className="xl:col-span-3"
-              title="Plants"
-              subtitle={`${filtered.length} of ${plants.length}`}
+              title={t("Plants")}
+              subtitle={t("{n} of {total}", { n: filtered.length, total: plants.length })}
               bodyClassName="p-0"
               actions={
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-                  <Input className="h-7 px-2 pl-7 text-[11px]" placeholder="Search name, city, ID" value={query} onChange={(e) => setQuery(e.target.value)} />
+                  <Input className="h-7 px-2 pl-7 text-[11px]" placeholder={t("Search name, city, ID")} value={query} onChange={(e) => setQuery(e.target.value)} />
                 </div>
               }
             >
               <Table containerClassName="scroll-x-hint max-h-[640px] overflow-auto">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Plant</TableHead>
+                      <TableHead>{t("Plant")}</TableHead>
                       <TableHead className="text-right">kWp</TableHead>
-                      <TableHead className="text-right">Power kW</TableHead>
-                      <TableHead className="text-right">Load %</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">{t("Power kW")}</TableHead>
+                      <TableHead className="text-right">{t("Load %")}</TableHead>
+                      <TableHead>{t("Status")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -200,33 +202,33 @@ export const GrowattFleetPage: React.FC = () => {
             <Panel
               className="xl:col-span-2"
               icon={Cpu}
-              title={selected ? selected.name : "Inverters"}
+              title={selected ? selected.name : t("Inverters")}
               subtitle={
                 selected
-                  ? `Plant ${selected.plant_id}${inverters ? ` · ${inverters.length} inverters` : ""} · ${
-                      liveInvAt ? `Live ${fmtTime(liveInvAt)}` : invLoading ? "Loading live status…" : "Live status unavailable"
+                  ? `${t("Plant {id}", { id: selected.plant_id })}${inverters ? ` · ${t("{n} inverters", { n: inverters.length })}` : ""} · ${
+                      liveInvAt ? `${t("Live")} ${fmtTime(liveInvAt)}` : invLoading ? t("Loading live status…") : t("Live status unavailable")
                     }`
-                  : "Select a plant"
+                  : t("Select a plant")
               }
               bodyClassName="p-0"
               actions={
                 selected && (
-                  <Button variant="ghost" size="icon-sm" onClick={() => loadInverters(selected.plant_id)} disabled={invLoading} aria-label="Refresh inverters">
+                  <Button variant="ghost" size="icon-sm" onClick={() => loadInverters(selected.plant_id)} disabled={invLoading} aria-label={t("Refresh inverters")}>
                     {invLoading ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}
                   </Button>
                 )
               }
             >
-              {!selected && <EmptyState icon={Cpu} title="No plant selected" description="Click a plant to list its inverters." />}
-              {selected && invLoading && !inverters && <div className="p-4"><LoadingState label="Fetching inverters…" shape="table" /></div>}
-              {selected && invError && <EmptyState icon={AlertTriangle} title="Could not load inverters" description={invError} />}
+              {!selected && <EmptyState icon={Cpu} title={t("No plant selected")} description={t("Click a plant to list its inverters.")} />}
+              {selected && invLoading && !inverters && <div className="p-4"><LoadingState label={t("Fetching inverters…")} shape="table" /></div>}
+              {selected && invError && <EmptyState icon={AlertTriangle} title={t("Could not load inverters")} description={invError} />}
               {selected && inverters && (
                 <Table containerClassName="scroll-x-hint max-h-[640px] overflow-auto">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Serial</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Last update</TableHead>
+                        <TableHead>{t("Serial")}</TableHead>
+                        <TableHead>{t("Status")}</TableHead>
+                        <TableHead>{t("Last update")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -235,7 +237,7 @@ export const GrowattFleetPage: React.FC = () => {
                           <TableCell>
                             <div className="num font-medium text-slate-200">{inv.device_sn}</div>
                             <div className="text-[11px] text-slate-500" title={inv.model}>
-                              {inv.device_types.join("/").toUpperCase()} · logger {inv.datalogger_sn}
+                              {inv.device_types.join("/").toUpperCase()} · {t("logger {sn}", { sn: inv.datalogger_sn })}
                             </div>
                           </TableCell>
                           <TableCell>

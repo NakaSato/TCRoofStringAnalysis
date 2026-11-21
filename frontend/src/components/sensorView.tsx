@@ -4,6 +4,7 @@ import { TriangleAlert } from "lucide-react";
 import type { GrowattWeatherField, SensorFlag, SensorLiveRow, SensorRow, SensorStatus } from "../api/client";
 import type { StatusLevel } from "./ui";
 import { Badge } from "@/components/ui/badge";
+import { translate, type Lang } from "../i18n";
 
 export const STATUS_VIEW: Record<SensorStatus, { label: string; level: StatusLevel }> = {
   online: { label: "Online", level: "ok" },
@@ -21,12 +22,13 @@ export const FIELD_LABEL: Record<GrowattWeatherField, string> = {
   wind_speed_ms: "Wind speed",
   wind_dir_deg: "Wind direction",
 };
-export const flagLabel = (f: SensorFlag) =>
+/** `lang`: the UI language by default; "en" for CSV exports. */
+export const flagLabel = (f: SensorFlag, lang?: Lang) =>
   f.code === "probe_missing"
-    ? `${f.field ? FIELD_LABEL[f.field] : "Probe"}: reads 0`
+    ? translate("{field}: reads 0", { field: translate(f.field ? FIELD_LABEL[f.field] : "Probe", undefined, lang) }, lang)
     : f.code === "irradiance_zero_daylight"
-      ? "Irradiance 0 by day"
-      : "History behind";
+      ? translate("Irradiance 0 by day", undefined, lang)
+      : translate("History behind", undefined, lang);
 
 /** Health-check chips; the reason is the tooltip. */
 export const FlagChips: React.FC<{ flags: SensorFlag[] }> = ({ flags }) =>

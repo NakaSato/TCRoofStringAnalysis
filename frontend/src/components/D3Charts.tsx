@@ -12,6 +12,7 @@ import type { TipState } from "./chartKit";
 import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
+import { useI18n } from "../i18n";
 
 /* -------------------------------------------------------------------------- */
 /* 1. String current heatmap                                                  */
@@ -28,6 +29,7 @@ export const StringHeatmap: React.FC<{
   /** current_a[string][slot]; null = no record */
   currentA: Array<Array<number | null>>;
 }> = ({ stringNos, timestamps, currentA }) => {
+  const { t: tr } = useI18n();
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<TipState | null>(null);
   const [cell, setCell] = useState<{ s: number; t: number } | null>(null);
@@ -85,9 +87,9 @@ export const StringHeatmap: React.FC<{
           <div className="mb-1 font-semibold text-white">
             S{stringNos[s]} · {hhmm(times[t])}
           </div>
-          <TipRow label="Current" value={v == null ? "—" : `${fmt(v, 2)} A`} />
-          <TipRow label="Slot median" value={med == null ? "—" : `${fmt(med, 2)} A`} />
-          <TipRow label="vs median" value={v == null || !med ? "—" : `${fmt((v / med) * 100, 0)}%`} />
+          <TipRow label={tr("Current")} value={v == null ? "—" : `${fmt(v, 2)} A`} />
+          <TipRow label={tr("Slot median")} value={med == null ? "—" : `${fmt(med, 2)} A`} />
+          <TipRow label={tr("vs median")} value={v == null || !med ? "—" : `${fmt((v / med) * 100, 0)}%`} />
         </>
       ),
     });
@@ -114,7 +116,7 @@ export const StringHeatmap: React.FC<{
               </text>
             ))}
             <text x={-6} y={8} textAnchor="end" fill={C.muted} fontSize={12}>
-              Current (A)
+              {tr("Current (A)")}
             </text>
           </g>
 
@@ -177,42 +179,44 @@ export interface TrendRow {
 }
 
 const parseDay = d3.timeParse("%Y-%m-%d");
-const dayShort = d3.timeFormat("%d %b");
-const dayLong = d3.timeFormat("%a %d %b %Y");
+const dayShort = (d: Date, locale: string) => d.toLocaleDateString(locale, { day: "2-digit", month: "short" });
+const dayLong = (d: Date, locale: string) =>
+  d.toLocaleDateString(locale, { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
 
 /** Daily yield vs the plant's average inverter (top) and the same as % of that average (bottom). */
 export const DailyTrendChart: React.FC<{ rows: TrendRow[]; height?: number }> = ({ rows, height = 300 }) => {
+  const { t, locale } = useI18n();
   const spec = useMemo<PanelChartSpec>(
     () => ({
       xKind: "band",
       x: rows.map((r) => r.day),
-      xTickLabel: (d) => dayShort(parseDay(String(d)) ?? new Date(String(d))),
-      xTipLabel: (d) => dayLong(parseDay(String(d)) ?? new Date(String(d))),
+      xTickLabel: (d) => dayShort(parseDay(String(d)) ?? new Date(String(d)), locale),
+      xTipLabel: (d) => dayLong(parseDay(String(d)) ?? new Date(String(d)), locale),
       tipExtra: (i) => [
-        { label: "Peak AC", value: rows[i].peakKw == null ? "—" : `${fmt(rows[i].peakKw, 1)} kW` },
-        { label: "Max temp", value: rows[i].maxTempC == null ? "—" : `${fmt(rows[i].maxTempC, 1)} °C` },
+        { label: t("Peak AC"), value: rows[i].peakKw == null ? "—" : `${fmt(rows[i].peakKw, 1)} kW` },
+        { label: t("Max temp"), value: rows[i].maxTempC == null ? "—" : `${fmt(rows[i].maxTempC, 1)} °C` },
       ],
       panels: [
         {
           key: "kwh",
-          title: "Day yield (kWh)",
+          title: t("Day yield (kWh)"),
           weight: 1.6,
           series: [
-            { key: "y", name: "Yield", type: "bar", color: SERIES.dc, y: rows.map((r) => r.value), unit: "kWh" },
-            { key: "avg", name: "Plant avg per inverter", type: "line", dash: "dash", color: C.ref, width: 1.5, y: rows.map((r) => r.average), unit: "kWh" },
+            { key: "y", name: t("Yield"), type: "bar", color: SERIES.dc, y: rows.map((r) => r.value), unit: "kWh" },
+            { key: "avg", name: t("Plant avg per inverter"), type: "line", dash: "dash", color: C.ref, width: 1.5, y: rows.map((r) => r.average), unit: "kWh" },
           ],
         },
         {
           key: "pct",
-          title: "% of plant average",
+          title: t("% of plant average"),
           zero: false,
           tickSuffix: "%",
-          refLines: [{ y: 100, label: "100 % = on par", color: SERIES.reference }],
-          series: [{ key: "pct", name: "% of plant avg", type: "line", color: SERIES.ac, y: rows.map((r) => r.pct), format: (v) => `${fmt(v, 1)}%` }],
+          refLines: [{ y: 100, label: t("100 % = on par"), color: SERIES.reference }],
+          series: [{ key: "pct", name: t("% of plant avg"), type: "line", color: SERIES.ac, y: rows.map((r) => r.pct), format: (v) => `${fmt(v, 1)}%` }],
         },
       ],
     }),
-    [rows],
+    [rows, t, locale],
   );
   return <PanelChart spec={spec} height={height} />;
 };

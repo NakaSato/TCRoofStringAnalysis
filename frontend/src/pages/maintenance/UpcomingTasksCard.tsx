@@ -9,6 +9,7 @@ import type { OmTask, OmTaskList } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
 import { isAdmin } from "../../auth/access";
 import { plantToday } from "../../context/alarmLogStore";
+import { useI18n } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -22,6 +23,7 @@ const AHEAD_DAYS = 60;
 
 export const UpcomingTasksCard: React.FC<{ plantId: number; onDone?: () => void }> = ({ plantId, onDone }) => {
   const { user, growattPlants } = useAppContext();
+  const { t } = useI18n();
   const [data, setData] = useState<OmTaskList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<TaskDialogTarget | null>(null);
@@ -45,7 +47,7 @@ export const UpcomingTasksCard: React.FC<{ plantId: number; onDone?: () => void 
   const tasks = useMemo(
     () =>
       (data?.tasks ?? [])
-        .filter((t) => t.status === "planned" || t.status === "in_progress")
+        .filter((x) => x.status === "planned" || x.status === "in_progress")
         .sort((a, b) => Number(b.overdue) - Number(a.overdue) || a.start_day.localeCompare(b.start_day)),
     [data]
   );
@@ -53,17 +55,19 @@ export const UpcomingTasksCard: React.FC<{ plantId: number; onDone?: () => void 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Upcoming work</CardTitle>
+        <CardTitle>{t("Upcoming work")}</CardTitle>
         <CardDescription>
-          Planned and started tasks on this plant{data?.summary.overdue ? ` · ${data.summary.overdue} overdue` : ""}. Marking one done records it in the Site log.
+          {data?.summary.overdue
+            ? t("Planned and started tasks on this plant · {n} overdue. Marking one done records it in the Site log.", { n: data.summary.overdue })
+            : t("Planned and started tasks on this plant. Marking one done records it in the Site log.")}
         </CardDescription>
         <CardAction className="flex items-center gap-2">
           <Button asChild variant="ghost" size="sm">
-            <Link to={`/calendar?view=list&plant=${plantId}&user=all`}>Calendar</Link>
+            <Link to={`/calendar?view=list&plant=${plantId}&user=all`}>{t("Calendar")}</Link>
           </Button>
           <Button size="sm" onClick={() => setDialog({ task: null, plantId, lockPlant: true })}>
             <Plus data-icon="inline-start" />
-            Plan task
+            {t("Plan task")}
           </Button>
         </CardAction>
       </CardHeader>
@@ -73,7 +77,7 @@ export const UpcomingTasksCard: React.FC<{ plantId: number; onDone?: () => void 
         ) : !data ? (
           <Spinner className="size-4" />
         ) : (
-          <TaskList tasks={tasks} onOpen={(t: OmTask) => setDialog({ task: t })} showPlant={false} />
+          <TaskList tasks={tasks} onOpen={(x: OmTask) => setDialog({ task: x })} showPlant={false} />
         )}
       </CardContent>
       <TaskDialog

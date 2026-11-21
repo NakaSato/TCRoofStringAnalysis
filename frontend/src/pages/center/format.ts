@@ -1,14 +1,15 @@
-/** O&M Dashboard: period presets, the views of the work lists, loss-family colours and the loss-by-cause chart spec. */
+/** Engineering O&M: period presets, the views of the work lists, loss-family colours and the loss-by-cause chart spec. */
 import type { LossFamily, OmCenter } from "../../api/client";
 import type { PanelChartSpec } from "../../components/PanelChart";
 import { CATEGORICAL } from "../../components/chartTheme";
 import { fmt } from "../../components/ui";
+import { dateLocale, translate } from "../../i18n";
 
 export const RANGES = ["mtd", "7d", "30d", "90d", "ytd"] as const;
 export type Range = (typeof RANGES)[number];
 export const RANGE_LABEL: Record<Range, string> = { mtd: "Month to date", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", ytd: "Year to date" };
 
-export const VIEWS = ["issues", "plants", "sites", "outages", "meter"] as const;
+export const VIEWS = ["issues", "plants", "recover", "billing", "sites", "outages", "meter"] as const;
 export type View = (typeof VIEWS)[number];
 
 export const EST = "Estimated: lost kWh from the decision rules, priced with the tariff. Each kWh is counted once across overlapping rules.";
@@ -30,9 +31,12 @@ export const rangeStart = (r: Range): string => {
 };
 
 export const fmtDay = (s: string | null | undefined): string =>
-  s ? parseDay(s).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "—";
+  s ? parseDay(s).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" }) : "—";
 
 export const thb = (v: number | null | undefined): string => (v == null ? "—" : `฿${fmt(v, 0)}`);
+
+/** baht for a tile: millions as "฿12.34 M" so a large figure fits; the exact value goes in the tooltip */
+export const thbShort = (v: number | null | undefined): string => (v == null ? "—" : Math.abs(v) >= 1e6 ? `฿${fmt(v / 1e6, 2)} M` : thb(v));
 
 /** one colour per family, the same in the chart and the totals */
 export const FAMILY_COLOR: Record<LossFamily, string> = {
@@ -77,10 +81,10 @@ export const lossSpec = (c: OmCenter): PanelChartSpec | null => {
     x: days,
     xTickLabel: (v) => String(v).slice(8),
     xTipLabel: (v) => fmtDay(String(v)),
-    panels: [{ key: "thb", title: "Estimated loss (THB per day)", stacked: true, yMin: 0, series }],
+    panels: [{ key: "thb", title: translate("Estimated loss (THB per day)"), stacked: true, yMin: 0, series }],
     tipExtra: (i) => [
       ...fams.filter((f) => val.get(f.key)![i] != null).map((f) => ({ label: f.label, value: thb(val.get(f.key)![i]) })),
-      ...(base[i] > 0 ? [{ label: "Total (est.)", value: `${thb(base[i])} · ${fmt(kwh[i], 0)} kWh` }] : []),
+      ...(base[i] > 0 ? [{ label: translate("Total (est.)"), value: `${thb(base[i])} · ${fmt(kwh[i], 0)} kWh` }] : []),
     ],
   };
 };

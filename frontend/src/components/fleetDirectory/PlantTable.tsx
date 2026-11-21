@@ -4,9 +4,11 @@ import { Building2, MapPin, ArrowUpRight, ArrowUpDown } from "lucide-react";
 import { StatusBadge, fmt, LOADING_STATUS } from "../ui";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { PlantThumbnail } from "./parts";
+import { useI18n } from "../../i18n";
 
 export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
   const { selectedGrowattPlantId, selectGrowattPlant, setSelectedUid, filteredPlants, handleSort, pagedPlants } = d;
+  const { t } = useI18n();
   return (
     <div className="scroll-x-hint overflow-x-auto">
       <table className="w-full border-collapse text-left text-[11px]">
@@ -15,19 +17,19 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             <th className="whitespace-nowrap px-2.5 py-2.5 font-semibold">
               <button
                 onClick={() => handleSort("statusRank")}
-                title="Sort by status (faulty first)"
+                title={t("Sort by status (faulty first)")}
                 className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Status <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Status")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
-            <th className="whitespace-nowrap px-2 py-2.5 font-semibold">Plant Image</th>
+            <th className="whitespace-nowrap px-2 py-2.5 font-semibold">{t("Plant Image")}</th>
             <th className="whitespace-nowrap px-2.5 py-2.5 font-semibold">
               <button
                 onClick={() => handleSort("name")}
                 className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Plant Name <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Plant Name")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 font-semibold">
@@ -35,7 +37,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 onClick={() => handleSort("location")}
                 className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Country/Region <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Country/Region")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 font-semibold">
@@ -43,16 +45,16 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 onClick={() => handleSort("createdDate")}
                 className="inline-flex items-center gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Grid Connecti... <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Grid Connecti...")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
               <button
                 onClick={() => handleSort("capacityKwp")}
-                title="Total String Capacity (kWp)"
+                title={t("Total String Capacity (kWp)")}
                 className="inline-flex items-center justify-end gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                String Cap (kWp) <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("String Cap (kWp)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
@@ -60,25 +62,25 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 onClick={() => handleSort("stringsCount")}
                 className="inline-flex items-center justify-end gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Inverters <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Inverters")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
-            <th className="whitespace-nowrap px-2 py-2.5 font-semibold">Battery</th>
+            <th className="whitespace-nowrap px-2 py-2.5 font-semibold">{t("Battery")}</th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
               <button
                 onClick={() => handleSort("currentPowerKw")}
                 className="inline-flex items-center justify-end gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Current Power (kW) <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Current Power (kW)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
               <button
                 onClick={() => handleSort("specificEnergyKwhPerKwp")}
-                title="Specific Energy (kWh/kWp)"
+                title={t("Specific Energy (kWh/kWp)")}
                 className="inline-flex items-center justify-end gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Specific Energy <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Specific Energy")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
@@ -86,7 +88,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 onClick={() => handleSort("yieldTodayKwh")}
                 className="inline-flex items-center justify-end gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Yield Today (kWh) <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Yield Today (kWh)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
             <th className="whitespace-nowrap px-2.5 py-2.5 text-right font-semibold">
@@ -94,7 +96,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 onClick={() => handleSort("totalEnergyKwh")}
                 className="inline-flex items-center justify-end gap-1 font-semibold uppercase tracking-wider text-slate-400 hover:text-white"
               >
-                Total Yield (kWh) <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
+                {t("Total Yield (kWh)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
               </button>
             </th>
           </tr>
@@ -105,9 +107,9 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
               <td colSpan={12} className="py-12 text-center">
                 <div className="mx-auto flex flex-col items-center justify-center gap-2 text-slate-500">
                   <Building2 className="h-8 w-8 stroke-1 text-slate-500" />
-                  <div className="text-xs font-medium text-slate-400">No data</div>
+                  <div className="text-xs font-medium text-slate-400">{t("No data")}</div>
                   <div className="text-[11px] text-slate-500">
-                    No solar plants match the current filter criteria.
+                    {t("No solar plants match the current filter criteria.")}
                   </div>
                 </div>
               </td>
@@ -145,7 +147,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <td className="max-w-[220px] px-2.5 py-2.5">
                     <div
                       className="flex items-center gap-1.5 truncate font-semibold text-white group-hover:text-sky-300"
-                      title={`Click to open ${p.name} Overview`}
+                      title={t("Click to open {name} Overview", { name: p.name })}
                     >
                       <span className="truncate">{p.name}</span>
                       <ArrowUpRight className="h-3 w-3 shrink-0 text-sky-400 opacity-0 transition group-hover:opacity-100" />
@@ -155,7 +157,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                       {p.phase != null && (
                         <>
                           <span>·</span>
-                          <span className="whitespace-nowrap">Phase {p.phase}</span>
+                          <span className="whitespace-nowrap">{t("Phase {n}", { n: p.phase })}</span>
                         </>
                       )}
                       <span>·</span>
@@ -193,7 +195,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <td className="num whitespace-nowrap px-2 py-2.5 text-right text-[11px] text-slate-300">
                     {p.invertersCount != null ? (
                       <div>
-                        <span className="font-semibold text-white">{p.invertersCount}</span> Inv
+                        <span className="font-semibold text-white">{p.invertersCount}</span> {t("Inv")}
                       </div>
                     ) : (
                       "—"
@@ -201,19 +203,29 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                     {p.invLive && (
                       <div
                         className="text-[10px]"
-                        title={`Live newest records (maxs_data, not stored): ${p.invLive.normal} normal, ${p.invLive.waiting} waiting, ${p.invLive.fault} fault, ${p.invLive.offline} offline (no record today)${p.invLive.other ? `, ${p.invLive.other} other` : ""}; ${p.invLive.answered}${p.invertersCount != null ? ` of ${p.invertersCount}` : ""} answered`}
+                        title={t(
+                          "Live newest records (maxs_data, not stored): {normal} normal, {waiting} waiting, {fault} fault, {offline} offline (no record today){other}; {answered} answered",
+                          {
+                            normal: p.invLive.normal,
+                            waiting: p.invLive.waiting,
+                            fault: p.invLive.fault,
+                            offline: p.invLive.offline,
+                            other: p.invLive.other ? t(", {n} other", { n: p.invLive.other }) : "",
+                            answered: p.invertersCount != null ? t("{n} of {total}", { n: p.invLive.answered, total: p.invertersCount }) : p.invLive.answered,
+                          }
+                        )}
                       >
-                        <span className="text-emerald-300">{p.invLive.normal} normal</span>
-                        {p.invLive.waiting > 0 && <span className="text-amber-300"> · {p.invLive.waiting} waiting</span>}
-                        {p.invLive.fault > 0 && <span className="text-red-300"> · {p.invLive.fault} fault</span>}
-                        {p.invLive.offline > 0 && <span className="text-slate-400"> · {p.invLive.offline} offline</span>}
+                        <span className="text-emerald-300">{t("{n} normal", { n: p.invLive.normal })}</span>
+                        {p.invLive.waiting > 0 && <span className="text-amber-300"> · {t("{n} waiting", { n: p.invLive.waiting })}</span>}
+                        {p.invLive.fault > 0 && <span className="text-red-300"> · {t("{n} fault", { n: p.invLive.fault })}</span>}
+                        {p.invLive.offline > 0 && <span className="text-slate-400"> · {t("{n} offline", { n: p.invLive.offline })}</span>}
                       </div>
                     )}
                   </td>
 
                   {/* 8. Battery */}
                   <td className="whitespace-nowrap px-2 py-2.5 text-[11px] text-slate-500">
-                    {p.source === "local" ? "Grid-Tied" : "--"}
+                    {p.source === "local" ? t("Grid-Tied") : "--"}
                   </td>
 
                   {/* 9. Current Power (kW) */}

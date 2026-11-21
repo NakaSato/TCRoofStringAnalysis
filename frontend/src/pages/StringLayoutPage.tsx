@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { pick, useUrlState } from "@/lib/useUrlState";
+import { useI18n } from "../i18n";
 
 /** `wp` blank = the fleet module's rating (global setting), so a fleet change applies everywhere. */
 type Draft = { modules: string; wp: string; azimuth: string; tilt: string };
@@ -49,6 +50,7 @@ const draftFrom = (l: GrowattStringLayout) => {
  */
 export const StringLayoutPage: React.FC = () => {
   const { selectedGrowattPlantId, user, refreshAll } = useAppContext();
+  const { t } = useI18n();
   // admins: any plant; engineers: the list only holds their assigned plants (the backend checks too)
   const canEdit = user?.role === "admin" || user?.role === "engineer";
 
@@ -83,7 +85,7 @@ export const StringLayoutPage: React.FC = () => {
         setBaseline(d);
         setDraft(d);
       })
-      .catch((e) => setMsg({ tone: "crit", text: `Failed to load string layout: ${e.message}` }))
+      .catch((e) => setMsg({ tone: "crit", text: t("Failed to load string layout: {error}", { error: e.message }) }))
       .finally(() => setLoading(false));
   }, [selectedGrowattPlantId]);
 
@@ -188,16 +190,16 @@ export const StringLayoutPage: React.FC = () => {
       setDraft(d);
       await refreshAll();
       const p = saved.published;
-      const where = p?.sink === "firestore" ? "Firestore" : p?.sink ?? "the summary sink";
+      const where = p?.sink === "firestore" ? "Firestore" : p?.sink ?? t("the summary sink");
       setMsg(
         p?.error
-          ? { tone: "crit", text: `Saved ${entries.length} string module counts. Publishing to ${where} failed (${p.error}); the next publish job retries.` }
+          ? { tone: "crit", text: t("Saved {n} string module counts. Publishing to {where} failed ({error}); the next publish job retries.", { n: entries.length, where, error: p.error }) }
           : p?.deferred
-          ? { tone: "ok", text: `Saved ${entries.length} string module counts. Today's write budget is used up; inverters publish on the next quota day.` }
-          : { tone: "ok", text: `Saved ${entries.length} string module counts and published ${p?.written ?? 0} inverter doc(s) to ${where}. Diagnostics recalculated.` }
+          ? { tone: "ok", text: t("Saved {n} string module counts. Today's write budget is used up; inverters publish on the next quota day.", { n: entries.length }) }
+          : { tone: "ok", text: t("Saved {n} string module counts and published {written} inverter doc(s) to {where}. Diagnostics recalculated.", { n: entries.length, written: p?.written ?? 0, where }) }
       );
     } catch (e: any) {
-      setMsg({ tone: "crit", text: `Save failed: ${e.message}` });
+      setMsg({ tone: "crit", text: t("Save failed: {error}", { error: e.message }) });
     } finally {
       setSaving(false);
     }
@@ -215,7 +217,7 @@ export const StringLayoutPage: React.FC = () => {
     return (
       <div className="space-y-6">
         <SelectedPlantBanner />
-        <EmptyState icon={Grid3x3} title="Select a Growatt plant" description="Pick a plant in the fleet view first." />
+        <EmptyState icon={Grid3x3} title={t("Select a Growatt plant")} description={t("Pick a plant in the fleet view first.")} />
       </div>
     );
   }
@@ -225,7 +227,7 @@ export const StringLayoutPage: React.FC = () => {
       <SelectedPlantBanner />
 
       {loading || (!layout && !msg) ? (
-        <LoadingState label="Loading string layout…" shape="chart" />
+        <LoadingState label={t("Loading string layout…")} shape="chart" />
       ) : !layout ? (
         msg && <div className="callout-crit">{msg.text}</div>
       ) : (
@@ -242,9 +244,9 @@ export const StringLayoutPage: React.FC = () => {
             <div className="flex rounded-lg border border-white/[0.08] p-0.5">
               {(
                 [
-                  ["all", `All (${invs.length})`],
-                  ["incomplete", `Incomplete (${invs.length - totals.complete})`],
-                  ["mismatch", `MPPT mismatch (${totals.mismatchInv})`],
+                  ["all", t("All ({n})", { n: invs.length })],
+                  ["incomplete", t("Incomplete ({n})", { n: invs.length - totals.complete })],
+                  ["mismatch", t("MPPT mismatch ({n})", { n: totals.mismatchInv })],
                 ] as [Filter, string][]
               ).map(([f, label]) => (
                 <button
@@ -262,14 +264,14 @@ export const StringLayoutPage: React.FC = () => {
 
             <div className="ml-auto flex items-center gap-2">
               {totals.invalid > 0 && (
-                <span className="text-red-300">{totals.invalid} invalid value{totals.invalid > 1 ? "s" : ""}</span>
+                <span className="text-red-300">{t(totals.invalid > 1 ? "{n} invalid values" : "{n} invalid value", { n: totals.invalid })}</span>
               )}
               {totals.dirty > 0 ? (
                 <span className="text-amber-300">
-                  {totals.dirty} unsaved change{totals.dirty > 1 ? "s" : ""}
+                  {t(totals.dirty > 1 ? "{n} unsaved changes" : "{n} unsaved change", { n: totals.dirty })}
                 </span>
               ) : (
-                <span className="text-slate-500">All changes saved</span>
+                <span className="text-slate-500">{t("All changes saved")}</span>
               )}
               {canEdit ? (
                 <>
@@ -280,7 +282,7 @@ export const StringLayoutPage: React.FC = () => {
                     onClick={() => setDraft(baseline)}
                     disabled={!totals.dirty || saving}
                   >
-                    <RotateCcw className="h-3.5 w-3.5" /> Discard
+                    <RotateCcw className="h-3.5 w-3.5" /> {t("Discard")}
                   </Button>
                   <Button
                     type="button"
@@ -290,18 +292,18 @@ export const StringLayoutPage: React.FC = () => {
                     disabled={!totals.dirty || saving || totals.invalid > 0}
                   >
                     <Save className="h-3.5 w-3.5" />
-                    {saving ? "Saving…" : "Save layout"}
+                    {saving ? t("Saving…") : t("Save layout")}
                   </Button>
                 </>
               ) : (
-                <span className="text-slate-500">Read only</span>
+                <span className="text-slate-500">{t("Read only")}</span>
               )}
             </div>
           </div>
 
-          {invs.length === 0 && <EmptyState icon={Cpu} title="This plant has no inverters in the registry" />}
+          {invs.length === 0 && <EmptyState icon={Cpu} title={t("This plant has no inverters in the registry")} />}
           {invs.length > 0 && shown.length === 0 && (
-            <EmptyState icon={CheckCircle2} title="Nothing to show" description="No inverter matches this filter." />
+            <EmptyState icon={CheckCircle2} title={t("Nothing to show")} description={t("No inverter matches this filter.")} />
           )}
 
           {/* Inverter cards, strings laid out by MPPT */}
@@ -322,17 +324,17 @@ export const StringLayoutPage: React.FC = () => {
                       <span className="num text-slate-500">{inv.model}</span>
                     </button>
                     <Badge variant={complete ? "ok" : "warn"}>
-                      {complete ? "Compared per module" : "Raw comparison"}
+                      {complete ? t("Compared per module") : t("Raw comparison")}
                     </Badge>
                     {mismatch.size > 0 && (
                       <Badge variant="warn">
-                        <AlertTriangle className="h-3 w-3" /> MPPT {[...mismatch].join(", ")} unequal
+                        <AlertTriangle className="h-3 w-3" /> {t("MPPT {list} unequal", { list: [...mismatch].join(", ") })}
                       </Badge>
                     )}
-                    {dirty > 0 && <span className="text-amber-300">{dirty} unsaved</span>}
+                    {dirty > 0 && <span className="text-amber-300">{t("{n} unsaved", { n: dirty })}</span>}
                     <div className="ml-auto flex items-center gap-4">
                       <span className="num text-slate-400">
-                        {filled}/{rows.length} set
+                        {t("{n}/{total} set", { n: filled, total: rows.length })}
                       </span>
                       <span className="num font-semibold text-solar-300">{kwp > 0 ? `${fmt(kwp, 2)} kWp` : "— kWp"}</span>
                     </div>
@@ -340,7 +342,7 @@ export const StringLayoutPage: React.FC = () => {
 
                   {open &&
                     (rows.length === 0 ? (
-                      <p className="px-4 py-4 text-xs text-slate-500">No string inputs seen in the last 7 days.</p>
+                      <p className="px-4 py-4 text-xs text-slate-500">{t("No string inputs seen in the last 7 days.")}</p>
                     ) : (
                       <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                         {mppts.map(([mppt, slots]) => (
@@ -355,9 +357,9 @@ export const StringLayoutPage: React.FC = () => {
                               {mismatch.has(mppt) && (
                                 <span
                                   className="flex items-center gap-1 normal-case text-amber-300"
-                                  title="Strings on one MPPT share its voltage, so the longer string runs off its maximum power point."
+                                  title={t("Strings on one MPPT share its voltage, so the longer string runs off its maximum power point.")}
                                 >
-                                  <AlertTriangle className="h-3 w-3" /> unequal
+                                  <AlertTriangle className="h-3 w-3" /> {t("unequal")}
                                 </span>
                               )}
                             </div>
@@ -378,7 +380,7 @@ export const StringLayoutPage: React.FC = () => {
                                     <div className="mb-1.5 flex items-center justify-between">
                                       <span className="num text-xs font-bold text-solar-300">{strLabel(s.string_no)}</span>
                                       <span className="num text-[11px] text-slate-500">
-                                        {s.active ? (skwp != null ? `${fmt(skwp, 2)} kWp` : "not set") : "no current (7 d)"}
+                                        {s.active ? (skwp != null ? `${fmt(skwp, 2)} kWp` : t("not set")) : t("no current (7 d)")}
                                       </span>
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -387,19 +389,19 @@ export const StringLayoutPage: React.FC = () => {
                                           className="num h-7 w-full min-w-0 px-2 text-[11px]"
                                           inputMode="numeric"
                                           placeholder="—"
-                                          aria-label={`${inv.device_sn} ${strLabel(s.string_no)} modules`}
+                                          aria-label={t("{sn} {str} modules", { sn: inv.device_sn, str: strLabel(s.string_no) })}
                                           value={d.modules}
                                           disabled={!canEdit}
                                           onChange={(e) => set(k, "modules", e.target.value)}
                                         />
-                                        <span className="text-[11px] text-slate-500">mod</span>
+                                        <span className="text-[11px] text-slate-500">{t("mod")}</span>
                                       </label>
                                       <span className="text-slate-500">×</span>
                                       <label className="flex flex-1 items-center gap-1.5">
                                         <Input
                                           className="num h-7 w-full min-w-0 px-2 text-[11px]"
                                           inputMode="decimal"
-                                          aria-label={`${inv.device_sn} ${strLabel(s.string_no)} module Wp`}
+                                          aria-label={t("{sn} {str} module Wp", { sn: inv.device_sn, str: strLabel(s.string_no) })}
                                           placeholder={fleetWp != null ? String(fleetWp) : "Wp"}
                                           value={d.wp}
                                           disabled={!canEdit}
@@ -409,29 +411,29 @@ export const StringLayoutPage: React.FC = () => {
                                       </label>
                                     </div>
                                     <div className="mt-1.5 flex items-center gap-2">
-                                      <label className="flex flex-1 items-center gap-1.5" title="Array azimuth in degrees (0–360°), used to group same-orientation peers">
+                                      <label className="flex flex-1 items-center gap-1.5" title={t("Array azimuth in degrees (0–360°), used to group same-orientation peers")}>
                                         <Input
                                           className="num h-6 w-full min-w-0 px-2 text-[11px]"
                                           inputMode="decimal"
-                                          placeholder="Az°"
-                                          aria-label={`${inv.device_sn} ${strLabel(s.string_no)} azimuth degrees`}
+                                          placeholder={t("Az°")}
+                                          aria-label={t("{sn} {str} azimuth degrees", { sn: inv.device_sn, str: strLabel(s.string_no) })}
                                           value={d.azimuth}
                                           disabled={!canEdit}
                                           onChange={(e) => set(k, "azimuth", e.target.value)}
                                         />
-                                        <span className="text-[10px] text-slate-500">az°</span>
+                                        <span className="text-[10px] text-slate-500">{t("az°")}</span>
                                       </label>
-                                      <label className="flex flex-1 items-center gap-1.5" title="Array tilt in degrees (0–90°), used to group same-tilt peers">
+                                      <label className="flex flex-1 items-center gap-1.5" title={t("Array tilt in degrees (0–90°), used to group same-tilt peers")}>
                                         <Input
                                           className="num h-6 w-full min-w-0 px-2 text-[11px]"
                                           inputMode="decimal"
-                                          placeholder="Tilt°"
-                                          aria-label={`${inv.device_sn} ${strLabel(s.string_no)} tilt degrees`}
+                                          placeholder={t("Tilt°")}
+                                          aria-label={t("{sn} {str} tilt degrees", { sn: inv.device_sn, str: strLabel(s.string_no) })}
                                           value={d.tilt}
                                           disabled={!canEdit}
                                           onChange={(e) => set(k, "tilt", e.target.value)}
                                         />
-                                        <span className="text-[10px] text-slate-500">tilt°</span>
+                                        <span className="text-[10px] text-slate-500">{t("tilt°")}</span>
                                       </label>
                                     </div>
                                   </div>

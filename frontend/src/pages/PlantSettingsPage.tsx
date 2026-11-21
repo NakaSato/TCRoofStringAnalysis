@@ -10,10 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useI18n } from "../i18n";
 
 export const PlantSettingsPage: React.FC = () => {
   const { activePlant, refreshAll, user } = useAppContext();
   const plantHref = usePlantHref();
+  const { t } = useI18n();
   const admin = isAdmin(user); // the legacy plant / string-spec form is admin only
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
@@ -66,34 +68,34 @@ export const PlantSettingsPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         icon={Globe2}
-        eyebrow="System · Settings"
-        title="Settings"
-        description="Fleet-wide settings that apply to every Growatt plant. Settings that belong to one plant live on that plant's tabs."
+        eyebrow={t("System · Settings")}
+        title={t("Settings")}
+        description={t("Fleet-wide settings that apply to every Growatt plant. Settings that belong to one plant live on that plant's tabs.")}
       />
 
       {savedMsg && (
         <div className="callout-ok flex items-center gap-2 font-medium">
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-          <span>{savedMsg}</span>
+          <span>{t(savedMsg)}</span>
         </div>
       )}
 
       <FleetModulePanel module={fleetModule} onSaved={setFleetModule} />
 
-      <Panel icon={Layers} title="Per-plant settings" subtitle="Not global: set these on the selected plant">
+      <Panel icon={Layers} title={t("Per-plant settings")} subtitle={t("Not global: set these on the selected plant")}>
         <ul className="space-y-2 text-xs text-slate-300">
           <li>
             <Link to={plantHref("string-layout")} className="font-semibold text-sky-300 underline">
-              String Layout
+              {t("String Layout")}
             </Link>{" "}
-            — modules per string and module Wp for one plant (blank Wp uses the fleet module above).
+            {t("— modules per string and module Wp for one plant (blank Wp uses the fleet module above).")}
           </li>
           {admin && (
             <li>
               <Link to="/users" className="font-semibold text-sky-300 underline">
-                Users &amp; Access
+                {t("Users & Access")}
               </Link>{" "}
-              — which plants each engineer can see.
+              {t("— which plants each engineer can see.")}
             </li>
           )}
         </ul>
@@ -102,21 +104,21 @@ export const PlantSettingsPage: React.FC = () => {
       {admin && (
       <details className="group">
         <summary className="cursor-pointer select-none text-xs font-semibold text-slate-400 hover:text-slate-200">
-          Legacy analysis plant (uploaded / simulated datasets, not Growatt plants)
+          {t("Legacy analysis plant (uploaded / simulated datasets, not Growatt plants)")}
         </summary>
       <form onSubmit={handleSavePlant} className="mt-4 space-y-6">
-        <Panel icon={Sliders} title="General Plant Metadata" subtitle="Geolocation and baseline system loss parameters">
+        <Panel icon={Sliders} title={t("General Plant Metadata")} subtitle={t("Geolocation and baseline system loss parameters")}>
           <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-5">
             <div className="md:col-span-2">
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Plant Name</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Plant Name")}</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Location</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Location")}</Label>
               <Input value={location} onChange={(e) => setLocation(e.target.value)} />
             </div>
             <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Latitude / Longitude</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Latitude / Longitude")}</Label>
               <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="number"
@@ -135,7 +137,7 @@ export const PlantSettingsPage: React.FC = () => {
               </div>
             </div>
             <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">System Loss Factor</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("System Loss Factor")}</Label>
               <Input
                 type="number"
                 step="0.005"
@@ -149,16 +151,16 @@ export const PlantSettingsPage: React.FC = () => {
 
         <Panel
           icon={Cpu}
-          title="Per-String Electrical Specifications"
-          subtitle="STC nameplate parameters for each PV string and MPPT channel"
+          title={t("Per-String Electrical Specifications")}
+          subtitle={t("STC nameplate parameters for each PV string and MPPT channel")}
         >
           <Table containerClassName="table-wrap">
               <TableHeader>
                 <TableRow>
-                  <TableHead>String ID</TableHead>
-                  <TableHead>Inverter</TableHead>
+                  <TableHead>{t("String ID")}</TableHead>
+                  <TableHead>{t("Inverter")}</TableHead>
                   <TableHead>MPPT</TableHead>
-                  <TableHead>Modules</TableHead>
+                  <TableHead>{t("Modules")}</TableHead>
                   <TableHead>Module Wp</TableHead>
                   <TableHead>Voc STC (V)</TableHead>
                   <TableHead>Vmp STC (V)</TableHead>
@@ -244,7 +246,7 @@ export const PlantSettingsPage: React.FC = () => {
 
         <Button type="submit" variant="default">
           <Save className="size-4" />
-          Save legacy plant & strings
+          {t("Save legacy plant & strings")}
         </Button>
       </form>
       </details>

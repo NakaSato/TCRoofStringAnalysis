@@ -72,62 +72,6 @@ export interface IssueActionBody {
   feedback?: IssueFeedback | null;
 }
 
-export interface RuleState {
-  enabled: boolean;
-  shadow: boolean;
-}
-
-/** Thresholds (numbers / keyword lists) plus `rules` = per-rule flags. */
-export type RuleSettings = Record<string, number | string[]> & { rules: Record<string, RuleState> };
-
-/** A change to the rule settings: any thresholds, and per-rule flags to change. */
-export interface RulesPatch {
-  [key: string]: number | string[] | Record<string, Partial<RuleState>> | undefined;
-  rules?: Record<string, Partial<RuleState>>;
-}
-
-export interface RuleReviewRow extends RuleState {
-  rule: string;
-  name: string;
-  issues: number;
-  active: number;
-  auto_closed: number;
-  resolved: number;
-  dismissed: number;
-  confirmed: number;
-  false_alarm: number;
-  plants: number;
-  thb_total_est: number;
-  precision_pct: number | null;
-}
-
-export interface RulesOut {
-  settings: RuleSettings;
-  defaults: RuleSettings;
-  names: Record<string, string>;
-  review: RuleReviewRow[];
-  since: string;
-}
-
-export interface Tariff {
-  on_peak_thb: number;
-  off_peak_thb: number;
-  ft_thb: number;
-  on_peak_days: number[];
-  on_peak_start: string;
-  on_peak_end: string;
-  holidays: string[];
-  valid_from: string | null;
-  plant_rates: Record<string, { thb_per_kwh: number; basis: string | null }>;
-}
-
-export interface TariffOut extends Tariff {
-  source: "default" | "saved";
-  updated_by: string | null;
-  updated_at: string | null;
-  published?: { sink: string | null; written: number; deferred?: boolean; error?: string };
-}
-
 /** Each visible plant's THB/kWh for a day (`/growatt/tariff/rates`): flat plant rate, else TOU
  * weighted by the on-peak share of its stored power; no power yet = off-peak. An estimate. */
 export interface TariffRates {

@@ -8,6 +8,7 @@ import { useLivePoll } from "../../context/useLivePoll";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { dateLocale, translate, useI18n } from "../../i18n";
 
 /** Newest snapshots kept on the map and played back. */
 const MAX_FRAMES = 12;
@@ -17,7 +18,7 @@ const OPACITY = 0.85;
 const PANE = "rain-radar";
 
 const hhmm = (unix: number): string =>
-  new Date(unix * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
+  new Date(unix * 1000).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
 
 type Legend = RainRadar["legend"];
 
@@ -68,7 +69,7 @@ export function useRainRadar(map: React.RefObject<L.Map | null>, on: boolean): R
     },
     (err) => {
       if (err instanceof ApiError && err.status === 404) setAvailable(false);
-      else setError(err instanceof Error ? err.message : "Rain radar unavailable");
+      else setError(err instanceof Error ? err.message : translate("Rain radar unavailable"));
     }
   );
 
@@ -173,7 +174,7 @@ export function useFleetRain(on: boolean): FleetRainState {
     },
     (err) => {
       if (err instanceof ApiError && err.status === 404) setAvailable(false); // no Longdo key
-      else setError(err instanceof Error ? err.message : "unavailable");
+      else setError(err instanceof Error ? err.message : translate("unavailable"));
     }
   );
   const data = on ? (env?.data ?? null) : null;
@@ -213,11 +214,16 @@ export const RainRadarBar: React.FC<{
 }> = ({ radar, fleet, rainOnly, onRainOnly, raining, rainingFrame, onPick }) => {
   const { frames, time, data } = radar;
   const index = time != null ? frames.indexOf(time) : -1;
+  const { t } = useI18n();
   return (
     <div className="absolute bottom-6 right-3 z-[400] flex w-[min(340px,calc(100%-1.5rem))] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-white/[0.08] bg-ink-950/90 px-3 py-2 text-[11px] text-slate-400 shadow-xl backdrop-blur">
       {frames.length === 0 || time == null ? (
         <span className={cn(radar.error && "text-amber-400")}>
-          {radar.error ? `Rain radar unavailable: ${radar.error}` : data ? "No radar snapshot available" : "Loading rain radar…"}
+          {radar.error
+            ? t("Rain radar unavailable: {error}", { error: radar.error })
+            : data
+              ? t("No radar snapshot available")
+              : t("Loading rain radar…")}
         </span>
       ) : (
         <>
@@ -230,13 +236,13 @@ export const RainRadarBar: React.FC<{
                 size="icon-sm"
                 disabled={frames.length < 2}
                 onClick={() => radar.setPlaying(!radar.playing)}
-                aria-label={radar.playing ? "Pause radar playback" : "Play radar snapshots"}
+                aria-label={radar.playing ? t("Pause radar playback") : t("Play radar snapshots")}
               >
                 {radar.playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top">
-              {radar.playing ? "Pause" : `Play the last ${frames.length} snapshots (from ${hhmm(frames[0])})`}
+              {radar.playing ? t("Pause") : t("Play the last {n} snapshots (from {time})", { n: frames.length, time: hhmm(frames[0]) })}
             </TooltipContent>
           </Tooltip>
           <input
@@ -250,30 +256,32 @@ export const RainRadarBar: React.FC<{
               radar.setTime(i === frames.length - 1 ? null : frames[i]);
             }}
             className="h-1 min-w-0 flex-1 cursor-pointer accent-sky-400"
-            aria-label="Radar snapshot"
+            aria-label={t("Radar snapshot")}
             aria-valuetext={hhmm(time)}
           />
           <span className="num shrink-0 font-semibold text-slate-200">
-            Radar {hhmm(time)}
-            {radar.isLatest && <span className="font-normal text-slate-500"> · latest</span>}
+            {t("Radar {time}", { time: hhmm(time) })}
+            {radar.isLatest && <span className="font-normal text-slate-500"> · {t("latest")}</span>}
           </span>
           </div>
           {(radar.stale || radar.error) && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="shrink-0 text-amber-400">List not updated</span>
+                <span className="shrink-0 text-amber-400">{t("List not updated")}</span>
               </TooltipTrigger>
-              <TooltipContent side="top">{radar.error ?? "The radar provider did not answer; showing the last list"}</TooltipContent>
+              <TooltipContent side="top">{radar.error ?? t("The radar provider did not answer; showing the last list")}</TooltipContent>
             </Tooltip>
           )}
           {data?.fallback_reason && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="shrink-0 text-amber-400">RainViewer (fallback)</span>
+                <span className="shrink-0 text-amber-400">{t("RainViewer (fallback)")}</span>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-72">
-                Showing RainViewer radar tiles because {data.fallback_reason}. RainViewer gives no rain value per plant, no
-                forecast and no detail past zoom {data.max_zoom}.
+                {t(
+                  "Showing RainViewer radar tiles because {reason}. RainViewer gives no rain value per plant, no forecast and no detail past zoom {zoom}.",
+                  { reason: data.fallback_reason, zoom: data.max_zoom }
+                )}
               </TooltipContent>
             </Tooltip>
           )}
@@ -288,46 +296,52 @@ export const RainRadarBar: React.FC<{
                   onClick={() => onRainOnly(!rainOnly)}
                   aria-pressed={rainOnly}
                 >
-                  Rain over <span className="num">{fmtInt(fleet.data.raining)}</span>
+                  {t("Rain over")} <span className="num">{fmtInt(fleet.data.raining)}</span>
                   <span className={cn("font-normal", fleet.held ? "text-amber-400" : "text-slate-500")}>
                     {fleet.data.checked < fleet.data.located
-                      ? `· checked ${fmtInt(fleet.data.checked)}/${fmtInt(fleet.data.located)}`
-                      : `of ${fmtInt(fleet.data.located)} plants`}
+                      ? `· ${t("checked {n}/{total}", { n: fmtInt(fleet.data.checked), total: fmtInt(fleet.data.located) })}`
+                      : t("of {n} plants", { n: fmtInt(fleet.data.located) })}
                   </span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-72">
-                Plants the newest radar snapshot shows rain over (not the snapshot being played). Click to{" "}
-                {rainOnly ? "show every plant" : "show only these"}.
-                {fleet.held ? ` ${fleet.held}.` : ""} Longdo calls today: {fmtInt(fleet.data.usage.used_today)} of{" "}
-                {fmtInt(fleet.data.usage.allowance_today)}; this month {fmtInt(fleet.data.usage.used_this_month)} of{" "}
-                {fmtInt(fleet.data.usage.monthly_budget)}.
+                {rainOnly
+                  ? t("Plants the newest radar snapshot shows rain over (not the snapshot being played). Click to show every plant.")
+                  : t("Plants the newest radar snapshot shows rain over (not the snapshot being played). Click to show only these.")}
+                {fleet.held ? ` ${fleet.held}.` : ""}{" "}
+                {t("Longdo calls today: {used} of {allowance}; this month {month} of {budget}.", {
+                  used: fmtInt(fleet.data.usage.used_today),
+                  allowance: fmtInt(fleet.data.usage.allowance_today),
+                  month: fmtInt(fleet.data.usage.used_this_month),
+                  budget: fmtInt(fleet.data.usage.monthly_budget),
+                })}
               </TooltipContent>
             </Tooltip>
           )}
-          {!fleet.data && fleet.error && <span className="shrink-0 text-amber-400">Plant rain unavailable</span>}
+          {!fleet.data && fleet.error && <span className="shrink-0 text-amber-400">{t("Plant rain unavailable")}</span>}
           {rainingFrame?.source === "image" && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="w-full text-slate-500">
                   {rainingFrame.loading
-                    ? `Reading the ${hhmm(rainingFrame.time)} radar image…`
+                    ? t("Reading the {time} radar image…", { time: hhmm(rainingFrame.time) })
                     : raining.length
-                      ? `Rain over ${fmtInt(raining.length)} plants at ${hhmm(rainingFrame.time)} · radar image`
-                      : `No rain over the plants at ${hhmm(rainingFrame.time)} · radar image`}
-                  {rainingFrame.unread > 0 && <span className="text-amber-400"> · {fmtInt(rainingFrame.unread)} not read</span>}
+                      ? t("Rain over {n} plants at {time} · radar image", { n: fmtInt(raining.length), time: hhmm(rainingFrame.time) })
+                      : t("No rain over the plants at {time} · radar image", { time: hhmm(rainingFrame.time) })}
+                  {rainingFrame.unread > 0 && <span className="text-amber-400"> · {t("{n} not read", { n: fmtInt(rainingFrame.unread) })}</span>}
                 </div>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-72">
-                Plants under rain in the snapshot on the map, read from its radar image at each plant (no Longdo call). The image
-                gives rain or no rain, not Longdo's class; the dot is the image's colour there. Pick the newest snapshot for
-                Longdo's class per plant.
-                {rainingFrame.unread > 0 && ` ${fmtInt(rainingFrame.unread)} of ${fmtInt(rainingFrame.located)} plants: the image could not be read (unknown, not dry).`}
+                {t(
+                  "Plants under rain in the snapshot on the map, read from its radar image at each plant (no Longdo call). The image gives rain or no rain, not Longdo's class; the dot is the image's colour there. Pick the newest snapshot for Longdo's class per plant."
+                )}
+                {rainingFrame.unread > 0 &&
+                  ` ${t("{n} of {total} plants: the image could not be read (unknown, not dry).", { n: fmtInt(rainingFrame.unread), total: fmtInt(rainingFrame.located) })}`}
               </TooltipContent>
             </Tooltip>
           )}
           {raining.length > 0 && (
-            <ul className="max-h-32 w-full overflow-y-auto border-y border-white/[0.06] py-1" aria-label="Plants with rain in the snapshot on the map (weather radar)">
+            <ul className="max-h-32 w-full overflow-y-auto border-y border-white/[0.06] py-1" aria-label={t("Plants with rain in the snapshot on the map (weather radar)")}>
               {raining.map((r) => (
                 <li key={r.plantId}>
                   <button
@@ -347,7 +361,7 @@ export const RainRadarBar: React.FC<{
             </ul>
           )}
           {data && data.legend.length > 0 && (
-            <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1" aria-label="Rain intensity legend">
+            <div className="flex w-full flex-wrap items-center gap-x-2 gap-y-1" aria-label={t("Rain intensity legend")}>
               {data.legend.map((l) => (
                 <span key={l.intensity} className="flex items-center gap-1">
                   <i className="h-2 w-3 rounded-sm" style={{ background: l.color }} />
@@ -374,34 +388,34 @@ export const PlantRainRow: React.FC<{ plantId: number; legend: Legend }> = ({ pl
     plantId,
     () => api.getLivePlantRain(plantId),
     (env) => setState({ id: plantId, env, error: null }),
-    (err) => setState((s) => ({ id: plantId, env: s.id === plantId ? s.env : null, error: err instanceof Error ? err.message : "unavailable" }))
+    (err) => setState((s) => ({ id: plantId, env: s.id === plantId ? s.env : null, error: err instanceof Error ? err.message : translate("unavailable") }))
   );
+  const { t } = useI18n();
   const cur = state.id === plantId ? state : { id: plantId, env: null, error: null };
   const d = cur.env?.data ?? null;
   const cells: { label: string; rain: RadarRain | null | undefined }[] = [
-    { label: "Now", rain: d?.now },
+    { label: t("Now"), rain: d?.now },
     ...(d?.forecast ?? [])
       .filter((f) => f.lead_min != null)
-      .map((f) => ({ label: `+${f.lead_min} min`, rain: f.rain })),
+      .map((f) => ({ label: t("+{n} min", { n: f.lead_min }), rain: f.rain })),
   ];
   return (
     <div className="mt-2.5 border-t border-white/[0.06] pt-2.5 text-[11px]">
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="text-slate-500">
-            Rain · weather radar{cells.length > 1 && ", forecast"}
-            {cur.env?.stale && <span className="text-amber-400"> · {d?.now ? "not updated" : "waiting for Longdo"}</span>}
+            {cells.length > 1 ? t("Rain · weather radar, forecast") : t("Rain · weather radar")}
+            {cur.env?.stale && <span className="text-amber-400"> · {d?.now ? t("not updated") : t("waiting for Longdo")}</span>}
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-64">
-          What the Longdo weather radar shows over the plant (~1 km), not a measurement at the site. +15 / +30 min is
-          Longdo's radar forecast.
+          {t("What the Longdo weather radar shows over the plant (~1 km), not a measurement at the site. +15 / +30 min is Longdo's radar forecast.")}
           {cur.env?.error ? ` ${cur.env.error}` : ""}
-          {d?.forecast_error ? ` Forecast: ${d.forecast_error}` : ""}
+          {d?.forecast_error ? ` ${t("Forecast: {error}", { error: d.forecast_error })}` : ""}
         </TooltipContent>
       </Tooltip>
       {!d ? (
-        <div className="mt-0.5 text-slate-400">{cur.error ? cur.error.replace(/^Longdo rain radar unavailable: /, "Not available yet: ") : "Loading…"}</div>
+        <div className="mt-0.5 text-slate-400">{cur.error ? cur.error.replace(/^Longdo rain radar unavailable: /, t("Not available yet: ")) : t("Loading…")}</div>
       ) : (
         <>
         <div className="mt-0.5 grid grid-cols-3 gap-2">
@@ -420,7 +434,7 @@ export const PlantRainRow: React.FC<{ plantId: number; legend: Legend }> = ({ pl
         </div>
         {d.area && (d.area.now || d.area.error) && (
           <div className="mt-1.5 text-slate-500" title={d.area.error ?? undefined}>
-            Within {fmt(d.area.radius_km, 0)} km:{" "}
+            {t("Within {n} km:", { n: fmt(d.area.radius_km, 0) })}{" "}
             {d.area.now ? (
               <>
                 <span className="text-slate-300">{areaText(d.area.now, legend)}</span>
@@ -429,7 +443,7 @@ export const PlantRainRow: React.FC<{ plantId: number; legend: Legend }> = ({ pl
                   .map((f) => (
                     <span key={f.lead_min}>
                       {" "}
-                      · +{f.lead_min} min <span className="text-slate-300">{areaText(f.stats, legend)}</span>
+                      · {t("+{n} min", { n: f.lead_min })} <span className="text-slate-300">{areaText(f.stats, legend)}</span>
                     </span>
                   ))}
               </>
@@ -447,7 +461,8 @@ export const PlantRainRow: React.FC<{ plantId: number; legend: Legend }> = ({ pl
 /** "rain over 20 % (max Heavy)"; "—" when Longdo gave no statistics. */
 const areaText = (s: RadarAreaStats | null, legend: Legend): string => {
   if (!s || s.coverage_pct == null) return "—";
-  if (s.coverage_pct === 0 && !s.max_intensity) return "no rain";
+  if (s.coverage_pct === 0 && !s.max_intensity) return translate("no rain");
   const top = s.max_intensity ? rainLook({ intensity: s.max_intensity, description: null }, legend).label : null;
-  return `rain over ${fmt(s.coverage_pct, s.coverage_pct < 10 ? 1 : 0)} %${top ? ` (max ${top})` : ""}`;
+  const pct = fmt(s.coverage_pct, s.coverage_pct < 10 ? 1 : 0);
+  return top ? translate("rain over {pct} % (max {top})", { pct, top }) : translate("rain over {pct} %", { pct });
 };

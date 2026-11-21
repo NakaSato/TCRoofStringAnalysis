@@ -22,7 +22,6 @@ import {
   Gauge,
   Map as MapIcon,
   Sparkles,
-  Scale,
   Banknote,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -39,6 +38,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
 import { Spinner } from "@/components/ui/spinner";
+import { LanguageToggle, useI18n } from "../i18n";
 
 interface NavItem {
   to: string;
@@ -59,7 +59,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Operations",
     items: [
-      { to: "/center", label: "O&M Dashboard", icon: Banknote },
+      { to: "/center", label: "Engineering O&M", icon: Banknote },
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
       { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },
@@ -73,7 +73,6 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { to: "/users", label: "Users & Access", icon: Users, description: "Accounts, roles & plant assignments" },
       { to: "/logs", label: "Logs", icon: ScrollText, description: "Backend and worker logs, errors & job runs" },
       { to: "/ai-usage", label: "AI Usage", icon: Sparkles, description: "AI Assistant spend against the monthly cap, per user" },
-      { to: "/rules", label: "Rule review", icon: Scale, description: "Calibrate the decision rules, thresholds & tariff" },
     ],
   },
 ];
@@ -129,6 +128,7 @@ export const Layout: React.FC = () => {
   } = useAppContext();
   const location = useLocation();
   const now = useClock();
+  const { t, locale, lang } = useI18n();
 
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
   // desktop sidebar full / collapsed to icons (top-bar button or Ctrl/⌘+B); remembered per browser
@@ -228,10 +228,10 @@ export const Layout: React.FC = () => {
     };
   }, [growattPlants, livePlant]);
   const fleetLiveLabel = growattLiveStatus.loading
-    ? "Loading…"
+    ? t("Loading…")
     : !growattLiveStatus.fetchedAt
-    ? "Live unavailable"
-    : `${growattLiveStatus.stale ? "Last sync" : "Live"} · ${new Date(growattLiveStatus.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    ? t("Live unavailable")
+    : `${growattLiveStatus.stale ? t("Last sync") : t("Live")} · ${new Date(growattLiveStatus.fetchedAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}`;
   const fleetLevel = !growattLiveStatus.fetchedAt || growattLiveStatus.stale ? "warn" : fleet.offline ? "crit" : "ok";
 
   const initials = (user?.full_name || "Guest")
@@ -254,7 +254,7 @@ export const Layout: React.FC = () => {
         {!compact && (
           <div className="min-w-0">
             <div className="text-sm font-extrabold tracking-tight text-white">GenZ Monitoring</div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-solar-400/80">{t("Control Center")}</div>
           </div>
         )}
       </div>
@@ -265,41 +265,41 @@ export const Layout: React.FC = () => {
           <TooltipTrigger asChild>
             <div
               className="mx-auto mb-3 flex h-8 w-10 items-center justify-center rounded-lg border border-white/[0.06] bg-ink-850/80"
-              aria-label={`Fleet: ${fleetLiveLabel}`}
+              aria-label={`${t("Fleet")}: ${fleetLiveLabel}`}
             >
               <Led level={fleetLevel} pulse={!growattLiveStatus.stale && growattLiveStatus.fetchedAt != null} />
             </div>
           </TooltipTrigger>
           <TooltipContent side="right">
-            <div className="font-semibold">Fleet · {fleetLiveLabel}</div>
-            <div>{plantListLoaded ? `${fmtInt(fleet.plants)} plants` : "—"} · Online {fmtInt(fleet.online)} · Offline {fmtInt(fleet.offline)}</div>
+            <div className="font-semibold">{t("Fleet")} · {fleetLiveLabel}</div>
+            <div>{plantListLoaded ? t("{n} plants", { n: fmtInt(fleet.plants) }) : "—"} · {t("Online")} {fmtInt(fleet.online)} · {t("Offline")} {fmtInt(fleet.offline)}</div>
             <div>AC {fmt(fleet.acKw, 1)} kW · DC {fmt(fleet.dcKwp, 1)} kWp</div>
           </TooltipContent>
         </Tooltip>
       ) : (
         <div className="mx-3 mb-3 rounded-xl border border-white/[0.06] bg-ink-850/80 p-3">
           <div className="flex items-center justify-between">
-            <span className="eyebrow">Fleet</span>
+            <span className="eyebrow">{t("Fleet")}</span>
             <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
               <Led level={fleetLevel} pulse={!growattLiveStatus.stale && growattLiveStatus.fetchedAt != null} />
               {fleetLiveLabel}
             </span>
           </div>
           <div className="mt-1.5 text-[13px] font-semibold text-slate-100">
-            {plantListLoaded ? `${fmtInt(fleet.plants)} plants` : "—"}
+            {plantListLoaded ? t("{n} plants", { n: fmtInt(fleet.plants) }) : "—"}
           </div>
           <div className="mt-0.5 text-[11px] text-slate-500">
-            Online <span className="num font-semibold text-emerald-300">{fmtInt(fleet.online)}</span>
+            {t("Online")} <span className="num font-semibold text-emerald-300">{fmtInt(fleet.online)}</span>
             {" · "}
-            Offline <span className="num font-semibold text-red-300">{fmtInt(fleet.offline)}</span>
+            {t("Offline")} <span className="num font-semibold text-red-300">{fmtInt(fleet.offline)}</span>
           </div>
           <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-2.5 text-[11px]">
             <div>
-              <div className="text-slate-500">AC Power</div>
+              <div className="text-slate-500">{t("AC Power")}</div>
               <div className="num font-semibold text-energy-300">{fmt(fleet.acKw, 1)} kW</div>
             </div>
             <div>
-              <div className="text-slate-500">DC Capacity</div>
+              <div className="text-slate-500">{t("DC Capacity")}</div>
               <div className="num font-semibold text-solar-400">{fmt(fleet.dcKwp, 1)} kWp</div>
             </div>
           </div>
@@ -320,7 +320,7 @@ export const Layout: React.FC = () => {
             {compact ? (
               <div className="mx-4 mb-2 border-t border-white/[0.06]" aria-hidden />
             ) : (
-              <div className="eyebrow px-3 pb-1.5">{group.title}</div>
+              <div className="eyebrow px-3 pb-1.5">{t(group.title)}</div>
             )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
@@ -330,7 +330,7 @@ export const Layout: React.FC = () => {
                     key={item.label}
                     to={item.to}
                     end={item.to === "/"}
-                    aria-label={compact ? item.label : undefined}
+                    aria-label={compact ? t(item.label) : undefined}
                     className={({ isActive }) =>
                       `group relative flex items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition ${
                         compact ? "mx-auto size-10 justify-center px-0 py-0" : "px-3"
@@ -345,7 +345,7 @@ export const Layout: React.FC = () => {
                       <>
                         {isActive && !compact && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r bg-solar-400" />}
                         <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-solar-400" : "text-slate-500 group-hover:text-slate-300"}`} />
-                        {!compact && <span className="flex-1 truncate">{item.label}</span>}
+                        {!compact && <span className="flex-1 truncate">{t(item.label)}</span>}
                       </>
                     )}
                   </NavLink>
@@ -356,7 +356,7 @@ export const Layout: React.FC = () => {
                     <TooltipTrigger asChild>
                       <div className="flex justify-center">{link}</div>
                     </TooltipTrigger>
-                    <TooltipContent side="right">{item.label}</TooltipContent>
+                    <TooltipContent side="right">{t(item.label)}</TooltipContent>
                   </Tooltip>
                 ) : (
                   link
@@ -385,7 +385,7 @@ export const Layout: React.FC = () => {
             </TooltipTrigger>
             <TooltipContent side="right">
               <div className="font-semibold">{user?.full_name}</div>
-              <div>{user ? `${user.username ?? user.email} · ${user.role}` : ""}</div>
+              <div>{user ? `${user.username ?? user.email} · ${t(user.role)}` : ""}</div>
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -396,18 +396,18 @@ export const Layout: React.FC = () => {
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs font-semibold text-slate-100">{user?.full_name}</div>
               <div className="truncate text-[11px] uppercase tracking-wider text-slate-500">
-                {user ? `${user.username ?? user.email} · ${user.role}` : ""}
+                {user ? `${user.username ?? user.email} · ${t(user.role)}` : ""}
               </div>
             </div>
           </>
         )}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out">
+            <Button variant="ghost" size="icon" onClick={logout} aria-label={t("Sign out")}>
               <LogOut className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side={compact ? "right" : undefined}>Sign out</TooltipContent>
+          <TooltipContent side={compact ? "right" : undefined}>{t("Sign out")}</TooltipContent>
         </Tooltip>
       </div>
     </aside>
@@ -431,7 +431,7 @@ export const Layout: React.FC = () => {
         {/* Top bar */}
         <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-ink-950/80 backdrop-blur-xl">
           <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
-            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label={t("Open navigation")}>
               <Menu className="size-5" />
             </Button>
             <Tooltip>
@@ -441,42 +441,42 @@ export const Layout: React.FC = () => {
                   size="icon"
                   className="hidden lg:inline-flex"
                   onClick={toggleNav}
-                  aria-label={navCollapsed ? "Expand left tab bar" : "Collapse left tab bar"}
+                  aria-label={navCollapsed ? t("Expand left tab bar") : t("Collapse left tab bar")}
                   aria-pressed={!navCollapsed}
                 >
                   {navCollapsed ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Resize left tab bar</TooltipContent>
+              <TooltipContent>{t("Resize left tab bar")}</TooltipContent>
             </Tooltip>
 
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] text-slate-500">
                 <span className="hidden min-w-0 truncate sm:inline">
-                  {shownPlantName ?? "Solar Fleet"}
+                  {shownPlantName ?? t("Solar Fleet")}
                 </span>
                 <span className="hidden sm:inline text-slate-700">/</span>
-                <span className="shrink-0 font-semibold text-slate-200">{current?.label || "Monitoring"}</span>
+                <span className="shrink-0 font-semibold text-slate-200">{t(current?.label || "Monitoring")}</span>
               </div>
               {current?.description && (
-                <div className="hidden truncate text-[11px] text-slate-500 md:block">{current.description}</div>
+                <div className="hidden truncate text-[11px] text-slate-500 md:block">{t(current.description)}</div>
               )}
             </div>
 
             {/* Link status */}
             <div className="hidden shrink-0 items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-1 text-[11px] font-semibold text-emerald-300 lg:flex">
               <Radio className="h-3.5 w-3.5" />
-              {loading ? "SYNCING" : error ? "LINK ERROR" : "DATA LINK ONLINE"}
+              {loading ? t("SYNCING") : error ? t("LINK ERROR") : t("DATA LINK ONLINE")}
             </div>
 
             {/* Clock */}
             <div className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-ink-900/80 px-3 py-1 text-[11px] text-slate-300 sm:flex">
               <Clock className="h-3.5 w-3.5 text-slate-500" />
               <span className="num text-slate-400">
-                {now.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Bangkok" })}
+                {now.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Bangkok" })}
               </span>
               <span className="num">
-                {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok" })}
+                {now.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Bangkok" })}
               </span>
               <span className="text-slate-500">ICT</span>
             </div>
@@ -485,11 +485,11 @@ export const Layout: React.FC = () => {
             <button
               onClick={() => setCmdOpen(true)}
               className="hidden shrink-0 cursor-pointer items-center gap-2 rounded-full border border-white/[0.08] bg-ink-900/90 px-2 py-1 text-[11px] text-slate-400 transition hover:border-solar-400/40 hover:text-slate-200 sm:flex lg:px-3"
-              title="Command Palette (⌘K)"
-              aria-label="Quick Jump"
+              title={t("Command Palette (⌘K)")}
+              aria-label={t("Quick Jump")}
             >
               <Search className="h-3.5 w-3.5 text-solar-400" />
-              <span className="hidden lg:inline">Quick Jump…</span>
+              <span className="hidden lg:inline">{t("Quick Jump…")}</span>
               <kbd className="num hidden rounded border border-white/10 bg-ink-850 px-1.5 py-px text-[11px] text-slate-400 lg:inline">
                 ⌘K
               </kbd>
@@ -502,26 +502,28 @@ export const Layout: React.FC = () => {
                     variant="ghost"
                     size="icon"
                     onClick={() => setAssistantOpen((o) => !o)}
-                    aria-label="AI Assistant"
+                    aria-label={t("AI Assistant")}
                     aria-pressed={assistantOpen}
                     className={assistantOpen ? "text-solar-300" : undefined}
                   >
                     <Sparkles className="size-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>AI Assistant (Ctrl/⌘ J)</TooltipContent>
+                <TooltipContent>{t("AI Assistant (Ctrl/⌘ J)")}</TooltipContent>
               </Tooltip>
             )}
+
+            <LanguageToggle />
 
             {user && <PushToggle user={user} />}
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={() => refreshAll()} aria-label="Refresh plant data">
+                <Button variant="ghost" size="icon" onClick={() => refreshAll()} aria-label={t("Refresh plant data")}>
                   {loading ? <Spinner /> : <RefreshCw className="size-4" />}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Refresh plant data</TooltipContent>
+              <TooltipContent>{t("Refresh plant data")}</TooltipContent>
             </Tooltip>
 
 
@@ -532,7 +534,7 @@ export const Layout: React.FC = () => {
                   size="icon"
                   onClick={() => setAlarmsOpen(true)}
                   className="relative"
-                  aria-label="Open SCADA Alarm Center"
+                  aria-label={t("Open SCADA Alarm Center")}
                 >
                   <Bell className="size-4" />
                   {alarmCount > 0 && (
@@ -542,7 +544,7 @@ export const Layout: React.FC = () => {
                   )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Open SCADA Alarm Center</TooltipContent>
+              <TooltipContent>{t("Open SCADA Alarm Center")}</TooltipContent>
             </Tooltip>
           </div>
           {loading && (
@@ -562,13 +564,15 @@ export const Layout: React.FC = () => {
         {user && !isAdmin(user) && user.plant_ids?.length === 0 && (
           <div className="mx-4 mt-4 flex items-center gap-2 sm:mx-6 callout-warn">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span>No plants are assigned to your account yet. Ask an admin to assign the plants you work on.</span>
+            <span>{t("No plants are assigned to your account yet. Ask an admin to assign the plants you work on.")}</span>
           </div>
         )}
 
         <main className="flex-1 px-4 py-6 sm:px-6">
           <div className="mx-auto max-w-[1600px]">
-            <Suspense fallback={<LoadingState label="Loading page…" shape="page" />}>
+            {/* key = language: a switch remounts the page, so text made outside React (helpers using
+                `translate`) follows it too; contexts above keep their data */}
+            <Suspense key={lang} fallback={<LoadingState label={t("Loading page…")} shape="page" />}>
               <Outlet />
             </Suspense>
           </div>

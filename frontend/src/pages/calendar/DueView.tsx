@@ -9,6 +9,7 @@ import type { OmDue, OmDueRow } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { fmtInt } from "../../components/ui";
 import { pick, useUrlState } from "@/lib/useUrlState";
+import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,6 +37,7 @@ const OTHER: Array<{ key: "pm_inspection" | "inverter_service" | "ir_flight"; la
 ];
 
 const SettingsDialog: React.FC<{ row: OmDueRow | null; onClose: () => void; onSaved: () => void }> = ({ row, onClose, onSaved }) => {
+  const { t } = useI18n();
   const [days, setDays] = useState("");
   const [cost, setCost] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,24 +66,24 @@ const SettingsDialog: React.FC<{ row: OmDueRow | null; onClose: () => void; onSa
     <Dialog open={row != null} onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Cleaning figures</DialogTitle>
-          <DialogDescription>{row?.name}: as your crews or contractor quote them. Leave empty when not known.</DialogDescription>
+          <DialogTitle>{t("Cleaning figures")}</DialogTitle>
+          <DialogDescription>{t("{name}: as your crews or contractor quote them. Leave empty when not known.", { name: row?.name })}</DialogDescription>
         </DialogHeader>
         {error && <p className="text-xs text-red-300">{error}</p>}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label htmlFor="om-crew-days">Crew-days per cleaning</Label>
-            <Input id="om-crew-days" type="number" min={0.25} step={0.25} value={days} onChange={(e) => setDays(e.target.value)} className="num" placeholder="Not entered" />
+            <Label htmlFor="om-crew-days">{t("Crew-days per cleaning")}</Label>
+            <Input id="om-crew-days" type="number" min={0.25} step={0.25} value={days} onChange={(e) => setDays(e.target.value)} className="num" placeholder={t("Not entered")} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="om-cost">Cost per cleaning (฿)</Label>
-            <Input id="om-cost" type="number" min={0} step={100} value={cost} onChange={(e) => setCost(e.target.value)} className="num" placeholder="Not entered" />
+            <Label htmlFor="om-cost">{t("Cost per cleaning (฿)")}</Label>
+            <Input id="om-cost" type="number" min={0} step={100} value={cost} onChange={(e) => setCost(e.target.value)} className="num" placeholder={t("Not entered")} />
           </div>
         </div>
         <DialogFooter>
           <Button size="sm" disabled={busy || bad} onClick={() => void save()}>
             {busy && <Spinner data-icon="inline-start" className="size-3" />}
-            Save
+            {t("Save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -90,6 +92,7 @@ const SettingsDialog: React.FC<{ row: OmDueRow | null; onClose: () => void; onSa
 };
 
 export const DueView: React.FC<{ month: string; admin: boolean; version: number; onPlanRound: (ids: number[]) => void }> = ({ month, admin, version, onPlanRound }) => {
+  const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   const show = pick(url.get("show"), SHOWS, "all") as Show;
   const minDays = Math.max(1, Number(url.get("days")) || 60);
@@ -142,38 +145,38 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Input value={q} onChange={(e) => setUrl({ q: e.target.value })} placeholder="Search plant, province, id…" className="h-8 w-56" aria-label="Search plants" />
+        <Input value={q} onChange={(e) => setUrl({ q: e.target.value })} placeholder={t("Search plant, province, id…")} className="h-8 w-56" aria-label={t("Search plants")} />
         <Select value={show} onValueChange={(v) => setUrl({ show: v === "all" ? null : v })}>
-          <SelectTrigger size="sm" className="w-48" aria-label="Show">
+          <SelectTrigger size="sm" className="w-48" aria-label={t("Show")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {SHOWS.map((x) => (
               <SelectItem key={x} value={x}>
-                {SHOW_LABEL[x]}
+                {t(SHOW_LABEL[x])}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         {show === "due" && (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            not cleaned for
-            <Input type="number" min={1} value={minDays} onChange={(e) => setUrl({ days: Number(e.target.value) === 60 ? null : e.target.value })} className="num h-8 w-20" aria-label="Days" />
-            days or more, none planned
+            {t("not cleaned for")}
+            <Input type="number" min={1} value={minDays} onChange={(e) => setUrl({ days: Number(e.target.value) === 60 ? null : e.target.value })} className="num h-8 w-20" aria-label={t("Days")} />
+            {t("days or more, none planned")}
           </label>
         )}
         {admin && (
           <Button size="sm" className="ml-auto" disabled={selected.size === 0} onClick={() => onPlanRound([...selected])}>
-            Plan cleaning round{selected.size ? ` (${selected.size})` : ""}…
+            {selected.size ? t("Plan cleaning round ({n})…", { n: selected.size }) : t("Plan cleaning round…")}
           </Button>
         )}
       </div>
 
       {s && (
         <p className="text-xs text-muted-foreground">
-          <span className="num">{fmtInt(s.plants)}</span> plants · <span className="num">{fmtInt(s.never_cleaned)}</span> with no cleaning recorded ·{" "}
-          <span className="num">{fmtInt(s.cleaning_planned)}</span> with a cleaning planned · <span className="num">{fmtInt(s.with_overdue)}</span> with overdue work ·{" "}
-          <span className="num">{fmtInt(s.month_tasks)}</span> tasks this month. Last work comes from the Site log.
+          <span className="num">{fmtInt(s.plants)}</span> {t("plants")} · <span className="num">{fmtInt(s.never_cleaned)}</span> {t("with no cleaning recorded")} ·{" "}
+          <span className="num">{fmtInt(s.cleaning_planned)}</span> {t("with a cleaning planned")} · <span className="num">{fmtInt(s.with_overdue)}</span> {t("with overdue work")} ·{" "}
+          <span className="num">{fmtInt(s.month_tasks)}</span> {t("tasks this month. Last work comes from the Site log.")}
         </p>
       )}
       {error && <p className="text-xs text-red-300">{error}</p>}
@@ -188,22 +191,22 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
             <TableRow>
               {admin && (
                 <TableHead className="w-8">
-                  <Checkbox checked={allOn} onCheckedChange={toggleAll} aria-label="Select all shown" />
+                  <Checkbox checked={allOn} onCheckedChange={toggleAll} aria-label={t("Select all shown")} />
                 </TableHead>
               )}
-              <TableHead>Plant</TableHead>
-              <TableHead>Last cleaning</TableHead>
-              <TableHead>Next cleaning</TableHead>
-              <TableHead>Other work (last)</TableHead>
-              <TableHead>This month</TableHead>
-              <TableHead>Crew-days · cost</TableHead>
+              <TableHead>{t("Plant")}</TableHead>
+              <TableHead>{t("Last cleaning")}</TableHead>
+              <TableHead>{t("Next cleaning")}</TableHead>
+              <TableHead>{t("Other work (last)")}</TableHead>
+              <TableHead>{t("This month")}</TableHead>
+              <TableHead>{t("Crew-days · cost")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={admin ? 7 : 6} className="py-6 text-center text-muted-foreground">
-                  No plants match.
+                  {t("No plants match.")}
                 </TableCell>
               </TableRow>
             )}
@@ -214,7 +217,7 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
                 <TableRow key={r.plant_id} data-state={selected.has(r.plant_id) ? "selected" : undefined}>
                   {admin && (
                     <TableCell>
-                      <Checkbox checked={selected.has(r.plant_id)} onCheckedChange={() => toggle(r.plant_id)} aria-label={`Select ${r.name}`} />
+                      <Checkbox checked={selected.has(r.plant_id)} onCheckedChange={() => toggle(r.plant_id)} aria-label={t("Select {name}", { name: r.name })} />
                     </TableCell>
                   )}
                   <TableCell className="max-w-56">
@@ -222,48 +225,48 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
                       {r.name}
                     </Link>
                     <div className="text-[11px] text-muted-foreground">
-                      {[r.city, r.phase != null ? `Phase ${r.phase}` : null].filter(Boolean).join(" · ") || `#${r.plant_id}`}
+                      {[r.city, r.phase != null ? t("Phase {n}", { n: r.phase }) : null].filter(Boolean).join(" · ") || `#${r.plant_id}`}
                       {r.plans.length > 0 && ` · ${r.plans.join(", ")}`}
                     </div>
                   </TableCell>
                   <TableCell className="num whitespace-nowrap">
                     {r.last.cleaning ? (
                       <>
-                        {shortDay(r.last.cleaning)} <span className="text-muted-foreground">({fmtInt(r.days_since_cleaning)} d)</span>
+                        {shortDay(r.last.cleaning)} <span className="text-muted-foreground">({t("{n} d", { n: fmtInt(r.days_since_cleaning) })})</span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground">None recorded</span>
+                      <span className="text-muted-foreground">{t("None recorded")}</span>
                     )}
                   </TableCell>
                   <TableCell className="num whitespace-nowrap">{r.next_cleaning ? shortDay(r.next_cleaning) : <span className="text-muted-foreground">—</span>}</TableCell>
                   <TableCell className="text-[11px]">
-                    {other.length ? other.map((o) => <div key={o.key} className="num whitespace-nowrap">{o.label} {shortDay(r.last[o.key]!)}</div>) : <span className="text-muted-foreground">—</span>}
+                    {other.length ? other.map((o) => <div key={o.key} className="num whitespace-nowrap">{t(o.label)} {shortDay(r.last[o.key]!)}</div>) : <span className="text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1">
                       {r.month.total ? (
                         <span className="num text-xs">
-                          {r.month.open} open · {r.month.done} done
+                          {t("{open} open · {done} done", { open: r.month.open, done: r.month.done })}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
-                      {r.overdue > 0 && <Badge variant="crit">{r.overdue} overdue</Badge>}
+                      {r.overdue > 0 && <Badge variant="crit">{t("{n} overdue", { n: r.overdue })}</Badge>}
                     </div>
                   </TableCell>
                   <TableCell className="num whitespace-nowrap text-xs">
                     {admin ? (
                       <button type="button" className="hover:underline" onClick={() => setEditing(r)}>
                         {st.cleaning_crew_days == null && st.cleaning_cost_thb == null ? (
-                          <span className="text-muted-foreground">Not entered</span>
+                          <span className="text-muted-foreground">{t("Not entered")}</span>
                         ) : (
-                          `${st.cleaning_crew_days ?? "—"} d · ${st.cleaning_cost_thb == null ? "—" : `฿${fmtInt(st.cleaning_cost_thb)}`}`
+                          `${t("{n} d", { n: st.cleaning_crew_days ?? "—" })} · ${st.cleaning_cost_thb == null ? "—" : `฿${fmtInt(st.cleaning_cost_thb)}`}`
                         )}
                       </button>
                     ) : st.cleaning_crew_days == null && st.cleaning_cost_thb == null ? (
-                      <span className="text-muted-foreground">Not entered</span>
+                      <span className="text-muted-foreground">{t("Not entered")}</span>
                     ) : (
-                      `${st.cleaning_crew_days ?? "—"} d · ${st.cleaning_cost_thb == null ? "—" : `฿${fmtInt(st.cleaning_cost_thb)}`}`
+                      `${t("{n} d", { n: st.cleaning_crew_days ?? "—" })} · ${st.cleaning_cost_thb == null ? "—" : `฿${fmtInt(st.cleaning_cost_thb)}`}`
                     )}
                   </TableCell>
                 </TableRow>

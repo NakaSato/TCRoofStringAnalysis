@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { StatusLevel } from "./ui";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useI18n } from "../i18n";
 
 export const SelectedPlantBanner: React.FC = () => {
   const {
@@ -35,13 +36,14 @@ export const SelectedPlantBanner: React.FC = () => {
     user,
   } = useAppContext();
   const location = useLocation();
+  const { t } = useI18n();
 
   const plant = selectedPlantOverview?.plant;
   const capacityKwp = selectedPlantOverview?.kpis.capacity_kwp ?? null;
   const lifetimeKwh = selectedPlantOverview?.kpis.total_yield_kwh ?? null;
   const capacityHint =
     plant?.reported_peak_power_kwp != null && capacityKwp == null
-      ? `Growatt lists ${fmt(plant.reported_peak_power_kwp, 0)} kWp, impossible for its inverters`
+      ? t("Growatt lists {kwp} kWp, impossible for its inverters", { kwp: fmt(plant.reported_peak_power_kwp, 0) })
       : undefined;
 
   const [plantSearch, setPlantSearch] = useState("");
@@ -80,18 +82,18 @@ export const SelectedPlantBanner: React.FC = () => {
   const statusTitle = !online
     ? undefined
     : liveStrings
-      ? `Live string check${liveStrings.at ? ` at ${liveStrings.at.slice(11, 16)}` : ""}: ${liveStrings.critical} critical · ${liveStrings.warning} warning · ${liveStrings.healthy} healthy${liveStrings.unknown ? ` · ${liveStrings.unknown} not judged (low light / wiring unknown)` : ""}`
-      : "Inverter status only: no live string data yet";
+      ? `${liveStrings.at ? t("Live string check at {time}", { time: liveStrings.at.slice(11, 16) }) : t("Live string check")}: ${t("{critical} critical · {warning} warning · {healthy} healthy", { critical: liveStrings.critical, warning: liveStrings.warning, healthy: liveStrings.healthy })}${liveStrings.unknown ? ` · ${t("{n} not judged (low light / wiring unknown)", { n: liveStrings.unknown })}` : ""}`
+      : t("Inverter status only: no live string data yet");
 
   const currentPage = parsePlantPath(location.pathname)?.page ?? "";
   const tabs: Array<{ page: PlantPage; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { page: "", label: "Plant Overview", icon: LayoutDashboard },
-    { page: "generation", label: "Performance Ratio", icon: TrendingUp },
-    { page: "inverters", label: "Inverters", icon: Cpu },
-    { page: "sensors", label: "Sensors", icon: Gauge },
-    { page: "strings", label: "String Diagnostics & I-V / P-V Curves", icon: Activity },
-    { page: "string-layout", label: "String Layout", icon: Rows3 },
-    { page: "maintenance", label: "Alarms & Maintenance", icon: Wrench },
+    { page: "", label: t("Plant Overview"), icon: LayoutDashboard },
+    { page: "generation", label: t("Performance Ratio"), icon: TrendingUp },
+    { page: "inverters", label: t("Inverters"), icon: Cpu },
+    { page: "sensors", label: t("Sensors"), icon: Gauge },
+    { page: "strings", label: t("String Diagnostics & I-V / P-V Curves"), icon: Activity },
+    { page: "string-layout", label: t("String Layout"), icon: Rows3 },
+    { page: "maintenance", label: t("Alarms & Maintenance"), icon: Wrench },
   ];
   const navItems =
     selectedGrowattPlantId == null
@@ -117,27 +119,27 @@ export const SelectedPlantBanner: React.FC = () => {
                 {plant?.name ? (
                   <h2 className="text-sm font-bold text-white sm:text-base">{plant.name}</h2>
                 ) : (
-                  <Skeleton className="h-5 w-48" aria-label="Loading plant…" />
+                  <Skeleton className="h-5 w-48" aria-label={t("Loading plant…")} />
                 )}
                 <span title={statusTitle}>
                   <StatusBadge status={statusLabel} level={statusLevel} loading={statusLoading} dot />
                 </span>
                 {plantOverviewLoading && (
-                  <Spinner className="size-3.5" aria-label="Refreshing plant data…" />
+                  <Spinner className="size-3.5" aria-label={t("Refreshing plant data…")} />
                 )}
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                <span className="num text-slate-300">ID #{plant?.plant_id ?? selectedGrowattPlantId}</span>
+                <span className="num text-slate-300">{t("ID")} #{plant?.plant_id ?? selectedGrowattPlantId}</span>
                 <span>·</span>
                 <span className="inline-flex items-center gap-1">
-                  {[plant?.city, plant?.country].filter(Boolean).join(", ") || "Thailand"}
+                  {[plant?.city, plant?.country].filter(Boolean).join(", ") || t("Thailand")}
                 </span>
                 <span>·</span>
                 <span
                   className="inline-flex items-center gap-1"
-                  title={capacityHint ?? "DC capacity: PV modules connected to the inverters"}
+                  title={capacityHint ?? t("DC capacity: PV modules connected to the inverters")}
                 >
-                  DC capacity
+                  {t("DC capacity")}
                   <span className="num font-semibold text-slate-200">
                     {fmt(capacityKwp, 1)}
                     {capacityKwp != null && " kWp"}
@@ -145,8 +147,8 @@ export const SelectedPlantBanner: React.FC = () => {
                   {capacityHint && <span className="text-amber-400" aria-label={capacityHint}>!</span>}
                 </span>
                 <span>·</span>
-                <span className="inline-flex items-center gap-1" title="Lifetime yield reported by the inverters">
-                  Lifetime yield
+                <span className="inline-flex items-center gap-1" title={t("Lifetime yield reported by the inverters")}>
+                  {t("Lifetime yield")}
                   <span className="num font-semibold text-slate-200">
                     {fmt(lifetimeKwh == null ? null : lifetimeKwh / 1000, 1)}
                     {lifetimeKwh != null && " MWh"}
@@ -155,7 +157,7 @@ export const SelectedPlantBanner: React.FC = () => {
                 {plant?.create_date && (
                   <>
                     <span>·</span>
-                    <span>Grid Connected: {plant.create_date}</span>
+                    <span>{t("Grid Connected: {date}", { date: plant.create_date })}</span>
                   </>
                 )}
               </div>
@@ -165,7 +167,7 @@ export const SelectedPlantBanner: React.FC = () => {
 
         {/* Right Side (ชิดขวา): Quick Plant Switcher */}
         <div className="ml-auto flex items-center gap-2">
-          <label className="whitespace-nowrap text-[11px] font-medium text-slate-400">Switch Plant:</label>
+          <label className="whitespace-nowrap text-[11px] font-medium text-slate-400">{t("Switch Plant:")}</label>
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
             <Input
@@ -178,7 +180,7 @@ export const SelectedPlantBanner: React.FC = () => {
                   selectGrowattPlant(filteredPlants[0].plant_id);
                 }
               }}
-              placeholder="Search plant…"
+              placeholder={t("Search plant…")}
               className="h-7 w-36 pl-8 pr-7 text-xs border-white/10 bg-ink-950/90 placeholder:text-slate-500 focus:border-sky-400/40 focus:ring-1 focus:ring-sky-400/20 sm:w-44"
             />
             {plantSearch && (
@@ -186,7 +188,7 @@ export const SelectedPlantBanner: React.FC = () => {
                 type="button"
                 onClick={() => setPlantSearch("")}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                title="Clear search"
+                title={t("Clear search")}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -207,16 +209,16 @@ export const SelectedPlantBanner: React.FC = () => {
             <SelectTrigger
               size="sm"
               className="w-56 border-sky-400/30 bg-ink-950/90 text-xs font-medium text-white"
-              title="Select plant"
+              title={t("Select plant")}
             >
               <SelectValue
                 placeholder={
                   !plantListLoaded
-                    ? plant?.name ?? "Select plant"
+                    ? plant?.name ?? t("Select plant")
                     : plantSearch
                     ? filteredPlants.length > 0
-                      ? `Select from ${filteredPlants.length} matching…`
-                      : `No plants match "${plantSearch}"`
+                      ? t("Select from {n} matching…", { n: filteredPlants.length })
+                      : t('No plants match "{q}"', { q: plantSearch })
                     : undefined
                 }
               />
@@ -224,7 +226,7 @@ export const SelectedPlantBanner: React.FC = () => {
             <SelectContent>
               {!plantListLoaded && (
                 <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-500">
-                  <Spinner className="size-3" /> Loading plants…
+                  <Spinner className="size-3" /> {t("Loading plants…")}
                 </div>
               )}
               {filteredPlants.map((gp) => (

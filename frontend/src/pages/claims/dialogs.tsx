@@ -19,6 +19,7 @@ import { claimsApi } from "./useClaims";
 import { CAUSE, CAUSE_KEYS, LINK_KIND, STATUS, TRANSITIONS, TRANSITION_LABEL, TYPE, TYPE_KEYS, isOpen } from "./format";
 import type { Prefill } from "./format";
 import { Spinner } from "@/components/ui/spinner";
+import { translate, useI18n } from "../../i18n";
 
 const str = (s: string) => (s.trim() ? s.trim() : null);
 const issueLabel = (i: Issue) => `#${i.id} ${i.rule} ${i.name}${i.string_no != null ? ` · PV${i.string_no}` : ""} (${i.status})`;
@@ -87,6 +88,7 @@ export const ClaimDialog: React.FC<{
   onOpenExisting: (id: number) => void;
 }> = ({ open, editing, prefill, existing, counterparties, onClose, onSaved, onOpenExisting }) => {
   const { growattPlants } = useAppContext();
+  const { t } = useI18n();
   const [d, setD] = useState<Draft>(blank);
   const [links, setLinks] = useState<ClaimLinkBody[]>([]);
   const [linkNote, setLinkNote] = useState<string | null>(null);
@@ -121,7 +123,7 @@ export const ClaimDialog: React.FC<{
       strings: p.string_no != null ? String(p.string_no) : "",
     });
     setLinks(p.ref != null && (p.from === "issue" || p.from === "sweep") ? [{ kind: p.from === "issue" ? "issue" : "iv_sweep", ref_id: p.ref }] : []);
-    if (p.from === "sweep" && p.ref != null) setLinkNote(`I-V sweep #${p.ref} is linked.`);
+    if (p.from === "sweep" && p.ref != null) setLinkNote(translate("I-V sweep #{id} is linked.", { id: p.ref }));
     // an issue: read it for the description, first day and its estimate (the backend links it)
     if (p.from === "issue" && p.ref != null && p.plant_id != null) {
       let live = true;
@@ -136,9 +138,9 @@ export const ClaimDialog: React.FC<{
             incident_day: x.incident_day ?? i.opened_day,
             device_sn: x.device_sn || i.device_sn || "",
           }));
-          setLinkNote(`Issue #${i.id} (${i.rule} ${i.name}) is linked.`);
+          setLinkNote(translate("Issue #{id} ({name}) is linked.", { id: i.id, name: `${i.rule} ${i.name}` }));
         })
-        .catch(() => live && setLinkNote(`Issue #${p.ref} is linked.`));
+        .catch(() => live && setLinkNote(translate("Issue #{id} is linked.", { id: p.ref })));
       return () => {
         live = false;
       };
@@ -178,12 +180,12 @@ export const ClaimDialog: React.FC<{
   }, [editing, existing, plantId, d.device_sn, d.type, stringNos]);
 
   const problems: string[] = [];
-  if (!plantId) problems.push("Pick the plant");
-  if (!d.counterparty.trim()) problems.push("Who is the claim with?");
-  if (needsInverter(d.type) && !d.device_sn.trim()) problems.push("Enter the inverter SN");
-  if (d.type === "module_warranty" && !stringNos.length) problems.push("Enter the string number(s)");
-  if (stringNos.some((n) => !Number.isInteger(n) || n < 1)) problems.push("String numbers are whole numbers, e.g. 3, 4");
-  if (!needsInverter(d.type) && !d.device_label.trim() && !d.description.trim()) problems.push("Say what was damaged");
+  if (!plantId) problems.push(t("Pick the plant"));
+  if (!d.counterparty.trim()) problems.push(t("Who is the claim with?"));
+  if (needsInverter(d.type) && !d.device_sn.trim()) problems.push(t("Enter the inverter SN"));
+  if (d.type === "module_warranty" && !stringNos.length) problems.push(t("Enter the string number(s)"));
+  if (stringNos.some((n) => !Number.isInteger(n) || n < 1)) problems.push(t("String numbers are whole numbers, e.g. 3, 4"));
+  if (!needsInverter(d.type) && !d.device_label.trim() && !d.description.trim()) problems.push(t("Say what was damaged"));
 
   const submit = () =>
     run(async () => {
@@ -212,19 +214,19 @@ export const ClaimDialog: React.FC<{
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{editing ? `Edit ${editing.number}` : "New claim"}</DialogTitle>
+          <DialogTitle>{editing ? t("Edit {name}", { name: editing.number }) : t("New claim")}</DialogTitle>
           <DialogDescription>
-            {editing ? "Changes are added to the claim's timeline." : "Starts as a draft. Add the evidence, then an admin submits it."}
+            {editing ? t("Changes are added to the claim's timeline.") : t("Starts as a draft. Add the evidence, then an admin submits it.")}
           </DialogDescription>
         </DialogHeader>
 
         {already.length > 0 && (
           <Alert variant="warn">
-            <AlertTitle>Already open for this {d.type === "module_warranty" ? "string" : "inverter"}</AlertTitle>
+            <AlertTitle>{d.type === "module_warranty" ? t("Already open for this string") : t("Already open for this inverter")}</AlertTitle>
             <AlertDescription className="flex flex-wrap items-center gap-2">
               {already.map((c) => (
                 <Button key={c.id} size="xs" variant="outline" onClick={() => onOpenExisting(c.id)}>
-                  Open {c.number} ({STATUS[c.status].label})
+                  {t("Open {name} ({status})", { name: c.number, status: t(STATUS[c.status].label) })}
                 </Button>
               ))}
             </AlertDescription>
@@ -233,21 +235,21 @@ export const ClaimDialog: React.FC<{
         {linkNote && <p className="text-xs text-muted-foreground">{linkNote}</p>}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field id="c-type" label="Type" hint={TYPE[d.type].hint}>
+          <Field id="c-type" label={t("Type")} hint={t(TYPE[d.type].hint)}>
             <Select value={d.type} onValueChange={(v) => setType(v as ClaimType)}>
               <SelectTrigger id="c-type" size="sm" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {TYPE_KEYS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {TYPE[t].label}
+                {TYPE_KEYS.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {t(TYPE[k].label)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field id="c-cause" label="Cause">
+          <Field id="c-cause" label={t("Cause")}>
             <Select value={d.cause} onValueChange={(v) => set("cause", v as ClaimCause)}>
               <SelectTrigger id="c-cause" size="sm" className="w-full">
                 <SelectValue />
@@ -255,16 +257,16 @@ export const ClaimDialog: React.FC<{
               <SelectContent>
                 {CAUSE_KEYS.map((k) => (
                   <SelectItem key={k} value={k}>
-                    {CAUSE[k]}
+                    {t(CAUSE[k])}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field id="c-plant" label="Plant" wide>
+          <Field id="c-plant" label={t("Plant")} wide>
             <Select value={d.plant_id} onValueChange={(v) => set("plant_id", v)} disabled={editing != null}>
               <SelectTrigger id="c-plant" size="sm" className="w-full">
-                <SelectValue placeholder="Pick a plant" />
+                <SelectValue placeholder={t("Pick a plant")} />
               </SelectTrigger>
               <SelectContent>
                 {growattPlants.map((p) => (
@@ -277,27 +279,27 @@ export const ClaimDialog: React.FC<{
           </Field>
 
           {needsInverter(d.type) && (
-            <Field id="c-sn" label="Inverter SN">
+            <Field id="c-sn" label={t("Inverter SN")}>
               <Input id="c-sn" className="num h-8" value={d.device_sn} onChange={(e) => set("device_sn", e.target.value)} />
             </Field>
           )}
           {d.type === "module_warranty" && (
-            <Field id="c-strings" label="String(s)" hint="e.g. 3, 4">
+            <Field id="c-strings" label={t("String(s)")} hint={t("e.g. 3, 4")}>
               <Input id="c-strings" className="num h-8" value={d.strings} onChange={(e) => set("strings", e.target.value)} />
             </Field>
           )}
           {d.type === "module_warranty" && (
-            <Field id="c-serials" label="Module serial numbers" hint="One per line" wide>
+            <Field id="c-serials" label={t("Module serial numbers")} hint={t("One per line")} wide>
               <Textarea id="c-serials" className="num min-h-16" value={d.serials} onChange={(e) => set("serials", e.target.value)} />
             </Field>
           )}
           {!needsInverter(d.type) && (
-            <Field id="c-device" label="What was damaged" hint="Device and its SN, or the part of the array" wide>
+            <Field id="c-device" label={t("What was damaged")} hint={t("Device and its SN, or the part of the array")} wide>
               <Input id="c-device" className="h-8" value={d.device_label} onChange={(e) => set("device_label", e.target.value)} />
             </Field>
           )}
 
-          <Field id="c-with" label="Claim with">
+          <Field id="c-with" label={t("Claim with")}>
             <Input id="c-with" className="h-8" list="claim-counterparties" value={d.counterparty} onChange={(e) => set("counterparty", e.target.value)} />
             <datalist id="claim-counterparties">
               {counterparties.map((x) => (
@@ -305,30 +307,30 @@ export const ClaimDialog: React.FC<{
               ))}
             </datalist>
           </Field>
-          <Field id="c-ref" label="Their reference" hint="Case / RMA / claim number, when you have it">
+          <Field id="c-ref" label={t("Their reference")} hint={t("Case / RMA / claim number, when you have it")}>
             <Input id="c-ref" className="num h-8" value={d.counterparty_ref} onChange={(e) => set("counterparty_ref", e.target.value)} />
           </Field>
 
-          <Field id="c-incident" label="Incident day" hint="When it failed or happened, if known">
-            <DayInput id="c-incident" value={d.incident_day} onChange={(v) => set("incident_day", v)} max={today} clearable placeholder="Not known" />
+          <Field id="c-incident" label={t("Incident day")} hint={t("When it failed or happened, if known")}>
+            <DayInput id="c-incident" value={d.incident_day} onChange={(v) => set("incident_day", v)} max={today} clearable placeholder={t("Not known")} />
           </Field>
-          <Field id="c-found" label="Found on">
+          <Field id="c-found" label={t("Found on")}>
             <DayInput id="c-found" value={d.discovered_day} onChange={(v) => set("discovered_day", v)} min={d.incident_day ?? undefined} max={today} clearable />
           </Field>
           {d.type !== "insurance" && (
-            <Field id="c-warranty" label="Warranty ends" hint="Only from the warranty card or contract">
-              <DayInput id="c-warranty" value={d.warranty_end_day} onChange={(v) => set("warranty_end_day", v)} clearable placeholder="Not entered" />
+            <Field id="c-warranty" label={t("Warranty ends")} hint={t("Only from the warranty card or contract")}>
+              <DayInput id="c-warranty" value={d.warranty_end_day} onChange={(v) => set("warranty_end_day", v)} clearable placeholder={t("Not entered")} />
             </Field>
           )}
 
-          <Field id="c-desc" label="Description" wide>
+          <Field id="c-desc" label={t("Description")} wide>
             <Textarea id="c-desc" className="min-h-20" value={d.description} onChange={(e) => set("description", e.target.value)} />
           </Field>
 
         </div>
 
         {problems.length > 0 && <p className="text-[11px] text-muted-foreground">{problems.join(" · ")}</p>}
-        <Footer busy={busy} error={error} onClose={onClose} onSubmit={() => void submit()} label={editing ? "Save" : "Create draft"} disabled={problems.length > 0} />
+        <Footer busy={busy} error={error} onClose={onClose} onSubmit={() => void submit()} label={editing ? t("Save") : t("Create draft")} disabled={problems.length > 0} />
       </DialogContent>
     </Dialog>
   );
@@ -337,6 +339,7 @@ export const ClaimDialog: React.FC<{
 /* ------------------------------------------------------------------ status (admin) */
 
 export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; onDone: () => void }> = ({ claim, onClose, onDone }) => {
+  const { t } = useI18n();
   const [to, setTo] = useState<ClaimStatus | "">("");
   const [note, setNote] = useState("");
   const [next, setNext] = useState<string | null>(null);
@@ -363,30 +366,30 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
   const askEvidence = to === "submitted" && missing > 0;
   const askNewSn = to === "fulfilled" && claim.type === "inverter_warranty";
   const problems = [
-    !to && "Pick the new status",
-    !note.trim() && "Add a note",
-    askEvidence && !ack && "Confirm submitting with evidence missing",
+    !to && t("Pick the new status"),
+    !note.trim() && t("Add a note"),
+    askEvidence && !ack && t("Confirm submitting with evidence missing"),
   ].filter(Boolean) as string[];
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Change status · {claim.number}</DialogTitle>
+          <DialogTitle>{t("Change status · {name}", { name: claim.number })}</DialogTitle>
           <DialogDescription>
-            Now {STATUS[claim.status].label}. The note goes on the timeline.
+            {t("Now {status}. The note goes on the timeline.", { status: t(STATUS[claim.status].label) })}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <Field id="s-to" label="New status">
+          <Field id="s-to" label={t("New status")}>
             <Select value={to} onValueChange={(v) => setTo(v as ClaimStatus)}>
               <SelectTrigger id="s-to" size="sm" className="w-full">
-                <SelectValue placeholder="Pick" />
+                <SelectValue placeholder={t("Pick")} />
               </SelectTrigger>
               <SelectContent>
                 {TRANSITIONS[claim.status].map((s) => (
                   <SelectItem key={s} value={s}>
-                    {TRANSITION_LABEL[s]}
+                    {t(TRANSITION_LABEL[s])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -395,26 +398,26 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
           {askEvidence && (
             <Alert variant="warn">
               <AlertTitle>
-                {missing} required evidence item{missing === 1 ? "" : "s"} not ticked
+                {t(missing === 1 ? "{n} required evidence item not ticked" : "{n} required evidence items not ticked", { n: missing })}
               </AlertTitle>
               <AlertDescription>
                 <label className="mt-1 flex items-center gap-2">
                   <Checkbox checked={ack} onCheckedChange={(v) => setAck(v === true)} />
-                  Submit anyway
+                  {t("Submit anyway")}
                 </label>
               </AlertDescription>
             </Alert>
           )}
-          <Field id="s-note" label="Note" hint={to === "submitted" ? "e.g. how it was sent and what they said about response time" : undefined}>
+          <Field id="s-note" label={t("Note")} hint={to === "submitted" ? t("e.g. how it was sent and what they said about response time") : undefined}>
             <Textarea id="s-note" className="min-h-16" value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
           {!closing && (
-            <Field id="s-next" label="Next action by" hint="Past this day the claim shows Follow up. Leave empty if nobody gave a date.">
-              <DayInput id="s-next" value={next} onChange={setNext} clearable placeholder="No date" />
+            <Field id="s-next" label={t("Next action by")} hint={t("Past this day the claim shows Follow up. Leave empty if nobody gave a date.")}>
+              <DayInput id="s-next" value={next} onChange={setNext} clearable placeholder={t("No date")} />
             </Field>
           )}
           {askNewSn && (
-            <Field id="s-sn" label="New inverter SN" hint={`Replaces ${claim.old_sn ?? claim.device_sn ?? "—"}. The registry picks it up from Growatt on the next fleet sync.`}>
+            <Field id="s-sn" label={t("New inverter SN")} hint={t("Replaces {sn}. The registry picks it up from Growatt on the next fleet sync.", { sn: claim.old_sn ?? claim.device_sn ?? "—" })}>
               <Input id="s-sn" className="num h-8" value={newSn} onChange={(e) => setNewSn(e.target.value)} />
             </Field>
           )}
@@ -424,7 +427,7 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
           busy={busy}
           error={error}
           onClose={onClose}
-          label={to ? TRANSITION_LABEL[to].split(" (")[0] : "Save"}
+          label={to ? t(TRANSITION_LABEL[to].split(" (")[0]) : t("Save")}
           destructive={to === "withdrawn" || to === "rejected"}
           disabled={problems.length > 0}
           onSubmit={() =>
@@ -448,6 +451,7 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
 export type EventKind = "note" | "message" | "shipment";
 
 export const EventDialog: React.FC<{ target: { claim: Claim; kind: EventKind } | null; onClose: () => void; onDone: () => void }> = ({ target, onClose, onDone }) => {
+  const { t } = useI18n();
   const [kind, setKind] = useState<EventKind>("note");
   const [day, setDay] = useState<string | null>(plantToday());
   const [dir, setDir] = useState<"out" | "in">("out");
@@ -478,47 +482,47 @@ export const EventDialog: React.FC<{ target: { claim: Claim; kind: EventKind } |
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add to timeline · {c.number}</DialogTitle>
-          <DialogDescription>A note, a message sent or received, or a parcel.</DialogDescription>
+          <DialogTitle>{t("Add to timeline · {name}", { name: c.number })}</DialogTitle>
+          <DialogDescription>{t("A note, a message sent or received, or a parcel.")}</DialogDescription>
         </DialogHeader>
         <Tabs value={kind} onValueChange={(v) => setKind(v as EventKind)}>
           <TabsList variant="line" className="border-0 p-0">
-            <TabsTrigger value="note">Note</TabsTrigger>
-            <TabsTrigger value="message">Message</TabsTrigger>
-            <TabsTrigger value="shipment">Shipment</TabsTrigger>
+            <TabsTrigger value="note">{t("Note")}</TabsTrigger>
+            <TabsTrigger value="message">{t("Message")}</TabsTrigger>
+            <TabsTrigger value="shipment">{t("Shipment")}</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="grid gap-3 sm:grid-cols-2">
           {kind !== "note" && (
             <>
-              <Field id="e-dir" label={kind === "message" ? "Direction" : "Going"}>
+              <Field id="e-dir" label={kind === "message" ? t("Direction") : t("Going")}>
                 <Select value={dir} onValueChange={(v) => setDir(v as "out" | "in")}>
                   <SelectTrigger id="e-dir" size="sm" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="out">{kind === "message" ? `Sent to ${c.counterparty}` : `To ${c.counterparty}`}</SelectItem>
-                    <SelectItem value="in">{kind === "message" ? `Received from ${c.counterparty}` : "To us"}</SelectItem>
+                    <SelectItem value="out">{t(kind === "message" ? "Sent to {name}" : "To {name}", { name: c.counterparty })}</SelectItem>
+                    <SelectItem value="in">{kind === "message" ? t("Received from {name}", { name: c.counterparty }) : t("To us")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
-              <Field id="e-day" label="Day">
+              <Field id="e-day" label={t("Day")}>
                 <DayInput id="e-day" value={day} onChange={setDay} max={plantToday()} />
               </Field>
             </>
           )}
-          <Field id="e-sum" label={kind === "note" ? "Note" : kind === "message" ? "What was said" : "What is in it"} wide>
+          <Field id="e-sum" label={kind === "note" ? t("Note") : kind === "message" ? t("What was said") : t("What is in it")} wide>
             <Textarea id="e-sum" className="min-h-16" value={summary} onChange={(e) => setSummary(e.target.value)} />
           </Field>
           {kind === "shipment" && (
             <>
-              <Field id="e-carrier" label="Carrier">
+              <Field id="e-carrier" label={t("Carrier")}>
                 <Input id="e-carrier" className="h-8" value={carrier} onChange={(e) => setCarrier(e.target.value)} />
               </Field>
-              <Field id="e-track" label="Tracking number">
+              <Field id="e-track" label={t("Tracking number")}>
                 <Input id="e-track" className="num h-8" value={tracking} onChange={(e) => setTracking(e.target.value)} />
               </Field>
-              <Field id="e-sn" label="Unit SN" hint="The serial of the unit in the parcel">
+              <Field id="e-sn" label={t("Unit SN")} hint={t("The serial of the unit in the parcel")}>
                 <Input id="e-sn" className="num h-8" value={sn} onChange={(e) => setSn(e.target.value)} />
               </Field>
             </>
@@ -528,7 +532,7 @@ export const EventDialog: React.FC<{ target: { claim: Claim; kind: EventKind } |
           busy={busy}
           error={error}
           onClose={onClose}
-          label="Add"
+          label={t("Add")}
           disabled={!summary.trim()}
           onSubmit={() =>
             void run(() =>
@@ -554,6 +558,7 @@ export const EvidenceDialog: React.FC<{ target: { claim: Claim; item: ClaimEvide
   onClose,
   onDone,
 }) => {
+  const { t } = useI18n();
   const [done, setDone] = useState(false);
   const [url, setUrl] = useState("");
   const [note, setNote] = useState("");
@@ -575,17 +580,17 @@ export const EvidenceDialog: React.FC<{ target: { claim: Claim; item: ClaimEvide
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{target.item.label}</DialogTitle>
-          <DialogDescription>{target.claim.number} · a link to where the file is (e.g. the claim's Drive folder), and a note.</DialogDescription>
+          <DialogDescription>{t("{name} · a link to where the file is (e.g. the claim's Drive folder), and a note.", { name: target.claim.number })}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <label className="flex items-center gap-2 text-xs">
             <Checkbox checked={done} onCheckedChange={(v) => setDone(v === true)} />
-            Done: we have it
+            {t("Done: we have it")}
           </label>
-          <Field id="ev-url" label="Link" hint={badUrl ? "Starts with https://" : undefined}>
+          <Field id="ev-url" label={t("Link")} hint={badUrl ? t("Starts with https://") : undefined}>
             <Input id="ev-url" className="h-8" placeholder="https://" value={url} onChange={(e) => setUrl(e.target.value)} />
           </Field>
-          <Field id="ev-note" label="Note">
+          <Field id="ev-note" label={t("Note")}>
             <Textarea id="ev-note" className="min-h-14" value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
         </div>
@@ -593,7 +598,7 @@ export const EvidenceDialog: React.FC<{ target: { claim: Claim; item: ClaimEvide
           busy={busy}
           error={error}
           onClose={onClose}
-          label="Save"
+          label={t("Save")}
           disabled={badUrl}
           onSubmit={() => void run(() => claimsApi.setClaimEvidence(target.claim.id, target.item.key, { done, url: str(url), note: str(note) }))}
         />
@@ -605,6 +610,7 @@ export const EvidenceDialog: React.FC<{ target: { claim: Claim; item: ClaimEvide
 /* ------------------------------------------------------------------ link a record */
 
 export const LinkDialog: React.FC<{ claim: Claim | null; onClose: () => void; onDone: () => void }> = ({ claim, onClose, onDone }) => {
+  const { t } = useI18n();
   const [kind, setKind] = useState<ClaimLinkKind>("issue");
   const [ref, setRef] = useState("");
   const [issues, setIssues] = useState<Issue[] | null>(null);
@@ -633,11 +639,11 @@ export const LinkDialog: React.FC<{ claim: Claim | null; onClose: () => void; on
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Link a record · {claim.number}</DialogTitle>
-          <DialogDescription>An issue, I-V sweep or site log entry of {claim.plant_name ?? `plant ${claim.plant_id}`}.</DialogDescription>
+          <DialogTitle>{t("Link a record · {name}", { name: claim.number })}</DialogTitle>
+          <DialogDescription>{t("An issue, I-V sweep or site log entry of {plant}.", { plant: claim.plant_name ?? t("plant {id}", { id: claim.plant_id }) })}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <Field id="l-kind" label="Kind">
+          <Field id="l-kind" label={t("Kind")}>
             <Select
               value={kind}
               onValueChange={(v) => {
@@ -651,24 +657,28 @@ export const LinkDialog: React.FC<{ claim: Claim | null; onClose: () => void; on
               <SelectContent>
                 {(Object.keys(LINK_KIND) as ClaimLinkKind[]).map((k) => (
                   <SelectItem key={k} value={k}>
-                    {LINK_KIND[k]}
+                    {t(LINK_KIND[k])}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
           {kind === "issue" ? (
-            <Field id="l-issue" label="Issue" hint={issues && !issues.length ? "No issues for this plant / inverter" : claim.device_sn ? `Issues of ${claim.device_sn} and plant-wide ones` : undefined}>
+            <Field
+              id="l-issue"
+              label={t("Issue")}
+              hint={issues && !issues.length ? t("No issues for this plant / inverter") : claim.device_sn ? t("Issues of {sn} and plant-wide ones", { sn: claim.device_sn }) : undefined}
+            >
               <Select value={ref} onValueChange={setRef} disabled={!issues?.length}>
                 <SelectTrigger id="l-issue" size="sm" className="w-full">
                   <SelectValue
                     placeholder={
                       issues == null ? (
                         <span className="flex items-center gap-1.5">
-                          <Spinner className="size-3" /> Reading issues
+                          <Spinner className="size-3" /> {t("Reading issues")}
                         </span>
                       ) : (
-                        "Pick an issue"
+                        t("Pick an issue")
                       )
                     }
                   />
@@ -684,12 +694,12 @@ export const LinkDialog: React.FC<{ claim: Claim | null; onClose: () => void; on
             </Field>
           ) : (
             <div className="space-y-1.5">
-              <Label htmlFor="l-id">{LINK_KIND[kind]} id</Label>
+              <Label htmlFor="l-id">{t("{kind} id", { kind: t(LINK_KIND[kind]) })}</Label>
               <Input id="l-id" className="num h-8" inputMode="numeric" value={ref} onChange={(e) => setRef(e.target.value.trim())} />
             </div>
           )}
         </div>
-        <Footer busy={busy} error={error} onClose={onClose} label="Link" disabled={id == null} onSubmit={() => void run(() => claimsApi.addClaimLink(claim.id, { kind, ref_id: id! }))} />
+        <Footer busy={busy} error={error} onClose={onClose} label={t("Link")} disabled={id == null} onSubmit={() => void run(() => claimsApi.addClaimLink(claim.id, { kind, ref_id: id! }))} />
       </DialogContent>
     </Dialog>
   );

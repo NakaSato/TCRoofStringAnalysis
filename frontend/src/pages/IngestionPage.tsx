@@ -23,12 +23,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useI18n } from "../i18n";
 
 type IngestMode = "api" | "upload" | "simulate";
 
 export const IngestionPage: React.FC = () => {
   const { activePlant, activeDataset, datasets, selectDataset, refreshAll } = useAppContext();
   const [mode, setMode] = useState<IngestMode>("api");
+  const { t } = useI18n();
   const [busy, setBusy] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -75,10 +77,10 @@ export const IngestionPage: React.FC = () => {
       await refreshAll();
       setStatusMsg({
         type: "success",
-        text: `Loaded ${ds.row_count.toLocaleString()} records across ${ds.string_count} strings from ${ds.source_label}`,
+        text: t("Loaded {n} records across {strings} strings from {source}", { n: ds.row_count.toLocaleString(), strings: ds.string_count, source: ds.source_label }),
       });
     } catch (err: any) {
-      setStatusMsg({ type: "error", text: err.message || "API ingestion failed" });
+      setStatusMsg({ type: "error", text: err.message || t("API ingestion failed") });
     } finally {
       setBusy(false);
     }
@@ -94,10 +96,10 @@ export const IngestionPage: React.FC = () => {
       await refreshAll();
       setStatusMsg({
         type: "success",
-        text: `Parsed '${file.name}' — ${ds.row_count.toLocaleString()} records across ${ds.string_count} strings!`,
+        text: t("Parsed '{file}' — {n} records across {strings} strings!", { file: file.name, n: ds.row_count.toLocaleString(), strings: ds.string_count }),
       });
     } catch (err: any) {
-      setStatusMsg({ type: "error", text: err.message || "File upload failed" });
+      setStatusMsg({ type: "error", text: err.message || t("File upload failed") });
     } finally {
       setBusy(false);
     }
@@ -116,10 +118,10 @@ export const IngestionPage: React.FC = () => {
       await refreshAll();
       setStatusMsg({
         type: "success",
-        text: `Generated simulated dataset (#${ds.id}): ${ds.row_count.toLocaleString()} records across ${ds.string_count} strings`,
+        text: t("Generated simulated dataset (#{id}): {n} records across {strings} strings", { id: ds.id, n: ds.row_count.toLocaleString(), strings: ds.string_count }),
       });
     } catch (err: any) {
-      setStatusMsg({ type: "error", text: err.message || "Simulation failed" });
+      setStatusMsg({ type: "error", text: err.message || t("Simulation failed") });
     } finally {
       setBusy(false);
     }
@@ -131,23 +133,23 @@ export const IngestionPage: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         icon={UploadCloud}
-        eyebrow="Data & Reports · SCADA / Inverter Cloud"
-        title="Data Ingestion & Telemetry Simulator"
-        description="Normalize both Long/Tidy and Wide SCADA formats (PV1_U, PV1_I ... PV24_U, PV24_I) into canonical IEC 61724 telemetry."
+        eyebrow={t("Data & Reports · SCADA / Inverter Cloud")}
+        title={t("Data Ingestion & Telemetry Simulator")}
+        description={t("Normalize both Long/Tidy and Wide SCADA formats (PV1_U, PV1_I ... PV24_U, PV24_I) into canonical IEC 61724 telemetry.")}
         actions={
           <Tabs value={mode} onValueChange={(v) => setMode(v as IngestMode)}>
             <TabsList>
               <TabsTrigger value="api">
                 <Globe className="h-3.5 w-3.5" />
-                Inverter Cloud / REST API
+                {t("Inverter Cloud / REST API")}
               </TabsTrigger>
               <TabsTrigger value="upload">
                 <Upload className="h-3.5 w-3.5" />
-                Upload CSV / Excel
+                {t("Upload CSV / Excel")}
               </TabsTrigger>
               <TabsTrigger value="simulate">
                 <FlaskConical className="h-3.5 w-3.5" />
-                PV String Simulator
+                {t("PV String Simulator")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -171,12 +173,12 @@ export const IngestionPage: React.FC = () => {
           <Panel
             className="lg:col-span-7"
             icon={Globe}
-            title="Inverter Cloud / REST API Connector"
-            subtitle="Connect directly to Huawei FusionSolar, Sungrow iSolarCloud, or custom SCADA REST endpoints"
+            title={t("Inverter Cloud / REST API Connector")}
+            subtitle={t("Connect directly to Huawei FusionSolar, Sungrow iSolarCloud, or custom SCADA REST endpoints")}
           >
             <form onSubmit={handleApiFetch} className="space-y-4">
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Select API Provider / Protocol</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Select API Provider / Protocol")}</Label>
                 <Select
                   value={provider}
                   onValueChange={(v) => {
@@ -199,7 +201,7 @@ export const IngestionPage: React.FC = () => {
               </div>
 
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Endpoint / Gateway Base URL</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Endpoint / Gateway Base URL")}</Label>
                 <Input
                   type="text"
                   value={baseUrl}
@@ -220,7 +222,7 @@ export const IngestionPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">Inverter Device ID (devIds)</Label>
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Inverter Device ID (devIds)")}</Label>
                     <Input
                       type="text"
                       value={devId}
@@ -279,7 +281,7 @@ export const IngestionPage: React.FC = () => {
                       </Select>
                     </div>
                     <div>
-                      <Label className="mb-1 block text-[11px] font-medium text-slate-400">JSON Array Key</Label>
+                      <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("JSON Array Key")}</Label>
                       <Input
                         type="text"
                         value={recordsKey}
@@ -289,7 +291,7 @@ export const IngestionPage: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">Request Headers (JSON)</Label>
+                    <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Request Headers (JSON)")}</Label>
                     <Textarea
                       rows={2}
                       value={headersJson}
@@ -308,13 +310,13 @@ export const IngestionPage: React.FC = () => {
                     onChange={(e) => setUseSandbox(e.target.checked)}
                     className="rounded"
                   />
-                  <span>Use API Sandbox Simulator if endpoint is unreachable / offline</span>
+                  <span>{t("Use API Sandbox Simulator if endpoint is unreachable / offline")}</span>
                 </label>
               )}
 
               <Button type="submit" disabled={busy} variant="default">
                 <Play className="h-3.5 w-3.5" />
-                {busy ? "Fetching String Telemetry…" : "Fetch String Telemetry from API"}
+                {busy ? t("Fetching String Telemetry…") : t("Fetch String Telemetry from API")}
               </Button>
             </form>
           </Panel>
@@ -322,16 +324,16 @@ export const IngestionPage: React.FC = () => {
           <Panel
             className="lg:col-span-5"
             icon={Code2}
-            title="Expected API Payload Structure"
-            subtitle="Auto-normalized into canonical string records"
+            title={t("Expected API Payload Structure")}
+            subtitle={t("Auto-normalized into canonical string records")}
           >
             <div className="space-y-3 text-xs">
               <p className="leading-relaxed text-slate-400">
-                The ingestion engine automatically normalizes both{" "}
-                <strong className="text-solar-400">Wide Inverter KPI Maps</strong> (<code className="text-slate-200">pv1_u</code>,{" "}
+                {t("The ingestion engine automatically normalizes both")}{" "}
+                <strong className="text-solar-400">{t("Wide Inverter KPI Maps")}</strong> (<code className="text-slate-200">pv1_u</code>,{" "}
                 <code className="text-slate-200">pv1_i</code>, <code className="text-slate-200">pv2_u</code>,{" "}
-                <code className="text-slate-200">pv2_i</code>) and{" "}
-                <strong className="text-emerald-400">Tidy JSON Arrays</strong> (<code className="text-slate-200">timestamp</code>,{" "}
+                <code className="text-slate-200">pv2_i</code>) {t("and")}{" "}
+                <strong className="text-emerald-400">{t("Tidy JSON Arrays")}</strong> (<code className="text-slate-200">timestamp</code>,{" "}
                 <code className="text-slate-200">string_id</code>, <code className="text-slate-200">voltage_v</code>,{" "}
                 <code className="text-slate-200">current_a</code>, <code className="text-slate-200">irradiance_wm2</code>).
               </p>
@@ -365,16 +367,16 @@ export const IngestionPage: React.FC = () => {
           <Panel
             className="lg:col-span-7"
             icon={Upload}
-            title="Upload SCADA CSV or Excel (.csv, .xlsx)"
-            subtitle="Automatically executes IEC 61724 string analysis upon ingestion"
+            title={t("Upload SCADA CSV or Excel (.csv, .xlsx)")}
+            subtitle={t("Automatically executes IEC 61724 string analysis upon ingestion")}
           >
             <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/15 bg-ink-950/50 p-10 transition hover:border-solar-400/60 hover:bg-solar-500/[0.04]">
               <Upload className="mb-2.5 h-8 w-8 text-solar-400" />
               <span className="text-xs font-semibold text-slate-200">
-                Click to choose a CSV or Excel file (.csv, .xlsx, .xls)
+                {t("Click to choose a CSV or Excel file (.csv, .xlsx, .xls)")}
               </span>
               <span className="mt-1 text-[11px] text-slate-500">
-                Supports both Tidy/Long and Wide SCADA column layouts
+                {t("Supports both Tidy/Long and Wide SCADA column layouts")}
               </span>
               <input type="file" accept=".csv,.xlsx,.xls" onChange={handleFileUpload} className="hidden" />
             </label>
@@ -383,14 +385,14 @@ export const IngestionPage: React.FC = () => {
           <Panel
             className="lg:col-span-5"
             icon={Download}
-            title="Sample CSV Template"
-            subtitle="Reference format for external SCADA exports"
+            title={t("Sample CSV Template")}
+            subtitle={t("Reference format for external SCADA exports")}
           >
             <div className="space-y-4 text-xs text-slate-400">
               <p className="leading-relaxed">
-                You can upload either <strong className="text-slate-200">Long Format</strong> (
-                <code className="text-energy-300">timestamp, string_id, voltage_v, current_a, irradiance_wm2</code>) or{" "}
-                <strong className="text-slate-200">Wide SCADA Export Format</strong> (
+                {t("You can upload either")} <strong className="text-slate-200">{t("Long Format")}</strong> (
+                <code className="text-energy-300">timestamp, string_id, voltage_v, current_a, irradiance_wm2</code>) {t("or")}{" "}
+                <strong className="text-slate-200">{t("Wide SCADA Export Format")}</strong> (
                 <code className="text-solar-300">timestamp, irradiance_wm2, PV1_U, PV1_I, PV2_U, PV2_I, ...</code>).
               </p>
               {activeDataset && (
@@ -398,13 +400,13 @@ export const IngestionPage: React.FC = () => {
                   type="button"
                   onClick={() =>
                     downloadApiFile(api.sampleCsvPath(activeDataset.id), `dataset_${activeDataset.id}_sample.csv`).catch((e) =>
-                      alert(`Could not download the template: ${e instanceof Error ? e.message : e}`)
+                      alert(t("Could not download the template: {error}", { error: e instanceof Error ? e.message : String(e) }))
                     )
                   }
                   variant="accent"
                 >
                   <Download className="h-4 w-4" />
-                  Download Sample Template (.csv)
+                  {t("Download Sample Template (.csv)")}
                 </Button>
               )}
             </div>
@@ -416,19 +418,19 @@ export const IngestionPage: React.FC = () => {
       {mode === "simulate" && (
         <Panel
           icon={FlaskConical}
-          title="Built-in Rooftop PV String Simulator"
-          subtitle="Synthesizes multi-day irradiance curves with realistic fault scenarios"
+          title={t("Built-in Rooftop PV String Simulator")}
+          subtitle={t("Synthesizes multi-day irradiance curves with realistic fault scenarios")}
         >
           <div className="space-y-4">
             <div className="callout">
-              Injects realistic field anomalies: <strong className="text-amber-300">STR-03</strong> (afternoon partial
-              shading), <strong className="text-amber-300">STR-05</strong> (bypassed sub-string diode voltage drop), and{" "}
-              <strong className="text-red-300">STR-06</strong> (open-circuit blown fuse on final 2 days).
+              {t("Injects realistic field anomalies:")} <strong className="text-amber-300">STR-03</strong> {t("(afternoon partial shading),")}{" "}
+              <strong className="text-amber-300">STR-05</strong> {t("(bypassed sub-string diode voltage drop), and")}{" "}
+              <strong className="text-red-300">STR-06</strong> {t("(open-circuit blown fuse on final 2 days).")}
             </div>
             <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-3">
               <div>
                 <Label className="mb-1 block text-[11px] font-medium text-slate-400">
-                  Simulation Duration: <strong className="num text-solar-400">{simDays} Days</strong>
+                  {t("Simulation Duration:")} <strong className="num text-solar-400">{t("{n} Days", { n: simDays })}</strong>
                 </Label>
                 <input
                   type="range"
@@ -441,7 +443,7 @@ export const IngestionPage: React.FC = () => {
               </div>
               <div>
                 <Label className="mb-1 block text-[11px] font-medium text-slate-400">
-                  Number of PV Strings: <strong className="num text-energy-400">{simStrings} Strings</strong>
+                  {t("Number of PV Strings:")} <strong className="num text-energy-400">{t("{n} Strings", { n: simStrings })}</strong>
                 </Label>
                 <input
                   type="range"
@@ -453,7 +455,7 @@ export const IngestionPage: React.FC = () => {
                 />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">Sampling Interval (Minutes)</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Sampling Interval (Minutes)")}</Label>
                 <Select value={String(simInterval)} onValueChange={(v) => setSimInterval(Number(v))}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -461,7 +463,7 @@ export const IngestionPage: React.FC = () => {
                   <SelectContent>
                     {[5, 10, 15, 30, 60].map((m) => (
                       <SelectItem key={m} value={String(m)}>
-                        {m} minutes
+                        {t("{n} minutes", { n: m })}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -470,7 +472,7 @@ export const IngestionPage: React.FC = () => {
             </div>
             <Button onClick={handleSimulate} disabled={busy} variant="default">
               <FlaskConical className="h-3.5 w-3.5" />
-              {busy ? "Generating Simulated Telemetry…" : "Generate Simulated Rooftop PV Dataset"}
+              {busy ? t("Generating Simulated Telemetry…") : t("Generate Simulated Rooftop PV Dataset")}
             </Button>
           </div>
         </Panel>
@@ -479,19 +481,19 @@ export const IngestionPage: React.FC = () => {
       {/* Dataset History Table */}
       <Panel
         icon={Database}
-        title="Ingested Dataset History"
-        subtitle="Switch active telemetry source to re-evaluate plant KPIs and string diagnostics"
+        title={t("Ingested Dataset History")}
+        subtitle={t("Switch active telemetry source to re-evaluate plant KPIs and string diagnostics")}
       >
         <Table containerClassName="table-wrap">
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>
-                <TableHead>Source Label</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Strings</TableHead>
-                <TableHead className="text-right">Records</TableHead>
-                <TableHead>Time Range</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead>{t("Source Label")}</TableHead>
+                <TableHead>{t("Type")}</TableHead>
+                <TableHead className="text-right">{t("Strings")}</TableHead>
+                <TableHead className="text-right">{t("Records")}</TableHead>
+                <TableHead>{t("Time Range")}</TableHead>
+                <TableHead className="text-right">{t("Action")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -514,7 +516,7 @@ export const IngestionPage: React.FC = () => {
                         <StatusBadge status="Active" level="ok" />
                       ) : (
                         <Button onClick={() => selectDataset(d.id)} size="sm">
-                          Activate
+                          {t("Activate")}
                         </Button>
                       )}
                     </TableCell>
@@ -528,22 +530,22 @@ export const IngestionPage: React.FC = () => {
       {/* Preview Normalized String Telemetry */}
       <Panel
         icon={Table2}
-        title="Preview Normalized String Telemetry (First 100 Rows)"
+        title={t("Preview Normalized String Telemetry (First 100 Rows)")}
         subtitle={activeDataset?.source_label}
       >
         <Table containerClassName="table-wrap max-h-80 overflow-y-auto">
             <TableHeader className="sticky top-0 z-10">
               <TableRow>
-                <TableHead>Timestamp</TableHead>
-                <TableHead>Inverter</TableHead>
+                <TableHead>{t("Timestamp")}</TableHead>
+                <TableHead>{t("Inverter")}</TableHead>
                 <TableHead>MPPT</TableHead>
-                <TableHead>String</TableHead>
-                <TableHead className="text-right">Voltage (V)</TableHead>
-                <TableHead className="text-right">Current (A)</TableHead>
-                <TableHead className="text-right">Power (W)</TableHead>
-                <TableHead className="text-right">Irradiance (W/m²)</TableHead>
-                <TableHead className="text-right">Mod Temp (°C)</TableHead>
-                <TableHead className="text-right">Amb Temp (°C)</TableHead>
+                <TableHead>{t("String")}</TableHead>
+                <TableHead className="text-right">{t("Voltage (V)")}</TableHead>
+                <TableHead className="text-right">{t("Current (A)")}</TableHead>
+                <TableHead className="text-right">{t("Power (W)")}</TableHead>
+                <TableHead className="text-right">{t("Irradiance (W/m²)")}</TableHead>
+                <TableHead className="text-right">{t("Mod Temp (°C)")}</TableHead>
+                <TableHead className="text-right">{t("Amb Temp (°C)")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="num text-[11px]">

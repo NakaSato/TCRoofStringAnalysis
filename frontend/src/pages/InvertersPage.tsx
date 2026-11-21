@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Building2, Cpu } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
 import { pick, useUrlState } from "@/lib/useUrlState";
+import { useI18n } from "@/i18n";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { InverterProfilePanel } from "../components/InverterProfilePanel";
 import { InverterTrendPanel, StringHeatmapPanel } from "../components/InverterCharts";
@@ -25,7 +26,7 @@ const DETAIL_TABS: Array<{ id: DetailTab; label: string }> = [
   { id: "issues", label: "Issues" },
   { id: "history", label: "History" },
 ];
-const DETAIL_TAB_IDS = DETAIL_TABS.map((t) => t.id);
+const DETAIL_TAB_IDS = DETAIL_TABS.map((d) => d.id);
 
 /**
  * The plant's inverters, top to bottom: the plant card (now vs stored day, one comparison table
@@ -38,11 +39,12 @@ export const InvertersPage: React.FC = () => {
   const { selectedGrowattPlantId, selectedPlantOverview, plantOverviewLoading, plantLive, plantLiveLoading, plantLiveFailed } =
     useAppContext();
   const plantHref = usePlantHref();
+  const { t } = useI18n();
   // selected inverter and tab live in the URL (?sn=&tab=): reload / shared link keep them
   const [query, setQuery] = useUrlState();
   const selectedSn = query.get("sn");
   const tab = pick(query.get("tab"), DETAIL_TAB_IDS, "performance");
-  const setTab = (t: DetailTab) => setQuery({ tab: t === "performance" ? null : t });
+  const setTab = (d: DetailTab) => setQuery({ tab: d === "performance" ? null : d });
 
   const ov = selectedPlantOverview;
   const inverters = useMemo(() => ov?.inverters ?? [], [ov]);
@@ -97,7 +99,7 @@ export const InvertersPage: React.FC = () => {
     return (
       <div className="flex flex-col gap-4">
         <SelectedPlantBanner />
-        <LoadingState label="Loading the plant's inverters…" shape="page" />
+        <LoadingState label={t("Loading the plant's inverters…")} shape="page" />
       </div>
     );
   }
@@ -105,7 +107,7 @@ export const InvertersPage: React.FC = () => {
     return (
       <div className="flex flex-col gap-4">
         <SelectedPlantBanner />
-        <EmptyState icon={Building2} title="Select a plant from the directory" description="Pick a plant on Plant Overview to see its inverters." />
+        <EmptyState icon={Building2} title={t("Select a plant from the directory")} description={t("Pick a plant on Plant Overview to see its inverters.")} />
       </div>
     );
   }
@@ -113,7 +115,7 @@ export const InvertersPage: React.FC = () => {
     return (
       <div className="flex flex-col gap-4">
         <SelectedPlantBanner />
-        <EmptyState icon={Cpu} title="No inverters" description="This plant has no inverters in the registry yet." />
+        <EmptyState icon={Cpu} title={t("No inverters")} description={t("This plant has no inverters in the registry yet.")} />
       </div>
     );
   }
@@ -170,10 +172,10 @@ export const InvertersPage: React.FC = () => {
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as DetailTab)}>
-        <TabsList variant="line" aria-label={`${invName(inv)} details`}>
+        <TabsList variant="line" aria-label={t("{name} details", { name: invName(inv) })}>
           {DETAIL_TABS.map(({ id, label }) => (
             <TabsTrigger key={id} value={id}>
-              {label}
+              {t(label)}
             </TabsTrigger>
           ))}
         </TabsList>

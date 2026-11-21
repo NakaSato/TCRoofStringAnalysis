@@ -1,4 +1,5 @@
 /** Plant-local days as "YYYY-MM-DD" strings, and the Date objects the Calendar needs. */
+import { dateLocale } from "@/i18n";
 
 /** "2026-11-14" → local Date at midnight (for Calendar `selected` / `disabled`). */
 export const toDate = (day: string) => {
@@ -12,4 +13,4 @@ export const fromDate = (d: Date) =>
 
 /** "Sat, 14 Nov 2026" */
 export const dayLabel = (day: string) =>
-  toDate(day).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+  toDate(day).toLocaleDateString(dateLocale(), { weekday: "short", day: "2-digit", month: "short", year: "numeric" });

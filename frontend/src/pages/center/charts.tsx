@@ -1,5 +1,5 @@
 /**
- * O&M Dashboard charts PanelChart cannot draw (its tooltip follows x only):
+ * Engineering O&M charts PanelChart cannot draw (its tooltip follows x only):
  * - StrategyMatrix: one dot per meter-report site, estimated loss against its share of PVsyst
  * - YieldHeatmap: site × report day, coloured by specific yield, outage and missing readings marked
  * Both open the site's days on click. Loss is estimated, PVsyst modelled; the cards say so.
@@ -13,6 +13,7 @@ import { CATEGORICAL, STATUS } from "../../components/chartTheme";
 import { fmt } from "../../components/ui";
 import { DAY_STATUS } from "../pwaMeter/format";
 import { fmtDay, thb } from "./format";
+import { dateLocale, useI18n } from "../../i18n";
 
 /** who is to act on a site's issues: curtailment is a PM matter, the rest O&M */
 export const OWNERS = [
@@ -23,22 +24,26 @@ export const OWNERS = [
 ] as const;
 const ownerColor = (o: string | null) => OWNERS.find((x) => x.key === (o ?? ""))?.color ?? STATUS.none;
 
-export const Legend: React.FC<{ items: ReadonlyArray<{ label: string; color: string }>; note?: string }> = ({ items, note }) => (
+export const Legend: React.FC<{ items: ReadonlyArray<{ label: string; color: string }>; note?: string }> = ({ items, note }) => {
+  const { t } = useI18n();
+  return (
   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
     {items.map((i) => (
       <span key={i.label} className="flex items-center gap-1.5">
         <span className="inline-block size-2.5 rounded-full" style={{ background: i.color }} />
-        {i.label}
+        {t(i.label)}
       </span>
     ))}
     {note && <span>{note}</span>}
   </div>
-);
+  );
+};
 
 /* -------------------------------------------------------------------------- */
 /* Strategy matrix                                                            */
 /* -------------------------------------------------------------------------- */
 export const StrategyMatrix: React.FC<{ sites: PwaMeterSiteSummary[]; onOpen: (siteId: string) => void; height?: number }> = ({ sites, onOpen, height = 340 }) => {
+  const { t } = useI18n();
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<TipState | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -86,13 +91,13 @@ export const StrategyMatrix: React.FC<{ sites: PwaMeterSiteSummary[]; onOpen: (s
         <>
           <div className="mb-1 font-semibold text-white">{s.name}</div>
           <div className="mb-1 text-xs text-slate-400">
-            Phase {s.phase}
+            {t("Phase {n}", { n: s.phase })}
             {s.region ? ` · ${s.region}` : ""} · {fmt(s.kwp, 0)} kWp
           </div>
-          <TipRow label="Loss (est.)" value={thb(s.loss_thb)} />
-          <TipRow label="vs PVsyst (mod.)" value={`${fmt(s.vs_pvsyst_pct, 1)} %`} />
-          <TipRow label="vs contract (mod.)" value={s.vs_contract_pct == null ? "—" : `${fmt(s.vs_contract_pct, 1)} %`} />
-          <TipRow color={ownerColor(s.owner)} label="Owner" value={s.owner ?? "—"} />
+          <TipRow label={t("Loss (est.)")} value={thb(s.loss_thb)} />
+          <TipRow label={t("vs PVsyst (mod.)")} value={`${fmt(s.vs_pvsyst_pct, 1)} %`} />
+          <TipRow label={t("vs contract (mod.)")} value={s.vs_contract_pct == null ? "—" : `${fmt(s.vs_contract_pct, 1)} %`} />
+          <TipRow color={ownerColor(s.owner)} label={t("Owner")} value={s.owner ?? "—"} />
           {s.issues.length > 0 && <div className="mt-1 text-xs text-slate-300">{s.issues.join(" · ")}</div>}
         </>
       ),
@@ -112,7 +117,7 @@ export const StrategyMatrix: React.FC<{ sites: PwaMeterSiteSummary[]; onOpen: (s
       }}
     >
       {g && (
-        <svg width={width} height={height} className="block" role="img" aria-label="Meter report sites: estimated loss in baht against energy as a share of PVsyst">
+        <svg width={width} height={height} className="block" role="img" aria-label={t("Meter report sites: estimated loss in baht against energy as a share of PVsyst")}>
           <g transform={`translate(${g.m.l},${g.m.t})`}>
             {g.yTicks.map((t) => (
               <g key={t} transform={`translate(0,${g.y(t)})`}>
@@ -132,7 +137,7 @@ export const StrategyMatrix: React.FC<{ sites: PwaMeterSiteSummary[]; onOpen: (s
             ))}
             <line y1={g.ih} y2={g.ih} x2={g.iw} stroke={C.axis} />
             <text x={g.iw} y={g.ih + 34} textAnchor="end" fontSize={11} fill={C.muted}>
-              Estimated loss in the period (฿, square-root scale)
+              {t("Estimated loss in the period (฿, square-root scale)")}
             </text>
             {pts.map((s) => (
               <circle
@@ -157,15 +162,18 @@ export const StrategyMatrix: React.FC<{ sites: PwaMeterSiteSummary[]; onOpen: (s
 /* -------------------------------------------------------------------------- */
 /* Site × day heatmap                                                         */
 /* -------------------------------------------------------------------------- */
-/** one hue, dark → light (0 → high yield): a weak day reads as a dark cell */
-const yieldInterp = d3.interpolateRgbBasis(["#111a29", "#0b4a5c", "#0b9ec0", "#8fe3f5"]);
-const GAP_COLOR = "#56627a";
+/** one hue, dark → blue (0 → high yield): a weak day reads as a dark cell */
+const yieldInterp = d3.interpolateRgbBasis(["#0d131c", "#13294a", "#1d559c", "#2f80e8"]);
+/** fixed top of the colour scale (kWh/kWp per day), so periods and phases compare at a glance */
+export const HEAT_MAX = 6;
+const GAP_COLOR = "#3c414b";
 export const HEAT_LEGEND = [
-  { label: "Low yield", color: yieldInterp(0.12) },
-  { label: "High yield", color: yieldInterp(1) },
+  { label: "Low yield", color: yieldInterp(0.05) },
+  { label: `High yield (${HEAT_MAX}+)`, color: yieldInterp(1) },
   { label: "Outage", color: STATUS.crit },
-  { label: "Reading missing", color: GAP_COLOR },
+  { label: "Data missing", color: GAP_COLOR },
 ] as const;
+const monthTick = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(dateLocale(), { month: "short" });
 
 export const YieldHeatmap: React.FC<{
   daily: PwaMeterDaily;
@@ -173,6 +181,7 @@ export const YieldHeatmap: React.FC<{
   order: string[];
   onOpen: (siteId: string) => void;
 }> = ({ daily, order, onOpen }) => {
+  const { t } = useI18n();
   const [ref, width] = useWidth<HTMLDivElement>();
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const [tip, setTip] = useState<TipState | null>(null);
@@ -182,11 +191,8 @@ export const YieldHeatmap: React.FC<{
     return order.map((id) => by.get(id)).filter((s): s is NonNullable<typeof s> => s != null);
   }, [daily, order]);
   const days = daily.days;
-  // top of the colour scale: the 98th percentile, so one odd reading does not darken the rest
-  const zMax = useMemo(() => d3.quantile(rows.flatMap((s) => s.yield_kwh_kwp.filter((v): v is number => v != null)).sort(d3.ascending), 0.98) || 1, [rows]);
-
-  const top = 18;
-  const rowH = Math.max(4, Math.min(14, Math.floor(520 / Math.max(1, rows.length))));
+  const top = 20;
+  const rowH = Math.max(4, Math.min(16, Math.floor(560 / Math.max(1, rows.length))));
   const height = top + rows.length * rowH;
   const cw = days.length ? width / days.length : 0;
 
@@ -200,7 +206,7 @@ export const YieldHeatmap: React.FC<{
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    const color = d3.scaleSequential(yieldInterp).domain([0, zMax]).clamp(true);
+    const color = d3.scaleSequential(yieldInterp).domain([0, HEAT_MAX]).clamp(true);
     const gap = rowH >= 6 ? 1 : 0;
     rows.forEach((s, i) => {
       const y = top + i * rowH;
@@ -215,14 +221,17 @@ export const YieldHeatmap: React.FC<{
     ctx.fillStyle = C.muted;
     ctx.font = `11px ${getComputedStyle(cv).fontFamily}`;
     ctx.textBaseline = "top";
+    // a long period gets a label per month (at its first report day), a short one per few days
     let last = -Infinity;
+    const byMonth = days.length > 45;
     days.forEach((d, j) => {
       const x = j * cw;
-      if (x - last < 52 || x + 40 > width) return;
+      if (byMonth ? j > 0 && d.slice(0, 7) === days[j - 1].slice(0, 7) : x - last < 52) return;
+      if (x - last < 30 || x + 30 > width) return;
       last = x;
-      ctx.fillText(fmtDay(d), x + 1, 2);
+      ctx.fillText(byMonth ? monthTick(d) : fmtDay(d), x + 1, 3);
     });
-  }, [rows, days, width, height, cw, rowH, zMax]);
+  }, [rows, days, width, height, cw, rowH]);
 
   const hit = (e: React.MouseEvent) => {
     const box = ref.current!.getBoundingClientRect();
@@ -243,11 +252,11 @@ export const YieldHeatmap: React.FC<{
         <>
           <div className="mb-1 font-semibold text-white">{h.s.name}</div>
           <div className="mb-1 text-xs text-slate-400">
-            Phase {h.s.phase}
+            {t("Phase {n}", { n: h.s.phase })}
             {h.s.region ? ` · ${h.s.region}` : ""} · {fmtDay(days[h.j])}
           </div>
-          <TipRow label="Yield" value={v == null ? "—" : `${fmt(v, 2)} kWh/kWp`} />
-          <TipRow label="Day" value={st == null ? "No report row" : DAY_STATUS[st].label} />
+          <TipRow label={t("Yield")} value={v == null ? "—" : `${fmt(v, 2)} kWh/kWp`} />
+          <TipRow label={t("Day")} value={st == null ? t("No report row") : t(DAY_STATUS[st].label)} />
         </>
       ),
     });
@@ -265,7 +274,7 @@ export const YieldHeatmap: React.FC<{
         if (h) onOpen(h.s.site_id);
       }}
     >
-      <canvas ref={canvas} className="block" style={{ width: "100%", height }} role="img" aria-label={`Specific yield per site and report day, ${rows.length} sites over ${days.length} days`} />
+      <canvas ref={canvas} className="block" style={{ width: "100%", height }} role="img" aria-label={t("Specific yield per site and report day, {n} sites over {d} days", { n: rows.length, d: days.length })} />
       <Tooltip tip={tip} width={width} />
     </div>
   );

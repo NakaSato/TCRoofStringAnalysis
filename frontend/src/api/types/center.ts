@@ -1,4 +1,4 @@
-/** O&M Dashboard (`/growatt/center`, docs/plans/om-center-dashboard.md). Lost kWh and baht are
+/** Engineering O&M (`/growatt/center`, docs/plans/om-center-dashboard.md). Lost kWh and baht are
  * estimates with each kWh counted once across overlapping rules; costs are entered by the team. */
 import type { Issue, IssueTier } from "./issues";
 

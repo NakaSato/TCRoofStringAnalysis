@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import GrowattPlantEnergyDay, PwaMeterDay, PwaMeterSite
@@ -472,6 +472,123 @@ def meter_check(db: Session, allowed: Optional[Set[int]], start: Optional[date] 
                     "gap_mwh": _f(gap / 1000, 2), "gap_thb": _f(gap * price, 0), "flags": flags})
     out.sort(key=lambda r: -(r["gap_thb"] or 0))
     return out
+
+
+# ---------- monthly billing and its engineering causes (criteria `billing`) ----------
+
+def _month_windows(first: date, last: date) -> List[Tuple[str, date, date]]:
+    """(YYYY-MM, start, end) for every calendar month that [first, last] touches, clipped to it."""
+    out = []
+    m = date(first.year, first.month, 1)
+    while m <= last:
+        nxt = date(m.year + (m.month == 12), m.month % 12 + 1, 1)
+        out.append((m.strftime("%Y-%m"), max(m, first), min(nxt - timedelta(days=1), last)))
+        m = nxt
+    return out
+
+
+def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None, phase: Optional[int] = None) -> Dict[str, Any]:
+    """Billed energy per site and calendar month over [start, end]: meter kWh at the book price, the
+    contract's energy (modelled), the shortfall against it and how much of that the engineering causes
+    explain: outage, under-performance and meter gap (recoverable by O&M) and curtailment (PM).
+
+    Each month's losses are `summary()` / `meter_check()` over that month alone (PI_free of the month,
+    every site of the phase), so the months add up to the sites' period totals here, not to the
+    period summary. A missing reading stays null; kWh and THB of the losses are estimated."""
+    c = criteria()
+    price = c["tariff"]["book_price_thb_per_kwh"]
+    bc = c["billing"]
+    recov = set(bc["recoverable_causes"])
+    df = _frame(db, start, end)
+    labels = {"billed_thb": "book price", "contract_kwh": "modelled", "shortfall_kwh": "modelled", "shortfall_thb": "modelled",
+              "outage_kwh": "estimated", "under_kwh": "estimated", "meter_gap_kwh": "estimated", "curtailment_kwh": "estimated",
+              "recoverable_kwh": "estimated", "recoverable_thb": "estimated", "unexplained_kwh": "estimated"}
+    base = {"price_thb_per_kwh": price, "recoverable_causes": bc["recoverable_causes"], "cause_owner": bc["cause_owner"],
+            "cause_action": bc["cause_action"], "labels": labels}
+    if df.empty:
+        return {"window": {"start": start and start.isoformat(), "end": end and end.isoformat()}, "months": [], "rows": [], "sites": [], **base}
+    visible = {s.site_id for s in _visible_sites(db, allowed) if phase is None or s.phase == phase}
+    first_day = df.day.min().date()
+    last_day = df.day.max().date()
+    # a site's billing starts on its first report day ever, so a month before it is not "missing"
+    site_first = dict(db.execute(select(PwaMeterDay.site_id, func.min(PwaMeterDay.day)).group_by(PwaMeterDay.site_id)).all())
+    rows: List[Dict[str, Any]] = []
+    months = _month_windows(first_day, last_day)
+    for month, ms, me in months:
+        g_all = df[(df.day >= pd.Timestamp(ms)) & (df.day <= pd.Timestamp(me))]
+        if g_all.empty:
+            continue
+        losses = {r["site_id"]: r for r in summary(db, None, ms, me)["sites"]}
+        gaps = {r["site_id"]: r for r in meter_check(db, None, ms, me)}
+        for sid, g in g_all.groupby("site_id"):
+            if sid not in visible:
+                continue
+            read = g[g.meter.notna()]
+            has_con = bool(g.con.notna().any())
+            con = float(g.con.sum()) if has_con else None
+            billed = float(read.meter.sum()) if len(read) else None
+            short = con - float(g.meter_c.sum()) if con is not None else None
+            lo, gp = losses.get(sid, {}), gaps.get(sid, {})
+            cause = {
+                "outage": (lo.get("outage_loss_mwh") or 0.0) * 1000,
+                "under": (lo.get("under_loss_mwh") or 0.0) * 1000,
+                "meter_gap": (gp.get("gap_mwh") or 0.0) * 1000,
+                "curtailment": (lo.get("curtailment_loss_mwh") or 0.0) * 1000,
+            }
+            rec = sum(v for k, v in cause.items() if k in recov)
+            from_day = max(ms, site_first.get(sid, ms))
+            cal = max(0, (me - from_day).days + 1)
+            rows.append({
+                "site_id": sid, "phase": int(g.phase.iloc[0]), "name": g.name.iloc[0], "region": g.region.iloc[0], "kwp": _f(g.kwp.iloc[0], 2),
+                "growatt_plant_id": None if pd.isna(g.growatt_plant_id.iloc[0]) else int(g.growatt_plant_id.iloc[0]),
+                "month": month, "start": ms.isoformat(), "end": me.isoformat(),
+                "days": int(len(g)), "meter_days": int(len(read)), "missing_days": max(0, cal - int(len(read))),
+                "outage_days": int((g.status == "outage").sum()), "curtailment_note_days": int(g.curt.sum()),
+                "billed_kwh": _f(billed, 1), "billed_thb": _f(billed * price, 0) if billed is not None else None,
+                "contract_kwh": _f(con, 1), "vs_contract_pct": _f(100 * _div(float(g.meter_c.sum()), con), 1) if con else None,
+                "shortfall_kwh": _f(short, 1), "shortfall_thb": _f(short * price, 0) if short is not None else None,
+                "outage_kwh": _f(cause["outage"], 1), "under_kwh": _f(cause["under"], 1), "meter_gap_kwh": _f(cause["meter_gap"], 1),
+                "curtailment_kwh": _f(cause["curtailment"], 1),
+                "recoverable_kwh": _f(rec, 1), "recoverable_thb": _f(rec * price, 0),
+                "unexplained_kwh": _f(short - sum(cause.values()), 1) if short is not None else None,
+            })
+    # the sites' totals over the months, the largest recoverable baht first
+    sites: List[Dict[str, Any]] = []
+    by_site: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        by_site.setdefault(r["site_id"], []).append(r)
+
+    def tot(rs: List[Dict[str, Any]], k: str) -> Optional[float]:
+        vals = [r[k] for r in rs if r[k] is not None]
+        return sum(vals) if vals else None
+
+    for sid, rs in by_site.items():
+        r0 = rs[0]
+        con = tot(rs, "contract_kwh")
+        billed_c = sum((r["contract_kwh"] or 0) - (r["shortfall_kwh"] or 0) for r in rs if r["contract_kwh"] is not None)
+        cause = {k: tot(rs, f"{k}_kwh") or 0.0 for k in bc["causes"]}
+        rec = sum(v for k, v in cause.items() if k in recov)
+        top = max((k for k in bc["causes"] if cause[k] > 0), key=lambda k: cause[k], default=None)
+        top_rec = max((k for k in bc["recoverable_causes"] if cause[k] > 0), key=lambda k: cause[k], default=None)
+        short = tot(rs, "shortfall_kwh")
+        sites.append({
+            "site_id": sid, "phase": r0["phase"], "name": r0["name"], "region": r0["region"], "kwp": r0["kwp"], "growatt_plant_id": r0["growatt_plant_id"],
+            "months": len(rs), "meter_days": sum(r["meter_days"] for r in rs), "missing_days": sum(r["missing_days"] for r in rs),
+            "outage_days": sum(r["outage_days"] for r in rs),
+            "billed_kwh": _f(tot(rs, "billed_kwh"), 1), "billed_thb": _f(tot(rs, "billed_thb"), 0),
+            "contract_kwh": _f(con, 1), "vs_contract_pct": _f(100 * _div(billed_c, con), 1) if con else None,
+            "shortfall_kwh": _f(short, 1), "shortfall_thb": _f(short * price, 0) if short is not None else None,
+            **{f"{k}_kwh": _f(v, 1) for k, v in cause.items()},
+            "recoverable_kwh": _f(rec, 1), "recoverable_thb": _f(rec * price, 0),
+            "unexplained_kwh": _f(short - sum(cause.values()), 1) if short is not None else None,
+            "top_cause": top, "action_cause": top_rec,
+            "owner": bc["cause_owner"].get(top_rec) if top_rec else None, "action": bc["cause_action"].get(top_rec) if top_rec else None,
+        })
+    sites.sort(key=lambda s: (-(s["recoverable_thb"] or 0), s["site_id"]))
+    for i, s in enumerate(sites, start=1):
+        s["rank"] = i
+    rows.sort(key=lambda r: (r["month"], r["phase"], r["site_id"]))
+    return {"window": {"start": first_day.isoformat(), "end": last_day.isoformat()}, "months": [m for m, _, _ in months], "rows": rows, "sites": sites, **base}
 
 
 # ---------- daily report import (Excel, docs/plans/pwa-meter-daily.md §2.3) ----------

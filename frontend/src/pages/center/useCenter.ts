@@ -1,4 +1,4 @@
-/** O&M Dashboard overview for one window: read on mount, when the window or the shadow switch
+/** Engineering O&M overview for one window: read on mount, when the window or the shadow switch
  * changes and on Refresh. DB only, stored days, so nothing polls. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";

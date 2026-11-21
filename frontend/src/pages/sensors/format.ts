@@ -1,6 +1,7 @@
 /** Weather sensor pages: units, digits, compass and plant-local time helpers. */
 import type { GrowattWeatherField } from "../../api/client";
 import { FIELD_LABEL } from "../../components/sensorView";
+import { dateLocale, translate } from "../../i18n";
 
 /** Below this share of today's daylight slots a sensor counts as having gaps. */
 export const LOW_COVERAGE_PCT = 80;
@@ -28,7 +29,7 @@ export const shiftDay = (day: string, n: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-export const hhmm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+export const hhmm = (iso: string) => new Date(iso).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
 
 /** Plant-local now as "YYYY-MM-DD HH:MM:SS", the format of stored timestamps. */
 export const plantNow = () => new Date().toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" });
@@ -36,7 +37,13 @@ export const plantNow = () => new Date().toLocaleString("sv-SE", { timeZone: "As
 export const minutesBetween = (from: string, to: string) => Math.round((Date.parse(to.replace(" ", "T")) - Date.parse(from.replace(" ", "T"))) / 60000);
 
 export const fmtAge = (min: number) =>
-  min < 1 ? "just now" : min < 60 ? `${min} min ago` : min < 48 * 60 ? `${Math.floor(min / 60)} h ${min % 60} m ago` : `${Math.floor(min / 1440)} d ago`;
+  min < 1
+    ? translate("just now")
+    : min < 60
+      ? translate("{n} min ago", { n: min })
+      : min < 48 * 60
+        ? translate("{h} h {m} m ago", { h: Math.floor(min / 60), m: min % 60 })
+        : translate("{n} d ago", { n: Math.floor(min / 1440) });
 
 export const coverageTone = (pct: number | null) =>
   pct == null ? "text-slate-500" : pct >= 90 ? "text-emerald-300" : pct >= LOW_COVERAGE_PCT ? "text-amber-300" : "text-red-300";

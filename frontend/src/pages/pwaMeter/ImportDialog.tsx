@@ -1,4 +1,4 @@
-/** O&M Dashboard → Import daily report (admin): three steps in one dialog.
+/** Engineering O&M → Import daily report (admin): three steps in one dialog.
  *  1. Files: drop or pick the daily report workbooks; choosing them runs the check at once.
  *  2. Check: totals, a status line (ready / problems / check again), and the sheets that need a
  *     look (problems first) with their day, rows and changes; set a missing day or skip a sheet.
@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtDay, isDay } from "./format";
+import { translate, useI18n } from "../../i18n";
 
 const ACCEPT = /\.(xlsx|xlsm)$/i;
 const needsLook = (s: PwaImportSheet) => s.errors.length > 0 || s.warnings.length > 0 || s.new > 0 || s.changed > 0;
@@ -27,12 +28,15 @@ const needsLook = (s: PwaImportSheet) => s.errors.length > 0 || s.warnings.lengt
 const rank = (s: PwaImportSheet) => (s.errors.length ? 0 : s.warnings.length ? 1 : 2);
 const fileKey = (f: File) => `${f.name}:${f.size}:${f.lastModified}`;
 const fmtSize = (b: number) => (b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`);
-const plural = (n: number, one: string, many = `${one}s`) => `${fmtInt(n)} ${n === 1 ? one : many}`;
+/** "{n} sheet" / "{n} sheets": one dictionary key per form, so Thai (no plural) can word each */
+const plural = (n: number, one: string, many = `${one}s`) => translate(`{n} ${n === 1 ? one : many}`, { n: fmtInt(n) });
 
 // ---- step indicator
 const STEPS = ["Files", "Check", "Imported"] as const;
-const Steps: React.FC<{ at: number }> = ({ at }) => (
-  <ol className="flex items-center gap-2 text-[11px]" aria-label="Import steps">
+const Steps: React.FC<{ at: number }> = ({ at }) => {
+  const { t } = useI18n();
+  return (
+  <ol className="flex items-center gap-2 text-[11px]" aria-label={t("Import steps")}>
     {STEPS.map((label, i) => (
       <li key={label} className="flex items-center gap-2" aria-current={i === at ? "step" : undefined}>
         {i > 0 && <span className={cn("h-px w-6", i <= at ? "bg-solar-400/60" : "bg-white/10")} />}
@@ -44,14 +48,16 @@ const Steps: React.FC<{ at: number }> = ({ at }) => (
         >
           {i < at ? <Check className="size-3" /> : i + 1}
         </span>
-        <span className={cn(i === at ? "font-semibold text-foreground" : "text-muted-foreground")}>{label}</span>
+        <span className={cn(i === at ? "font-semibold text-foreground" : "text-muted-foreground")}>{t(label)}</span>
       </li>
     ))}
   </ol>
-);
+  );
+};
 
 // ---- step 1: the drop zone and the chosen files
 const DropZone: React.FC<{ files: File[]; disabled: boolean; onAdd: (f: File[]) => void; onRemove: (f: File) => void }> = ({ files, disabled, onAdd, onRemove }) => {
+  const { t } = useI18n();
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [rejected, setRejected] = useState<string[]>([]);
@@ -84,8 +90,8 @@ const DropZone: React.FC<{ files: File[]; disabled: boolean; onAdd: (f: File[]) 
         )}
       >
         <Upload className={cn("size-5", over ? "text-solar-300" : "text-muted-foreground")} />
-        <span className="text-xs font-medium text-foreground">{files.length ? "Add more workbooks" : "Drop the daily report workbooks here, or click to choose"}</span>
-        {!files.length && <span className="text-[11px] text-muted-foreground">.xlsx / .xlsm · phase 1: one day per file · phase 2: one sheet per day</span>}
+        <span className="text-xs font-medium text-foreground">{files.length ? t("Add more workbooks") : t("Drop the daily report workbooks here, or click to choose")}</span>
+        {!files.length && <span className="text-[11px] text-muted-foreground">{t(".xlsx / .xlsm · phase 1: one day per file · phase 2: one sheet per day")}</span>}
       </button>
       <input
         ref={input}
@@ -97,9 +103,9 @@ const DropZone: React.FC<{ files: File[]; disabled: boolean; onAdd: (f: File[]) 
           take(e.target.files);
           e.target.value = "";
         }}
-        aria-label="Report workbooks"
+        aria-label={t("Report workbooks")}
       />
-      {rejected.length > 0 && <p className="text-[11px] text-amber-300">Not a workbook, left out: {rejected.join(", ")}</p>}
+      {rejected.length > 0 && <p className="text-[11px] text-amber-300">{t("Not a workbook, left out: {names}", { names: rejected.join(", ") })}</p>}
       {files.length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
           {files.map((f) => (
@@ -109,7 +115,7 @@ const DropZone: React.FC<{ files: File[]; disabled: boolean; onAdd: (f: File[]) 
                 {f.name}
               </span>
               <span className="num shrink-0 text-muted-foreground">{fmtSize(f.size)}</span>
-              <Button variant="ghost" size="icon-xs" disabled={disabled} onClick={() => onRemove(f)} aria-label={`Remove ${f.name}`}>
+              <Button variant="ghost" size="icon-xs" disabled={disabled} onClick={() => onRemove(f)} aria-label={t("Remove {name}", { name: f.name })}>
                 <X />
               </Button>
             </li>
@@ -130,12 +136,13 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: React.ReactN
 );
 
 const Totals: React.FC<{ r: PwaImportResult }> = ({ r }) => {
+  const { t: tr } = useI18n();
   const t = r.totals;
   const pct = t.rows ? (100 * t.matched) / t.rows : null;
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
       <Stat
-        label="Rows matched"
+        label={tr("Rows matched")}
         value={
           <>
             {fmtInt(t.matched)}
@@ -144,18 +151,18 @@ const Totals: React.FC<{ r: PwaImportResult }> = ({ r }) => {
         }
         sub={
           pct == null ? undefined : (
-            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-white/10" title={`${pct.toFixed(1)} % matched a site`}>
+            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-white/10" title={tr("{pct} % matched a site", { pct: pct.toFixed(1) })}>
               <span className={cn("block h-full", t.unmatched ? "bg-amber-400" : "bg-emerald-400")} style={{ width: `${pct}%` }} />
             </span>
           )
         }
         tone={t.unmatched ? "text-amber-300" : undefined}
       />
-      <Stat label="New days" value={fmtInt(t.new)} tone={t.new ? "text-emerald-300" : "text-muted-foreground"} sub="not stored yet" />
-      <Stat label="Changed" value={fmtInt(t.changed)} tone={t.changed ? "text-sky-300" : "text-muted-foreground"} sub="stored, will be updated" />
-      <Stat label="Unchanged" value={fmtInt(t.unchanged)} tone="text-muted-foreground" sub={t.before_start ? `${fmtInt(t.before_start)} before contract start` : "already stored"} />
+      <Stat label={tr("New days")} value={fmtInt(t.new)} tone={t.new ? "text-emerald-300" : "text-muted-foreground"} sub={tr("not stored yet")} />
+      <Stat label={tr("Changed")} value={fmtInt(t.changed)} tone={t.changed ? "text-sky-300" : "text-muted-foreground"} sub={tr("stored, will be updated")} />
+      <Stat label={tr("Unchanged")} value={fmtInt(t.unchanged)} tone="text-muted-foreground" sub={t.before_start ? tr("{n} before contract start", { n: fmtInt(t.before_start) }) : tr("already stored")} />
       <Stat
-        label="Days"
+        label={tr("Days")}
         value={<span className="text-sm">{r.days.first ? (r.days.first === r.days.last ? fmtDay(r.days.first) : `${fmtDay(r.days.first)} –`) : "—"}</span>}
         sub={r.days.first && r.days.first !== r.days.last ? fmtDay(r.days.last) : plural(r.sheets.length, "sheet")}
       />
@@ -164,16 +171,18 @@ const Totals: React.FC<{ r: PwaImportResult }> = ({ r }) => {
 };
 
 // ---- step 2: one sheet
-const SheetIcon: React.FC<{ s: PwaImportSheet; skip: boolean }> = ({ s, skip }) =>
-  skip ? (
-    <MinusCircle className="size-4 text-muted-foreground" aria-label="Skipped" />
+const SheetIcon: React.FC<{ s: PwaImportSheet; skip: boolean }> = ({ s, skip }) => {
+  const { t } = useI18n();
+  return skip ? (
+    <MinusCircle className="size-4 text-muted-foreground" aria-label={t("Skipped")} />
   ) : s.errors.length ? (
-    <XCircle className="size-4 text-red-400" aria-label="Problem" />
+    <XCircle className="size-4 text-red-400" aria-label={t("Problem")} />
   ) : s.warnings.length ? (
-    <AlertTriangle className="size-4 text-amber-400" aria-label="Note" />
+    <AlertTriangle className="size-4 text-amber-400" aria-label={t("Note")} />
   ) : (
-    <CheckCircle2 className="size-4 text-emerald-400" aria-label="OK" />
+    <CheckCircle2 className="size-4 text-emerald-400" aria-label={t("OK")} />
   );
+};
 
 const SheetRow: React.FC<{
   s: PwaImportSheet;
@@ -182,6 +191,7 @@ const SheetRow: React.FC<{
   onDay: (v: string) => void;
   onSkip: (v: boolean) => void;
 }> = ({ s, day, skip, onDay, onSkip }) => {
+  const { t } = useI18n();
   const details = s.errors.length + s.warnings.length + s.unmatched.length;
   const [open, setOpen] = useState(s.errors.length > 0);
   const missingDay = !day && !skip;
@@ -208,9 +218,9 @@ const SheetRow: React.FC<{
             value={day}
             disabled={skip || !s.sheet}
             onChange={(e) => onDay(e.target.value)}
-            aria-label={`Day of ${s.sheet}`}
+            aria-label={t("Day of {sheet}", { sheet: s.sheet })}
           />
-          <span className={cn("mt-0.5 block text-[10px]", missingDay ? "text-red-300" : "text-muted-foreground")}>{s.day_source ? `from ${s.day_source}` : "no date found: set it"}</span>
+          <span className={cn("mt-0.5 block text-[10px]", missingDay ? "text-red-300" : "text-muted-foreground")}>{s.day_source ? t("from {src}", { src: s.day_source }) : t("no date found: set it")}</span>
         </TableCell>
         <TableCell className="num text-right whitespace-nowrap">
           <span className={cn(s.matched < s.rows && "text-amber-300")}>{fmtInt(s.matched)}</span>
@@ -218,12 +228,12 @@ const SheetRow: React.FC<{
         </TableCell>
         <TableCell>
           <div className="flex flex-wrap gap-1">
-            {s.new > 0 && <Badge variant="ok">+{fmtInt(s.new)} new</Badge>}
-            {s.changed > 0 && <Badge variant="info">{fmtInt(s.changed)} changed</Badge>}
-            {s.unchanged > 0 && <Badge variant="neutral">{fmtInt(s.unchanged)} same</Badge>}
+            {s.new > 0 && <Badge variant="ok">{t("+{n} new", { n: fmtInt(s.new) })}</Badge>}
+            {s.changed > 0 && <Badge variant="info">{t("{n} changed", { n: fmtInt(s.changed) })}</Badge>}
+            {s.unchanged > 0 && <Badge variant="neutral">{t("{n} same", { n: fmtInt(s.unchanged) })}</Badge>}
             {s.before_start > 0 && (
-              <Badge variant="neutral" title="Rows of days before the phase's contract start: not stored">
-                {fmtInt(s.before_start)} pre-start
+              <Badge variant="neutral" title={t("Rows of days before the phase's contract start: not stored")}>
+                {t("{n} pre-start", { n: fmtInt(s.before_start) })}
               </Badge>
             )}
             {!s.new && !s.changed && !s.unchanged && !s.before_start && <span className="text-muted-foreground">—</span>}
@@ -236,13 +246,13 @@ const SheetRow: React.FC<{
             <button type="button" className="flex items-center gap-1 text-left" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
               {s.errors.length > 0 && <Badge variant="crit">{plural(s.errors.length, "problem")}</Badge>}
               {s.warnings.length > 0 && <Badge variant="warn">{plural(s.warnings.length, "note")}</Badge>}
-              {s.unmatched.length > 0 && !s.errors.length && !s.warnings.length && <Badge variant="warn">{fmtInt(s.unmatched.length)} unmatched</Badge>}
+              {s.unmatched.length > 0 && !s.errors.length && !s.warnings.length && <Badge variant="warn">{t("{n} unmatched", { n: fmtInt(s.unmatched.length) })}</Badge>}
               <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
             </button>
           )}
         </TableCell>
         <TableCell className="text-center">
-          <Checkbox checked={skip} onCheckedChange={(v) => onSkip(v === true)} aria-label={`Skip ${s.sheet}`} disabled={!s.sheet} />
+          <Checkbox checked={skip} onCheckedChange={(v) => onSkip(v === true)} aria-label={t("Skip {sheet}", { sheet: s.sheet })} disabled={!s.sheet} />
         </TableCell>
       </TableRow>
       {open && details > 0 && (
@@ -263,16 +273,16 @@ const SheetRow: React.FC<{
                 </li>
               ))}
               {s.unmatched.length > 0 && (
-                <li className="mt-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Rows that match no site ({fmtInt(s.unmatched.length)})</li>
+                <li className="mt-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">{t("Rows that match no site ({n})", { n: fmtInt(s.unmatched.length) })}</li>
               )}
               {s.unmatched.slice(0, 20).map((u) => (
                 <li key={u.row} className="text-muted-foreground">
-                  <span className="num text-foreground/80">Row {u.row}</span> · {u.name}
+                  <span className="num text-foreground/80">{t("Row {n}", { n: u.row })}</span> · {u.name}
                   {u.comp_id != null ? ` (comp_id ${u.comp_id})` : ""}
-                  {u.meter_no ? ` · meter ${u.meter_no}` : ""} — {u.reason}
+                  {u.meter_no ? ` · ${t("meter {no}", { no: u.meter_no })}` : ""} — {u.reason}
                 </li>
               ))}
-              {s.unmatched.length > 20 && <li className="text-muted-foreground">… {fmtInt(s.unmatched.length - 20)} more</li>}
+              {s.unmatched.length > 20 && <li className="text-muted-foreground">{t("… {n} more", { n: fmtInt(s.unmatched.length - 20) })}</li>}
             </ul>
           </TableCell>
         </TableRow>
@@ -283,6 +293,7 @@ const SheetRow: React.FC<{
 
 // ---- the dialog
 export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImported: () => void }> = ({ open, onClose, onImported }) => {
+  const { t: tr } = useI18n();
   const [files, setFiles] = useState<File[]>([]);
   const [result, setResult] = useState<PwaImportResult | null>(null);
   const [days, setDays] = useState<Record<string, string>>({});
@@ -370,11 +381,11 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
       <DialogContent className="flex max-h-[90vh] flex-col gap-4 sm:max-w-5xl">
         <DialogHeader className="gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
-            <DialogTitle>Import daily report</DialogTitle>
+            <DialogTitle>{tr("Import daily report")}</DialogTitle>
             <Steps at={step} />
           </div>
           <DialogDescription>
-            The PWA daily report workbooks as the sites send them. Nothing is stored until you press Import; a day already stored is updated.
+            {tr("The PWA daily report workbooks as the sites send them. Nothing is stored until you press Import; a day already stored is updated.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -383,14 +394,14 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
 
           {error && (
             <Alert variant="destructive">
-              <AlertTitle>{error.commit ? "Import failed" : "Check failed"}</AlertTitle>
+              <AlertTitle>{error.commit ? tr("Import failed") : tr("Check failed")}</AlertTitle>
               <AlertDescription>{error.text}</AlertDescription>
             </Alert>
           )}
 
           {busy === "check" && !result && (
             <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
-              <Spinner className="size-4" /> Reading {plural(files.length, "workbook")}…
+              <Spinner className="size-4" /> {tr("Reading {files}…", { files: plural(files.length, "workbook") })}
             </div>
           )}
 
@@ -400,9 +411,9 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
                 <CheckCircle2 className="size-6 text-emerald-300" />
               </span>
               <div>
-                <div className="text-sm font-semibold">{plural(t.new + t.changed, "day")} stored</div>
+                <div className="text-sm font-semibold">{tr("{days} stored", { days: plural(t.new + t.changed, "day") })}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {fmtInt(t.new)} new · {fmtInt(t.changed)} updated · {fmtInt(t.unchanged)} unchanged
+                  {tr("{new} new · {changed} updated · {same} unchanged", { new: fmtInt(t.new), changed: fmtInt(t.changed), same: fmtInt(t.unchanged) })}
                   {result.days.first && (
                     <>
                       {" "}
@@ -411,7 +422,7 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
                     </>
                   )}
                 </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">The page shows them now.</div>
+                <div className="mt-1 text-[11px] text-muted-foreground">{tr("The page shows them now.")}</div>
               </div>
             </div>
           )}
@@ -423,46 +434,46 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
               {stale ? (
                 <Alert>
                   <AlertTriangle className="text-amber-300!" />
-                  <AlertTitle>You changed a day or a skip</AlertTitle>
-                  <AlertDescription>Check again to see what the import would store with your changes.</AlertDescription>
+                  <AlertTitle>{tr("You changed a day or a skip")}</AlertTitle>
+                  <AlertDescription>{tr("Check again to see what the import would store with your changes.")}</AlertDescription>
                 </Alert>
               ) : !result.ok ? (
                 <Alert variant="destructive">
                   <XCircle />
-                  <AlertTitle>{plural(problemSheets || 1, "sheet")} with problems</AlertTitle>
+                  <AlertTitle>{tr("{sheets} with problems", { sheets: plural(problemSheets || 1, "sheet") })}</AlertTitle>
                   <AlertDescription>
-                    Set the sheet's day, or tick Skip, then check again. Rows that match no site must be fixed in the report or the site list.
+                    {tr("Set the sheet's day, or tick Skip, then check again. Rows that match no site must be fixed in the report or the site list.")}
                   </AlertDescription>
                 </Alert>
               ) : toStore > 0 ? (
                 <Alert>
                   <CheckCircle2 className="text-emerald-300!" />
-                  <AlertTitle>Ready to import {plural(toStore, "day")}</AlertTitle>
+                  <AlertTitle>{tr("Ready to import {days}", { days: plural(toStore, "day") })}</AlertTitle>
                   <AlertDescription>
-                    {fmtInt(t.new)} new and {fmtInt(t.changed)} changed site-days from {plural(sheets.filter((s) => days[s.key] !== "skip").length, "sheet")}.
+                    {tr("{new} new and {changed} changed site-days from {sheets}.", { new: fmtInt(t.new), changed: fmtInt(t.changed), sheets: plural(sheets.filter((s) => days[s.key] !== "skip").length, "sheet") })}
                   </AlertDescription>
                 </Alert>
               ) : (
                 <Alert>
                   <CheckCircle2 className="text-muted-foreground!" />
-                  <AlertTitle>Nothing new</AlertTitle>
-                  <AlertDescription>Every day in these workbooks is already stored with the same figures.</AlertDescription>
+                  <AlertTitle>{tr("Nothing new")}</AlertTitle>
+                  <AlertDescription>{tr("Every day in these workbooks is already stored with the same figures.")}</AlertDescription>
                 </Alert>
               )}
 
               {result.months_without_expected.length > 0 && (
                 <Alert>
                   <AlertTriangle className="text-amber-300!" />
-                  <AlertTitle>No expected energy for {result.months_without_expected.join(", ")}</AlertTitle>
+                  <AlertTitle>{tr("No expected energy for {months}", { months: result.months_without_expected.join(", ") })}</AlertTitle>
                   <AlertDescription>
-                    Those days get no contract / PVsyst figure (shown as —, left out of the contract and PVsyst ratios). Build the months from the model
-                    workbook: <code>python -m app.services.pwa_meter expected --model …</code>
+                    {tr("Those days get no contract / PVsyst figure (shown as —, left out of the contract and PVsyst ratios). Build the months from the model workbook:")}{" "}
+                    <code>python -m app.services.pwa_meter expected --model …</code>
                   </AlertDescription>
                 </Alert>
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="inline-flex rounded-lg border border-white/[0.07] bg-ink-900/80 p-0.5" role="tablist" aria-label="Sheets shown">
+                <div className="inline-flex rounded-lg border border-white/[0.07] bg-ink-900/80 p-0.5" role="tablist" aria-label={tr("Sheets shown")}>
                   {[
                     { all: false, label: "Needs a look", n: attention.length },
                     { all: true, label: "All sheets", n: sheets.length },
@@ -481,26 +492,26 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
                           on ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        {o.label} <span className="num ml-0.5 text-muted-foreground">{o.n}</span>
+                        {tr(o.label)} <span className="num ml-0.5 text-muted-foreground">{o.n}</span>
                       </button>
                     );
                   })}
                 </div>
-                <span className="text-[11px] text-muted-foreground">Problems first · "needs a look" = problems, notes, new or changed days</span>
+                <span className="text-[11px] text-muted-foreground">{tr('Problems first · "needs a look" = problems, notes, new or changed days')}</span>
               </div>
 
               <Table containerClassName="table-wrap max-h-[45vh]">
                 <TableHeader className="sticky top-0 z-10 bg-ink-900">
                   <TableRow>
                     <TableHead className="w-8 pr-0">
-                      <span className="sr-only">Status</span>
+                      <span className="sr-only">{tr("Status")}</span>
                     </TableHead>
-                    <TableHead>Sheet</TableHead>
-                    <TableHead>Day</TableHead>
-                    <TableHead className="text-right">Matched</TableHead>
-                    <TableHead>Site-days</TableHead>
-                    <TableHead>Issues</TableHead>
-                    <TableHead className="text-center">Skip</TableHead>
+                    <TableHead>{tr("Sheet")}</TableHead>
+                    <TableHead>{tr("Day")}</TableHead>
+                    <TableHead className="text-right">{tr("Matched")}</TableHead>
+                    <TableHead>{tr("Site-days")}</TableHead>
+                    <TableHead>{tr("Issues")}</TableHead>
+                    <TableHead className="text-center">{tr("Skip")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -522,34 +533,34 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
 
         <DialogFooter className="items-center sm:justify-between">
           <span className="text-[11px] text-muted-foreground">
-            {committed ? "" : busy === "check" ? "Checking…" : files.length ? `${plural(files.length, "workbook")} · checked by the server, nothing stored yet` : "No files chosen"}
+            {committed ? "" : busy === "check" ? tr("Checking…") : files.length ? tr("{files} · checked by the server, nothing stored yet", { files: plural(files.length, "workbook") }) : tr("No files chosen")}
           </span>
           <div className="flex gap-2">
             {committed ? (
               <>
                 <Button variant="ghost" onClick={reset}>
-                  Import more
+                  {tr("Import more")}
                 </Button>
-                <Button onClick={close}>Done</Button>
+                <Button onClick={close}>{tr("Done")}</Button>
               </>
             ) : (
               <>
                 <Button variant="ghost" onClick={close} disabled={busy != null}>
-                  Cancel
+                  {tr("Cancel")}
                 </Button>
                 {result && stale ? (
                   <Button onClick={() => void run(false)} disabled={busy != null}>
                     {busy === "check" && <Spinner data-icon="inline-start" className="size-3" />}
-                    Check again
+                    {tr("Check again")}
                   </Button>
                 ) : (
                   <Button
                     onClick={() => void run(true)}
                     disabled={busy != null || !result || !result.ok || toStore === 0}
-                    title={!result ? "Choose the workbooks first" : !result.ok ? "Fix the problems first" : toStore === 0 ? "Nothing new to store" : undefined}
+                    title={!result ? tr("Choose the workbooks first") : !result.ok ? tr("Fix the problems first") : toStore === 0 ? tr("Nothing new to store") : undefined}
                   >
                     {busy === "import" && <Spinner data-icon="inline-start" className="size-3" />}
-                    {toStore > 0 ? `Import ${plural(toStore, "day")}` : "Import"}
+                    {toStore > 0 ? tr("Import {days}", { days: plural(toStore, "day") }) : tr("Import")}
                   </Button>
                 )}
               </>

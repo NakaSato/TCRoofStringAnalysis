@@ -9,6 +9,7 @@ import { GoogleWeatherPanel } from "../components/GoogleWeatherPanel";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { dayLabel } from "@/lib/day";
 import { cn } from "@/lib/utils";
+import { translate, useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,10 +23,12 @@ import type { EpiFactor } from "../api/client";
 /** How the EPI model's system factor came about, for the EPI hint. */
 const epiBasis = (f: EpiFactor | undefined): string =>
   !f
-    ? "default factor"
+    ? translate("default factor")
     : f.basis === "fitted"
-      ? `plant factor ${fmt(f.factor, 3)} from ${f.days_used} clear days`
-      : `default factor ${fmt(f.factor, 3)}${f.status === "rejected" && f.fit_factor != null ? `; fit ${fmt(f.fit_factor, 2)} rejected` : ""}`;
+      ? translate("plant factor {f} from {n} clear days", { f: fmt(f.factor, 3), n: f.days_used })
+      : f.status === "rejected" && f.fit_factor != null
+        ? translate("default factor {f}; fit {fit} rejected", { f: fmt(f.factor, 3), fit: fmt(f.fit_factor, 2) })
+        : translate("default factor {f}", { f: fmt(f.factor, 3) });
 
 const STAT_ROW = "grid grid-cols-2 overflow-hidden rounded-lg border border-white/[0.06] md:grid-cols-4";
 
@@ -39,6 +42,7 @@ const CHARTS = ["yield", "thermal"] as const;
 export const GenerationPrPage: React.FC = () => {
   const { selectedPlantOverview: ov, plantOverviewLoading, plantLive } = useAppContext();
   const plantHref = usePlantHref();
+  const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   const chart = pick(url.get("chart"), CHARTS, "yield");
 
@@ -60,7 +64,7 @@ export const GenerationPrPage: React.FC = () => {
     return (
       <div className="flex flex-col gap-4">
         <SelectedPlantBanner />
-        <LoadingState label="Loading the plant's stored day…" shape="page" />
+        <LoadingState label={t("Loading the plant's stored day…")} shape="page" />
       </div>
     );
   }
@@ -68,7 +72,7 @@ export const GenerationPrPage: React.FC = () => {
     return (
       <div className="flex flex-col gap-4">
         <SelectedPlantBanner />
-        <EmptyState icon={Building2} title="No stored day for this plant" description="The worker has not stored history for it yet." />
+        <EmptyState icon={Building2} title={t("No stored day for this plant")} description={t("The worker has not stored history for it yet.")} />
       </div>
     );
   }
@@ -101,15 +105,15 @@ export const GenerationPrPage: React.FC = () => {
         <CardContent className="flex flex-col gap-4">
           <div className="grid gap-4 min-[1600px]:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <GroupLabel title="Energy" note="measured" />
+              <GroupLabel title="Energy" note={t("measured")} />
               <div className={STAT_ROW}>
                 <Stat label="Yield" hint={revenue != null ? `฿${fmt(revenue, 0)} · ฿${fmt(k.tariff_thb_per_kwh, 2)}/kWh` : undefined}>
                   {fmt(k.yield_today_kwh, 1)} <Unit>kWh</Unit>
                 </Stat>
-                <Stat label="Specific yield" hint={k.capacity_kwp != null ? `of ${fmt(k.capacity_kwp, 1)} kWp` : undefined}>
+                <Stat label="Specific yield" hint={k.capacity_kwp != null ? t("of {v} kWp", { v: fmt(k.capacity_kwp, 1) }) : undefined}>
                   {fmt(k.specific_yield_kwh_per_kwp, 2)} <Unit>kWh/kWp</Unit>
                 </Stat>
-                <Stat label="Peak AC" hint={peak ? `at ${hhmm(peak.timestamp)}` : undefined}>
+                <Stat label="Peak AC" hint={peak ? t("at {t}", { t: hhmm(peak.timestamp) }) : undefined}>
                   {fmt(k.peak_power_kw, 1)} <Unit>kW</Unit>
                 </Stat>
                 <Stat label="Lifetime">
@@ -120,27 +124,31 @@ export const GenerationPrPage: React.FC = () => {
             <div className="flex flex-col gap-2">
               <GroupLabel title="Performance" note={
                   sensorSuspect
-                    ? `IEC 61724 · weather sensor suspect: ${sensorSuspect}`
+                    ? t("IEC 61724 · weather sensor suspect: {r}", { r: sensorSuspect })
                     : iec != null
-                    ? "IEC 61724 from the weather sensor"
+                    ? t("IEC 61724 from the weather sensor")
                     : iecReason
-                      ? `peer-relative · no IEC PR: ${iecReason}`
-                      : "peer-relative · no weather sensor for IEC PR"
+                      ? t("peer-relative · no IEC PR: {r}", { r: iecReason })
+                      : t("peer-relative · no weather sensor for IEC PR")
                 } />
               <div className={STAT_ROW}>
                 <Stat
                   label={iec != null ? "PR · IEC 61724" : "PR · peer-relative"}
                   hint={
                     k.iec_pr_temp_corrected_pct != null
-                      ? `PR' ${fmt(k.iec_pr_temp_corrected_pct, 1)} % (temp-corrected${k.irradiance_weighted_module_temp_c != null ? ` at ${fmt(k.irradiance_weighted_module_temp_c, 1)} °C` : ""})${k.epi != null ? ` · EPI ${fmt(k.epi, 2)} (modelled, ${epiBasis(k.epi_factor)})` : ""}`
+                      ? `${
+                          k.irradiance_weighted_module_temp_c != null
+                            ? t("PR' {v} % (temp-corrected at {c} °C)", { v: fmt(k.iec_pr_temp_corrected_pct, 1), c: fmt(k.irradiance_weighted_module_temp_c, 1) })
+                            : t("PR' {v} % (temp-corrected)", { v: fmt(k.iec_pr_temp_corrected_pct, 1) })
+                        }${k.epi != null ? ` · ${t("EPI {v} (modelled, {basis})", { v: fmt(k.epi, 2), basis: epiBasis(k.epi_factor) })}` : ""}`
                       : prDelta != null
-                        ? `${prDelta >= 0 ? "+" : ""}${fmt(prDelta, 1)} pts vs target ${fmt(target, 0)} %`
+                        ? t("{d} pts vs target {t} %", { d: `${prDelta >= 0 ? "+" : ""}${fmt(prDelta, 1)}`, t: fmt(target, 0) })
                         : undefined
                   }
                 >
                   <span
                     className={cn(sensorSuspect ? "text-muted-foreground" : target != null && prTone(pr, target))}
-                    title={sensorSuspect ? `Weather sensor suspect (R16): ${sensorSuspect}` : undefined}
+                    title={sensorSuspect ? t("Weather sensor suspect (R16): {r}", { r: sensorSuspect }) : undefined}
                   >
                     {fmt(pr, 1)}
                   </span>{" "}
@@ -150,13 +158,13 @@ export const GenerationPrPage: React.FC = () => {
                   label="DC→AC efficiency"
                   hint={
                     k.ya_minus_yf != null
-                      ? `Ya − Yf ${fmt(k.ya_minus_yf, 2)} h/d · energy-weighted`
-                      : "energy-weighted"
+                      ? t("Ya − Yf {v} h/d · energy-weighted", { v: fmt(k.ya_minus_yf, 2) })
+                      : t("energy-weighted")
                   }
                 >
                   {fmt(k.conversion_efficiency_pct, 2)} <Unit>%</Unit>
                 </Stat>
-                <Stat label="Inverter temp" hint={hottest ? `avg / max (${invName(hottest)})` : "avg / max"}>
+                <Stat label="Inverter temp" hint={hottest ? t("avg / max ({name})", { name: invName(hottest) }) : t("avg / max")}>
                   {fmt(k.avg_temp_c, 1)} /{" "}
                   <span className={cn(k.max_temp_c != null && k.max_temp_c >= HOT_C && "text-amber-300")}>{fmt(k.max_temp_c, 1)}</span>{" "}
                   <Unit>°C</Unit>
@@ -165,10 +173,10 @@ export const GenerationPrPage: React.FC = () => {
                   label="Insolation"
                   hint={
                     insolation != null
-                      ? `peak ${fmt(k.peak_irradiance_wm2, 0)} W/m²`
+                      ? t("peak {v} W/m²", { v: fmt(k.peak_irradiance_wm2, 0) })
                       : ov.weather?.has_sensor
-                        ? "no sensor reading"
-                        : "no weather sensor"
+                        ? t("no sensor reading")
+                        : t("no weather sensor")
                   }
                 >
                   {fmt(insolation, 2)} <Unit>kWh/m²</Unit>
@@ -178,8 +186,8 @@ export const GenerationPrPage: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <GroupLabel title="Plant power" note="AC and DC summed over the inverters · clear-sky envelope is modelled (82 % of kWp at noon)" />
-            <PanelChart spec={power} height={320} legendToggle emptyLabel="No stored records for this day" />
+            <GroupLabel title="Plant power" note={t("AC and DC summed over the inverters · clear-sky envelope is modelled (82 % of kWp at noon)")} />
+            <PanelChart spec={power} height={320} legendToggle emptyLabel={t("No stored records for this day")} />
           </div>
         </CardContent>
       </Card>
@@ -188,15 +196,15 @@ export const GenerationPrPage: React.FC = () => {
         <Card className="gap-4">
           <CardHeader className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex flex-col gap-1">
-              <CardTitle>By inverter</CardTitle>
+              <CardTitle>{t("By inverter")}</CardTitle>
               <CardDescription>
-                {chart === "yield" ? "Peer-relative PR against the target, and specific yield" : "Day temperature and DC→AC efficiency"}
+                {chart === "yield" ? t("Peer-relative PR against the target, and specific yield") : t("Day temperature and DC→AC efficiency")}
               </CardDescription>
             </div>
             <Tabs value={chart} onValueChange={(v) => setUrl({ chart: v === "yield" ? null : v })}>
-              <TabsList variant="line" aria-label="Inverter chart">
-                <TabsTrigger value="yield">Yield & PR</TabsTrigger>
-                <TabsTrigger value="thermal">Temperature</TabsTrigger>
+              <TabsList variant="line" aria-label={t("Inverter chart")}>
+                <TabsTrigger value="yield">{t("Yield & PR")}</TabsTrigger>
+                <TabsTrigger value="thermal">{t("Temperature")}</TabsTrigger>
               </TabsList>
             </Tabs>
           </CardHeader>
@@ -208,13 +216,13 @@ export const GenerationPrPage: React.FC = () => {
         <Card className="gap-4">
           <CardHeader>
             <CardTitle className="flex flex-wrap items-center gap-2">
-              Loss breakdown
-              <Badge variant="neutral">modelled</Badge>
+              {t("Loss breakdown")}
+              <Badge variant="neutral">{t("modelled")}</Badge>
             </CardTitle>
             <CardDescription>
               {ov.loss_waterfall[0]?.stage.includes("measured")
-                ? "From measured plane-of-array insolation × kWp to the measured AC yield"
-                : "From a reference derived from peer-relative PR to the measured AC yield"}
+                ? t("From measured plane-of-array insolation × kWp to the measured AC yield")
+                : t("From a reference derived from peer-relative PR to the measured AC yield")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -222,7 +230,7 @@ export const GenerationPrPage: React.FC = () => {
               <PanelChart spec={waterfall} height={340} />
             ) : (
               <p className="py-10 text-center text-xs text-muted-foreground">
-                Not built for this day: it needs the day's yield, a PR, and inverter temperature and efficiency, all measured.
+                {t("Not built for this day: it needs the day's yield, a PR, and inverter temperature and efficiency, all measured.")}
               </p>
             )}
           </CardContent>
@@ -236,13 +244,13 @@ export const GenerationPrPage: React.FC = () => {
       {inverters.length > 0 && target != null && <InverterTable inverters={inverters} target={target} dayText={dayText} />}
 
       <p className="text-[11px] text-muted-foreground">
-        Live values per inverter are on the{" "}
+        {t("Live values per inverter are on the")}{" "}
         <Link className="text-solar-300 underline-offset-2 hover:underline" to={plantHref("inverters")}>
-          Inverters
+          {t("Inverters")}
         </Link>{" "}
-        tab; irradiance and module temperature on{" "}
+        {t("tab; irradiance and module temperature on")}{" "}
         <Link className="text-solar-300 underline-offset-2 hover:underline" to={`${plantHref("sensors")}#weather-station`}>
-          Sensors
+          {t("Sensors")}
         </Link>
         .
       </p>

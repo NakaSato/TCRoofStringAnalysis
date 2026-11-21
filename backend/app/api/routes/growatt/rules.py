@@ -43,60 +43,13 @@ def rule_findings(
     }
 
 
-@router.get("/rules")
-def get_rules(
-    since_days: int = Query(90, ge=1, le=730, description="Rule review covers issues opened in the last N days"),
-    db: Session = Depends(get_db),
-    _user: User = Depends(require_admin),
-) -> Dict[str, Any]:
-    """Rule settings (thresholds, enabled, shadow) and Rule review: per rule, how many issues it
-    opened, how they ended (auto-closed / resolved / dismissed, confirmed vs false alarm) and the
-    estimated baht they found. Admin only."""
-    from app.services import growatt_issues, growatt_rules
-
-    since = jobs._today() - timedelta(days=since_days)
-    return {
-        "settings": growatt_rules.rule_settings(db),
-        "defaults": {**growatt_rules.DEFAULT_RULES, "rules": {r: dict(growatt_rules.DEFAULT_RULE_STATE) for r in growatt_rules.RULE_NAMES}},
-        "names": growatt_rules.RULE_NAMES,
-        "review": growatt_issues.review(db, since),
-        "since": since.isoformat(),
-        "meta": {"source": "db", "estimated": ["thb_total_est"]},
-    }
-
-
-@router.put("/rules")
-def put_rules(
-    payload: Dict[str, Any],
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-) -> Dict[str, Any]:
-    """Change rule settings (any subset of the keys of `GET /growatt/rules` `settings`). Each
-    changed value is logged to System → Logs with its old and new value. Applies from the next
-    `rules_*` run. Admin only."""
-
-    try:
-        old, new = growatt_rules.put_rule_settings(db, payload, user.username or user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    who = user.username or user.email
-    for k in new:
-        if k == "rules":
-            for r, st in new["rules"].items():
-                if st != old["rules"].get(r):
-                    audit.info("%s changed rule %s: %s -> %s", who, r, old["rules"].get(r), st)
-        elif new[k] != old.get(k):
-            audit.info("%s changed rule setting %s: %s -> %s", who, k, old.get(k), new[k])
-    return {"settings": new}
-
-
 @router.get("/issues")
 def list_issues(
     plant_id: Optional[int] = Query(None),
     status: str = Query("active", pattern="^(active|open|acknowledged|resolved|dismissed|closed|all)$"),
     tier: Optional[str] = Query(None, pattern="^(P1|P2|P3|P4|Info)$"),
     rule: Optional[str] = Query(None, max_length=8),
-    shadow: Optional[bool] = Query(False, description="admin only: true = shadow issues (Rule review); omit for live"),
+    shadow: Optional[bool] = Query(False, description="admin only: true = shadow issues; omit for live"),
     include_shadow: bool = Query(False, description="admin only: live and shadow issues together"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -165,7 +118,7 @@ def patch_issue(
     user: User = Depends(require_write_access),
 ) -> Dict[str, Any]:
     """Acknowledge, resolve or dismiss an issue (with a note and feedback: confirmed / false
-    alarm, which Rule review counts), reopen a closed one, or only edit the note. Engineers act
+    alarm, kept on the issue), reopen a closed one, or only edit the note. Engineers act
     on their assigned plants' live issues; admins on any."""
     from app.services import growatt_issues
 

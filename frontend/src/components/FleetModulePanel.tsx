@@ -7,6 +7,7 @@ import { Panel, LoadingState } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useI18n } from "../i18n";
 
 type NumKey = Exclude<keyof FleetModule, "manufacturer" | "model" | "datasheet_url" | "cell_technology">;
 
@@ -41,6 +42,7 @@ export const FleetModulePanel: React.FC<{
   onSaved: (m: FleetModuleOut) => void;
 }> = ({ module, onSaved }) => {
   const { user, refreshAll } = useAppContext();
+  const { t, locale } = useI18n();
   const canEdit = isAdmin(user); // fleet-wide setting: admin only
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -63,7 +65,7 @@ export const FleetModulePanel: React.FC<{
   const save = async () => {
     const wp = num(draft.wp);
     if (wp == null || !draft.manufacturer?.trim() || !draft.model?.trim()) {
-      setMsg({ tone: "crit", text: "Manufacturer, model and Pmax are required." });
+      setMsg({ tone: "crit", text: t("Manufacturer, model and Pmax are required.") });
       return;
     }
     const body: FleetModule = {
@@ -95,13 +97,13 @@ export const FleetModulePanel: React.FC<{
       const p = saved.published;
       setMsg(
         p?.error
-          ? { tone: "warn", text: `Saved. Publishing to ${p.sink ?? "the summary sink"} failed (${p.error}); the next publish job retries.` }
+          ? { tone: "warn", text: t("Saved. Publishing to {sink} failed ({error}); the next publish job retries.", { sink: p.sink ?? t("the summary sink"), error: p.error }) }
           : p?.deferred
-          ? { tone: "warn", text: "Saved. Today's Firestore write budget is used up; it publishes on the next quota day." }
-          : { tone: "ok", text: `Saved and published to ${p?.sink === "firestore" ? "Firestore" : p?.sink ?? "sink"} (${p?.written ?? 0} write).` }
+          ? { tone: "warn", text: t("Saved. Today's Firestore write budget is used up; it publishes on the next quota day.") }
+          : { tone: "ok", text: t("Saved and published to {sink} ({n} write).", { sink: p?.sink === "firestore" ? "Firestore" : p?.sink ?? "sink", n: p?.written ?? 0 }) }
       );
     } catch (e: any) {
-      setMsg({ tone: "crit", text: `Save failed: ${e.message}` });
+      setMsg({ tone: "crit", text: t("Save failed: {error}", { error: e.message }) });
     } finally {
       setSaving(false);
     }
@@ -110,26 +112,26 @@ export const FleetModulePanel: React.FC<{
   return (
     <Panel
       icon={Cpu}
-      title="Fleet PV Module (Global)"
-      subtitle="Applies to every plant. Saved on the server and mirrored to Firestore config/fleet_module."
+      title={t("Fleet PV Module (Global)")}
+      subtitle={t("Applies to every plant. Saved on the server and mirrored to Firestore config/fleet_module.")}
       actions={
         module && (
           <span className="text-[11px] text-slate-500">
             {module.source === "default"
-              ? "Default (not saved yet)"
-              : `Saved by ${module.updated_by ?? "—"}${module.updated_at ? ` · ${new Date(module.updated_at).toLocaleString()}` : ""}`}
+              ? t("Default (not saved yet)")
+              : `${t("Saved by {user}", { user: module.updated_by ?? "—" })}${module.updated_at ? ` · ${new Date(module.updated_at).toLocaleString(locale)}` : ""}`}
           </span>
         )
       }
     >
       {!module ? (
-        <LoadingState label="Loading fleet module…" shape="lines" />
+        <LoadingState label={t("Loading fleet module…")} shape="lines" />
       ) : (
         <div className="space-y-4 text-xs">
           {msg && <div className={`callout-${msg.tone}`}>{msg.text}</div>}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Manufacturer</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Manufacturer")}</Label>
               <Input
                 value={draft.manufacturer ?? ""}
                 disabled={!canEdit}
@@ -137,7 +139,7 @@ export const FleetModulePanel: React.FC<{
               />
             </div>
             <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Model</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Model")}</Label>
               <Input
                 value={draft.model ?? ""}
                 disabled={!canEdit}
@@ -145,7 +147,7 @@ export const FleetModulePanel: React.FC<{
               />
             </div>
             <div className="col-span-2">
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">Datasheet URL</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Datasheet URL")}</Label>
               <div className="flex gap-2">
                 <Input
                   value={draft.datasheet_url ?? ""}
@@ -154,7 +156,7 @@ export const FleetModulePanel: React.FC<{
                 />
                 {module.datasheet_url && (
                   <Button asChild size="sm">
-                    <a href={module.datasheet_url} target="_blank" rel="noreferrer" aria-label="Open datasheet">
+                    <a href={module.datasheet_url} target="_blank" rel="noreferrer" aria-label={t("Open datasheet")}>
                       <ExternalLink className="size-3.5" />
                     </a>
                   </Button>
@@ -165,7 +167,7 @@ export const FleetModulePanel: React.FC<{
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             {NUM_FIELDS.map((f) => (
               <div key={f.key}>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{f.label}</Label>
+                <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t(f.label)}</Label>
                 <Input
                   type="number"
                   step={f.step}
@@ -178,14 +180,14 @@ export const FleetModulePanel: React.FC<{
               </div>
             ))}
             <div>
-              <Label className="mb-1 block text-[11px] font-medium text-slate-400">I-V: cell technology</Label>
+              <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("I-V: cell technology")}</Label>
               <select
                 value={draft.cell_technology ?? ""}
                 disabled={!canEdit}
                 onChange={(e) => setDraft((d) => ({ ...d, cell_technology: e.target.value }))}
                 className="h-8 w-full rounded-md border border-white/10 bg-ink-900 px-2 text-xs text-white focus:outline-none disabled:opacity-50"
               >
-                <option value="">Unknown</option>
+                <option value="">{t("Unknown")}</option>
                 <option value="perc">PERC</option>
                 <option value="topcon">TOPCon</option>
                 <option value="hjt">HJT</option>
@@ -196,7 +198,7 @@ export const FleetModulePanel: React.FC<{
           {canEdit && (
             <Button type="button" variant="default" onClick={save} disabled={saving}>
               <Save className="size-4" />
-              {saving ? "Saving…" : "Save Fleet Module"}
+              {saving ? t("Saving…") : t("Save Fleet Module")}
             </Button>
           )}
         </div>

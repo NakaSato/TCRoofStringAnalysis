@@ -6,11 +6,12 @@ import { Link } from "react-router-dom";
 import type { OmBusyBlock, OmPerson, OmTask, OmTeam } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 import { fmtInt } from "../../components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { BUSY_CHIP, TYPE_CHIP, WEEKDAYS, addDays, covers, daysBetween, personName, spanLabel, statusChip, statusOf, taskTitle, taskWhere } from "./format";
+import { BUSY_CHIP, TYPE_CHIP, WEEKDAYS, addDays, weekdayName, covers, daysBetween, personName, spanLabel, statusChip, statusOf, taskTitle, taskWhere } from "./format";
 
 const MAX_CHIPS = 3;
 const DRAG_TYPE = "application/x-om-task";
@@ -43,7 +44,9 @@ function useDrop(tasks: OmTask[], onMove?: (t: OmTask, day: string) => void) {
   return { over, props };
 }
 
-const Chip: React.FC<{ task: OmTask; onOpen: (t: OmTask) => void; showPlant?: boolean; draggable?: boolean }> = ({ task, onOpen, showPlant = true, draggable }) => (
+const Chip: React.FC<{ task: OmTask; onOpen: (t: OmTask) => void; showPlant?: boolean; draggable?: boolean }> = ({ task, onOpen, showPlant = true, draggable }) => {
+  const { t } = useI18n();
+  return (
   <button
     type="button"
     draggable={draggable && movable(task)}
@@ -55,7 +58,7 @@ const Chip: React.FC<{ task: OmTask; onOpen: (t: OmTask) => void; showPlant?: bo
       e.stopPropagation();
       onOpen(task);
     }}
-    title={`${task.label}${task.title ? `: ${task.title}` : ""} · ${task.plant_name ?? task.plant_id} · ${spanLabel(task)} · ${statusOf(task.status).label}${task.overdue ? " · overdue" : ""}`}
+    title={`${t(task.label)}${task.title ? `: ${task.title}` : ""} · ${task.plant_name ?? task.plant_id} · ${spanLabel(task)} · ${t(statusOf(task.status).label)}${task.overdue ? ` · ${t("overdue")}` : ""}`}
     className={cn(
       "block w-full truncate rounded border px-1.5 py-0.5 text-left text-[11px] leading-4",
       TYPE_CHIP[task.task_type],
@@ -64,18 +67,22 @@ const Chip: React.FC<{ task: OmTask; onOpen: (t: OmTask) => void; showPlant?: bo
     )}
   >
     {showPlant ? `${task.plant_name ?? `#${task.plant_id}`} · ` : ""}
-    {taskTitle(task)}
+    {task.title ? taskTitle(task) : t(task.label)}
   </button>
-);
+  );
+};
 
-const BusyChip: React.FC<{ block: OmBusyBlock }> = ({ block }) => (
+const BusyChip: React.FC<{ block: OmBusyBlock }> = ({ block }) => {
+  const { t } = useI18n();
+  return (
   <Tooltip>
     <TooltipTrigger asChild>
-      <span className={cn("block w-full truncate rounded border px-1.5 py-0.5 text-[11px] leading-4", BUSY_CHIP)}>Busy</span>
+      <span className={cn("block w-full truncate rounded border px-1.5 py-0.5 text-[11px] leading-4", BUSY_CHIP)}>{t("Busy")}</span>
     </TooltipTrigger>
-    <TooltipContent>Work on a plant you can't see ({spanLabel(block)})</TooltipContent>
+    <TooltipContent>{t("Work on a plant you can't see ({span})", { span: spanLabel(block) })}</TooltipContent>
   </Tooltip>
-);
+  );
+};
 
 // --------------------------------------------------------------------------- month
 
@@ -89,14 +96,15 @@ export const MonthGrid: React.FC<{
   onShowDay: (day: string) => void;
   onMove?: (t: OmTask, day: string) => void;
 }> = ({ from, month, today, tasks, onOpen, onCreate, onShowDay, onMove }) => {
+  const { t } = useI18n();
   const days = daysBetween(from, addDays(from, 41));
   const drop = useDrop(tasks, onMove);
   return (
     <div className="overflow-x-auto">
       <div className="grid min-w-[640px] grid-cols-7 border-l border-t border-white/[0.06]">
-        {WEEKDAYS.map((w) => (
+        {WEEKDAYS.map((w, i) => (
           <div key={w} className="eyebrow border-b border-r border-white/[0.06] px-2 py-1.5">
-            {w}
+            {weekdayName(i)}
           </div>
         ))}
         {days.map((day) => {
@@ -107,7 +115,7 @@ export const MonthGrid: React.FC<{
               key={day}
               role="button"
               tabIndex={0}
-              aria-label={`Plan a task on ${day}`}
+              aria-label={t("Plan a task on {day}", { day })}
               onClick={() => onCreate(day)}
               onKeyDown={(e) => e.key === "Enter" && onCreate(day)}
               {...drop.props(day)}
@@ -118,8 +126,8 @@ export const MonthGrid: React.FC<{
               )}
             >
               <span className={cn("num w-fit rounded px-1 text-[11px]", day === today && "bg-solar-500/20 font-semibold text-solar-200")}>{Number(day.slice(8))}</span>
-              {here.slice(0, MAX_CHIPS).map((t) => (
-                <Chip key={t.id} task={t} onOpen={onOpen} draggable={!!onMove} />
+              {here.slice(0, MAX_CHIPS).map((x) => (
+                <Chip key={x.id} task={x} onOpen={onOpen} draggable={!!onMove} />
               ))}
               {here.length > MAX_CHIPS && (
                 <button
@@ -130,7 +138,7 @@ export const MonthGrid: React.FC<{
                     onShowDay(day);
                   }}
                 >
-                  +{here.length - MAX_CHIPS} more
+                  {t("+{n} more", { n: here.length - MAX_CHIPS })}
                 </button>
               )}
             </div>
@@ -168,6 +176,7 @@ export const WeekLanes: React.FC<{
   onCreate: (day: string) => void;
   onMove?: (t: OmTask, day: string) => void;
 }> = ({ from, today, tasks, busy, people, teams, only, me, onOpen, onCreate, onMove }) => {
+  const { t: tr } = useI18n();
   const days = daysBetween(from, addDays(from, 6));
   const drop = useDrop(tasks, onMove);
   const lanes = useMemo<Lane[]>(() => {
@@ -191,7 +200,7 @@ export const WeekLanes: React.FC<{
       const mine = tasks.filter((t) => isMine(t, p.id));
       for (const t of mine) shown.add(t.id);
       const blocked = busy.filter((b) => b.assignees.some((a) => a.id === p.id));
-      out.push({ key: `u${p.id}`, label: personName(p) + (p.id === me ? " (you)" : ""), tasks: mine, busy: blocked, person: true });
+      out.push({ key: `u${p.id}`, label: p.id === me ? tr("{name} (you)", { name: personName(p) }) : personName(p), tasks: mine, busy: blocked, person: true });
     }
     // a team gets a lane for team work no person lane shows (e.g. a contractor crew with no logins)
     const teamOnly = new Map<number, { name: string; color: string | null; tasks: OmTask[] }>();
@@ -202,22 +211,22 @@ export const WeekLanes: React.FC<{
       teamOnly.set(t.team.id, lane);
     }
     for (const [id, lane] of [...teamOnly].sort((a, b) => a[1].name.localeCompare(b[1].name))) {
-      out.push({ key: `t${id}`, label: lane.name, sub: "Team", color: lane.color, tasks: lane.tasks, busy: [], person: false });
+      out.push({ key: `t${id}`, label: lane.name, sub: tr("Team"), color: lane.color, tasks: lane.tasks, busy: [], person: false });
     }
     const loose = tasks.filter((t) => t.assignees.length === 0 && !t.team);
-    if (loose.length) out.push({ key: "none", label: "Unassigned", tasks: loose, busy: [], person: false });
+    if (loose.length) out.push({ key: "none", label: tr("Unassigned"), tasks: loose, busy: [], person: false });
     return out;
-  }, [tasks, busy, people, teams, only, me]);
+  }, [tasks, busy, people, teams, only, me, tr]);
 
   return (
     <div className="table-wrap overflow-x-auto">
       <table className="w-full min-w-[820px] table-fixed border-collapse text-xs">
         <thead>
           <tr>
-            <th className="eyebrow w-40 border-b border-white/[0.06] px-2 py-1.5 text-left">Who</th>
+            <th className="eyebrow w-40 border-b border-white/[0.06] px-2 py-1.5 text-left">{tr("Who")}</th>
             {days.map((day, i) => (
               <th key={day} className={cn("eyebrow border-b border-white/[0.06] px-2 py-1.5 text-left", day === today && "text-solar-200")}>
-                {WEEKDAYS[i]} <span className="num">{Number(day.slice(8))}</span>
+                {weekdayName(i)} <span className="num">{Number(day.slice(8))}</span>
               </th>
             ))}
           </tr>
@@ -226,7 +235,7 @@ export const WeekLanes: React.FC<{
           {lanes.length === 0 && (
             <tr>
               <td colSpan={8} className="px-2 py-6 text-center text-muted-foreground">
-                Nothing planned this week.
+                {tr("Nothing planned this week.")}
               </td>
             </tr>
           )}
@@ -256,7 +265,7 @@ export const WeekLanes: React.FC<{
                       drop.over === day && "bg-solar-500/10 ring-1 ring-inset ring-solar-400/60"
                     )}
                   >
-                    {clash && <div className="text-[10px] font-medium text-red-300">{active} jobs</div>}
+                    {clash && <div className="text-[10px] font-medium text-red-300">{tr("{n} jobs", { n: active })}</div>}
                     {ts.map((t) => (
                       <Chip key={t.id} task={t} onOpen={onOpen} draggable={!!onMove} />
                     ))}
@@ -276,23 +285,25 @@ export const WeekLanes: React.FC<{
 
 // --------------------------------------------------------------------------- list
 
-export const TaskList: React.FC<{ tasks: OmTask[]; onOpen: (t: OmTask) => void; showPlant?: boolean }> = ({ tasks, onOpen, showPlant = true }) => (
+export const TaskList: React.FC<{ tasks: OmTask[]; onOpen: (t: OmTask) => void; showPlant?: boolean }> = ({ tasks, onOpen, showPlant = true }) => {
+  const { t: tr } = useI18n();
+  return (
   <Table containerClassName="table-wrap">
     <TableHeader>
       <TableRow>
-        <TableHead>When</TableHead>
-        {showPlant && <TableHead>Plant</TableHead>}
-        <TableHead>Task</TableHead>
-        <TableHead>Who</TableHead>
-        <TableHead>Status</TableHead>
-        <TableHead className="text-right">Est. cost</TableHead>
+        <TableHead>{tr("When")}</TableHead>
+        {showPlant && <TableHead>{tr("Plant")}</TableHead>}
+        <TableHead>{tr("Task")}</TableHead>
+        <TableHead>{tr("Who")}</TableHead>
+        <TableHead>{tr("Status")}</TableHead>
+        <TableHead className="text-right">{tr("Est. cost")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
       {tasks.length === 0 && (
         <TableRow>
           <TableCell colSpan={showPlant ? 6 : 5} className="py-6 text-center text-muted-foreground">
-            No tasks.
+            {tr("No tasks.")}
           </TableCell>
         </TableRow>
       )}
@@ -302,22 +313,22 @@ export const TaskList: React.FC<{ tasks: OmTask[]; onOpen: (t: OmTask) => void; 
           {showPlant && (
             <TableCell className="max-w-48 truncate">
               <Link to={plantPath(t.plant_id, "maintenance")} onClick={(e) => e.stopPropagation()} className="hover:underline">
-                {t.plant_name ?? `Plant ${t.plant_id}`}
+                {t.plant_name ?? tr("Plant {id}", { id: t.plant_id })}
               </Link>
             </TableCell>
           )}
           <TableCell className="max-w-64">
-            <span className={cn("mr-1.5 inline-block rounded border px-1 text-[10px]", TYPE_CHIP[t.task_type])}>{t.label}</span>
+            <span className={cn("mr-1.5 inline-block rounded border px-1 text-[10px]", TYPE_CHIP[t.task_type])}>{tr(t.label)}</span>
             <span className="truncate">{t.title ?? ""}</span>
-            <div className="text-[11px] text-muted-foreground">{taskWhere(t)}</div>
+            <div className="text-[11px] text-muted-foreground">{tr(taskWhere(t))}</div>
           </TableCell>
           <TableCell className="max-w-48 truncate">
             {[...t.assignees.map(personName), ...(t.team ? [t.team.name] : [])].join(", ") || <span className="text-muted-foreground">—</span>}
           </TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1">
-              <Badge variant={statusOf(t.status).variant}>{statusOf(t.status).label}</Badge>
-              {t.overdue && <Badge variant="crit">Overdue</Badge>}
+              <Badge variant={statusOf(t.status).variant}>{tr(statusOf(t.status).label)}</Badge>
+              {t.overdue && <Badge variant="crit">{tr("Overdue")}</Badge>}
             </div>
           </TableCell>
           <TableCell className="num text-right">{t.est_cost_thb == null ? "—" : `฿${fmtInt(t.est_cost_thb)}`}</TableCell>
@@ -325,4 +336,5 @@ export const TaskList: React.FC<{ tasks: OmTask[]; onOpen: (t: OmTask) => void; 
       ))}
     </TableBody>
   </Table>
-);
+  );
+};

@@ -6,9 +6,11 @@ import { plantPath } from "../../context/routes";
 import { Led, fmt } from "../ui";
 import type { StatusLevel } from "../ui";
 import type { FleetDirectory } from "./useFleetDirectory";
+import { useI18n } from "../../i18n";
 
 export const SelectedPlantStrip: React.FC<{ d: FleetDirectory }> = ({ d }) => {
   const { setInspectedStringId, showInspectorDrawer, setShowInspectorDrawer, selectedPlant, strings } = d;
+  const { t } = useI18n();
   return (
     <>
       {showInspectorDrawer && selectedPlant && selectedPlant.source === "local" && strings.length > 0 && (
@@ -19,7 +21,7 @@ export const SelectedPlantStrip: React.FC<{ d: FleetDirectory }> = ({ d }) => {
               <span className="font-semibold text-white">{selectedPlant.name}</span>
               <span className="text-slate-500">—</span>
               <span className="text-slate-400">
-                Live String Array Telemetry (click any string to open Inspector Drawer)
+                {t("Live String Array Telemetry (click any string to open Inspector Drawer)")}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -27,13 +29,13 @@ export const SelectedPlantStrip: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 to={selectedPlant ? plantPath(selectedPlant.id, "strings") : "/strings"}
                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 hover:text-sky-300"
               >
-                Full String Diagnostics <ArrowUpRight className="h-3 w-3" />
+                {t("Full String Diagnostics")} <ArrowUpRight className="h-3 w-3" />
               </Link>
               <button
                 onClick={() => setShowInspectorDrawer(false)}
                 className="text-[11px] text-slate-500 hover:text-slate-300"
               >
-                Hide
+                {t("Hide")}
               </button>
             </div>
           </div>

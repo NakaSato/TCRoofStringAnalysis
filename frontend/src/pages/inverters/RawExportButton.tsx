@@ -7,6 +7,7 @@ import { Download } from "lucide-react";
 import { api } from "../../api/client";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { useI18n } from "@/i18n";
 
 const cell = (v: unknown): string => {
   if (v == null) return "";
@@ -15,6 +16,7 @@ const cell = (v: unknown): string => {
 };
 
 export const RawExportButton: React.FC<{ plantId: number | null; deviceSn: string; day: string | null }> = ({ plantId, deviceSn, day }) => {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -25,7 +27,7 @@ export const RawExportButton: React.FC<{ plantId: number | null; deviceSn: strin
     try {
       const r = await api.getGrowattInverterRaw(plantId, deviceSn, day ?? undefined);
       if (!r.records.length) {
-        setNote("No full records stored for this day");
+        setNote(t("No full records stored for this day"));
         return;
       }
       const head = ["time", ...r.fields];
@@ -53,10 +55,10 @@ export const RawExportButton: React.FC<{ plantId: number | null; deviceSn: strin
       size="sm"
       onClick={() => void run()}
       disabled={busy || plantId == null}
-      title={note ?? "Download every Growatt field of this inverter's stored records for the day (as reported; kept 30 days)"}
+      title={note ?? t("Download every Growatt field of this inverter's stored records for the day (as reported; kept 30 days)")}
     >
       {busy ? <Spinner data-icon="inline-start" className="size-3" /> : <Download data-icon="inline-start" className="h-3.5 w-3.5" />}
-      {note ? "No data" : "All fields CSV"}
+      {note ? t("No data") : t("All fields CSV")}
     </Button>
   );
 };

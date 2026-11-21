@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
 import { isAdmin } from "./auth/access";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { I18nProvider, useI18n } from "./i18n";
 
 // Each page is its own chunk, fetched on first visit (Layout shows a fallback meanwhile).
 const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
@@ -31,7 +32,6 @@ const PlantSensorsPage = page(() => import("./pages/SensorsPage"), "PlantSensors
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
 const SystemLogsPage = page(() => import("./pages/SystemLogsPage"), "SystemLogsPage");
 const AiUsagePage = page(() => import("./pages/AiUsagePage"), "AiUsagePage");
-const RuleReviewPage = page(() => import("./pages/RuleReviewPage"), "RuleReviewPage");
 const CalendarPage = page(() => import("./pages/CalendarPage"), "CalendarPage");
 const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
 const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
@@ -51,18 +51,19 @@ const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const PlantRoute: React.FC = () => {
   const { plantId } = useParams();
   const { plantError, selectedPlantOverview } = useAppContext();
+  const { t } = useI18n();
   if (!plantId || !/^\d+$/.test(plantId)) return <Navigate to="/" replace />;
   if (plantError?.status === 404 && !selectedPlantOverview) {
     return (
       <EmptyState
         icon={SearchX}
-        title={`Plant #${plantId} not found`}
+        title={t("Plant #{id} not found", { id: plantId })}
         description={
           <>
-            It does not exist, or it is not assigned to your account. Ask an admin if you need access.
+            {t("It does not exist, or it is not assigned to your account. Ask an admin if you need access.")}
             <span className="mt-3 block">
               <Button asChild variant="outline" size="sm">
-                <Link to="/">All plants</Link>
+                <Link to="/">{t("All plants")}</Link>
               </Button>
             </span>
           </>
@@ -79,7 +80,7 @@ const LegacyPlantRedirect: React.FC<{ page: PlantPage }> = ({ page }) => {
   return <Navigate to={last != null ? plantPath(last, page) : "/"} replace />;
 };
 
-/** The PWA Meter page is now part of the O&M Dashboard (`/center`): old links land on its meter
+/** The PWA Meter page is now part of the Engineering O&M (`/center`): old links land on its meter
  * sites list and keep the site they opened (`?site=`) and the phase. */
 const PwaMeterRedirect: React.FC = () => {
   const old = new URLSearchParams(useLocation().search);
@@ -91,10 +92,11 @@ const PwaMeterRedirect: React.FC = () => {
 /** Every page needs a signed-in user: splash while the stored token is checked, else the login page. */
 const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, authChecked } = useAppContext();
+  const { t } = useI18n();
   if (!authChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <LoadingState label="Checking session…" />
+        <LoadingState label={t("Checking session…")} />
       </div>
     );
   }
@@ -103,6 +105,7 @@ const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 export const App: React.FC = () => {
   return (
+    <I18nProvider>
     <AppProvider>
       <TooltipProvider delayDuration={200}>
       <AuthGate>
@@ -121,7 +124,6 @@ export const App: React.FC = () => {
             <Route path="center" element={<OmCenterPage />} />
             <Route path="center/*" element={<PwaMeterRedirect />} />
             <Route path="pwa-meter" element={<PwaMeterRedirect />} />
-            <Route path="rules" element={<AdminOnly><RuleReviewPage /></AdminOnly>} />
             <Route path="sensors" element={<SensorsPage />} />
             <Route path="settings" element={<PlantSettingsPage />} />
             <Route path="users" element={<AdminOnly><UsersPage /></AdminOnly>} />
@@ -153,6 +155,7 @@ export const App: React.FC = () => {
       </AuthGate>
       </TooltipProvider>
     </AppProvider>
+    </I18nProvider>
   );
 };
 export default App;

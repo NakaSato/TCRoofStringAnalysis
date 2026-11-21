@@ -11,6 +11,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { fmtInt } from "./ui";
+import { useI18n } from "../i18n";
 
 /** Page numbers to show: first, last and the current one ± 1, with gaps as null. */
 export const pageList = (page: number, count: number): Array<number | null> => {
@@ -40,6 +41,7 @@ export const TablePager: React.FC<{
   className?: string;
 }> = ({ rows, pageSize, pageNo, onPage, extra, className }) => {
   const pageCount = Math.max(1, Math.ceil(rows / pageSize));
+  const { t } = useI18n();
   const go = (p: number) => (e: React.MouseEvent) => {
     e.preventDefault();
     onPage(p);
@@ -48,7 +50,9 @@ export const TablePager: React.FC<{
     <div className={cn("flex flex-wrap items-center justify-between gap-3", className)}>
       <div className="flex items-center gap-3">
         <span className="num text-muted-foreground">
-          {rows ? `${fmtInt(pageNo * pageSize + 1)}–${fmtInt(Math.min(rows, (pageNo + 1) * pageSize))} of ${fmtInt(rows)}` : "0 rows"}
+          {rows
+            ? t("{from}–{to} of {total}", { from: fmtInt(pageNo * pageSize + 1), to: fmtInt(Math.min(rows, (pageNo + 1) * pageSize)), total: fmtInt(rows) })
+            : t("0 rows")}
         </span>
         {extra}
       </div>
@@ -58,6 +62,8 @@ export const TablePager: React.FC<{
             <PaginationItem>
               <PaginationPrevious
                 href="#"
+                text={t("Previous")}
+                aria-label={t("Go to previous page")}
                 aria-disabled={pageNo === 0}
                 className={cn(pageNo === 0 && "pointer-events-none opacity-50")}
                 onClick={go(Math.max(0, pageNo - 1))}
@@ -79,6 +85,8 @@ export const TablePager: React.FC<{
             <PaginationItem>
               <PaginationNext
                 href="#"
+                text={t("Next")}
+                aria-label={t("Go to next page")}
                 aria-disabled={pageNo >= pageCount - 1}
                 className={cn(pageNo >= pageCount - 1 && "pointer-events-none opacity-50")}
                 onClick={go(Math.min(pageCount - 1, pageNo + 1))}
