@@ -385,3 +385,118 @@ def test_summary_counts_only_days_with_a_contract_figure(api):
     # counting all 40 days of meter over 30 days of contract would give 128 %
     assert base["vs_contract_pct"] == 96.1
     assert after["vs_contract_pct"] == pytest.approx(100 * 10600 / 11400, abs=0.05)
+
+
+def _p1_rows_book(rows, day_title="15 เมษายน 2569"):
+    """Phase 1 layout with the given (seq, name, meter kWh, meter number) rows."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "สรุปหน่วยรายวัน"
+    ws.append([f"สรุปผลการผลิตระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์ประจำวันที่ {day_title}"])
+    ws.append(TABLE)
+    for seq, name, m, meter in rows:
+        ws.append([seq, name, 100, 4.0, m, m + 4, None, None, None, None, None, "แดดจัด", None])
+        ws.append([None, "หมายเลขมิเตอร์"])
+        ws.append([None, f"{meter} (23:45:00)" if meter else None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_report_matches_by_learned_meter_number_then_name(api):
+    """PM-R7, PM-R8: a renamed row still matches by the meter number learned before; a name that
+    fits two sites is listed, never guessed; a different meter number is a warning, not a change."""
+    f, *_ = api
+    with f() as db:
+        assert svc.import_report(db, [("p1.xlsx", _p1_book())], TODAY, commit=True)["committed"]
+        renamed = svc.import_report(db, [("p1.xlsx", _p1_rows_book([(1, "ชื่อใหม่ทั้งหมด", 420.0, "WP000001")], "16 เมษายน 2569"))], TODAY)
+        assert renamed["ok"] and renamed["totals"]["matched"] == 1 and renamed["totals"]["new"] == 1
+        # "site" is in both "Free site" and "Curtailed site": ambiguous, never guessed
+        amb = svc.import_report(db, [("p1.xlsx", _p1_rows_book([(1, "site", 420.0, None)], "16 เมษายน 2569"))], TODAY)
+        assert not amb["ok"] and amb["sheets"][0]["unmatched"][0]["reason"] == "several sites match the name"
+        other = svc.import_report(db, [("p1.xlsx", _p1_rows_book([(1, "Free site กปภ.สาขาบางไทร", 420.0, "WP999999")], "16 เมษายน 2569"))],
+                                  TODAY, commit=True)
+        assert other["committed"] and any("differs from the stored WP000001" in w for w in other["sheets"][0]["warnings"])
+        assert db.get(PwaMeterSite, "P1-01").meter_no == "WP000001"
+
+
+def test_report_refuses_a_future_day(api):
+    """PM-R11: a sheet dated after today blocks the import."""
+    f, *_ = api
+    with f() as db:
+        out = svc.import_report(db, [("p1.xlsx", _p1_book(day_title="1 พฤษภาคม 2569"))], TODAY, commit=True)
+        assert not out["ok"] and not out["committed"]
+        assert any("in the future" in e for e in out["sheets"][0]["errors"])
+        assert db.query(PwaMeterDay).filter(PwaMeterDay.day == date(2026, 5, 1)).count() == 0
+
+
+def test_report_route_size_limit(api, monkeypatch):
+    """PM-R18: over REPORT_MAX_BYTES in one request answers 413."""
+    _, client, admin, _ = api
+    monkeypatch.setattr(svc, "REPORT_MAX_BYTES", 1000)
+    files = {"files": ("p1.xlsx", _p1_book(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    assert client.post("/pwa/meter/import", files=files, headers=admin).status_code == 413
+
+
+def test_window_checks_and_empty_window(api):
+    """PM-A (422 for end < start) and PM-P11: an empty window echoes the request with no rows."""
+    _, client, admin, _ = api
+    for path in ("summary", "outages", "meter-check", "sites/P1-01/days", f"plants/{P1}"):
+        assert client.get(f"/pwa/meter/{path}?start=2026-04-02&end=2026-04-01", headers=admin).status_code == 422
+    r = client.get("/pwa/meter/summary?start=2030-01-01&end=2030-01-31", headers=admin).json()
+    assert r["window"] == {"start": "2030-01-01", "end": "2030-01-31"} and r["sites"] == [] and r["phases"] == []
+    assert client.get("/pwa/meter/outages?start=2030-01-01", headers=admin).json() == []
+    assert client.get("/pwa/meter/meter-check?start=2030-01-01", headers=admin).json() == []
+
+
+def test_model_workbook_without_the_sheets_is_refused():
+    """PM-E1: a workbook that is not the model says what is missing."""
+    wb = openpyxl.Workbook()
+    wb.active.title = "PVsyst_ระยะ1"
+    buf = io.BytesIO()
+    wb.save(buf)
+    with pytest.raises(model.ModelError, match="ประมาณการ_kWh"):
+        model.read_model(buf.getvalue())
+
+
+def test_csv_missing_column_is_refused_before_reading(api, tmp_path):
+    """PM-C1: a file without a required column is refused and nothing is written."""
+    f, *_ = api
+    sites, days = tmp_path / "sites.csv", tmp_path / "days.csv"
+    sites.write_text("site_id,phase,name,region\nP1-09,1,New site,เขต 1\n", encoding="utf-8")
+    days.write_text("day,site_id,meter_kwh,inverter_kwh\n", encoding="utf-8")
+    with f() as db:
+        with pytest.raises(svc.PwaImportError, match="sites file is missing column.*kwp"):
+            svc.import_csv(db, sites, days)
+        assert db.get(PwaMeterSite, "P1-09") is None
+    sites.write_text("﻿site_id,phase,name,region,kwp\nP1-09,1,New site,เขต 1,50\n", encoding="utf-8")  # BOM accepted
+    days.write_text("day,site_id,meter_kwh\n2026-04-01,P1-09,100\n", encoding="utf-8")
+    with f() as db:
+        with pytest.raises(svc.PwaImportError, match="days file is missing column.*inverter_kwh"):
+            svc.import_csv(db, sites, days)
+        assert db.get(PwaMeterSite, "P1-09") is None
+
+
+def test_committed_report_import_is_audited(api, caplog):
+    """PM-R19: a committed import logs who, what changed and the day range to app.audit; a preview does not."""
+    import logging
+
+    _, client, admin, _ = api
+    files = {"files": ("p1.xlsx", _p1_book(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    with caplog.at_level(logging.INFO, logger="app.audit"):
+        assert not client.post("/pwa/meter/import", files=files, headers=admin).json()["committed"]
+        assert not [r for r in caplog.records if r.name == "app.audit" and "PWA meter" in r.getMessage()]
+        r = client.post("/pwa/meter/import", files=files, data={"commit": "true"}, headers=admin)
+        assert r.status_code == 200 and r.json()["committed"]
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.audit" and "PWA meter" in r.getMessage()]
+    assert lines == ["PWA meter report imported by admin: 2 new, 0 changed days (2026-04-15 .. 2026-04-15), 1 file(s)"]
+
+
+def test_expected_check_against_stored_days(api):
+    """PM-E6 `--check`: the largest kWh/day difference between the expected table and the stored days."""
+    f, *_ = api
+    _expected(f, "P1-01", date(2026, 3, 1), 381.0, 400.0)  # stored days: contract 380, PVsyst 400
+    with f() as db:
+        out = model.check_against_days(db)
+    # P1-01 has 31 days in March; the other 89 site-days have no expected month
+    assert out == {"days_compared": 31, "days_without_expected": 89, "max_diff_kwh_day": {"contract": 1.0, "pvsyst": 0.0}}

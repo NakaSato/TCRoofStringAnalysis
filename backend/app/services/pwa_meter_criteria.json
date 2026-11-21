@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-21b",
+  "version": "2026-11-21c",
   "source": "PWA solar rooftop phases 1-2 daily meter reports (Cewe meters) under contract ธพ.(บล) 20/2566; TFRS 16 model v1.0",
   "units": {
     "energy": "kWh",
@@ -137,7 +137,7 @@
       ]
     ],
     "cause_default": "ไม่ระบุ",
-    "cause_rule": "first group whose keyword appears in the day's note"
+    "cause_rule": "first group whose keyword appears in the event's notes (its days' distinct notes joined)"
   },
   "meter_vs_inverter": {
     "ratio": "meter_kwh / inverter_kwh on days both > 0",
