@@ -59,6 +59,10 @@ export interface InverterDatasheet {
   model: string;
   series?: string;
   datasheet_url?: string;
+  /** "preliminary" when the manufacturer marked the datasheet so */
+  datasheet_status?: string;
+  /** max. recommended PV power (module STC), where the datasheet gives one */
+  max_pv_power_w?: number;
   max_dc_voltage_v?: number;
   start_voltage_v?: number;
   nominal_dc_voltage_v?: number;
