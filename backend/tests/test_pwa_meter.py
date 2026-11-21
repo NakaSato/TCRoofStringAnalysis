@@ -148,6 +148,51 @@ def test_outage_events_and_meter_check(api):
     assert m["gap_mwh"] == pytest.approx(5 * 40 / 1000, abs=0.01)
 
 
+def test_billing_by_month_splits_the_shortfall_into_causes(api):
+    _, client, admin, eng = api
+    b = client.get("/pwa/meter/billing", headers=admin).json()
+    price = b["price_thb_per_kwh"]
+    assert b["months"] == ["2026-03", "2026-04"] and b["window"] == {"start": "2026-03-01", "end": "2026-04-09"}
+    rows = {(r["site_id"], r["month"]): r for r in b["rows"]}
+    mar, apr = rows[("P1-01", "2026-03")], rows[("P1-01", "2026-04")]
+    # March: 23 days at 400 kWh, 5 at 360 (meter low), 3 outage days at 0; contract 31 x 380 (modelled)
+    assert (mar["days"], mar["meter_days"], mar["missing_days"], mar["outage_days"]) == (31, 31, 0, 3)
+    assert mar["billed_kwh"] == 11000 and mar["billed_thb"] == round(11000 * price)
+    assert mar["contract_kwh"] == 31 * 380 and mar["shortfall_kwh"] == 780
+    assert mar["outage_kwh"] > 1000 and mar["meter_gap_kwh"] == pytest.approx(200, abs=10) and mar["curtailment_kwh"] == 0
+    assert mar["recoverable_kwh"] == pytest.approx(mar["outage_kwh"] + mar["under_kwh"] + mar["meter_gap_kwh"], abs=0.2)
+    assert mar["unexplained_kwh"] == pytest.approx(780 - mar["recoverable_kwh"], abs=0.2)
+    # April: 9 days above contract = a negative shortfall, nothing to recover
+    assert (apr["billed_kwh"], apr["shortfall_kwh"], apr["recoverable_kwh"]) == (3600, -180, 0)
+    # curtailment is PM's, not recoverable by O&M
+    cur = rows[("P1-02", "2026-03")]
+    assert cur["curtailment_kwh"] > 0 and cur["recoverable_kwh"] == cur["outage_kwh"] + cur["under_kwh"] + cur["meter_gap_kwh"]
+    sites = {s["site_id"]: s for s in b["sites"]}
+    s1 = sites["P1-01"]
+    assert b["sites"][0]["site_id"] == "P1-01" and s1["rank"] == 1 and s1["months"] == 2
+    assert s1["billed_kwh"] == 14600 and s1["shortfall_kwh"] == 600 and s1["vs_contract_pct"] == pytest.approx(14600 / 15200 * 100, abs=0.1)
+    assert s1["action_cause"] == "outage" and s1["owner"] == "O&M" and s1["action"]
+    assert sites["P1-02"]["top_cause"] == "curtailment" and b["labels"]["recoverable_thb"] == "estimated"
+    # engineers: only their sites; phase filter; empty window
+    e = client.get("/pwa/meter/billing", headers=eng).json()
+    assert {r["site_id"] for r in e["rows"]} == {"P1-01"} and [s["site_id"] for s in e["sites"]] == ["P1-01"]
+    assert client.get("/pwa/meter/billing?phase=2", headers=admin).json()["rows"] == []
+    empty = client.get("/pwa/meter/billing?start=2027-01-01", headers=admin).json()
+    assert (empty["months"], empty["rows"], empty["sites"]) == ([], [], [])
+    assert client.get("/pwa/meter/billing?start=2026-04-01&end=2026-03-01", headers=admin).status_code == 422
+    assert client.get("/pwa/meter/billing").status_code == 401
+
+
+def test_billing_counts_missing_days_from_the_site_start(api):
+    f, *_ = api
+    with f() as db:
+        db.query(PwaMeterDay).filter(PwaMeterDay.site_id == "P1-03", PwaMeterDay.day == date(2026, 3, 5)).delete()
+        db.commit()
+        b = svc.billing(db, None, date(2026, 3, 1), date(2026, 3, 31))
+    r = next(r for r in b["rows"] if r["site_id"] == "P1-03")
+    assert (r["days"], r["meter_days"], r["missing_days"]) == (30, 30, 1)
+
+
 def test_engineer_sees_only_assigned_sites(api):
     _, client, admin, eng = api
     assert [s["site_id"] for s in client.get("/pwa/meter/sites", headers=admin).json()] == ["P1-01", "P1-02", "P1-03"]
@@ -162,6 +207,24 @@ def test_engineer_sees_only_assigned_sites(api):
     assert client.get("/pwa/meter/summary?start=2026-04-01&end=2026-03-01", headers=admin).status_code == 422
     assert client.get("/pwa/meter/criteria", headers=eng).json()["tariff"]["book_price_thb_per_kwh"] == 2.7647
     assert client.get("/pwa/meter/sites").status_code == 401
+
+
+def test_daily_gives_phase_days_to_admins_and_site_days_in_scope(api):
+    _, client, admin, eng = api
+    d = client.get("/pwa/meter/daily?start=2026-03-10&end=2026-03-11", headers=admin).json()
+    assert d["days"] == ["2026-03-10", "2026-03-11"] and d["labels"]["contract_mwh"] == "modelled"
+    ok, out = d["phases"]
+    # 10 Mar: 400 + 300 + 390 kWh over 300 kWp, contract 3 × 380
+    assert (ok["phase"], ok["day"], ok["sites"], ok["meter_mwh"], ok["contract_mwh"]) == (1, "2026-03-10", 3, 1.09, 1.14)
+    assert ok["yield_kwh_kwp"] == pytest.approx(3.633) and ok["vs_contract_pct"] == 95.6
+    assert out["meter_mwh"] == 0.69 and out["yield_kwh_kwp"] == 2.3  # P1-01 is down and still counts with 0 kWh
+    assert [s["site_id"] for s in d["sites"]] == ["P1-01", "P1-02", "P1-03"]
+    assert d["sites"][0]["yield_kwh_kwp"] == [4.0, 0.0] and d["sites"][0]["status"] == ["ok", "outage"]
+    e = client.get("/pwa/meter/daily?start=2026-03-10&end=2026-03-11", headers=eng).json()
+    assert e["phases"] == [] and [s["site_id"] for s in e["sites"]] == ["P1-01"]
+    assert client.get("/pwa/meter/daily?start=2027-01-01", headers=admin).json() == {"days": [], "phases": [], "sites": [], "labels": {"contract_mwh": "modelled"}}
+    assert client.get("/pwa/meter/daily?start=2026-04-01&end=2026-03-01", headers=admin).status_code == 422
+    assert client.get("/pwa/meter/daily").status_code == 401
 
 
 def test_plant_days_compare_meter_with_growatt(api):
@@ -224,9 +287,13 @@ def _p1_book(day_title="15 เมษายน 2569", extra_unknown=False):
     return buf.getvalue()
 
 
-def _p2_book(sheet_names=("16.04",)):
+P2_ROWS = ((1046, "สถานีผลิตน้ำบ้านนางเลง กปภ.สาขากบินทร์บุรี", 500.123, 0.0),)
+
+
+def _p2_book(sheet_names=("16.04",), rows=P2_ROWS):
     """Phase 2 layout: per-day sheets named by day, comp_id + the system pull (Cewe / Growatt /
-    Weather) on the left of the header row, the typed table from column Y."""
+    Weather) on the left of the header row, the typed table from column Y. The phase 1 workbook uses
+    it too, with its own comp_id (`rows` = (comp_id, name, Cewe, Growatt[, typed inverter]))."""
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     for name in sheet_names:
@@ -237,11 +304,13 @@ def _p2_book(sheet_names=("16.04",)):
         hdr[24:37] = TABLE
         ws.append(hdr)
         row = [None] * 37
-        # system: meter 500.123, inverter 0 (comms down); the typed table repeats an old inverter figure
-        row[6], row[16], row[17], row[21] = 1046, 500.123, 0.0, "ฝนตก"
-        row[24:37] = [1, "สถานีผลิตน้ำบ้านนางเลง กปภ.สาขากบินทร์บุรี", 190.38, 3.9, 500.12, 999.0, None, None, 724.9, None, None, "มีเมฆมาก",
-                      "ระบบสื่อสารมีปัญหา"]
-        ws.append(row)
+        for comp_id, name, meter, inverter, *typed in rows:
+            row = [None] * 37
+            # system: meter, inverter 0 (comms down); the typed table repeats an old inverter figure
+            row[6], row[16], row[17], row[21] = comp_id, meter, inverter, "ฝนตก"
+            row[24:37] = [1, name, 190.38, 3.9, round(meter, 2), typed[0] if typed else 999.0, None, None, 724.9, None, None, "มีเมฆมาก",
+                          "ระบบสื่อสารมีปัญหา"]
+            ws.append(row)
         sub = [None] * 37
         sub[15], sub[28] = "WP081205 (23:45:00)", "WP081205 (23:45:00)"
         ws.append(sub)
@@ -275,6 +344,19 @@ def test_report_dates_from_title_and_sheet_names():
     assert days[:6] == [("3006", date(2026, 6, 30)), ("017", date(2026, 7, 1)), ("097", date(2026, 7, 9)), ("107", date(2026, 7, 10)),
                         ("3112", date(2026, 12, 31)), ("0101", date(2027, 1, 1))]
     assert days[6] == ("Sheet", None) and sheets[6].errors
+
+
+def test_report_sheet_out_of_order_keeps_its_year_and_is_flagged():
+    """Phase 1 workbook: a second May block after 27 May (`0405` …) read as 2027 moved every later sheet
+    a year ahead. The closest reading wins, so the block lands on May 2026 as repeats and June stays 2026."""
+    assert sheet_day_months("17..11") == [(17, 11)]
+    names = ("26.05", "27.05", "0405", "0505", "28.05", "01.06", "17..11")
+    sheets = parse_workbook(_p2_book(names), "Phase 1.xlsx", date(2026, 11, 21))
+    assert [s.day for s in sheets] == [date(2026, 5, 26), date(2026, 5, 27), date(2026, 5, 4), date(2026, 5, 5), date(2026, 5, 28),
+                                       date(2026, 6, 1), date(2026, 11, 17)]
+    assert not any(s.errors for s in sheets)  # no repeat yet: 4–5 May have no other sheet here
+    again = parse_workbook(_p2_book(("04.05", "05.05", "27.05", "0405")), "p.xlsx", date(2026, 11, 21))
+    assert again[3].day == date(2026, 5, 4) and again[3].errors == ["day 2026-05-04 is also sheet '04.05': skip one of them or set its day"]
 
 
 def test_report_preview_commit_and_reimport(api):
@@ -315,6 +397,27 @@ def test_report_phase2_uses_system_pull_and_nulls_missing_reading(api):
         assert d.meter_kwh == 500.12 and d.inverter_kwh is None and d.status == "loss_inv"
         assert d.weather == "rain" and d.note == "ระบบสื่อสารมีปัญหา"
         assert db.get(PwaMeterSite, "P2-1046").meter_no == "WP081205"
+
+
+def test_report_phase1_in_phase2_layout_matches_by_name_not_comp_id(api):
+    """The phase 1 workbook carries its own comp_id (1, 2, …), which is not a phase 2 site id: the rows
+    are matched by name, not refused as "no site P2-1", and read from the typed table, where an inverter
+    figure typed over a wrong Growatt total is the correction (example.xlsx: 190.2 over Growatt 0)."""
+    f, *_ = api
+    _add_p2_site(f)
+    rows = ((1, "Curtailed site กปภ.สาขาบางไทร", 300.456, 303.1, 303.1), (2, "Free site กปภ.สาขาบางไทร", 410.4, 0.0, 414.2))
+    with f() as db:
+        out = svc.import_report(db, [("Phase 1.xlsx", _p2_book(("16.04",), rows))], TODAY, commit=True)
+        assert out["committed"] and out["totals"]["matched"] == 2 and out["totals"]["unmatched"] == 0
+        got = {d.site_id: d for d in db.scalars(select(PwaMeterDay).where(PwaMeterDay.day == date(2026, 4, 16)))}
+        assert set(got) == {"P1-01", "P1-02"}  # comp_id 1 is the Curtailed site here, not P1-01
+        assert got["P1-02"].meter_kwh == 300.46 and got["P1-02"].inverter_kwh == 303.1
+        assert got["P1-01"].inverter_kwh == 414.2 and got["P1-01"].status == "ok"  # typed, not Growatt's 0
+        assert got["P1-01"].weather == "cloudy"  # the table's สภาพอากาศ, not the pull's ฝนตก
+        # a phase 2 sheet keeps matching by comp_id: an unknown one is refused, never matched by name
+        mixed = P2_ROWS + ((1999, "Free site กปภ.สาขาบางไทร", 410.4, 411.0),)
+        bad = svc.import_report(db, [("p2.xlsx", _p2_book(("17.04",), mixed))], TODAY)
+        assert bad["sheets"][0]["unmatched"][0]["reason"] == "no site P2-1999"
 
 
 def test_report_overrides_skip_and_pre_contract_sheets(api):

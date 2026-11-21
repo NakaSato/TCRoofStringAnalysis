@@ -22,6 +22,7 @@ import { C, TICK_FONT, TipRow, Tooltip, textWidth, useWidth } from "./chartKit";
 import type { TipState } from "./chartKit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { currentLanguage, useI18n } from "../i18n";
 
 export type XValue = string | number;
 
@@ -68,6 +69,9 @@ export interface ChartPanel {
   series: ChartSeries[];
   /** Share of the plot height (default 1). */
   weight?: number;
+  /** Category charts: the bar series share one bar per category instead of standing side by side.
+   * The caller stacks them: each series' `y` is its top and `y0` its bottom. */
+  stacked?: boolean;
   yMin?: number | null;
   yMax?: number | null;
   /** Include 0 in an automatic y range (default true). */
@@ -165,8 +169,24 @@ type Px = number;
 const parseTs = d3.timeParse("%Y-%m-%d %H:%M:%S");
 const parseTsT = d3.timeParse("%Y-%m-%dT%H:%M:%S");
 const hhmm = d3.timeFormat("%H:%M");
-const dayHhmm = d3.timeFormat("%-d %b %H:%M");
-const dayOnly = d3.timeFormat("%-d %b");
+/** d3 short month names in Thai, for date ticks / tooltips when the UI is Thai */
+const TH_TIME = d3.timeFormatLocale({
+  dateTime: "%a %e %b %Y %X",
+  date: "%d/%m/%Y",
+  time: "%H:%M:%S",
+  periods: ["AM", "PM"],
+  days: ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"],
+  shortDays: ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."],
+  months: ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"],
+  shortMonths: ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."],
+});
+const byLang = (spec: string) => {
+  const en = d3.timeFormat(spec);
+  const th = TH_TIME.format(spec);
+  return (d: Date) => (currentLanguage() === "th" ? th(d) : en(d));
+};
+const dayHhmm = byLang("%-d %b %H:%M");
+const dayOnly = byLang("%-d %b");
 /** a time x axis over more than a day: the tooltip names the day, ticks at midnight show the date */
 const spansDays = (xc: Layout["xc"]) => {
   if (!xc) return false;
@@ -224,7 +244,10 @@ export const PanelChart: React.FC<{
   legendPosition?: "top" | "bottom";
   /** Time / numeric axes: called with the x range dragged across (ms since epoch on a time axis). */
   onBrush?: (lo: number, hi: number) => void;
-}> = ({ spec: fullSpec, height = 320, emptyLabel = "No data for this chart.", legendToggle = false, legendPosition = "top", onBrush }) => {
+}> = ({ spec: fullSpec, height = 320, emptyLabel: emptyLabelIn = "No data for this chart.", legendToggle = false, legendPosition = "top", onBrush }) => {
+  const { t } = useI18n();
+  // a caller's English label is translated too when the dictionary has it
+  const emptyLabel = t(emptyLabelIn);
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<TipState | null>(null);
   const [hoverX, setHoverX] = useState<{ px: number; i: number | null } | null>(null);
@@ -349,7 +372,7 @@ export const PanelChart: React.FC<{
   if (!spec || (!hasData && !spec.frame)) {
     return (
       <div ref={ref} style={{ height }} className="flex w-full items-center justify-center text-xs text-slate-500">
-        {spec ? emptyLabel : <Skeleton className="h-full w-full" aria-label="Loading chart…" />}
+        {spec ? emptyLabel : <Skeleton className="h-full w-full" aria-label={t("Loading chart…")} />}
       </div>
     );
   }
@@ -504,7 +527,7 @@ export const PanelChart: React.FC<{
                 type="button"
                 onClick={() => toggle(l.label)}
                 aria-pressed={!hidden.has(l.label)}
-                title={hidden.has(l.label) ? `Show ${l.label}` : visibleCount > 1 ? `Hide ${l.label}` : undefined}
+                title={hidden.has(l.label) ? t("Show {name}", { name: l.label }) : visibleCount > 1 ? t("Hide {name}", { name: l.label }) : undefined}
                 className={cn("flex items-center gap-1.5 rounded transition hover:text-white", hidden.has(l.label) && "opacity-40 line-through")}
               >
                 <LegendSwatch item={l} />
@@ -649,7 +672,13 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
   const f = tickFmt(panel);
   const base = y(Math.max(y.domain()[0], Math.min(0, y.domain()[1])));
   const bars = panel.series.filter((s) => s.type === "bar");
-  const inner = xb ? d3.scaleBand<string>().domain(bars.map((s) => s.key)).range([0, xb.bandwidth()]).padding(bars.length > 1 ? 0.08 : 0) : null;
+  const inner = xb
+    ? d3
+        .scaleBand<string>()
+        .domain(panel.stacked ? ["all"] : bars.map((s) => s.key))
+        .range([0, xb.bandwidth()])
+        .padding(bars.length > 1 && !panel.stacked ? 0.08 : 0)
+    : null;
 
   /** split a line into segments at nulls and (time charts) at record gaps */
   const segments = (s: ChartSeries): Array<Array<[number, number]>> => {
@@ -697,7 +726,7 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
             const v = s.y[idx];
             if (v == null) return null;
             const b0 = s.y0?.[idx] ?? 0;
-            const x0 = (xb(String(xv)) ?? 0) + (inner!(s.key) ?? 0);
+            const x0 = (xb(String(xv)) ?? 0) + (inner!(panel.stacked ? "all" : s.key) ?? 0);
             const w = inner!.bandwidth();
             const yTop = y(Math.max(v, b0));
             const yBot = y(Math.min(v, b0));

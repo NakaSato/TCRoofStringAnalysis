@@ -11,6 +11,7 @@ import type { GrowattInverterDaily, GrowattInverterTimeseries } from "../api/cli
 import { DailyTrendChart, StringHeatmap } from "./D3Charts";
 import { EmptyState, LoadingState, Panel } from "./ui";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/i18n";
 
 /* -------------------------------------------------------------------------- */
 /* 1. String current heatmap                                                  */
@@ -21,22 +22,23 @@ export const StringHeatmapPanel: React.FC<{
   loading: boolean;
   className?: string;
 }> = ({ label, series, loading, className = "" }) => {
+  const { t } = useI18n();
   const h = series?.strings;
   return (
     <Panel
       className={className}
       icon={Grid3x3}
-      title={`String Current Heatmap — ${label}`}
-      subtitle={`Current of each string per 5-minute slot while producing; a dark row or band = open string, shading or a trip${
+      title={t("String Current Heatmap — {name}", { name: label })}
+      subtitle={`${t("Current of each string per 5-minute slot while producing; a dark row or band = open string, shading or a trip")}${
         series?.meta.day ? ` · ${series.meta.day}` : ""
       }`}
     >
       {loading ? (
-        <LoadingState label="Loading string currents…" shape="chart" />
+        <LoadingState label={t("Loading string currents…")} shape="chart" />
       ) : h && h.string_nos.length ? (
         <StringHeatmap stringNos={h.string_nos} timestamps={h.timestamps} currentA={h.current_a} />
       ) : (
-        <EmptyState icon={Grid3x3} title="No string records" description="No string carried current on this day." />
+        <EmptyState icon={Grid3x3} title={t("No string records")} description={t("No string carried current on this day.")} />
       )}
     </Panel>
   );
@@ -54,6 +56,7 @@ export const InverterTrendPanel: React.FC<{
   day: string | null;
   className?: string;
 }> = ({ plantId, deviceSn, label, day, className = "" }) => {
+  const { t } = useI18n();
   // history range in the URL (?days=), default 30
   const [query, setQuery] = useUrlState();
   const days = (RANGES.find((r) => String(r) === query.get("days")) ?? 30) as (typeof RANGES)[number];
@@ -94,8 +97,8 @@ export const InverterTrendPanel: React.FC<{
     <Panel
       className={className}
       icon={TrendingUp}
-      title={`Daily Yield Trend — ${label}`}
-      subtitle={`Day yield vs the plant's average inverter; a falling blue line = this inverter is losing ground${
+      title={t("Daily Yield Trend — {name}", { name: label })}
+      subtitle={`${t("Day yield vs the plant's average inverter; a falling blue line = this inverter is losing ground")}${
         data ? ` · ${data.meta.from} → ${data.meta.to}` : ""
       }`}
       actions={
@@ -108,18 +111,18 @@ export const InverterTrendPanel: React.FC<{
               variant={n === days ? "default" : "ghost"}
               size="sm"
             >
-              {n}d
+              {t("{n}d", { n })}
             </Button>
           ))}
         </div>
       }
     >
       {loading ? (
-        <LoadingState label="Loading daily history…" shape="chart" />
+        <LoadingState label={t("Loading daily history…")} shape="chart" />
       ) : hasAny ? (
         <DailyTrendChart rows={trend} height={300} />
       ) : (
-        <EmptyState icon={TrendingUp} title="No daily history" description={`No stored yield for ${label} in the last ${days} days.`} />
+        <EmptyState icon={TrendingUp} title={t("No daily history")} description={t("No stored yield for {name} in the last {n} days.", { name: label, n: days })} />
       )}
     </Panel>
   );

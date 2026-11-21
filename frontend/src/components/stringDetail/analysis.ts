@@ -7,6 +7,7 @@ import type { GrowattStringDetail } from "../../api/client";
 import type { PanelChartSpec } from "../PanelChart";
 import { SERIES, STATUS } from "../chartTheme";
 import { fmt } from "../ui";
+import { translate as tr } from "../../i18n";
 
 /** below this peer current (A) a slot says little about mismatch (dawn, dusk, heavy cloud) */
 export const MISMATCH_MIN_PEER_A = 1;
@@ -99,35 +100,35 @@ export function mismatchFacts(detail: GrowattStringDetail, hours: HourRow[]): Mi
 export function fullProfileSpec(detail: GrowattStringDetail): PanelChartSpec | null {
   const ts = detail.timeseries;
   if (ts.length === 0) return null;
-  const peerName = detail.peer_basis && detail.peer_basis !== "raw" ? "Peer average (scaled)" : "Peer average";
+  const peerName = detail.peer_basis && detail.peer_basis !== "raw" ? tr("Peer average (scaled)") : tr("Peer average");
   return {
     xKind: "time",
     x: ts.map((r) => r.timestamp),
-    gaps: "No records",
+    gaps: tr("No records"),
     panels: [
       {
         key: "i",
-        title: "DC current (A)",
+        title: tr("DC current (A)"),
         series: [
-          { key: "pi", name: "Peer average", type: "line", dash: "dot", width: 1.5, color: SERIES.reference, y: ts.map((r) => r.peer_current_a), format: (v) => `${fmt(v, 2)} A` },
-          { key: "i", name: "String current", type: "line", color: SERIES.ac, y: ts.map((r) => r.current_a), format: (v) => `${fmt(v, 2)} A` },
+          { key: "pi", name: tr("Peer average"), type: "line", dash: "dot", width: 1.5, color: SERIES.reference, y: ts.map((r) => r.peer_current_a), format: (v) => `${fmt(v, 2)} A` },
+          { key: "i", name: tr("String current"), type: "line", color: SERIES.ac, y: ts.map((r) => r.current_a), format: (v) => `${fmt(v, 2)} A` },
         ],
       },
       {
         key: "p",
-        title: "DC power (kW)",
+        title: tr("DC power (kW)"),
         series: [
           { key: "pp", name: peerName, type: "line", dash: "dot", width: 1.5, color: SERIES.reference, y: ts.map((r) => (r.peer_power_w == null ? null : r.peer_power_w / 1000)), format: (v) => `${fmt(v, 2)} kW`, noLegend: true },
-          { key: "p", name: "String power", type: "line", area: true, color: SERIES.dc, y: ts.map((r) => r.power_w / 1000), format: (v) => `${fmt(v, 2)} kW` },
+          { key: "p", name: tr("String power"), type: "line", area: true, color: SERIES.dc, y: ts.map((r) => r.power_w / 1000), format: (v) => `${fmt(v, 2)} kW` },
         ],
       },
       {
         key: "v",
-        title: "MPPT voltage (V)",
+        title: tr("MPPT voltage (V)"),
         zero: false,
         series: [
           { key: "pv", name: peerName, type: "line", dash: "dot", width: 1.5, color: SERIES.reference, y: ts.map((r) => r.peer_voltage_v), format: (v) => `${fmt(v, 0)} V`, noLegend: true },
-          { key: "v", name: "MPPT voltage", type: "line", color: SERIES.secondary, y: ts.map((r) => r.voltage_v), format: (v) => `${fmt(v, 0)} V` },
+          { key: "v", name: tr("MPPT voltage"), type: "line", color: SERIES.secondary, y: ts.map((r) => r.voltage_v), format: (v) => `${fmt(v, 0)} V` },
         ],
       },
     ],
@@ -145,16 +146,16 @@ export function deviationSpec(detail: GrowattStringDetail): PanelChartSpec | nul
     panels: [
       {
         key: "dev",
-        title: "Current vs. peer average (%)",
+        title: tr("Current vs. peer average (%)"),
         tickSuffix: "%",
         refLines: [
-          { y: DEV_WARN_PCT, label: `Warning ${DEV_WARN_PCT} %`, color: STATUS.warn },
-          { y: DEV_CRIT_PCT, label: `Critical ${DEV_CRIT_PCT} %`, color: STATUS.crit },
+          { y: DEV_WARN_PCT, label: tr("Warning {v} %", { v: DEV_WARN_PCT }), color: STATUS.warn },
+          { y: DEV_CRIT_PCT, label: tr("Critical {v} %", { v: DEV_CRIT_PCT }), color: STATUS.crit },
         ],
         series: [
           {
             key: "dev",
-            name: "Deviation",
+            name: tr("Deviation"),
             type: "line",
             area: true,
             color: SERIES.ac,
@@ -176,19 +177,19 @@ export function hourSpec(hours: HourRow[]): PanelChartSpec | null {
     xKind: "band",
     x: hours.map((h) => hh(h.hour)),
     tipExtra: (i) => [
-      { label: "String / peer", value: `${fmt(hours[i].current_a, 2)} / ${fmt(hours[i].peer_current_a, 2)} A` },
-      { label: "Slots judged", value: String(hours[i].slots) },
+      { label: tr("String / peer"), value: `${fmt(hours[i].current_a, 2)} / ${fmt(hours[i].peer_current_a, 2)} A` },
+      { label: tr("Slots judged"), value: String(hours[i].slots) },
     ],
     panels: [
       {
         key: "h",
-        title: "Mean current vs. peers by hour (%)",
+        title: tr("Mean current vs. peers by hour (%)"),
         tickSuffix: "%",
         refLines: [{ y: DEV_WARN_PCT, label: `${DEV_WARN_PCT} %`, color: STATUS.warn }],
         series: [
           {
             key: "h",
-            name: "Deviation",
+            name: tr("Deviation"),
             type: "bar",
             color: STATUS.good,
             colors: hours.map((h) => tone(h.dev_pct)),

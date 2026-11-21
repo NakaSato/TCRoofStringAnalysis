@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { LanguageToggle, useI18n } from "../i18n";
 
 /** Full-screen sign-in, shown whenever there is no valid session. Username + password only. */
 export const LoginPage: React.FC = () => {
   const { loginAs } = useAppContext();
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -23,7 +25,7 @@ export const LoginPage: React.FC = () => {
     try {
       await loginAs(username, password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed");
+      setError(err instanceof Error ? err.message : t("Sign in failed"));
       setPassword("");
     } finally {
       setSubmitting(false);
@@ -33,22 +35,25 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10 text-slate-200">
       <div className="w-full max-w-sm">
+        <div className="mb-4 flex justify-end">
+          <LanguageToggle />
+        </div>
         <div className="mb-8 flex items-center justify-center text-center">
           <div>
             <div className="text-2xl font-extrabold tracking-tight text-white">GenZ Monitoring</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-solar-400/80">Control Center</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-solar-400/80">{t("Control Center")}</div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="panel space-y-4 p-6" noValidate>
           <div>
-            <h1 className="text-base font-semibold text-white">Sign in</h1>
-            <p className="mt-0.5 text-xs text-slate-500">Use the username and password from your administrator.</p>
+            <h1 className="text-base font-semibold text-white">{t("Sign in")}</h1>
+            <p className="mt-0.5 text-xs text-slate-500">{t("Use the username and password from your administrator.")}</p>
           </div>
 
           <div>
             <Label htmlFor="login-username" className="mb-1 block text-[11px] font-medium text-slate-400">
-              Username
+              {t("Username")}
             </Label>
             <Input
               id="login-username"
@@ -67,7 +72,7 @@ export const LoginPage: React.FC = () => {
 
           <div>
             <Label htmlFor="login-password" className="mb-1 block text-[11px] font-medium text-slate-400">
-              Password
+              {t("Password")}
             </Label>
             <div className="relative">
               <Input
@@ -84,7 +89,7 @@ export const LoginPage: React.FC = () => {
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
                 className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-slate-500 hover:text-slate-300"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? t("Hide password") : t("Show password")}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -104,7 +109,7 @@ export const LoginPage: React.FC = () => {
             disabled={submitting || !username.trim() || !password}
           >
             {submitting ? <Spinner data-icon="inline-start" className="text-current" /> : <LogIn data-icon="inline-start" className="h-4 w-4" />}
-            {submitting ? "Signing in…" : "Sign in"}
+            {submitting ? t("Signing in…") : t("Sign in")}
           </Button>
         </form>
       </div>

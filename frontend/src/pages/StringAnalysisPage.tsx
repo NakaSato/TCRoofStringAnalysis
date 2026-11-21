@@ -40,6 +40,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TablePager, pageBounds } from "../components/TablePager";
+import { useI18n } from "../i18n";
 
 const STATUS_FILTERS = ["ALL", "Healthy", "Warning", "Critical"] as const;
 const PAGE_SIZES = [25, 50, 100] as const;
@@ -67,6 +68,7 @@ export const StringAnalysisPage: React.FC = () => {
     plantOverviewLoading,
     setInspectedStringId,
   } = useAppContext();
+  const { t } = useI18n();
 
   // filters and the analysed string live in the URL (?inv=&status=&q=&string=)
   const [query, setQuery] = useUrlState();
@@ -185,16 +187,16 @@ export const StringAnalysisPage: React.FC = () => {
       x: sub.map((s) => s.string_id),
       xTickLabel: (id) => sub.find((s) => s.string_id === id)?.short_label ?? String(id),
       legend: [
-        { label: "Healthy", color: STATUS.good, shape: "bar" },
-        { label: "Warning", color: STATUS.warn, shape: "bar" },
-        { label: "Critical", color: STATUS.crit, shape: "bar" },
-        { label: "Peak current", color: SERIES.secondary, shape: "line" },
+        { label: t("Healthy"), color: STATUS.good, shape: "bar" },
+        { label: t("Warning"), color: STATUS.warn, shape: "bar" },
+        { label: t("Critical"), color: STATUS.crit, shape: "bar" },
+        { label: t("Peak current"), color: SERIES.secondary, shape: "line" },
       ],
-      tipExtra: (i) => [{ label: "Diagnosis", value: sub[i].diagnosis }],
+      tipExtra: (i) => [{ label: t("Diagnosis"), value: sub[i].diagnosis }],
       panels: [
         {
           key: "pr",
-          title: "Peer-relative PR (%) · modelled",
+          title: t("Peer-relative PR (%) · modelled"),
           weight: 1.5,
           yMin: 0,
           yMax: 105,
@@ -202,7 +204,7 @@ export const StringAnalysisPage: React.FC = () => {
           series: [
             {
               key: "pr",
-              name: "String PR",
+              name: t("String PR"),
               type: "bar",
               color: STATUS.good,
               y: sub.map((s) => s.pr_pct),
@@ -213,20 +215,20 @@ export const StringAnalysisPage: React.FC = () => {
         },
         {
           key: "imax",
-          title: "Peak current (A)",
+          title: t("Peak current (A)"),
           series: [
-            { key: "imax", name: "Peak current", type: "line", color: SERIES.secondary, y: sub.map((s) => s.i_max), format: (v) => `${fmt(v, 2)} A` },
+            { key: "imax", name: t("Peak current"), type: "line", color: SERIES.secondary, y: sub.map((s) => s.i_max), format: (v) => `${fmt(v, 2)} A` },
           ],
         },
       ],
     };
-  }, [filteredStrings]);
+  }, [filteredStrings, t]);
 
   if (plantOverviewLoading && !selectedPlantOverview) {
     return (
       <div className="space-y-6">
         <SelectedPlantBanner />
-        <LoadingState label="Analyzing string voltage, current & I-V / P-V curves for selected plant…" shape="page" />
+        <LoadingState label={t("Analyzing string voltage, current & I-V / P-V curves for selected plant…")} shape="page" />
       </div>
     );
   }
@@ -238,38 +240,38 @@ export const StringAnalysisPage: React.FC = () => {
       {/* String Health Summary KPIs */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <KpiTile
-          label="Monitored Strings"
+          label={t("Monitored Strings")}
           value={String(kpis?.string_count || strings.length)}
-          unit="strings"
+          unit={t("strings")}
           icon={Cpu}
           tone="info"
-          hint={`Across ${inverters.length} Growatt MAX inverters`}
+          hint={t("Across {n} Growatt MAX inverters", { n: inverters.length })}
         />
         <KpiTile
-          label="Healthy Strings"
+          label={t("Healthy Strings")}
           value={String(kpis?.healthy_strings || 0)}
           unit={`/ ${kpis?.string_count || strings.length}`}
           icon={CheckCircle2}
           tone="ok"
-          hint="Operating within nominal MPPT peer envelope"
+          hint={t("Operating within nominal MPPT peer envelope")}
           hintTone="ok"
         />
         <KpiTile
-          label="Warning / Mismatch"
+          label={t("Warning / Mismatch")}
           value={String(kpis?.warning_strings || 0)}
-          unit="strings"
+          unit={t("strings")}
           icon={AlertTriangle}
           tone="warn"
-          hint="Current or voltage deviation vs. MPPT peer"
+          hint={t("Current or voltage deviation vs. MPPT peer")}
           hintTone={Number(kpis?.warning_strings || 0) > 0 ? "warn" : "ok"}
         />
         <KpiTile
-          label="Critical String Faults"
+          label={t("Critical String Faults")}
           value={String(kpis?.critical_strings || 0)}
-          unit="strings"
+          unit={t("strings")}
           icon={Zap}
           tone="crit"
-          hint={`Avg String Health ${fmt(kpis?.avg_health_score, 1)} / 100`}
+          hint={t("Avg String Health {v} / 100", { v: fmt(kpis?.avg_health_score, 1) })}
           hintTone={Number(kpis?.critical_strings || 0) > 0 ? "crit" : "ok"}
         />
       </div>
@@ -280,7 +282,7 @@ export const StringAnalysisPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300">
               <SlidersHorizontal className="h-3.5 w-3.5 text-sky-400" />
-              Inverter:
+              {t("Inverter:")}
             </span>
             <button
               onClick={() => setSelectedInverterSn("ALL")}
@@ -290,7 +292,7 @@ export const StringAnalysisPage: React.FC = () => {
                   : "bg-white/[0.04] text-slate-400 hover:text-white"
               }`}
             >
-              All ({inverters.length})
+              {t("All ({n})", { n: inverters.length })}
             </button>
             {inverters.map((inv) => (
               <button
@@ -318,7 +320,7 @@ export const StringAnalysisPage: React.FC = () => {
                     : "bg-white/[0.04] text-slate-400 hover:text-white"
                 }`}
               >
-                {st}
+                {t(st === "ALL" ? "All" : st)}
               </button>
             ))}
             <div className="relative">
@@ -327,7 +329,7 @@ export const StringAnalysisPage: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search STR / MPPT…"
+                placeholder={t("Search STR / MPPT…")}
                 className="h-7 w-40 px-2 pl-8 text-[11px]"
               />
             </div>
@@ -343,8 +345,8 @@ export const StringAnalysisPage: React.FC = () => {
           <Panel
             className="xl:col-span-6"
             icon={Gauge}
-            title={`I-V & P-V Curve — ${activeString.string_id}`}
-            subtitle={`5-minute Growatt telemetry (${activeString.mppt_id} · ${activeString.status})`}
+            title={t("I-V & P-V Curve — {id}", { id: activeString.string_id })}
+            subtitle={t("5-minute Growatt telemetry ({mppt} · {status})", { mppt: activeString.mppt_id, status: t(activeString.status) })}
             actions={
               <div className="flex items-center gap-1.5">
                 <Select value={activeString.string_id} onValueChange={(v) => setActiveStringKey(v)}>
@@ -365,13 +367,13 @@ export const StringAnalysisPage: React.FC = () => {
                   size="sm"
                   className="text-sky-400"
                 >
-                  Drawer <ArrowUpRight className="h-3.5 w-3.5" />
+                  {t("Drawer")} <ArrowUpRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
             }
           >
             {detailLoading ? (
-              <LoadingState label={`Synthesizing I-V & P-V curves for ${activeString.string_id}…`} shape="chart" />
+              <LoadingState label={t("Synthesizing I-V & P-V curves for {id}…", { id: activeString.string_id })} shape="chart" />
             ) : (
               <div className="space-y-3">
                 <PanelChart spec={ivPvSpec} height={360} />
@@ -390,13 +392,13 @@ export const StringAnalysisPage: React.FC = () => {
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] uppercase text-slate-500">Peak Power (MPP)</div>
+                      <div className="text-[11px] uppercase text-slate-500">{t("Peak Power (MPP)")}</div>
                       <div className="num font-bold text-emerald-300">
                         {fmt(stringDetail.summary.p_max_w, 0)} W
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] uppercase text-slate-500">String PR</div>
+                      <div className="text-[11px] uppercase text-slate-500">{t("String PR")}</div>
                       <div className="num font-bold text-white">
                         {fmt(stringDetail.summary.pr_pct, 1)}%
                       </div>
@@ -410,16 +412,16 @@ export const StringAnalysisPage: React.FC = () => {
           <Panel
             className="xl:col-span-6"
             icon={Activity}
-            title={`5-Minute String Current & Voltage Profile — ${activeString.string_id}`}
-            subtitle={`Comparison against peer strings on inverter ${activeString.device_sn}`}
+            title={t("5-Minute String Current & Voltage Profile — {id}", { id: activeString.string_id })}
+            subtitle={t("Comparison against peer strings on inverter {sn}", { sn: activeString.device_sn })}
           >
             {detailLoading ? (
-              <LoadingState label="Loading 5-minute string time series…" shape="chart" />
+              <LoadingState label={t("Loading 5-minute string time series…")} shape="chart" />
             ) : (
               <div className="space-y-3">
                 <PanelChart spec={stringTimeseriesSpec} height={360} />
                 <div className="rounded-lg border border-white/[0.06] bg-ink-950/60 px-3.5 py-2.5 text-xs text-slate-300">
-                  <span className="font-semibold text-white">Automated Diagnosis: </span>
+                  <span className="font-semibold text-white">{t("Automated Diagnosis:")} </span>
                   <span>{activeString.diagnosis}</span>
                 </div>
               </div>
@@ -434,10 +436,10 @@ export const StringAnalysisPage: React.FC = () => {
       {/* Peer String Comparison Bar Chart */}
       <Panel
         icon={Activity}
-        title={`Peer String Performance Ratio & Peak Current Comparison (${filteredStrings.length} Strings)`}
-        subtitle={`Showing strings for ${
-          selectedInverterSn === "ALL" ? plant?.name || "All Inverters" : `Inverter ${selectedInverterSn}`
-        }`}
+        title={t("Peer String Performance Ratio & Peak Current Comparison ({n} Strings)", { n: filteredStrings.length })}
+        subtitle={t("Showing strings for {what}", {
+          what: selectedInverterSn === "ALL" ? plant?.name || t("All Inverters") : t("Inverter {sn}", { sn: selectedInverterSn }),
+        })}
       >
         <PanelChart spec={peerBarSpec} height={380} />
       </Panel>
@@ -445,8 +447,8 @@ export const StringAnalysisPage: React.FC = () => {
       {/* Full String Diagnostics Table */}
       <Panel
         icon={Cpu}
-        title={`String-Level Telemetry & Diagnostics Matrix (${filteredStrings.length} Strings)`}
-        subtitle="Click any string row to load its I-V / P-V curves in the analyzer above, or click 'Inspect Drawer' for slide-over details"
+        title={t("String-Level Telemetry & Diagnostics Matrix ({n} Strings)", { n: filteredStrings.length })}
+        subtitle={t("Click any string row to load its I-V / P-V curves in the analyzer above, or click 'Inspect Drawer' for slide-over details")}
         bodyClassName="p-0"
       >
         <Table containerClassName="scroll-x-hint">
@@ -464,26 +466,26 @@ export const StringAnalysisPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => toggleTableSort(c.key)}
-                        title={`Sort by ${c.label}`}
+                        title={t("Sort by {col}", { col: t(c.label) })}
                         className={`inline-flex items-center gap-1 hover:text-slate-100 ${active ? "text-slate-100" : ""}`}
                       >
-                        {c.label}
+                        {t(c.label)}
                         {active ? <Arrow className="size-3" /> : <ArrowUpDown className="size-3 opacity-40" />}
                       </button>
                     </TableHead>
                   );
                 })}
-                <TableHead className="text-right" title="Newest Growatt record (live, not stored)">Now V / I</TableHead>
-                <TableHead className="text-right">Avg V (V)</TableHead>
-                <TableHead className="text-right">Max V (V)</TableHead>
-                <TableHead className="text-right">Avg I (A)</TableHead>
-                <TableHead className="text-right">Peak I (A)</TableHead>
-                <TableHead className="text-right">Peak P (kW)</TableHead>
-                <TableHead className="text-right">Energy (kWh)</TableHead>
-                <TableHead className="text-right">I Mismatch (%)</TableHead>
+                <TableHead className="text-right" title={t("Newest Growatt record (live, not stored)")}>{t("Now V / I")}</TableHead>
+                <TableHead className="text-right">{t("Avg V (V)")}</TableHead>
+                <TableHead className="text-right">{t("Max V (V)")}</TableHead>
+                <TableHead className="text-right">{t("Avg I (A)")}</TableHead>
+                <TableHead className="text-right">{t("Peak I (A)")}</TableHead>
+                <TableHead className="text-right">{t("Peak P (kW)")}</TableHead>
+                <TableHead className="text-right">{t("Energy (kWh)")}</TableHead>
+                <TableHead className="text-right">{t("I Mismatch (%)")}</TableHead>
                 <TableHead className="text-right">PR (%)</TableHead>
-                <TableHead>Automated Diagnosis</TableHead>
-                <TableHead className="text-right">I-V Curve</TableHead>
+                <TableHead>{t("Automated Diagnosis")}</TableHead>
+                <TableHead className="text-right">{t("I-V Curve")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -508,7 +510,7 @@ export const StringAnalysisPage: React.FC = () => {
                     <TableCell className="num whitespace-nowrap text-xs text-slate-400">{s.mppt_id}</TableCell>
                     <TableCell
                       className="num whitespace-nowrap text-right text-sky-300"
-                      title={s.live_at ? `Live record ${s.live_at}` : "No live value"}
+                      title={s.live_at ? t("Live record {at}", { at: s.live_at }) : t("No live value")}
                     >
                       {s.live_current_a == null ? "—" : `${fmt(s.live_voltage_v, 0)} / ${fmt(s.live_current_a, 2)}`}
                     </TableCell>
@@ -549,7 +551,7 @@ export const StringAnalysisPage: React.FC = () => {
                         }}
                         className="rounded border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/20"
                       >
-                        Inspect Drawer
+                        {t("Inspect Drawer")}
                       </button>
                     </TableCell>
                   </TableRow>
@@ -565,13 +567,13 @@ export const StringAnalysisPage: React.FC = () => {
           onPage={setPage}
           extra={
             <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-              <SelectTrigger size="sm" className="w-28 text-[11px]" aria-label="Rows per page">
+              <SelectTrigger size="sm" className="w-28 text-[11px]" aria-label={t("Rows per page")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {PAGE_SIZES.map((n) => (
                   <SelectItem key={n} value={String(n)}>
-                    {n} per page
+                    {t("{n} per page", { n })}
                   </SelectItem>
                 ))}
               </SelectContent>

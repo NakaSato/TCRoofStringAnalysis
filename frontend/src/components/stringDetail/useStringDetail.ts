@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 import type { GrowattStringDetail } from "../../api/client";
 import { isWindowed } from "./period";
 import type { StringPeriod } from "./period";
+import { translate } from "../../i18n";
 
 export function useStringDetail(plantId: number | null, deviceSn: string | null, stringNo: number | null, period: StringPeriod) {
   const [detail, setDetail] = useState<GrowattStringDetail | null>(null);
@@ -34,7 +35,7 @@ export function useStringDetail(plantId: number | null, deviceSn: string | null,
       .catch((err: unknown) => {
         if (cancelled) return;
         setDetail(null);
-        setError(err instanceof Error ? err.message : "Could not load the stored data");
+        setError(err instanceof Error ? err.message : translate("Could not load the stored data"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

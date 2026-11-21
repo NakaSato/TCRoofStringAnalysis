@@ -15,6 +15,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DAY_STATUS, EST, MODELLED, WEATHER, dayMs, fmtDay, issueTone } from "./format";
+import { translate, useI18n } from "../../i18n";
 
 const siteSpec = (d: PwaMeterSiteDays, median: number | null): PanelChartSpec | null => {
   if (!d.days.length) return null;
@@ -30,24 +31,24 @@ const siteSpec = (d: PwaMeterSiteDays, median: number | null): PanelChartSpec | 
     bands,
     tipExtra: (i) => {
       const r = d.days[i];
-      const out = [{ label: "Day", value: DAY_STATUS[r.status].label }];
-      if (r.weather) out.push({ label: "Weather", value: WEATHER[r.weather] ?? r.weather });
-      if (r.note) out.push({ label: "Note", value: r.note.length > 80 ? `${r.note.slice(0, 80)}…` : r.note });
+      const out = [{ label: translate("Day"), value: translate(DAY_STATUS[r.status].label) }];
+      if (r.weather) out.push({ label: translate("Weather"), value: WEATHER[r.weather] ? translate(WEATHER[r.weather]) : r.weather });
+      if (r.note) out.push({ label: translate("Note"), value: r.note.length > 80 ? `${r.note.slice(0, 80)}…` : r.note });
       return out;
     },
     panels: [
       {
         key: "energy",
-        title: "Energy (kWh/day)",
+        title: translate("Energy (kWh/day)"),
         weight: 2,
         series: [
-          { key: "meter", name: "Meter (billed)", color: SERIES.ac, type: "line", area: true, width: 1.5, y: d.days.map((r) => r.meter_kwh), format: (v) => `${fmt(v, 0)} kWh` },
-          { key: "inv", name: "Inverter (report)", color: SERIES.dc, type: "line", width: 1, opacity: 0.8, y: d.days.map((r) => r.inverter_kwh), format: (v) => `${fmt(v, 0)} kWh` },
-          { key: "con", name: "Contract (modelled)", color: SERIES.reference, type: "line", dash: "dash", y: d.days.map((r) => r.contract_kwh), format: (v) => `${fmt(v, 0)} kWh` },
-          { key: "pv", name: "PVsyst P50 (modelled)", color: SERIES.reference, type: "line", dash: "dot", y: d.days.map((r) => r.pvsyst_kwh), format: (v) => `${fmt(v, 0)} kWh` },
+          { key: "meter", name: translate("Meter (billed)"), color: SERIES.ac, type: "line", area: true, width: 1.5, y: d.days.map((r) => r.meter_kwh), format: (v) => `${fmt(v, 0)} kWh` },
+          { key: "inv", name: translate("Inverter (report)"), color: SERIES.dc, type: "line", width: 1, opacity: 0.8, y: d.days.map((r) => r.inverter_kwh), format: (v) => `${fmt(v, 0)} kWh` },
+          { key: "con", name: translate("Contract (modelled)"), color: SERIES.reference, type: "line", dash: "dash", y: d.days.map((r) => r.contract_kwh), format: (v) => `${fmt(v, 0)} kWh` },
+          { key: "pv", name: translate("PVsyst P50 (modelled)"), color: SERIES.reference, type: "line", dash: "dot", y: d.days.map((r) => r.pvsyst_kwh), format: (v) => `${fmt(v, 0)} kWh` },
         ],
       },
-      ratioPanel("Meter ÷ inverter (%)", "Meter ÷ inverter", ratio, median != null ? { y: median, label: `Site median ${fmt(median, 2)} %` } : null),
+      ratioPanel(translate("Meter ÷ inverter (%)"), translate("Meter ÷ inverter"), ratio, median != null ? { y: median, label: translate("Site median {v} %", { v: fmt(median, 2) }) } : null),
     ],
   };
 };
@@ -67,6 +68,7 @@ export const SiteDialog: React.FC<{
   outages: PwaOutageEvent[];
   onClose: () => void;
 }> = ({ siteId, window: w, row, check, outages, onClose }) => {
+  const { t } = useI18n();
   const [data, setData] = useState<PwaMeterSiteDays | null>(null);
   const [error, setError] = useState<string | null>(null);
   const start = w.start ?? null;
@@ -97,7 +99,7 @@ export const SiteDialog: React.FC<{
           <DialogTitle>{site?.name ?? row?.name ?? siteId}</DialogTitle>
           <DialogDescription>
             {siteId}
-            {site ? ` · Phase ${site.phase}${site.region ? ` · ${site.region}` : ""}` : ""}
+            {site ? ` · ${t("Phase {n}", { n: site.phase })}${site.region ? ` · ${site.region}` : ""}` : ""}
             {data?.days.length ? ` · ${fmtDay(data.days[0].day)} – ${fmtDay(data.days.at(-1)!.day)}` : ""}
           </DialogDescription>
         </DialogHeader>
@@ -110,21 +112,21 @@ export const SiteDialog: React.FC<{
 
         {site && (
           <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-            <Fact label="Contract kWp" value={fmt(site.kwp, 2)} />
+            <Fact label={t("Contract kWp")} value={fmt(site.kwp, 2)} />
             <Fact
               label="Growatt kWp"
-              title={site.kwp_mismatch ? "Differs from the contract kWp by more than 1 %: fix it in the Growatt registry" : undefined}
+              title={site.kwp_mismatch ? t("Differs from the contract kWp by more than 1 %: fix it in the Growatt registry") : undefined}
               value={<span className={site.kwp_mismatch ? "text-amber-300" : ""}>{fmt(site.growatt_kwp, 2)}</span>}
             />
-            <Fact label="Meter" value={`${fmt(row?.meter_mwh, 1)} MWh`} />
-            <Fact label="vs contract (mod.)" title={MODELLED} value={row?.vs_contract_pct == null ? "—" : `${fmt(row.vs_contract_pct, 1)} %`} />
-            <Fact label="vs PVsyst (mod.)" title={MODELLED} value={row?.vs_pvsyst_pct == null ? "—" : `${fmt(row.vs_pvsyst_pct, 1)} %`} />
-            <Fact label="Availability" value={row?.availability_pct == null ? "—" : `${fmt(row.availability_pct, 2)} %`} />
-            <Fact label="Loss (est.)" title={EST} value={`฿${fmtInt(row?.loss_thb)}`} />
-            <Fact label="Meter gap (est.)" title={EST} value={check?.gap_mwh == null ? "—" : `${fmt(check.gap_mwh, 2)} MWh`} />
+            <Fact label={t("Meter")} value={`${fmt(row?.meter_mwh, 1)} MWh`} />
+            <Fact label={t("vs contract (mod.)")} title={t(MODELLED)} value={row?.vs_contract_pct == null ? "—" : `${fmt(row.vs_contract_pct, 1)} %`} />
+            <Fact label={t("vs PVsyst (mod.)")} title={t(MODELLED)} value={row?.vs_pvsyst_pct == null ? "—" : `${fmt(row.vs_pvsyst_pct, 1)} %`} />
+            <Fact label={t("Availability")} value={row?.availability_pct == null ? "—" : `${fmt(row.availability_pct, 2)} %`} />
+            <Fact label={t("Loss (est.)")} title={t(EST)} value={`฿${fmtInt(row?.loss_thb)}`} />
+            <Fact label={t("Meter gap (est.)")} title={t(EST)} value={check?.gap_mwh == null ? "—" : `${fmt(check.gap_mwh, 2)} MWh`} />
             {site.growatt_plant_id != null && (
               <Link to={plantPath(site.growatt_plant_id, "generation")} className="ml-auto text-xs text-solar-400 hover:underline">
-                Growatt plant {site.growatt_name ?? site.growatt_plant_id} →
+                {t("Growatt plant {name} →", { name: site.growatt_name ?? site.growatt_plant_id })}
               </Link>
             )}
           </div>
@@ -142,22 +144,22 @@ export const SiteDialog: React.FC<{
                 {f}
               </Badge>
             ))}
-            {row.owner && <span className="ml-1 text-xs text-muted-foreground">Owner: {row.owner}</span>}
+            {row.owner && <span className="ml-1 text-xs text-muted-foreground">{t("Owner: {owner}", { owner: row.owner })}</span>}
           </div>
         )}
 
         {!data && !error ? (
           <SkeletonChart />
         ) : (
-          <PanelChart spec={spec} height={380} legendToggle legendPosition="bottom" emptyLabel="No report days in this window." />
+          <PanelChart spec={spec} height={380} legendToggle legendPosition="bottom" emptyLabel={t("No report days in this window.")} />
         )}
         <p className="text-[11px] text-muted-foreground">
-          Daily report values; outages of a few hours do not show at this resolution. Shaded: outage days; hatched: a reading missing that day.
+          {t("Daily report values; outages of a few hours do not show at this resolution. Shaded: outage days; hatched: a reading missing that day.")}
         </p>
 
         {outages.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="eyebrow">Outage events</span>
+            <span className="eyebrow">{t("Outage events")}</span>
             <ul className="flex flex-col gap-1 text-xs">
               {outages.map((o) => (
                 <li key={o.start} className="flex flex-wrap gap-x-3">
@@ -165,10 +167,10 @@ export const SiteDialog: React.FC<{
                     {fmtDay(o.start)}
                     {o.end !== o.start ? ` – ${fmtDay(o.end)}` : ""}
                   </span>
-                  <span className="num">{o.days} d</span>
+                  <span className="num">{t("{n} d", { n: o.days })}</span>
                   <span>{o.cause}</span>
-                  <span className="num text-muted-foreground" title={EST}>
-                    {fmt(o.lost_mwh, 2)} MWh lost (est.)
+                  <span className="num text-muted-foreground" title={t(EST)}>
+                    {t("{v} MWh lost (est.)", { v: fmt(o.lost_mwh, 2) })}
                   </span>
                 </li>
               ))}
@@ -178,7 +180,7 @@ export const SiteDialog: React.FC<{
 
         {notes.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="eyebrow">Report notes (newest {notes.length})</span>
+            <span className="eyebrow">{t("Report notes (newest {n})", { n: notes.length })}</span>
             <ul className="flex flex-col gap-1 text-xs">
               {notes.map((r) => (
                 <li key={r.day} className="flex gap-3">

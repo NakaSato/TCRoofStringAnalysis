@@ -57,6 +57,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "../i18n";
 
 const RECORDS_PAGE = 25;
 const hm = (ts: string | null) => (ts ? ts.slice(11, 16) : "—");
@@ -65,6 +66,7 @@ const devTone = (d: number | null) => (d == null ? "text-slate-400" : d <= DEV_C
 
 export const StringDetailPage: React.FC = () => {
   const { selectedGrowattPlantId, selectedPlantOverview, plantOverviewLoading, activePlant } = useAppContext();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const plantHref = usePlantHref();
   const [query, setQuery] = useUrlState();
@@ -139,22 +141,22 @@ export const StringDetailPage: React.FC = () => {
 
   const chart = (spec: PanelChartSpec | null, height: number, empty: string, onBrush?: (lo: number, hi: number) => void) =>
     loading ? (
-      <LoadingState label={`Loading ${periodText ?? "the newest stored day"}${winText ? ` ${winText}` : ""}…`} shape="chart" />
+      <LoadingState label={t("Loading {period}…", { period: `${periodText ?? t("the newest stored day")}${winText ? ` ${winText}` : ""}` })} shape="chart" />
     ) : error ? (
-      <EmptyState icon={AlertTriangle} title="No stored data for this period" description={error} className="py-10" />
+      <EmptyState icon={AlertTriangle} title={t("No stored data for this period")} description={error} className="py-10" />
     ) : spec ? (
       <PanelChart spec={spec} height={height} onBrush={onBrush} legendToggle />
     ) : (
-      <EmptyState icon={Activity} title="Nothing to draw" description={empty} className="py-10" />
+      <EmptyState icon={Activity} title={t("Nothing to draw")} description={empty} className="py-10" />
     );
 
   if (!sn || stringNo == null) {
     return (
       <div className="space-y-6">
         <SelectedPlantBanner />
-        <EmptyState icon={AlertTriangle} title="No string selected" description="Open a string from String Diagnostics." />
+        <EmptyState icon={AlertTriangle} title={t("No string selected")} description={t("Open a string from String Diagnostics.")} />
         <Button onClick={() => navigate(plantHref("strings"))}>
-          <ArrowLeft data-icon="inline-start" className="h-3.5 w-3.5" /> String Diagnostics
+          <ArrowLeft data-icon="inline-start" className="h-3.5 w-3.5" /> {t("String Diagnostics")}
         </Button>
       </div>
     );
@@ -171,18 +173,18 @@ export const StringDetailPage: React.FC = () => {
       <Card className="gap-3 px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-            <Button variant="ghost" size="icon-sm" onClick={() => navigate(plantHref("strings"))} aria-label="Back to String Diagnostics" title="Back to String Diagnostics">
+            <Button variant="ghost" size="icon-sm" onClick={() => navigate(plantHref("strings"))} aria-label={t("Back to String Diagnostics")} title={t("Back to String Diagnostics")}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <h1 className="num flex min-w-0 items-center gap-2 text-2xl font-extrabold tracking-tight text-white">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button type="button" onClick={copySn} aria-label={`Copy inverter SN ${sn}`} className="group inline-flex items-center gap-1.5 rounded-md px-1 -mx-1 hover:bg-white/[0.06]">
+                  <button type="button" onClick={copySn} aria-label={t("Copy inverter SN {sn}", { sn })} className="group inline-flex items-center gap-1.5 rounded-md px-1 -mx-1 hover:bg-white/[0.06]">
                     {sn}
                     {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4 text-slate-500 opacity-60 group-hover:opacity-100" />}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">{copied ? "Copied" : "Click to copy the inverter SN"}</TooltipContent>
+                <TooltipContent side="bottom">{copied ? t("Copied") : t("Click to copy the inverter SN")}</TooltipContent>
               </Tooltip>
               <span className="text-slate-500">·</span>
               <span>{row?.mppt_id ?? (detail ? `MPPT-${detail.mppt_no}` : "MPPT")}</span>
@@ -192,7 +194,7 @@ export const StringDetailPage: React.FC = () => {
             {row && overviewPeriod && <StatusBadge status={row.status} />}
             {detail?.modules != null && (
               <Badge variant="neutral" className="num">
-                {detail.modules} modules{detail.module_wp ? ` × ${fmt(detail.module_wp, 0)} Wp` : ""}
+                {t("{n} modules", { n: detail.modules })}{detail.module_wp ? ` × ${fmt(detail.module_wp, 0)} Wp` : ""}
               </Badge>
             )}
           </div>
@@ -204,18 +206,18 @@ export const StringDetailPage: React.FC = () => {
               shownEndDay={detail?.meta.end_day ?? null}
               today={today}
               loading={loading}
-              hint="Or drag across the 5-min profile chart."
+              hint={t("Or drag across the 5-min profile chart.")}
             />
             <Tooltip>
               <TooltipTrigger asChild>
-                <span tabIndex={0} aria-label="AI Analysis (coming soon)">
+                <span tabIndex={0} aria-label={t("AI Analysis (coming soon)")}>
                   <Button variant="outline" size="sm" disabled className="pointer-events-none gap-1.5 border-violet-400/40 text-violet-200 disabled:opacity-80">
                     <Sparkles data-icon="inline-start" className="h-3.5 w-3.5 text-violet-300" />
-                    AI Analysis
+                    {t("AI Analysis")}
                   </Button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Coming soon: a written diagnosis of this string&apos;s period</TooltipContent>
+              <TooltipContent side="bottom">{t("Coming soon: a written diagnosis of this string's period")}</TooltipContent>
             </Tooltip>
             <Button variant="outline" size="sm" onClick={exportCsv} disabled={!detail}>
               <Download data-icon="inline-start" className="h-3.5 w-3.5" /> CSV
@@ -235,7 +237,7 @@ export const StringDetailPage: React.FC = () => {
                   type="button"
                   onClick={() => go(p.device_sn, p.string_no)}
                   aria-current={active ? "true" : undefined}
-                  title={`${p.string_id} · ${p.status} (${ovDay ?? "overview day"})`}
+                  title={`${p.string_id} · ${t(p.status)} (${ovDay ?? t("overview day")})`}
                   className={`num inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${
                     active ? "border-solar-400/60 bg-solar-500/20 text-solar-300" : "border-white/[0.07] bg-ink-850 text-slate-400 hover:border-white/20 hover:text-slate-200"
                   }`}
@@ -249,7 +251,7 @@ export const StringDetailPage: React.FC = () => {
           <div className="num flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]" title={row?.live_reason ?? undefined}>
             <span className="inline-flex items-center gap-1 font-semibold text-sky-300">
               <Radio className="h-3 w-3" />
-              {row?.live_current_a != null ? `Now ${hm(row.live_at ?? null)}` : "Now"}
+              {row?.live_current_a != null ? t("Now {time}", { time: hm(row.live_at ?? null) }) : t("Now")}
             </span>
             {row?.live_current_a != null ? (
               <>
@@ -259,7 +261,7 @@ export const StringDetailPage: React.FC = () => {
                 {row.live_status && <StatusBadge status={row.live_status} />}
               </>
             ) : (
-              <span className="text-slate-500">no live record</span>
+              <span className="text-slate-500">{t("no live record")}</span>
             )}
           </div>
         </div>
@@ -273,7 +275,7 @@ export const StringDetailPage: React.FC = () => {
             <div>
               <div className="font-semibold text-slate-100">{row.diagnosis}</div>
               <div className="num text-[11px] opacity-80">
-                Overview diagnosis of {ovDay} · health {fmt(row.health_score, 0)}/100 · peer-relative PR {fmt(row.pr_pct, 1)}% (modelled)
+                {t("Overview diagnosis of {day} · health {health}/100 · peer-relative PR {pr}% (modelled)", { day: ovDay, health: fmt(row.health_score, 0), pr: fmt(row.pr_pct, 1) })}
               </div>
             </div>
           </div>
@@ -282,80 +284,80 @@ export const StringDetailPage: React.FC = () => {
         <div className="flex items-start gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-xs text-slate-300">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
           <div>
-            Measured {ranged ? "over" : "on"} <span className="num font-semibold text-white">{periodText ?? "the newest stored day"}</span>
-            {ranged && day && endDay && <span className="num"> ({daysBetween(day, endDay) + 1} days)</span>}
+            {ranged ? t("Measured over") : t("Measured on")} <span className="num font-semibold text-white">{periodText ?? t("the newest stored day")}</span>
+            {ranged && day && endDay && <span className="num"> ({t("{n} days", { n: daysBetween(day, endDay) + 1 })})</span>}
             {winText && (
               <>
-                , <span className="num font-semibold text-white">{winText}</span> only
+                {t(", only")} <span className="num font-semibold text-white">{winText}</span>
               </>
             )}
-            , compared with the mean of the inverter&apos;s other strings. The overview&apos;s diagnosis and status are for the whole of{" "}
+            {t(", compared with the mean of the inverter's other strings. The overview's diagnosis and status are for the whole of")}{" "}
             <button type="button" className="num font-semibold text-sky-300 hover:underline" onClick={() => setPeriod({ day: ovDay, endDay: null, start: "", end: "" })}>
-              {ovDay ?? "its day"}
+              {ovDay ?? t("its day")}
             </button>{" "}
-            only.
+            {t("only.")}
           </div>
         </div>
       )}
 
       {/* Figures of the period */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <KpiTile compact label="Energy" value={fmt(energy, 2)} unit="kWh" hint={`peer avg ${fmt(peerEnergy, 2)} kWh`} tone="info" />
+        <KpiTile compact label={t("Energy")} value={fmt(energy, 2)} unit="kWh" hint={t("peer avg {v} kWh", { v: fmt(peerEnergy, 2) })} tone="info" />
         <KpiTile
           compact
-          label="Energy gap"
-          value={gapKwh != null && gapKwh < 0.05 ? "None" : fmt(gapKwh, 2)}
+          label={t("Energy gap")}
+          value={gapKwh != null && gapKwh < 0.05 ? t("None") : fmt(gapKwh, 2)}
           unit={gapKwh != null && gapKwh < 0.05 ? undefined : "kWh"}
-          hint={gapKwh == null || gapKwh < 0.05 || tariff == null ? "vs. peer average" : `≈ ฿${Math.round(gapKwh * tariff).toLocaleString()} at ฿${fmt(tariff, 2)}/kWh`}
+          hint={gapKwh == null || gapKwh < 0.05 || tariff == null ? t("vs. peer average") : t("≈ ฿{thb} at ฿{rate}/kWh", { thb: Math.round(gapKwh * tariff).toLocaleString(), rate: fmt(tariff, 2) })}
           tone={gapKwh != null && gapKwh >= 0.05 ? "warn" : "ok"}
         />
-        <KpiTile compact label="String PR · peer" value={fmt(s?.pr_pct, 1)} unit="%" hint="peer-relative, modelled" tone="info" />
+        <KpiTile compact label={t("String PR · peer")} value={fmt(s?.pr_pct, 1)} unit="%" hint={t("peer-relative, modelled")} tone="info" />
         <KpiTile
           compact
-          label="Current vs peers"
+          label={t("Current vs peers")}
           value={signed(facts?.meanDevPct ?? null)}
           unit="%"
-          hint={`slots with peers ≥ ${MISMATCH_MIN_PEER_A} A`}
+          hint={t("slots with peers ≥ {a} A", { a: MISMATCH_MIN_PEER_A })}
           tone={facts?.meanDevPct == null ? "info" : facts.meanDevPct <= DEV_CRIT_PCT ? "crit" : facts.meanDevPct <= DEV_WARN_PCT ? "warn" : "ok"}
         />
-        <KpiTile compact label="Peak power" value={fmt(s?.p_max_w, 0)} unit="W" hint={peakRow ? `at ${peakRow.timestamp.slice(ranged ? 5 : 11, 16)}` : undefined} tone="info" />
-        <KpiTile compact label="Vmpp / Voc est." value={`${fmt(s?.v_mpp, 0)} / ${fmt(s?.v_oc_est, 0)}`} unit="V" hint={`avg ${fmt(s?.v_avg, 0)} V · max ${fmt(s?.v_max, 0)} V`} tone="info" />
-        <KpiTile compact label="Impp / Isc est." value={`${fmt(s?.i_mpp, 2)} / ${fmt(s?.i_sc_est, 2)}`} unit="A" hint={`avg ${fmt(s?.i_avg, 2)} A · max ${fmt(s?.i_max, 2)} A`} tone="info" />
+        <KpiTile compact label={t("Peak power")} value={fmt(s?.p_max_w, 0)} unit="W" hint={peakRow ? t("at {time}", { time: peakRow.timestamp.slice(ranged ? 5 : 11, 16) }) : undefined} tone="info" />
+        <KpiTile compact label={t("Vmpp / Voc est.")} value={`${fmt(s?.v_mpp, 0)} / ${fmt(s?.v_oc_est, 0)}`} unit="V" hint={t("avg {avg} V · max {max} V", { avg: fmt(s?.v_avg, 0), max: fmt(s?.v_max, 0) })} tone="info" />
+        <KpiTile compact label={t("Impp / Isc est.")} value={`${fmt(s?.i_mpp, 2)} / ${fmt(s?.i_sc_est, 2)}`} unit="A" hint={t("avg {avg} A · max {max} A", { avg: fmt(s?.i_avg, 2), max: fmt(s?.i_max, 2) })} tone="info" />
       </div>
 
       {/* Curves and profile */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        <Panel icon={Gauge} title="I-V & P-V curves" subtitle={`Curves modelled${ranged ? " from the range's peak" : ""} · dots measured`}>
-          {chart(ivSpec, 380, "No record has both voltage and current, so no curve can be modelled.")}
+        <Panel icon={Gauge} title={t("I-V & P-V curves")} subtitle={ranged ? t("Curves modelled from the range's peak · dots measured") : t("Curves modelled · dots measured")}>
+          {chart(ivSpec, 380, t("No record has both voltage and current, so no curve can be modelled."))}
         </Panel>
-        <Panel icon={Activity} title="Profile vs. peers" subtitle={ranged ? "Every record of the range" : "Drag across the chart to look at that time only"}>
-          {chart(profileSpec, 380, "No stored records in this period.", ranged ? undefined : zoomTo)}
+        <Panel icon={Activity} title={t("Profile vs. peers")} subtitle={ranged ? t("Every record of the range") : t("Drag across the chart to look at that time only")}>
+          {chart(profileSpec, 380, t("No stored records in this period."), ranged ? undefined : zoomTo)}
         </Panel>
       </div>
 
       {/* Mismatch analysis */}
       <Panel
         icon={TrendingDown}
-        title="Current mismatch vs. peers"
-        subtitle={`Measured · each 5-min slot where the other strings carry ≥ ${MISMATCH_MIN_PEER_A} A · thresholds of the live string check (${DEV_WARN_PCT} % warning, ${DEV_CRIT_PCT} % critical)`}
+        title={t("Current mismatch vs. peers")}
+        subtitle={t("Measured · each 5-min slot where the other strings carry ≥ {a} A · thresholds of the live string check ({warn} % warning, {crit} % critical)", { a: MISMATCH_MIN_PEER_A, warn: DEV_WARN_PCT, crit: DEV_CRIT_PCT })}
       >
         {facts && facts.judged > 0 && (
           <div className="mb-4 grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
             <div className="rounded-lg bg-ink-950/60 p-3">
-              <div className="text-[10px] uppercase text-slate-500">Slots judged</div>
+              <div className="text-[10px] uppercase text-slate-500">{t("Slots judged")}</div>
               <div className="num text-lg font-bold text-white">{facts.judged}</div>
             </div>
             <div className="rounded-lg bg-ink-950/60 p-3">
-              <div className="text-[10px] uppercase text-slate-500">At or below {DEV_WARN_PCT} %</div>
+              <div className="text-[10px] uppercase text-slate-500">{t("At or below {v} %", { v: DEV_WARN_PCT })}</div>
               <div className={`num text-lg font-bold ${facts.belowWarn ? "text-amber-400" : "text-emerald-400"}`}>
                 {facts.belowWarn} <span className="text-xs font-medium text-slate-500">({fmt((facts.belowWarn / facts.judged) * 100, 0)}%)</span>
               </div>
-              {facts.belowCrit > 0 && <div className="num text-[11px] text-red-300">{facts.belowCrit} at or below {DEV_CRIT_PCT} %</div>}
+              {facts.belowCrit > 0 && <div className="num text-[11px] text-red-300">{t("{n} at or below {v} %", { n: facts.belowCrit, v: DEV_CRIT_PCT })}</div>}
             </div>
             <div className="rounded-lg bg-ink-950/60 p-3">
-              <div className="text-[10px] uppercase text-slate-500">Longest run below {DEV_WARN_PCT} %</div>
+              <div className="text-[10px] uppercase text-slate-500">{t("Longest run below {v} %", { v: DEV_WARN_PCT })}</div>
               <div className="num text-lg font-bold text-white">
-                {facts.longestRunSlots ? `${facts.longestRunSlots} slots` : "None"}
+                {facts.longestRunSlots ? t("{n} slots", { n: facts.longestRunSlots }) : t("None")}
               </div>
               {facts.longestRunFrom && (
                 <div className="num text-[11px] text-slate-400">
@@ -364,24 +366,24 @@ export const StringDetailPage: React.FC = () => {
               )}
             </div>
             <div className="rounded-lg bg-ink-950/60 p-3">
-              <div className="text-[10px] uppercase text-slate-500">Worst hour of day</div>
+              <div className="text-[10px] uppercase text-slate-500">{t("Worst hour of day")}</div>
               <div className={`num text-lg font-bold ${devTone(facts.worstHour?.dev_pct ?? null)}`}>
                 {facts.worstHour ? `${String(facts.worstHour.hour).padStart(2, "0")}:00 · ${signed(facts.worstHour.dev_pct)}%` : "—"}
               </div>
-              {facts.worstHour && <div className="num text-[11px] text-slate-400">{facts.worstHour.slots} slots</div>}
+              {facts.worstHour && <div className="num text-[11px] text-slate-400">{t("{n} slots", { n: facts.worstHour.slots })}</div>}
             </div>
           </div>
         )}
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
-          <div className="xl:col-span-3">{chart(devSpec, 260, `No slot where the peers carry ≥ ${MISMATCH_MIN_PEER_A} A.`)}</div>
-          <div className="xl:col-span-2">{chart(hSpec, 260, "No hour with judged slots.")}</div>
+          <div className="xl:col-span-3">{chart(devSpec, 260, t("No slot where the peers carry ≥ {a} A.", { a: MISMATCH_MIN_PEER_A }))}</div>
+          <div className="xl:col-span-2">{chart(hSpec, 260, t("No hour with judged slots."))}</div>
         </div>
       </Panel>
 
       {/* Daily (range) */}
       {ranged && (
-        <Panel icon={CalendarRange} title="Daily energy vs. peers" subtitle="Measured energy per day · PR peer-relative, modelled">
-          {chart(dailySpec, 300, "No day of the range has stored records.")}
+        <Panel icon={CalendarRange} title={t("Daily energy vs. peers")} subtitle={t("Measured energy per day · PR peer-relative, modelled")}>
+          {chart(dailySpec, 300, t("No day of the range has stored records."))}
         </Panel>
       )}
 
@@ -398,22 +400,22 @@ export const StringDetailPage: React.FC = () => {
       {/* Strings of the inverter (overview day) */}
       <Panel
         icon={Table2}
-        title={`Strings of inverter ${sn}`}
-        subtitle={`Overview day ${ovDay ?? "—"}, whole day · click a row to open that string`}
+        title={t("Strings of inverter {sn}", { sn })}
+        subtitle={t("Overview day {day}, whole day · click a row to open that string", { day: ovDay ?? "—" })}
         bodyClassName="p-0"
       >
         <Table containerClassName="scroll-x-hint">
           <TableHeader>
             <TableRow>
-              <TableHead>String</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{t("String")}</TableHead>
+              <TableHead>{t("Status")}</TableHead>
               <TableHead>MPPT</TableHead>
-              <TableHead className="text-right">Energy (kWh)</TableHead>
+              <TableHead className="text-right">{t("Energy (kWh)")}</TableHead>
               <TableHead className="text-right">PR (%)</TableHead>
-              <TableHead className="text-right">Avg / peak I (A)</TableHead>
-              <TableHead className="text-right">Avg / max V (V)</TableHead>
-              <TableHead className="text-right">I mismatch (%)</TableHead>
-              <TableHead>Diagnosis</TableHead>
+              <TableHead className="text-right">{t("Avg / peak I (A)")}</TableHead>
+              <TableHead className="text-right">{t("Avg / max V (V)")}</TableHead>
+              <TableHead className="text-right">{t("I mismatch (%)")}</TableHead>
+              <TableHead>{t("Diagnosis")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -445,7 +447,7 @@ export const StringDetailPage: React.FC = () => {
             {peers.length === 0 && (
               <TableRow>
                 <TableCell colSpan={9} className="py-6 text-center text-slate-500">
-                  {plantOverviewLoading ? "Loading the overview…" : "No strings of this inverter in the overview."}
+                  {plantOverviewLoading ? t("Loading the overview…") : t("No strings of this inverter in the overview.")}
                 </TableCell>
               </TableRow>
             )}
@@ -454,18 +456,18 @@ export const StringDetailPage: React.FC = () => {
       </Panel>
 
       {/* Records */}
-      <Panel icon={Clock} title="Stored records" subtitle="Newest first · plant-local time · peer = mean of the other strings in the same 5-min slot" bodyClassName="p-0">
+      <Panel icon={Clock} title={t("Stored records")} subtitle={t("Newest first · plant-local time · peer = mean of the other strings in the same 5-min slot")} bodyClassName="p-0">
         <Table containerClassName="scroll-x-hint">
           <TableHeader>
             <TableRow>
-              <TableHead>Time</TableHead>
+              <TableHead>{t("Time")}</TableHead>
               <TableHead className="text-right">V</TableHead>
               <TableHead className="text-right">I (A)</TableHead>
               <TableHead className="text-right">P (W)</TableHead>
-              <TableHead className="text-right">Peer V</TableHead>
-              <TableHead className="text-right">Peer I (A)</TableHead>
-              <TableHead className="text-right">Peer P (W)</TableHead>
-              <TableHead className="text-right">I vs peers</TableHead>
+              <TableHead className="text-right">{t("Peer V")}</TableHead>
+              <TableHead className="text-right">{t("Peer I (A)")}</TableHead>
+              <TableHead className="text-right">{t("Peer P (W)")}</TableHead>
+              <TableHead className="text-right">{t("I vs peers")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -487,7 +489,7 @@ export const StringDetailPage: React.FC = () => {
             {!loading && records.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} className="py-6 text-center text-slate-500">
-                  No stored records in this period.
+                  {t("No stored records in this period.")}
                 </TableCell>
               </TableRow>
             )}

@@ -2,6 +2,7 @@
 import type { PanelChartSpec, RefLine, XBand, XMarker } from "../../components/PanelChart";
 import { SERIES, STATUS } from "../../components/chartTheme";
 import { fmt } from "../../components/ui";
+import { translate } from "../../i18n";
 import { IRR_AXIS_MIN } from "../sensors/dayChart";
 import type { GrowattPlantOverview } from "../../api/client";
 import { invName } from "../inverters/shared";
@@ -98,7 +99,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
     ? [
         {
           key: "growatt",
-          name: "Growatt curve (plant/power)",
+          name: translate("Growatt curve (plant/power)"),
           type: "line" as const,
           dash: "dash" as const,
           width: 1.5,
@@ -112,13 +113,13 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
   const markers: XMarker[] = [];
   const bands: XBand[] = [];
   if (now && now.slice(0, 10) >= day && now.slice(0, 10) <= last) {
-    markers.push({ x: now, label: `Now ${now.slice(11, 16)}` });
-    if (now < end) bands.push({ from: now, to: end, label: "Later today", kind: "muted" });
+    markers.push({ x: now, label: translate("Now {t}", { t: now.slice(11, 16) }) });
+    if (now < end) bands.push({ from: now, to: end, label: translate("Later today"), kind: "muted" });
   }
   // the slots drawn from the live records: shaded and named, so they read as not stored yet
   const liveTs = ts.filter((r) => r.live);
-  if (liveTs.length) bands.push({ from: liveTs[0].timestamp, to: liveTs[liveTs.length - 1].timestamp, label: "Live · not stored yet", kind: "live" });
-  const refLines: RefLine[] = ratedKw ? [{ y: ratedKw, label: `Rated AC ${fmt(ratedKw, 0)} kW`, color: SERIES.reference }] : [];
+  if (liveTs.length) bands.push({ from: liveTs[0].timestamp, to: liveTs[liveTs.length - 1].timestamp, label: translate("Live · not stored yet"), kind: "live" });
+  const refLines: RefLine[] = ratedKw ? [{ y: ratedKw, label: translate("Rated AC {v} kW", { v: fmt(ratedKw, 0) }), color: SERIES.reference }] : [];
   // nothing stored in the range: still the frame (axes, rated AC), so the card keeps its shape
   if (!ts.length)
     return {
@@ -132,13 +133,13 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
       panels: [
         {
           key: "p",
-          title: "Power (kW)",
+          title: translate("Power (kW)"),
           yMin: 0,
           refLines,
           series: [
-            { key: "ref", name: "Clear-sky envelope (modelled)", type: "line", dash: "dot", color: SERIES.reference, y: [null, null], unit: "kW" },
-            { key: "dc", name: "DC input", type: "line", color: SERIES.dc, y: [null, null], unit: "kW" },
-            { key: "ac", name: "AC output", type: "line", color: SERIES.ac, y: [null, null], unit: "kW" },
+            { key: "ref", name: translate("Clear-sky envelope (modelled)"), type: "line", dash: "dot", color: SERIES.reference, y: [null, null], unit: "kW" },
+            { key: "dc", name: translate("DC input"), type: "line", color: SERIES.dc, y: [null, null], unit: "kW" },
+            { key: "ac", name: translate("AC output"), type: "line", color: SERIES.ac, y: [null, null], unit: "kW" },
             ...growattSeries,
           ],
         },
@@ -164,7 +165,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
       ? [
           {
             key: "irrkw",
-            name: "Irradiance × kWp (modelled)",
+            name: translate("Irradiance × kWp (modelled)"),
             type: "line" as const,
             dash: "dash" as const,
             width: 1.25,
@@ -179,13 +180,13 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
       ? [
           {
             key: "g",
-            title: "POA irradiance (W/m²)",
+            title: translate("POA irradiance (W/m²)"),
             yMin: 0,
             yMax: Math.max(IRR_AXIS_MIN, Math.ceil(irrPeak / 200) * 200),
             series: [
               {
                 key: "g",
-                name: "POA irradiance (sensor)",
+                name: translate("POA irradiance (sensor)"),
                 type: "line",
                 area: true,
                 color: SERIES.irradianceWithDc,
@@ -203,7 +204,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
     ? [
         {
           key: "imp",
-          name: "Grid import (meter)",
+          name: translate("Grid import (meter)"),
           type: "line" as const,
           width: 1.5,
           color: SERIES.grid,
@@ -212,7 +213,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
         },
         {
           key: "exp",
-          name: "Grid export (meter)",
+          name: translate("Grid export (meter)"),
           type: "line" as const,
           width: 1.5,
           color: SERIES.gridExport,
@@ -221,7 +222,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
         },
         {
           key: "load",
-          name: "Load (derived: PV + grid)",
+          name: translate("Load (derived: PV + grid)"),
           type: "line" as const,
           dash: "dash" as const,
           width: 1.75,
@@ -238,19 +239,19 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
     xDomain: [begin, end],
     xStep: 5 * 60_000,
     // over several days the nights (or the hours outside the window) are not missing data
-    gaps: multi ? undefined : "No data",
+    gaps: multi ? undefined : translate("No data"),
     markers,
     bands,
     panels: [
       {
         key: "p",
-        title: "Power (kW)",
+        title: translate("Power (kW)"),
         weight: irrPanels.length ? 2.2 : 1,
         refLines,
         series: [
           {
             key: "ref",
-            name: "Clear-sky envelope (modelled)",
+            name: translate("Clear-sky envelope (modelled)"),
             type: "line",
             dash: "dot",
             width: 1.5,
@@ -258,8 +259,8 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
             y: ts.map((r) => r.expected_kw),
             unit: "kW",
           },
-          { key: "dc", name: "DC input", type: "line", color: SERIES.dc, y: ts.map((r) => r.ppv_kw), unit: "kW" },
-          { key: "ac", name: "AC output", type: "line", area: true, color: SERIES.ac, y: ts.map((r) => r.pac_kw), unit: "kW" },
+          { key: "dc", name: translate("DC input"), type: "line", color: SERIES.dc, y: ts.map((r) => r.ppv_kw), unit: "kW" },
+          { key: "ac", name: translate("AC output"), type: "line", area: true, color: SERIES.ac, y: ts.map((r) => r.pac_kw), unit: "kW" },
           ...growattSeries,
           ...irrKwSeries,
           ...gridSeries,
@@ -267,7 +268,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
             ? [
                 {
                   key: "partial",
-                  name: "Fewer inverters in sum",
+                  name: translate("Fewer inverters in sum"),
                   type: "points" as const,
                   size: 4,
                   color: STATUS.warn,
@@ -280,7 +281,7 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
             ? [
                 {
                   key: "peak",
-                  name: `Peak ${fmt(pkKw, 1)} kW · ${at(ts[pk].timestamp)}`,
+                  name: translate("Peak {v} kW · {t}", { v: fmt(pkKw, 1), t: at(ts[pk].timestamp) }),
                   type: "points" as const,
                   symbol: "diamond" as const,
                   size: 8,
@@ -297,16 +298,19 @@ export const powerCurveSpec = (c: PowerCurve, now: string | null, o: { extra?: b
     tipExtra: (i) => {
       const r = ts[i];
       const rows: Array<{ label: string; value: string }> = [];
-      if (r.live) rows.push({ label: "Source", value: "Live records (not stored yet)" });
+      if (r.live) rows.push({ label: translate("Source"), value: translate("Live records (not stored yet)") });
       const pac = r.pac_kw ?? 0;
       const ppv = r.ppv_kw ?? 0;
-      if (r.pac_kw == null) rows.push({ label: "PV", value: "No inverter record in this slot" });
-      if (r.expected_kw != null && r.expected_kw > 0 && pac > 0) rows.push({ label: "AC of clear-sky (modelled)", value: pct(pac, r.expected_kw) });
+      if (r.pac_kw == null) rows.push({ label: "PV", value: translate("No inverter record in this slot") });
+      if (r.expected_kw != null && r.expected_kw > 0 && pac > 0) rows.push({ label: translate("AC of clear-sky (modelled)"), value: pct(pac, r.expected_kw) });
       // DC → AC only with real input: near dawn / dusk the ratio is noise
       if (ppv > 0 && pac > 0 && (!ratedKw || ppv >= ratedKw * 0.05)) rows.push({ label: "DC → AC", value: pct(pac, ppv) });
-      if (o.extra && r.freq_hz != null) rows.push({ label: "Grid frequency", value: `${fmt(r.freq_hz, 2)} Hz` });
+      if (o.extra && r.freq_hz != null) rows.push({ label: translate("Grid frequency"), value: `${fmt(r.freq_hz, 2)} Hz` });
       if (r.inverters != null && total && (r.inverters < total || r.held))
-        rows.push({ label: "Inverters in sum", value: `${r.inverters} of ${total}${r.held ? ` · ${r.held} held ≤ 10 min` : ""}` });
+        rows.push({
+          label: translate("Inverters in sum"),
+          value: `${translate("{n} of {total}", { n: r.inverters, total })}${r.held ? ` · ${translate("{n} held ≤ 10 min", { n: r.held })}` : ""}`,
+        });
       return rows;
     },
   };
@@ -332,20 +336,20 @@ export const inverterYieldSpec = (inverters: OverviewInverter[], target: number)
   return {
     ...bandX(inverters),
     legend: [
-      { label: `≥ target ${fmt(target, 0)} %`, color: STATUS.good, shape: "bar" },
-      { label: "within 5 pts", color: STATUS.warn, shape: "bar" },
-      { label: "below", color: STATUS.crit, shape: "bar" },
-      { label: "Specific yield", color: SERIES.secondary, shape: "line" },
+      { label: translate("≥ target {v} %", { v: fmt(target, 0) }), color: STATUS.good, shape: "bar" },
+      { label: translate("within 5 pts"), color: STATUS.warn, shape: "bar" },
+      { label: translate("below"), color: STATUS.crit, shape: "bar" },
+      { label: translate("Specific yield"), color: SERIES.secondary, shape: "line" },
     ],
     panels: [
       {
         key: "pr",
-        title: "Peer-relative PR (%)",
+        title: translate("Peer-relative PR (%)"),
         weight: 1.4,
         yMin: 0,
         yMax: 105,
         tickSuffix: "%",
-        refLines: [{ y: target, label: `Target ${fmt(target, 0)} %`, color: SERIES.reference }],
+        refLines: [{ y: target, label: translate("Target {v} %", { v: fmt(target, 0) }), color: SERIES.reference }],
         series: [
           {
             key: "pr",
@@ -360,11 +364,11 @@ export const inverterYieldSpec = (inverters: OverviewInverter[], target: number)
       },
       {
         key: "sy",
-        title: "Specific yield (kWh/kWp)",
+        title: translate("Specific yield (kWh/kWp)"),
         series: [
           {
             key: "sy",
-            name: "Specific yield",
+            name: translate("Specific yield"),
             type: "line",
             color: SERIES.secondary,
             y: inverters.map((i) => i.specific_yield),
@@ -384,23 +388,23 @@ export const inverterThermalSpec = (inverters: OverviewInverter[]): PanelChartSp
     panels: [
       {
         key: "t",
-        title: "Inverter temperature (°C)",
+        title: translate("Inverter temperature (°C)"),
         weight: 1.4,
         tickSuffix: "°",
         series: [
-          { key: "avg", name: "Avg temp", type: "bar", color: SERIES.ambient, y: inverters.map((i) => i.avg_temp_c), unit: "°C" },
-          { key: "max", name: "Peak temp", type: "bar", color: SERIES.temp, y: inverters.map((i) => i.max_temp_c), unit: "°C" },
+          { key: "avg", name: translate("Avg temp"), type: "bar", color: SERIES.ambient, y: inverters.map((i) => i.avg_temp_c), unit: "°C" },
+          { key: "max", name: translate("Peak temp"), type: "bar", color: SERIES.temp, y: inverters.map((i) => i.max_temp_c), unit: "°C" },
         ],
       },
       {
         key: "eff",
-        title: "DC→AC efficiency (%)",
+        title: translate("DC→AC efficiency (%)"),
         zero: false,
         tickSuffix: "%",
         series: [
           {
             key: "eff",
-            name: "Efficiency",
+            name: translate("Efficiency"),
             type: "line",
             color: SERIES.secondary,
             y: inverters.map((i) => i.efficiency_pct),
@@ -444,20 +448,20 @@ export const waterfallSpec = (waterfall: Overview["loss_waterfall"]): PanelChart
   return {
     xKind: "band",
     x: waterfall.map((w) => w.stage),
-    xTickLabel: (s) => STAGE_SHORT[String(s)] ?? String(s),
+    xTickLabel: (s) => translate(STAGE_SHORT[String(s)] ?? String(s)),
     legend: [
-      { label: "Reference", color: SERIES.reference, shape: "bar" },
-      { label: "Loss", color: STATUS.crit, shape: "bar" },
-      { label: "AC yield (measured)", color: STATUS.good, shape: "bar" },
+      { label: translate("Reference"), color: SERIES.reference, shape: "bar" },
+      { label: translate("Loss"), color: STATUS.crit, shape: "bar" },
+      { label: translate("AC yield (measured)"), color: STATUS.good, shape: "bar" },
     ],
     panels: [
       {
         key: "e",
-        title: "Energy (kWh)",
+        title: translate("Energy (kWh)"),
         series: [
           {
             key: "e",
-            name: "Energy",
+            name: translate("Energy"),
             type: "bar",
             color: SERIES.reference,
             y,
@@ -471,8 +475,8 @@ export const waterfallSpec = (waterfall: Overview["loss_waterfall"]): PanelChart
     ],
     tipExtra: (i) => {
       const w = waterfall[i];
-      const rows = [{ label: w.type === "loss" ? "Loss" : "Energy", value: `${fmt(Math.abs(w.kwh), 1)} kWh` }];
-      if (base) rows.push({ label: "Share of reference", value: `${fmt((Math.abs(w.kwh) / base) * 100, 1)} %` });
+      const rows = [{ label: translate(w.type === "loss" ? "Loss" : "Energy"), value: `${fmt(Math.abs(w.kwh), 1)} kWh` }];
+      if (base) rows.push({ label: translate("Share of reference"), value: `${fmt((Math.abs(w.kwh) / base) * 100, 1)} %` });
       return rows;
     },
   };

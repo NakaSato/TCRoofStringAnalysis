@@ -148,7 +148,7 @@ Routes (scoped by `allowed_plant_ids`):
 - **Issues** page (`/issues`, fleet-wide, in the sidebar): a table sorted by THB/day with tier, plant, entity, rule, since, THB/day (est.) and status. Filters go in the URL (`tier`, `status`, `plant`, `rule`). Rows open the string page or `inverters?sn=`.
 - **Plant Overview**: a small Issues card (counts by tier, THB/day) that links to `/issues?plant=`.
 - **String page / Inverters page**: the open issue with its evidence and the last 30 days of `ratio_median`.
-- **Rule review** (admin): each rule's fired count, confirmed vs false-alarm rate and THB found, for tuning.
+- **Rule review** (admin): each rule's fired count, confirmed vs false-alarm rate and THB found, for tuning. **Removed 21 Nov 2026** with its thresholds and tariff forms and `GET/PUT /growatt/rules`: rule overrides and per-rule `{enabled, shadow}` are now edited in `app_settings` `decision_rules` directly; the tariff keeps its API (`GET/PUT /growatt/tariff`) without a page.
 
 ### 4.4 Shadow mode and calibration
 

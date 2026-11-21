@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { plantNow } from "../sensors/format";
 import { useSensorDayChart } from "../sensors/useSensorDayChart";
 import type { SensorRef } from "../sensors/useSensorDetail";
+import { useI18n } from "../../i18n";
 
 /** Plant-local now, re-read every minute (the chart's "Now" line and later-today shading). */
 const usePlantNow = () => {
@@ -30,6 +31,7 @@ const usePlantNow = () => {
  */
 export const SensorTodayCard: React.FC<{ ov: GrowattPlantOverview; href: string }> = ({ ov, href }) => {
   const now = usePlantNow();
+  const { t } = useI18n();
   const list = ov.weather?.sensors ?? [];
   const [picked, setPicked] = useState<string | null>(null);
   const refs: SensorRef[] = list.map((s) => ({
@@ -50,18 +52,18 @@ export const SensorTodayCard: React.FC<{ ov: GrowattPlantOverview; href: string 
     <Card className="gap-3">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
-          Weather sensor · Today
+          {t("Weather sensor · Today")}
           {last && (
             <span
               className="num text-[11px] font-normal text-muted-foreground"
-              title={tailPts.length ? `${tailPts.length} record(s) from Growatt live, not stored yet` : "Newest stored 5-min record"}
+              title={tailPts.length ? t("{n} record(s) from Growatt live, not stored yet", { n: tailPts.length }) : t("Newest stored 5-min record")}
             >
-              to {last.slice(11, 16)}
+              {t("to {time}", { time: last.slice(11, 16) })}
             </span>
           )}
         </CardTitle>
         <CardAction>
-          <Button asChild variant="ghost" size="icon-sm" aria-label="Weather sensor details" title="Weather sensor details">
+          <Button asChild variant="ghost" size="icon-sm" aria-label={t("Weather sensor details")} title={t("Weather sensor details")}>
             <Link to={`${href}#weather-station`}>
               <ArrowRight />
             </Link>
@@ -71,7 +73,7 @@ export const SensorTodayCard: React.FC<{ ov: GrowattPlantOverview; href: string 
       <CardContent className="flex flex-col gap-3">
         {refs.length > 1 && (
           <Tabs value={sensor.key} onValueChange={setPicked}>
-            <TabsList variant="line" aria-label="Sensors of this plant">
+            <TabsList variant="line" aria-label={t("Sensors of this plant")}>
               {refs.map((s) => (
                 <TabsTrigger key={s.key} value={s.key} className="num">
                   {s.datalogger_sn}#{s.address}
@@ -83,16 +85,16 @@ export const SensorTodayCard: React.FC<{ ov: GrowattPlantOverview; href: string 
         {daySpec ? (
           <PanelChart spec={daySpec} height={120 + daySpec.panels.length * 110} legendToggle />
         ) : !dayStored && !storedError ? (
-          <LoadingState label="Loading today's readings…" shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
+          <LoadingState label={t("Loading today's readings…")} shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
         ) : (
           <Empty className="border border-dashed border-white/[0.08] py-10">
             <EmptyHeader>
-              <EmptyTitle>No readings today yet</EmptyTitle>
-              <EmptyDescription>{storedError ?? "Neither the stored history nor Growatt has a record for today yet."}</EmptyDescription>
+              <EmptyTitle>{t("No readings today yet")}</EmptyTitle>
+              <EmptyDescription>{storedError ?? t("Neither the stored history nor Growatt has a record for today yet.")}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
-        {liveDayError && <p className="text-[11px] text-amber-300">Today's live records failed: {liveDayError}</p>}
+        {liveDayError && <p className="text-[11px] text-amber-300">{t("Today's live records failed: {error}", { error: liveDayError })}</p>}
       </CardContent>
     </Card>
   );

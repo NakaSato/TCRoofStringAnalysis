@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Markdown } from "./Markdown";
 import { useAssistantChat, type Turn } from "./useAssistantChat";
+import { useI18n } from "../../i18n";
 
 const TOOL_LABEL: Record<string, string> = {
   list_plants: "Finding plants",
@@ -58,13 +59,15 @@ export function pageContext(pathname: string, search: string): AssistantPageCont
 
 function suggestions(ctx: AssistantPageContext): string[] {
   if (ctx.plant_id != null)
-    return ["สรุปโรงไฟฟ้านี้วันนี้ มีอะไรผิดปกติไหม", "สตริงไหนมีปัญหา และน่าจะเกิดจากอะไร", "วันนี้โรงไฟฟ้านี้มี alarm อะไรบ้าง"];
+    return ["สรุปโรงไฟฟ้าโซลาร์นี้วันนี้ มีอะไรผิดปกติไหม", "สตริงไหนมีปัญหา และน่าจะเกิดจากอะไร", "วันนี้โรงไฟฟ้าโซลาร์นี้มี alarm อะไรบ้าง"];
   if (ctx.page === "active alarm")
-    return ["สรุป alarm ที่ยังเปิดอยู่วันนี้ เรียงตามความสำคัญ", "โรงไฟฟ้าไหนมี alarm มากที่สุดวันนี้", "มี PV isolation fault ที่ไหนบ้าง"];
-  return ["5 โรงไฟฟ้าที่ specific yield ต่ำสุดเมื่อวาน", "โรงไฟฟ้าไหนผลิตได้ดีที่สุดเมื่อวาน", "วันนี้มี alarm อะไรที่ต้องรีบดู"];
+    return ["สรุป alarm ที่ยังเปิดอยู่วันนี้ เรียงตามความสำคัญ", "โรงไฟฟ้าโซลาร์ไหนมี alarm มากที่สุดวันนี้", "มี PV isolation fault ที่ไหนบ้าง"];
+  return ["5 โรงไฟฟ้าโซลาร์ที่ specific yield ต่ำสุดเมื่อวาน", "โรงไฟฟ้าโซลาร์ไหนผลิตได้ดีที่สุดเมื่อวาน", "วันนี้มี alarm อะไรที่ต้องรีบดู"];
 }
 
-const ToolChip: React.FC<{ name: string; status: "running" | "done" | "error" }> = ({ name, status }) => (
+const ToolChip: React.FC<{ name: string; status: "running" | "done" | "error" }> = ({ name, status }) => {
+  const { t } = useI18n();
+  return (
   <span className="inline-flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-slate-400">
     {status === "running" ? (
       <Spinner className="size-3" />
@@ -73,12 +76,14 @@ const ToolChip: React.FC<{ name: string; status: "running" | "done" | "error" }>
     ) : (
       <Check className="size-3 text-emerald-400" />
     )}
-    {TOOL_LABEL[name] ?? name}
+    {TOOL_LABEL[name] ? t(TOOL_LABEL[name]) : name}
   </span>
-);
+  );
+};
 
 const AssistantTurn: React.FC<{ turn: Extract<Turn, { role: "assistant" }>; onNavigate: () => void }> = ({ turn, onNavigate }) => {
-  const waiting = turn.status === "streaming" && !turn.answer && !turn.tools.some((t) => t.status === "running");
+  const { t } = useI18n();
+  const waiting = turn.status === "streaming" && !turn.answer && !turn.tools.some((x) => x.status === "running");
   return (
     <div className="space-y-2">
       {(turn.tools.length > 0 || turn.notes.length > 0) && (
@@ -88,8 +93,8 @@ const AssistantTurn: React.FC<{ turn: Extract<Turn, { role: "assistant" }>; onNa
           ))}
           {turn.tools.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {turn.tools.map((t, i) => (
-                <ToolChip key={i} name={t.name} status={t.status} />
+              {turn.tools.map((tool, i) => (
+                <ToolChip key={i} name={tool.name} status={tool.status} />
               ))}
             </div>
           )}
@@ -98,14 +103,15 @@ const AssistantTurn: React.FC<{ turn: Extract<Turn, { role: "assistant" }>; onNa
       {turn.answer && <Markdown text={turn.answer} onNavigate={onNavigate} />}
       {waiting && (
         <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Spinner className="size-3" /> Thinking…
+          <Spinner className="size-3" /> {t("Thinking…")}
         </div>
       )}
-      {turn.status === "stopped" && <p className="text-xs text-slate-500">Stopped.</p>}
+      {turn.status === "stopped" && <p className="text-xs text-slate-500">{t("Stopped.")}</p>}
       {turn.error && (
         <div className="callout-warn flex items-start gap-2 text-xs">
           <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
-          <span>{turn.error}</span>
+          {/* the two frontend messages are translated; API error text passes through unchanged */}
+          <span>{t(turn.error)}</span>
         </div>
       )}
     </div>
@@ -119,6 +125,7 @@ export const AssistantDrawer: React.FC<{ open: boolean; onClose: () => void; use
   model,
 }) => {
   const location = useLocation();
+  const { t } = useI18n();
   const ctx = useMemo(() => pageContext(location.pathname, location.search), [location.pathname, location.search]);
   const { turns, busy, send, stop, reset } = useAssistantChat(userId);
   const [draft, setDraft] = useState("");
@@ -158,23 +165,23 @@ export const AssistantDrawer: React.FC<{ open: boolean; onClose: () => void; use
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm lg:hidden" onClick={onClose} />
       <aside
         className="pointer-events-auto relative flex h-full w-full flex-col border-l border-white/10 bg-ink-900 shadow-2xl lg:max-w-md"
-        aria-label="AI Assistant"
+        aria-label={t("AI Assistant")}
       >
         <header className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-3">
           <Sparkles className="size-4 text-solar-400" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-slate-100">AI Assistant</div>
-            <div className="truncate text-[11px] text-slate-500">Reads stored data only{model ? ` · ${model}` : ""}</div>
+            <div className="text-sm font-semibold text-slate-100">{t("AI Assistant")}</div>
+            <div className="truncate text-[11px] text-slate-500">{t("Reads stored data only")}{model ? ` · ${model}` : ""}</div>
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={reset} disabled={!turns.length} aria-label="New chat">
+              <Button variant="ghost" size="icon-sm" onClick={reset} disabled={!turns.length} aria-label={t("New chat")}>
                 <SquarePen className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New chat</TooltipContent>
+            <TooltipContent>{t("New chat")}</TooltipContent>
           </Tooltip>
-          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close assistant">
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("Close assistant")}>
             <X className="size-4" />
           </Button>
         </header>
@@ -183,8 +190,9 @@ export const AssistantDrawer: React.FC<{ open: boolean; onClose: () => void; use
           {turns.length === 0 ? (
             <div className="space-y-3 pt-2">
               <p className="text-xs text-slate-400">
-                Ask about plants, yield, strings or alarms. Answers come from the stored Growatt history
-                {ctx.plant_id != null ? ", and know which plant you are looking at" : ""}.
+                {ctx.plant_id != null
+                  ? t("Ask about plants, yield, strings or alarms. Answers come from the stored Growatt history, and know which plant you are looking at.")
+                  : t("Ask about plants, yield, strings or alarms. Answers come from the stored Growatt history.")}
               </p>
               <div className="flex flex-col gap-1.5">
                 {suggestions(ctx).map((s) => (
@@ -199,15 +207,15 @@ export const AssistantDrawer: React.FC<{ open: boolean; onClose: () => void; use
               </div>
             </div>
           ) : (
-            turns.map((t) =>
-              t.role === "user" ? (
-                <div key={t.id} className="flex justify-end">
+            turns.map((tn) =>
+              tn.role === "user" ? (
+                <div key={tn.id} className="flex justify-end">
                   <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-solar-400/10 px-3 py-2 text-[13px] text-slate-100">
-                    {t.content}
+                    {tn.content}
                   </div>
                 </div>
               ) : (
-                <AssistantTurn key={t.id} turn={t} onNavigate={onNavigate} />
+                <AssistantTurn key={tn.id} turn={tn} onNavigate={onNavigate} />
               )
             )
           )}
@@ -234,21 +242,21 @@ export const AssistantDrawer: React.FC<{ open: boolean; onClose: () => void; use
               }}
               maxLength={4000}
               rows={1}
-              placeholder="Ask a question…"
+              placeholder={t("Ask a question…")}
               className="max-h-40 min-h-9 resize-none text-[13px]"
-              aria-label="Question"
+              aria-label={t("Question")}
             />
             {busy ? (
-              <Button type="button" size="icon" variant="outline" onClick={stop} aria-label="Stop answer">
+              <Button type="button" size="icon" variant="outline" onClick={stop} aria-label={t("Stop answer")}>
                 <Square className="size-3.5 fill-current" />
               </Button>
             ) : (
-              <Button type="submit" size="icon" disabled={!draft.trim()} aria-label="Send question">
+              <Button type="submit" size="icon" disabled={!draft.trim()} aria-label={t("Send question")}>
                 <ArrowUp className="size-4" />
               </Button>
             )}
           </form>
-          <p className="mt-2 text-[11px] text-slate-500">Answers come from stored data; check them before acting.</p>
+          <p className="mt-2 text-[11px] text-slate-500">{t("Answers come from stored data; check them before acting.")}</p>
         </footer>
       </aside>
     </div>

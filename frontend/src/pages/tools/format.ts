@@ -4,6 +4,7 @@ import { Activity, Box, Earth, Magnet, Plane, ScanEye, ShieldCheck, Sun, Waves, 
 import type { DueKind, DueState, Instrument, InstrumentCategory, InstrumentStatus } from "../../api/client";
 import { dayLabel } from "@/lib/day";
 import { fmtInt } from "../../components/ui";
+import { translate } from "../../i18n";
 
 type BadgeVariant = "ok" | "warn" | "crit" | "info" | "neutral";
 
@@ -167,7 +168,7 @@ export const thb = (v: number | null) => (v == null ? "—" : `฿${fmtInt(v)}`)
 export const relDays = (day: string | null, today: string) => {
   if (!day) return "";
   const n = daysBetween(today, day);
-  return n === 0 ? "today" : n > 0 ? `in ${n} d` : `${-n} d ago`;
+  return n === 0 ? translate("today") : n > 0 ? translate("in {n} d", { n }) : translate("{n} d ago", { n: -n });
 };
 
 const specText = (v: number | string | null | undefined, unit?: string) =>

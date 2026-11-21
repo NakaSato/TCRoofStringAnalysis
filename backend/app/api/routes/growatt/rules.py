@@ -43,60 +43,13 @@ def rule_findings(
     }
 
 
-@router.get("/rules")
-def get_rules(
-    since_days: int = Query(90, ge=1, le=730, description="Rule review covers issues opened in the last N days"),
-    db: Session = Depends(get_db),
-    _user: User = Depends(require_admin),
-) -> Dict[str, Any]:
-    """Rule settings (thresholds, enabled, shadow) and Rule review: per rule, how many issues it
-    opened, how they ended (auto-closed / resolved / dismissed, confirmed vs false alarm) and the
-    estimated baht they found. Admin only."""
-    from app.services import growatt_issues, growatt_rules
-
-    since = jobs._today() - timedelta(days=since_days)
-    return {
-        "settings": growatt_rules.rule_settings(db),
-        "defaults": {**growatt_rules.DEFAULT_RULES, "rules": {r: dict(growatt_rules.DEFAULT_RULE_STATE) for r in growatt_rules.RULE_NAMES}},
-        "names": growatt_rules.RULE_NAMES,
-        "review": growatt_issues.review(db, since),
-        "since": since.isoformat(),
-        "meta": {"source": "db", "estimated": ["thb_total_est"]},
-    }
-
-
-@router.put("/rules")
-def put_rules(
-    payload: Dict[str, Any],
-    db: Session = Depends(get_db),
-    user: User = Depends(require_admin),
-) -> Dict[str, Any]:
-    """Change rule settings (any subset of the keys of `GET /growatt/rules` `settings`). Each
-    changed value is logged to System → Logs with its old and new value. Applies from the next
-    `rules_*` run. Admin only."""
-
-    try:
-        old, new = growatt_rules.put_rule_settings(db, payload, user.username or user.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    who = user.username or user.email
-    for k in new:
-        if k == "rules":
-            for r, st in new["rules"].items():
-                if st != old["rules"].get(r):
-                    audit.info("%s changed rule %s: %s -> %s", who, r, old["rules"].get(r), st)
-        elif new[k] != old.get(k):
-            audit.info("%s changed rule setting %s: %s -> %s", who, k, old.get(k), new[k])
-    return {"settings": new}
-
-
 @router.get("/issues")
 def list_issues(
     plant_id: Optional[int] = Query(None),
     status: str = Query("active", pattern="^(active|open|acknowledged|resolved|dismissed|closed|all)$"),
     tier: Optional[str] = Query(None, pattern="^(P1|P2|P3|P4|Info)$"),
     rule: Optional[str] = Query(None, max_length=8),
-    shadow: Optional[bool] = Query(False, description="admin only: true = shadow issues (Rule review); omit for live"),
+    shadow: Optional[bool] = Query(False, description="admin only: true = shadow issues; omit for live"),
     include_shadow: bool = Query(False, description="admin only: live and shadow issues together"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -115,6 +68,27 @@ def list_issues(
         db, allowed, plant_id=plant_id, status=status, tier=tier, rule=rule, shadow=None if include_shadow else shadow
     )
     return {**out, "meta": {"source": "db", "estimated": ["lost_kwh_est", "thb_per_day_est", "lost_kwh_total_est", "thb_total_est"]}}
+
+
+@router.get("/center")
+def om_center(
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    include_shadow: bool = Query(False, description="admin only: also count issues of rules still in shadow mode"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """O&M Dashboard (docs/plans/om-center-dashboard.md): loss by cause, the issues to fix first and
+    one row per plant over `start` … `end` (default: the month to date), for the plants the user
+    may see. DB only. Lost kWh and baht are estimates with each kWh counted once; costs are entered."""
+    from app.services import om_center
+
+    try:
+        s, e = om_center.window(start, end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    allowed = allowed_plant_ids(db, user)
+    return om_center.overview(db, allowed, s, e, include_shadow=include_shadow and allowed is None)
 
 
 def _issue_for(db: Session, user: User, issue_id: int) -> Any:
@@ -144,7 +118,7 @@ def patch_issue(
     user: User = Depends(require_write_access),
 ) -> Dict[str, Any]:
     """Acknowledge, resolve or dismiss an issue (with a note and feedback: confirmed / false
-    alarm, which Rule review counts), reopen a closed one, or only edit the note. Engineers act
+    alarm, kept on the issue), reopen a closed one, or only edit the note. Engineers act
     on their assigned plants' live issues; admins on any."""
     from app.services import growatt_issues
 

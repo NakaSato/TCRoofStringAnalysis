@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { MoreHorizontal, Plus } from "lucide-react";
 import type { DueKind, DueState, Instrument, InstrumentStatus } from "../api/client";
 import { useAppContext } from "../context/AppContext";
+import { useI18n } from "../i18n";
 import { isAdmin } from "../auth/access";
 import { plantToday } from "../context/alarmLogStore";
 import { pick, useUrlState } from "@/lib/useUrlState";
@@ -56,6 +57,7 @@ const Stat: React.FC<{ label: string; value: number | null; tone?: string; onCli
 export const ToolsPage: React.FC = () => {
   const { user, growattPlants } = useAppContext();
   const admin = isAdmin(user);
+  const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   const tab = pick(url.get("tab"), TABS, "register");
   const query = url.get("q") ?? "";
@@ -76,7 +78,7 @@ export const ToolsPage: React.FC = () => {
 
   const today = data?.meta.today ?? plantToday();
   const plantNames = useMemo(() => new Map(growattPlants.map((p) => [p.plant_id, p.name])), [growattPlants]);
-  const plantName = useCallback((id: number) => plantNames.get(id) ?? `Plant ${id}`, [plantNames]);
+  const plantName = useCallback((id: number) => plantNames.get(id) ?? t("Plant {id}", { id }), [plantNames, t]);
 
   // dialogs
   const [editing, setEditing] = useState<{ instrument: Instrument | null } | null>(null);
@@ -198,58 +200,58 @@ export const ToolsPage: React.FC = () => {
     <div className="inline-flex items-center gap-1">
       {i.status === "available" && (
         <Button size="xs" variant="outline" onClick={() => setCheckingOut(i)}>
-          Check out
+          {t("Check out")}
         </Button>
       )}
       {i.status === "checked_out" && canReturn(i) && (
         <Button size="xs" variant="outline" onClick={() => setReturning(i)}>
-          Check in
+          {t("Check in")}
         </Button>
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon-xs" variant="ghost" aria-label={`More for ${i.asset_tag}`} disabled={busyId === i.id}>
+          <Button size="icon-xs" variant="ghost" aria-label={t("More for {name}", { name: i.asset_tag })} disabled={busyId === i.id}>
             {busyId === i.id ? <Spinner className="size-3" /> : <MoreHorizontal />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem onSelect={() => open(i)}>Details</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => open(i)}>{t("Details")}</DropdownMenuItem>
           {admin && (
             <>
-              <DropdownMenuItem onSelect={() => setEditing({ instrument: i })}>Edit</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setEditing({ instrument: i })}>{t("Edit")}</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setDueTarget({ instrument: i })}>
-                {i.category === "drone" ? "Record renewal" : "Record calibration"}
+                {i.category === "drone" ? t("Record renewal") : t("Record calibration")}
               </DropdownMenuItem>
               {i.status !== "checked_out" && i.status !== "retired" && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px] text-muted-foreground">Set status</DropdownMenuLabel>
+                  <DropdownMenuLabel className="text-[11px] text-muted-foreground">{t("Set status")}</DropdownMenuLabel>
                   {(["available", "at_calibration", "repair"] as const)
                     .filter((s) => s !== i.status)
                     .map((s) => (
                       <DropdownMenuItem key={s} onSelect={() => void setStatus(i, s)}>
-                        {STATUS[s].label}
+                        {t(STATUS[s].label)}
                       </DropdownMenuItem>
                     ))}
                 </>
               )}
               <DropdownMenuSeparator />
               {i.status === "retired" ? (
-                <DropdownMenuItem onSelect={() => void setStatus(i, "available")}>Bring back (available)</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void setStatus(i, "available")}>{t("Bring back (available)")}</DropdownMenuItem>
               ) : (
                 i.status !== "checked_out" && (
                   <DropdownMenuItem
                     variant="destructive"
                     onSelect={() =>
                       setConfirm({
-                        title: `Retire ${i.asset_tag}`,
-                        text: `${i.name} leaves the register (its history is kept). You can bring it back from Status → Retired.`,
-                        label: "Retire",
+                        title: t("Retire {name}", { name: i.asset_tag }),
+                        text: t("{name} leaves the register (its history is kept). You can bring it back from Status → Retired.", { name: i.name }),
+                        label: t("Retire"),
                         run: () => toolsApi.patchInstrument(i.id, { status: "retired" }),
                       })
                     }
                   >
-                    Retire
+                    {t("Retire")}
                   </DropdownMenuItem>
                 )
               )}
@@ -258,14 +260,14 @@ export const ToolsPage: React.FC = () => {
                   variant="destructive"
                   onSelect={() =>
                     setConfirm({
-                      title: `Delete ${i.asset_tag}`,
-                      text: `${i.name} and its calibration records are deleted. Only an instrument that was never checked out can be deleted.`,
-                      label: "Delete",
+                      title: t("Delete {name}", { name: i.asset_tag }),
+                      text: t("{name} and its calibration records are deleted. Only an instrument that was never checked out can be deleted.", { name: i.name }),
+                      label: t("Delete"),
                       run: () => toolsApi.deleteInstrument(i.id),
                     })
                   }
                 >
-                  Delete
+                  {t("Delete")}
                 </DropdownMenuItem>
               )}
             </>
@@ -278,7 +280,7 @@ export const ToolsPage: React.FC = () => {
   const dueAction = ({ i, d }: DueRow) =>
     admin && i.status !== "retired" ? (
       <Button size="xs" variant="outline" onClick={() => setDueTarget({ instrument: i, kind: d.kind })}>
-        {d.kind === "calibration" ? "Record calibration" : "Record renewal"}
+        {d.kind === "calibration" ? t("Record calibration") : t("Record renewal")}
       </Button>
     ) : null;
 
@@ -322,21 +324,21 @@ export const ToolsPage: React.FC = () => {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
-          <h1 className="text-lg font-semibold">Measuring Tools</h1>
+          <h1 className="text-lg font-semibold">{t("Measuring Tools")}</h1>
           <p className="text-xs text-muted-foreground">
-            Drones, meters & testers: who has them, where, and when calibration or documents run out
-            {mine > 0 && ` · you hold ${mine}`}
+            {t("Drones, meters & testers: who has them, where, and when calibration or documents run out")}
+            {mine > 0 && ` · ${t("you hold {n}", { n: mine })}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
-            {loading ? "Refreshing…" : "Refresh"}
+            {loading ? t("Refreshing…") : t("Refresh")}
           </Button>
           {admin && (
             <Button size="sm" onClick={() => setEditing({ instrument: null })}>
               <Plus data-icon="inline-start" />
-              Add instrument
+              {t("Add instrument")}
             </Button>
           )}
         </div>
@@ -344,7 +346,7 @@ export const ToolsPage: React.FC = () => {
 
       {error && !data && (
         <Alert variant="destructive">
-          <AlertTitle>Could not load the instruments</AlertTitle>
+          <AlertTitle>{t("Could not load the instruments")}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -353,7 +355,7 @@ export const ToolsPage: React.FC = () => {
           <AlertDescription className="flex items-center justify-between gap-2">
             {actionError}
             <Button size="xs" variant="ghost" onClick={() => setActionError(null)}>
-              Dismiss
+              {t("Dismiss")}
             </Button>
           </AlertDescription>
         </Alert>
@@ -361,23 +363,23 @@ export const ToolsPage: React.FC = () => {
 
       <Card className="py-0">
         <CardContent className="grid grid-cols-2 divide-white/[0.06] px-0 sm:grid-cols-3 lg:grid-cols-6 lg:divide-x">
-          <Stat label="Instruments" value={s?.total ?? null} tone="text-foreground" onClick={() => setUrl({ tab: null, status: null, due: null })} />
+          <Stat label={t("Instruments")} value={s?.total ?? null} tone="text-foreground" onClick={() => setUrl({ tab: null, status: null, due: null })} />
           <Stat
-            label="Available"
+            label={t("Available")}
             value={s?.available ?? null}
             tone="text-emerald-300"
             onClick={() => setUrl({ tab: null, due: null, status: status === "available" && tab === "register" ? null : "available" })}
           />
-          <Stat label="Checked out" value={s?.checked_out ?? null} tone="text-sky-300" onClick={() => setUrl({ tab: "out" })} />
-          <Stat label="Overdue back" value={s?.overdue_back ?? null} tone="text-red-300" onClick={() => setUrl({ tab: "out" })} title="Checked out past the due-back day" />
+          <Stat label={t("Checked out")} value={s?.checked_out ?? null} tone="text-sky-300" onClick={() => setUrl({ tab: "out" })} />
+          <Stat label={t("Overdue back")} value={s?.overdue_back ?? null} tone="text-red-300" onClick={() => setUrl({ tab: "out" })} title={t("Checked out past the due-back day")} />
           <Stat
-            label={`Due ≤ ${data?.meta.due_soon_days ?? 30} d`}
+            label={t("Due ≤ {n} d", { n: data?.meta.due_soon_days ?? 30 })}
             value={s?.due_soon ?? null}
             tone="text-amber-300"
             onClick={() => pickDue("due_soon")}
-            title="Instruments with a calibration or document due soon"
+            title={t("Instruments with a calibration or document due soon")}
           />
-          <Stat label="Overdue" value={s?.overdue ?? null} tone="text-red-300" onClick={() => pickDue("overdue")} title="Calibration or document past its due date" />
+          <Stat label={t("Overdue")} value={s?.overdue ?? null} tone="text-red-300" onClick={() => pickDue("overdue")} title={t("Calibration or document past its due date")} />
         </CardContent>
       </Card>
 
@@ -386,13 +388,13 @@ export const ToolsPage: React.FC = () => {
           <Tabs value={tab} onValueChange={(v) => setUrl({ tab: v === "register" ? null : v, status: null })}>
             <TabsList variant="line" className="border-0 p-0">
               <TabsTrigger value="register" className="px-3 py-2.5 text-sm">
-                Register <span className="num text-muted-foreground">{fmtInt(s?.total)}</span>
+                {t("Register")} <span className="num text-muted-foreground">{fmtInt(s?.total)}</span>
               </TabsTrigger>
               <TabsTrigger value="out" className="px-3 py-2.5 text-sm">
-                Checked out <span className={cn("num", s?.overdue_back ? "text-red-300" : "text-muted-foreground")}>{fmtInt(s?.checked_out)}</span>
+                {t("Checked out")} <span className={cn("num", s?.overdue_back ? "text-red-300" : "text-muted-foreground")}>{fmtInt(s?.checked_out)}</span>
               </TabsTrigger>
               <TabsTrigger value="due" className="px-3 py-2.5 text-sm">
-                Due dates{" "}
+                {t("Due dates")}{" "}
                 <span className={cn("num", s?.overdue ? "text-red-300" : s?.due_soon ? "text-amber-300" : "text-muted-foreground")}>
                   {s ? fmtInt(s.overdue + s.due_soon) : "—"}
                 </span>
@@ -402,32 +404,32 @@ export const ToolsPage: React.FC = () => {
           <div className="flex items-center gap-2 pb-2">
             <Input
               className="h-8 w-60"
-              placeholder="Search tag, name, serial, holder"
+              placeholder={t("Search tag, name, serial, holder")}
               value={query}
               onChange={(e) => setUrl({ q: e.target.value })}
-              aria-label="Search instruments"
+              aria-label={t("Search instruments")}
             />
             <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rowCount}>
-              Export CSV
+              {t("Export CSV")}
             </Button>
           </div>
         </div>
 
         <CardContent className="flex flex-wrap items-center gap-2 border-b py-3">
           <Select value={cat} onValueChange={(v) => setUrl({ cat: v === ALL ? null : v })}>
-            <SelectTrigger size="sm" className="w-48" aria-label="Category">
+            <SelectTrigger size="sm" className="w-48" aria-label={t("Category")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value={ALL}>All categories</SelectItem>
+                <SelectItem value={ALL}>{t("All categories")}</SelectItem>
               </SelectGroup>
               <SelectSeparator />
               <SelectGroup>
                 {CATEGORIES.map((c) => (
                   <SelectItem key={c.value} value={c.value}>
                     <c.icon />
-                    {c.label} ({all.filter((i) => i.category === c.value && (showRetired || i.status !== "retired")).length})
+                    {t(c.label)} ({all.filter((i) => i.category === c.value && (showRetired || i.status !== "retired")).length})
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -435,15 +437,15 @@ export const ToolsPage: React.FC = () => {
           </Select>
           {tab === "register" && (
             <Select value={status} onValueChange={(v) => setUrl({ status: v === ALL ? null : v })}>
-              <SelectTrigger size="sm" className="w-40" aria-label="Status">
+              <SelectTrigger size="sm" className="w-40" aria-label={t("Status")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={ALL}>{t("All statuses")}</SelectItem>
                 <SelectSeparator />
                 {STATUS_KEYS.map((k) => (
                   <SelectItem key={k} value={k}>
-                    {STATUS[k].label}
+                    {t(STATUS[k].label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -451,15 +453,15 @@ export const ToolsPage: React.FC = () => {
           )}
           {tab !== "out" && (
             <Select value={due} onValueChange={(v) => setUrl({ due: v === ALL ? null : v })}>
-              <SelectTrigger size="sm" className="w-40" aria-label="Due state">
+              <SelectTrigger size="sm" className="w-40" aria-label={t("Due state")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any due state</SelectItem>
+                <SelectItem value={ALL}>{t("Any due state")}</SelectItem>
                 <SelectSeparator />
                 {DUE_STATE_KEYS.map((k) => (
                   <SelectItem key={k} value={k}>
-                    {DUE_STATE[k].label}
+                    {t(DUE_STATE[k].label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -467,12 +469,12 @@ export const ToolsPage: React.FC = () => {
           )}
           {tab === "register" && status === ALL && (
             <Button variant={showRetired ? "secondary" : "ghost"} size="sm" onClick={() => setUrl({ show: showRetired ? null : "retired" })}>
-              {showRetired ? "Hide retired" : "Show retired"}
+              {showRetired ? t("Hide retired") : t("Show retired")}
             </Button>
           )}
           {anyFilter && (
             <Button variant="ghost" size="sm" onClick={clearFilters} className="ml-auto">
-              Clear
+              {t("Clear")}
             </Button>
           )}
         </CardContent>
@@ -485,10 +487,10 @@ export const ToolsPage: React.FC = () => {
               <Empty className="h-full">
                 <EmptyHeader>
                   <EmptyTitle>
-                    {!data ? "Instruments unavailable" : anyFilter ? "No matching instruments" : tab === "out" ? "Nothing checked out" : "No instruments yet"}
+                    {!data ? t("Instruments unavailable") : anyFilter ? t("No matching instruments") : tab === "out" ? t("Nothing checked out") : t("No instruments yet")}
                   </EmptyTitle>
                   {!data && error && <EmptyDescription>{error}</EmptyDescription>}
-                  {data && !anyFilter && tab === "register" && admin && <EmptyDescription>Add the first one with “Add instrument”.</EmptyDescription>}
+                  {data && !anyFilter && tab === "register" && admin && <EmptyDescription>{t("Add the first one with “Add instrument”.")}</EmptyDescription>}
                 </EmptyHeader>
               </Empty>
             )
@@ -524,17 +526,17 @@ export const ToolsPage: React.FC = () => {
           <>
             {d.status === "available" && (
               <Button size="xs" variant="outline" onClick={() => setCheckingOut(d)}>
-                Check out
+                {t("Check out")}
               </Button>
             )}
             {d.status === "checked_out" && canReturn(d) && (
               <Button size="xs" variant="outline" onClick={() => setReturning(d)}>
-                Check in
+                {t("Check in")}
               </Button>
             )}
             {admin && (
               <Button size="xs" variant="ghost" onClick={() => setEditing({ instrument: d })}>
-                Edit
+                {t("Edit")}
               </Button>
             )}
           </>

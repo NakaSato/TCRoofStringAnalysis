@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useI18n } from "../../i18n";
 import { DUE_KIND, DUE_STATE, STATUS, categoryOf, fmtDay, keySpec, missingPvRating, relDays } from "./format";
 
 export type SortKey = "tag" | "name" | "category" | "status" | "due";
@@ -49,19 +50,20 @@ const NameCell: React.FC<{ i: Instrument; onOpen: () => void }> = ({ i, onOpen }
 
 /** the instrument's next due date as a badge; tooltip lists every due item */
 export const DueBadge: React.FC<{ i: Instrument; today: string }> = ({ i, today }) => {
+  const { t } = useI18n();
   const s = DUE_STATE[i.due_state];
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="inline-flex items-center gap-1.5">
           <span className="num whitespace-nowrap">{i.next_due ? fmtDay(i.next_due) : "—"}</span>
-          {i.due_state !== "ok" && <Badge variant={s.variant}>{s.label}</Badge>}
+          {i.due_state !== "ok" && <Badge variant={s.variant}>{t(s.label)}</Badge>}
         </span>
       </TooltipTrigger>
       <TooltipContent>
         {i.due.map((d) => (
           <p key={d.kind}>
-            {DUE_KIND[d.kind]}: {d.next_due ? `${fmtDay(d.next_due)} (${relDays(d.next_due, today)})` : "No date entered"}
+            {t(DUE_KIND[d.kind])}: {d.next_due ? `${fmtDay(d.next_due)} (${relDays(d.next_due, today)})` : t("No date entered")}
           </p>
         ))}
       </TooltipContent>
@@ -70,8 +72,9 @@ export const DueBadge: React.FC<{ i: Instrument; today: string }> = ({ i, today 
 };
 
 const WhereCell: React.FC<{ i: Instrument; plantName: (id: number) => string }> = ({ i, plantName }) => {
+  const { t } = useI18n();
   const c = i.open_checkout;
-  if (!c) return <TableCell className="text-muted-foreground">{i.status === "at_calibration" ? "Calibration lab" : "Store"}</TableCell>;
+  if (!c) return <TableCell className="text-muted-foreground">{i.status === "at_calibration" ? t("Calibration lab") : t("Store")}</TableCell>;
   return (
     <TableCell className="max-w-[220px]">
       <span className="block truncate">{c.holder?.name ?? "—"}</span>
@@ -100,18 +103,20 @@ export const RegisterTable: React.FC<Common & { rows: Instrument[]; sort: SortKe
   plantName,
   onOpen,
   actions,
-}) => (
+}) => {
+  const { t } = useI18n();
+  return (
   <Table>
     <TableHeader>
       <TableRow>
-        <SortHead k="tag" label="Tag" sort={sort} desc={desc} onSort={onSort} />
-        <SortHead k="name" label="Instrument" sort={sort} desc={desc} onSort={onSort} />
-        <SortHead k="category" label="Category" sort={sort} desc={desc} onSort={onSort} />
-        <TableHead>Key spec</TableHead>
-        <SortHead k="status" label="Status" sort={sort} desc={desc} onSort={onSort} />
-        <TableHead>Holder / place</TableHead>
-        <SortHead k="due" label="Next due" sort={sort} desc={desc} onSort={onSort} />
-        <TableHead className="text-right">Actions</TableHead>
+        <SortHead k="tag" label={t("Tag")} sort={sort} desc={desc} onSort={onSort} />
+        <SortHead k="name" label={t("Instrument")} sort={sort} desc={desc} onSort={onSort} />
+        <SortHead k="category" label={t("Category")} sort={sort} desc={desc} onSort={onSort} />
+        <TableHead>{t("Key spec")}</TableHead>
+        <SortHead k="status" label={t("Status")} sort={sort} desc={desc} onSort={onSort} />
+        <TableHead>{t("Holder / place")}</TableHead>
+        <SortHead k="due" label={t("Next due")} sort={sort} desc={desc} onSort={onSort} />
+        <TableHead className="text-right">{t("Actions")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -121,20 +126,20 @@ export const RegisterTable: React.FC<Common & { rows: Instrument[]; sort: SortKe
           <TableRow key={i.id} className={cn(i.status === "retired" && "opacity-60")}>
             <TableCell className="num whitespace-nowrap">{i.asset_tag}</TableCell>
             <NameCell i={i} onOpen={() => onOpen(i)} />
-            <TableCell className="whitespace-nowrap text-muted-foreground">{categoryOf(i.category).label}</TableCell>
+            <TableCell className="whitespace-nowrap text-muted-foreground">{t(categoryOf(i.category).label)}</TableCell>
             <TableCell className="max-w-[220px]">
               <span className="block truncate">{keySpec(i)}</span>
               {missing.length > 0 && (
-                <Badge variant="warn" title={`Not entered: ${missing.join(", ")}. Check it before use on PV strings.`}>
-                  Rating not entered
+                <Badge variant="warn" title={t("Not entered: {list}. Check it before use on PV strings.", { list: missing.map((m) => t(m)).join(", ") })}>
+                  {t("Rating not entered")}
                 </Badge>
               )}
             </TableCell>
             <TableCell>
-              <Badge variant={STATUS[i.status].variant}>{STATUS[i.status].label}</Badge>
+              <Badge variant={STATUS[i.status].variant}>{t(STATUS[i.status].label)}</Badge>
               {i.open_checkout?.overdue && (
                 <Badge variant="crit" className="ml-1">
-                  Late
+                  {t("Late")}
                 </Badge>
               )}
             </TableCell>
@@ -148,19 +153,22 @@ export const RegisterTable: React.FC<Common & { rows: Instrument[]; sort: SortKe
       })}
     </TableBody>
   </Table>
-);
+  );
+};
 
-export const CheckedOutTable: React.FC<Common & { rows: Instrument[] }> = ({ rows, today, plantName, onOpen, actions }) => (
+export const CheckedOutTable: React.FC<Common & { rows: Instrument[] }> = ({ rows, today, plantName, onOpen, actions }) => {
+  const { t } = useI18n();
+  return (
   <Table>
     <TableHeader>
       <TableRow>
-        <TableHead>Tag</TableHead>
-        <TableHead>Instrument</TableHead>
-        <TableHead>Holder</TableHead>
-        <TableHead>Plant</TableHead>
-        <TableHead>Out since</TableHead>
-        <TableHead>Due back</TableHead>
-        <TableHead className="text-right">Actions</TableHead>
+        <TableHead>{t("Tag")}</TableHead>
+        <TableHead>{t("Instrument")}</TableHead>
+        <TableHead>{t("Holder")}</TableHead>
+        <TableHead>{t("Plant")}</TableHead>
+        <TableHead>{t("Out since")}</TableHead>
+        <TableHead>{t("Due back")}</TableHead>
+        <TableHead className="text-right">{t("Actions")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -177,7 +185,7 @@ export const CheckedOutTable: React.FC<Common & { rows: Instrument[] }> = ({ row
                   {c.plant_name ?? plantName(c.plant_id)}
                 </Link>
               ) : (
-                <span className="text-muted-foreground">Not to a plant</span>
+                <span className="text-muted-foreground">{t("Not to a plant")}</span>
               )}
             </TableCell>
             <TableCell className="num whitespace-nowrap">{c.out_at.slice(0, 16)}</TableCell>
@@ -191,26 +199,29 @@ export const CheckedOutTable: React.FC<Common & { rows: Instrument[] }> = ({ row
       })}
     </TableBody>
   </Table>
-);
+  );
+};
 
 export interface DueRow {
   i: Instrument;
   d: DueItem;
 }
 
-export const DueTable: React.FC<Omit<Common, "plantName"> & { rows: DueRow[]; dueAction: (r: DueRow) => React.ReactNode }> = ({ rows, today, onOpen, dueAction }) => (
+export const DueTable: React.FC<Omit<Common, "plantName"> & { rows: DueRow[]; dueAction: (r: DueRow) => React.ReactNode }> = ({ rows, today, onOpen, dueAction }) => {
+  const { t } = useI18n();
+  return (
   <Table>
     <TableHeader>
       <TableRow>
-        <TableHead>Tag</TableHead>
-        <TableHead>Instrument</TableHead>
-        <TableHead>What</TableHead>
-        <TableHead>Last</TableHead>
-        <TableHead>Next due</TableHead>
-        <TableHead>State</TableHead>
-        <TableHead>Number</TableHead>
-        <TableHead>Lab / issuer</TableHead>
-        <TableHead className="text-right">Actions</TableHead>
+        <TableHead>{t("Tag")}</TableHead>
+        <TableHead>{t("Instrument")}</TableHead>
+        <TableHead>{t("What")}</TableHead>
+        <TableHead>{t("Last")}</TableHead>
+        <TableHead>{t("Next due")}</TableHead>
+        <TableHead>{t("State")}</TableHead>
+        <TableHead>{t("Number")}</TableHead>
+        <TableHead>{t("Lab / issuer")}</TableHead>
+        <TableHead className="text-right">{t("Actions")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -218,15 +229,15 @@ export const DueTable: React.FC<Omit<Common, "plantName"> & { rows: DueRow[]; du
         <TableRow key={`${i.id}-${d.kind}`}>
           <TableCell className="num whitespace-nowrap">{i.asset_tag}</TableCell>
           <NameCell i={i} onOpen={() => onOpen(i)} />
-          <TableCell className="whitespace-nowrap">{DUE_KIND[d.kind]}</TableCell>
+          <TableCell className="whitespace-nowrap">{t(DUE_KIND[d.kind])}</TableCell>
           <TableCell className="num whitespace-nowrap">{fmtDay(d.last_day)}</TableCell>
           <TableCell className="whitespace-nowrap">
             <span className="num">{fmtDay(d.next_due)}</span>
             {d.next_due && <span className="ml-1.5 text-[11px] text-muted-foreground">{relDays(d.next_due, today)}</span>}
           </TableCell>
           <TableCell>
-            <Badge variant={DUE_STATE[d.state].variant} title={d.state === "none" ? "No date entered" : undefined}>
-              {DUE_STATE[d.state].label}
+            <Badge variant={DUE_STATE[d.state].variant} title={d.state === "none" ? t("No date entered") : undefined}>
+              {t(DUE_STATE[d.state].label)}
             </Badge>
           </TableCell>
           <TableCell className="num">{d.number ?? "—"}</TableCell>
@@ -236,4 +247,5 @@ export const DueTable: React.FC<Omit<Common, "plantName"> & { rows: DueRow[]; du
       ))}
     </TableBody>
   </Table>
-);
+  );
+};

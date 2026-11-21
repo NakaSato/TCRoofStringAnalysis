@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { PlantRainRow, RainRadarBar, type RainingFrame, type RainingPlant, rainLook, useFleetRain, useRainRadar } from "./plantMap/rainRadar";
 import { type FramePoint, RAIN_ALPHA, useFrameRain } from "./plantMap/frameRain";
+import { useI18n } from "../i18n";
 
 /* Basemaps. With a Mapbox token (`VITE_MAPBOX_TOKEN`, a public `pk.` token: restrict it by URL at
    Mapbox) the map uses Mapbox raster style tiles; without one, Esri's free tiles. Attribution is required. */
@@ -153,6 +154,7 @@ const markerIcon = (
 /** `/map`: every plant the user can see on one map, coloured by live status, sized by kWp. */
 export const PlantMapPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { growattPlants, plantListLoaded } = useFleet();
   const [params, set] = useUrlState();
   const statusFilter = pick(params.get("status"), STATUS_FILTERS, "all");
@@ -291,14 +293,14 @@ export const PlantMapPage: React.FC = () => {
         .map(({ plant }) => ({ plant, s: frameRain.samples.get(plant.plant_id) }))
         .filter((r) => (r.s?.alpha ?? 0) >= RAIN_ALPHA)
         .sort((a, b) => (b.s?.alpha ?? 0) - (a.s?.alpha ?? 0) || a.plant.name.localeCompare(b.plant.name))
-        .map(({ plant, s }) => ({ plantId: plant.plant_id, name: plant.name, city: plant.city ?? null, label: "Rain", color: s?.color ?? null }));
+        .map(({ plant, s }) => ({ plantId: plant.plant_id, name: plant.name, city: plant.city ?? null, label: t("Rain"), color: s?.color ?? null }));
     }
     return plants
       .map(({ plant }) => ({ plant, rain: rainOf.get(plant.plant_id)?.rain }))
       .filter((r) => (r.rain?.intensity ?? 0) > 0)
       .sort((a, b) => (b.rain?.intensity ?? 0) - (a.rain?.intensity ?? 0) || a.plant.name.localeCompare(b.plant.name))
       .map(({ plant, rain }) => ({ plantId: plant.plant_id, name: plant.name, city: plant.city ?? null, ...rainLook(rain, legend) }));
-  }, [frameMode, frameRain, plants, rainOf, legend]);
+  }, [frameMode, frameRain, plants, rainOf, legend, t]);
   const rainingFrame: RainingFrame | null =
     showRadar && radar.time != null
       ? frameMode
@@ -340,14 +342,14 @@ export const PlantMapPage: React.FC = () => {
         keyboard: false,
       });
       mk.bindTooltip(
-        `${plant.name} · ${fmt(plant.peak_power_kwp, 1)} kWp · ${status.label}${raining ? ` · ${raining.label} (radar)` : ""}`,
+        `${plant.name} · ${fmt(plant.peak_power_kwp, 1)} kWp · ${t(status.label)}${raining ? ` · ${t("{rain} (radar)", { rain: raining.label })}` : ""}`,
         { direction: "top" }
       );
       mk.on("click", () => selectRef.current(plant.plant_id));
       mk.addTo(g);
       markers.current.set(plant.plant_id, { mk, icon });
     }
-  }, [filtered, maxKwp, tier, rainOf, legend]);
+  }, [filtered, maxKwp, tier, rainOf, legend, t]);
 
   // highlight the selected plant
   useEffect(() => {
@@ -384,30 +386,30 @@ export const PlantMapPage: React.FC = () => {
   };
 
   // what narrows the list now; each chip removes its own filter
-  const statusLabel: Record<StatusFilter, string> = { all: "All", normal: "Normal", faulty: "Faulty", disconnected: "Disconnected" };
+  const statusLabel: Record<StatusFilter, string> = { all: t("All"), normal: t("Normal"), faulty: t("Faulty"), disconnected: t("Disconnected") };
   const activeFilters: { key: string; label: string; clear: () => void }[] = [
     ...(q.trim() ? [{ key: "q", label: `“${q.trim()}”`, clear: () => set({ q: null }) }] : []),
     ...(statusFilter !== "all" ? [{ key: "status", label: statusLabel[statusFilter], clear: () => set({ status: null }) }] : []),
-    ...(phaseFilter != null ? [{ key: "phase", label: `Phase ${phaseFilter}`, clear: () => set({ phase: null }) }] : []),
-    ...(rainOnly ? [{ key: "rain", label: "Rain now (radar)", clear: () => set({ rain: null }) }] : []),
+    ...(phaseFilter != null ? [{ key: "phase", label: t("Phase {n}", { n: phaseFilter }), clear: () => set({ phase: null }) }] : []),
+    ...(rainOnly ? [{ key: "rain", label: t("Rain now (radar)"), clear: () => set({ rain: null }) }] : []),
   ];
   const clearFilters = () => set({ q: null, status: null, phase: null, rain: null });
 
   const chips: { key: StatusFilter; label: string; level: StatusLevel; n: number }[] = [
-    { key: "all", label: "All", level: "neutral", n: counts.all },
-    { key: "normal", label: "Normal", level: "ok", n: counts.normal },
-    { key: "faulty", label: "Faulty", level: "crit", n: counts.faulty },
-    { key: "disconnected", label: "Disconnected", level: "info", n: counts.disconnected },
+    { key: "all", label: t("All"), level: "neutral", n: counts.all },
+    { key: "normal", label: t("Normal"), level: "ok", n: counts.normal },
+    { key: "faulty", label: t("Faulty"), level: "crit", n: counts.faulty },
+    { key: "disconnected", label: t("Disconnected"), level: "info", n: counts.disconnected },
   ];
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Plant Map"
+        title={t("Plant Map")}
       />
 
       {!plantListLoaded ? (
-        <LoadingState label="Loading plants…" shape="chart" />
+        <LoadingState label={t("Loading plants…")} shape="chart" />
       ) : null}
 
       <div className={cn("grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]", !plantListLoaded && "hidden")}>
@@ -416,7 +418,7 @@ export const PlantMapPage: React.FC = () => {
           <div
             ref={el}
             className={cn("plant-map w-full", full ? "h-dvh" : "h-[calc(100vh-13rem)] min-h-[460px]")}
-            aria-label="Map of all plants"
+            aria-label={t("Map of all plants")}
           />
 
           {/* status filter */}
@@ -456,12 +458,12 @@ export const PlantMapPage: React.FC = () => {
                       const h = window.screen.availHeight;
                       window.open(`/map?${next}`, "plant-map-full", `popup,left=0,top=0,width=${w},height=${h}`);
                     }}
-                    aria-label="Open the map in a new window"
+                    aria-label={t("Open the map in a new window")}
                   >
                     <AppWindow className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="left">Open full-screen map in a new window</TooltipContent>
+                <TooltipContent side="left">{t("Open full-screen map in a new window")}</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>
@@ -472,12 +474,12 @@ export const PlantMapPage: React.FC = () => {
                   size="icon-sm"
                   className="bg-ink-950/85"
                   onClick={fitAll}
-                  aria-label="Fit all shown plants"
+                  aria-label={t("Fit all shown plants")}
                 >
                   <Maximize2 className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="left">Fit all shown plants</TooltipContent>
+              <TooltipContent side="left">{t("Fit all shown plants")}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -487,13 +489,13 @@ export const PlantMapPage: React.FC = () => {
                   size="icon-sm"
                   className="bg-ink-950/85"
                   onClick={() => set({ base: basemap === "dark" ? "sat" : null })}
-                  aria-label="Switch basemap"
+                  aria-label={t("Switch basemap")}
                 >
                   <Layers className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left">
-                Basemap: {BASEMAPS[basemap].label} (switch to {BASEMAPS[basemap === "sat" ? "dark" : "sat"].label})
+                {t("Basemap: {current} (switch to {other})", { current: t(BASEMAPS[basemap].label), other: t(BASEMAPS[basemap === "sat" ? "dark" : "sat"].label) })}
               </TooltipContent>
             </Tooltip>
             {radar.available && (
@@ -505,14 +507,16 @@ export const PlantMapPage: React.FC = () => {
                     size="icon-sm"
                     className={cn("bg-ink-950/85", radarOn && "text-sky-300 ring-1 ring-sky-400/50")}
                     onClick={() => set(radarOn ? { radar: "0", rain: null } : { radar: null })}
-                    aria-label="Rain radar"
+                    aria-label={t("Rain radar")}
                     aria-pressed={radarOn}
                   >
                     <CloudRain className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="left">
-                  Rain radar ({radar.data?.fallback_reason ? "RainViewer" : "Longdo"}): {radarOn ? "on" : "off"}
+                  {radarOn
+                    ? t("Rain radar ({source}): on", { source: radar.data?.fallback_reason ? "RainViewer" : "Longdo" })
+                    : t("Rain radar ({source}): off", { source: radar.data?.fallback_reason ? "RainViewer" : "Longdo" })}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -527,7 +531,7 @@ export const PlantMapPage: React.FC = () => {
                   <div className="truncate text-sm font-semibold text-slate-100">{selected.plant.name}</div>
                   <div className="truncate text-[11px] text-slate-500">
                     #{selected.plant.plant_id}
-                    {selected.plant.phase != null && ` · Phase ${selected.plant.phase}`}
+                    {selected.plant.phase != null && ` · ${t("Phase {n}", { n: selected.plant.phase })}`}
                     {selected.plant.city && ` · ${selected.plant.city}`}
                   </div>
                 </div>
@@ -538,39 +542,39 @@ export const PlantMapPage: React.FC = () => {
                     loading={selected.status.label === LOADING_STATUS}
                     dot
                   />
-                  <Button type="button" variant="ghost" size="icon-sm" onClick={() => set({ plant: null })} aria-label="Close">
+                  <Button type="button" variant="ghost" size="icon-sm" onClick={() => set({ plant: null })} aria-label={t("Close")}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
               <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-2.5 text-[11px]">
                 <div>
-                  <div className="text-slate-500">DC capacity</div>
+                  <div className="text-slate-500">{t("DC capacity")}</div>
                   <div className="num font-semibold text-solar-400">{fmt(selected.plant.peak_power_kwp, 1)} kWp</div>
                 </div>
                 <div>
-                  <div className="text-slate-500">Power now</div>
+                  <div className="text-slate-500">{t("Power now")}</div>
                   <div className="num font-semibold text-slate-200">
                     {fmt(selected.plant.current_power_w != null ? selected.plant.current_power_w / 1000 : null, 1)} kW
                   </div>
                 </div>
                 <div>
-                  <div className="text-slate-500">Today</div>
+                  <div className="text-slate-500">{t("Today")}</div>
                   <div className="num font-semibold text-slate-200">{fmt(selected.plant.today_energy_kwh, 1)} kWh</div>
                 </div>
               </div>
               <div className="mt-1.5 text-[11px] text-slate-500">
                 {selected.located
                   ? `${selected.plant.latitude!.toFixed(5)}, ${selected.plant.longitude!.toFixed(5)}`
-                  : "No location set in Growatt"}
-                {selected.plant.inverter_count != null && ` · ${selected.plant.inverter_count} inverters`}
+                  : t("No location set in Growatt")}
+                {selected.plant.inverter_count != null && ` · ${t("{n} inverters", { n: selected.plant.inverter_count })}`}
               </div>
               {radar.available && radar.data && radar.data.point_rain !== false && selected.located && (
                 <PlantRainRow plantId={selected.plant.plant_id} legend={radar.data.legend} />
               )}
               <div className="mt-2.5 flex gap-2">
                 <Button type="button" size="sm" onClick={() => navigate(plantPath(selected.plant.plant_id))}>
-                  Open plant
+                  {t("Open plant")}
                 </Button>
                 {selected.located && (
                   <Button asChild variant="outline" size="sm">
@@ -616,9 +620,9 @@ export const PlantMapPage: React.FC = () => {
                     focusPlant(filtered[0].plant); // the first result, as listed
                   }
                 }}
-                placeholder="Search name, city, ID or phase"
+                placeholder={t("Search name, city, ID or phase")}
                 className="pr-14 pl-8"
-                aria-label="Search plants"
+                aria-label={t("Search plants")}
                 aria-describedby="plant-search-hint"
               />
               {q ? (
@@ -631,7 +635,7 @@ export const PlantMapPage: React.FC = () => {
                     set({ q: null });
                     searchRef.current?.focus();
                   }}
-                  aria-label="Clear search"
+                  aria-label={t("Clear search")}
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
@@ -641,32 +645,32 @@ export const PlantMapPage: React.FC = () => {
                 </kbd>
               )}
               <span id="plant-search-hint" className="sr-only">
-                Every word must match. Enter opens the first result, Escape clears.
+                {t("Every word must match. Enter opens the first result, Escape clears.")}
               </span>
             </div>
             <div className="mt-2 flex gap-2">
               <Select value={phaseFilter != null ? String(phaseFilter) : "all"} onValueChange={(v) => set({ phase: v === "all" ? null : v })}>
-                <SelectTrigger className="min-w-0 flex-1 text-[11px]" aria-label="Phase">
+                <SelectTrigger className="min-w-0 flex-1 text-[11px]" aria-label={t("Phase")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All phases</SelectItem>
+                  <SelectItem value="all">{t("All phases")}</SelectItem>
                   {options.phases.map(([ph, n]) => (
                     <SelectItem key={ph} value={String(ph)}>
-                      Phase {ph} ({n})
+                      {t("Phase {n}", { n: ph })} ({n})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Select value={sortBy} onValueChange={(v) => set({ sort: v === "status" ? null : v })}>
-                <SelectTrigger className="min-w-0 flex-1 text-[11px]" aria-label="Sort plants">
-                  <span className="text-slate-500">Sort:</span>
+                <SelectTrigger className="min-w-0 flex-1 text-[11px]" aria-label={t("Sort plants")}>
+                  <span className="text-slate-500">{t("Sort:")}</span>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {SORTS.filter((s) => s !== "rain" || radarOn).map((s) => (
                     <SelectItem key={s} value={s}>
-                      {SORT_LABEL[s]}
+                      {t(SORT_LABEL[s])}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -680,23 +684,23 @@ export const PlantMapPage: React.FC = () => {
                     className="shrink-0"
                     disabled={!filtered.some((p) => p.located)}
                     onClick={fitAll}
-                    aria-label="Zoom the map to the plants listed"
+                    aria-label={t("Zoom the map to the plants listed")}
                   >
                     <LocateFixed className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="left">Zoom the map to the {fmtInt(filtered.filter((p) => p.located).length)} plants listed</TooltipContent>
+                <TooltipContent side="left">{t("Zoom the map to the {n} plants listed", { n: fmtInt(filtered.filter((p) => p.located).length) })}</TooltipContent>
               </Tooltip>
             </div>
             {activeFilters.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-1" aria-label="Active filters">
+              <div className="mt-2 flex flex-wrap items-center gap-1" aria-label={t("Active filters")}>
                 {activeFilters.map((f) => (
                   <button
                     key={f.key}
                     type="button"
                     onClick={f.clear}
                     className="flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] py-0.5 pr-1.5 pl-2 text-[11px] text-slate-300 hover:bg-white/10"
-                    aria-label={`Remove filter ${f.label}`}
+                    aria-label={t("Remove filter {label}", { label: f.label })}
                   >
                     <span className="truncate">{f.label}</span>
                     <X className="h-3 w-3 shrink-0 text-slate-500" />
@@ -704,22 +708,24 @@ export const PlantMapPage: React.FC = () => {
                 ))}
                 {activeFilters.length > 1 && (
                   <Button type="button" variant="ghost" size="xs" onClick={clearFilters}>
-                    Clear all
+                    {t("Clear all")}
                   </Button>
                 )}
               </div>
             )}
             <div className="mt-2 text-[11px] text-slate-500" aria-live="polite">
-              {activeFilters.length ? `${fmtInt(filtered.length)} of ${fmtInt(plants.length)} plants` : `${fmtInt(plants.length)} plants`}
-              {filtered.some((p) => !p.located) && ` · ${fmtInt(filtered.filter((p) => !p.located).length)} without location`}
+              {activeFilters.length
+                ? t("{n} of {total} plants", { n: fmtInt(filtered.length), total: fmtInt(plants.length) })
+                : t("{n} plants", { n: fmtInt(plants.length) })}
+              {filtered.some((p) => !p.located) && ` · ${t("{n} without location", { n: fmtInt(filtered.filter((p) => !p.located).length) })}`}
             </div>
           </div>
           <div className="max-h-[420px] overflow-y-auto lg:max-h-none lg:flex-1">
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center gap-2 p-6 text-center text-xs text-slate-500">
-                <span>No plant matches {activeFilters.map((f) => f.label).join(" · ")}.</span>
+                <span>{t("No plant matches {filters}.", { filters: activeFilters.map((f) => f.label).join(" · ") })}</span>
                 <Button type="button" variant="outline" size="xs" onClick={clearFilters}>
-                  Clear filters
+                  {t("Clear filters")}
                 </Button>
               </div>
             ) : (
@@ -746,11 +752,11 @@ export const PlantMapPage: React.FC = () => {
                         <div className="num text-[11px] font-semibold text-solar-400">{fmt(plant.peak_power_kwp, 1)} kWp</div>
                         {!located && (
                           <div className="flex items-center justify-end gap-1 text-[10px] text-slate-500">
-                            <MapPinOff className="h-3 w-3" /> no location
+                            <MapPinOff className="h-3 w-3" /> {t("no location")}
                           </div>
                         )}
                         {raining && (
-                          <div className="flex items-center justify-end gap-1 text-[10px] text-sky-300" title="Longdo weather radar, not measured">
+                          <div className="flex items-center justify-end gap-1 text-[10px] text-sky-300" title={t("Longdo weather radar, not measured")}>
                             {raining.color && <i className="h-1.5 w-1.5 rounded-full" style={{ background: raining.color }} />}
                             {raining.label}
                           </div>

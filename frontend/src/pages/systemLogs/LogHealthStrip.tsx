@@ -5,6 +5,7 @@ import type { StatusLevel } from "../../components/ui";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { SOURCE_VIEW, bkk, shortLogger } from "./shared";
+import { useI18n } from "../../i18n";
 
 const LevelCount: React.FC<{ label: string; value: number | null; active: boolean; hot: string; onClick: () => void; hint: string }> = ({
   label,
@@ -13,7 +14,9 @@ const LevelCount: React.FC<{ label: string; value: number | null; active: boolea
   hot,
   onClick,
   hint,
-}) => (
+}) => {
+  const { t } = useI18n();
+  return (
   <button
     type="button"
     onClick={onClick}
@@ -26,9 +29,10 @@ const LevelCount: React.FC<{ label: string; value: number | null; active: boolea
   >
     <span className="eyebrow">{label}</span>
     <span className={cn("num mt-0.5 text-2xl font-bold tracking-tight", value ? hot : "text-slate-500")}>{fmtInt(value)}</span>
-    <span className="text-[11px] text-slate-500 group-hover:text-slate-400">{active ? "Filtered" : "Show only these"}</span>
+    <span className="text-[11px] text-slate-500 group-hover:text-slate-400">{active ? t("Filtered") : t("Show only these")}</span>
   </button>
-);
+  );
+};
 
 /** Last-24 h health: one strip with a verdict, clickable level counts, records by source and the
  *  newest error. Counts are "—" until the summary arrives (never a made-up 0). */
@@ -39,6 +43,7 @@ export const LogHealthStrip: React.FC<{
   onLevel: (level: "ERROR" | "WARNING" | "INFO") => void;
   onSource: (source: SystemLogSource | "all") => void;
 }> = ({ summary, level, source, onLevel, onSource }) => {
+  const { t } = useI18n();
   const errors = summary ? summary.by_level.ERROR + summary.by_level.CRITICAL : null;
   const warnings = summary ? summary.by_level.WARNING : null;
   const total = summary?.total ?? null;
@@ -46,12 +51,12 @@ export const LogHealthStrip: React.FC<{
   const tone: StatusLevel = summary == null ? "neutral" : errors ? "crit" : warnings ? "warn" : "ok";
   const verdict =
     summary == null
-      ? "Loading…"
+      ? t("Loading…")
       : errors
-        ? `${fmtInt(errors)} error${errors === 1 ? "" : "s"}`
+        ? errors === 1 ? t("{n} error", { n: fmtInt(errors) }) : t("{n} errors", { n: fmtInt(errors) })
         : warnings
-          ? `${fmtInt(warnings)} warning${warnings === 1 ? "" : "s"}`
-          : "All clear";
+          ? warnings === 1 ? t("{n} warning", { n: fmtInt(warnings) }) : t("{n} warnings", { n: fmtInt(warnings) })
+          : t("All clear");
   const toneText = { ok: "text-emerald-300", warn: "text-amber-300", crit: "text-red-300", info: "text-sky-300", neutral: "text-slate-300" }[tone];
   const toneBar = { ok: "bg-emerald-400", warn: "bg-amber-400", crit: "bg-red-400", info: "bg-sky-400", neutral: "bg-slate-600" }[tone];
 
@@ -62,16 +67,16 @@ export const LogHealthStrip: React.FC<{
         <div className="flex items-center gap-3 px-4 py-4">
           <span className={cn("h-10 w-1 shrink-0 rounded-full", toneBar)} aria-hidden />
           <div className="min-w-0">
-            <div className="eyebrow">Last 24 h</div>
+            <div className="eyebrow">{t("Last 24 h")}</div>
             <div className={cn("text-lg font-bold tracking-tight", toneText)}>{verdict}</div>
             <div className="text-[11px] text-slate-500">
               {summary == null
-                ? "Reading the summary"
+                ? t("Reading the summary")
                 : errors
-                  ? "ERROR or CRITICAL records need a look"
+                  ? t("ERROR or CRITICAL records need a look")
                   : warnings
-                    ? "No errors · e.g. rate limits, partial runs"
-                    : "No errors or warnings"}
+                    ? t("No errors · e.g. rate limits, partial runs")
+                    : t("No errors or warnings")}
             </div>
           </div>
         </div>
@@ -79,19 +84,19 @@ export const LogHealthStrip: React.FC<{
         {/* Level counts */}
         <div className="grid grid-cols-2 gap-1 px-2 py-2">
           <LevelCount
-            label="Errors"
+            label={t("Errors")}
             value={errors}
             hot="text-red-300"
             active={level === "ERROR"}
-            hint="ERROR and CRITICAL"
+            hint={t("ERROR and CRITICAL")}
             onClick={() => onLevel(level === "ERROR" ? "INFO" : "ERROR")}
           />
           <LevelCount
-            label="Warnings"
+            label={t("Warnings")}
             value={warnings}
             hot="text-amber-300"
             active={level === "WARNING"}
-            hint="WARNING and above"
+            hint={t("WARNING and above")}
             onClick={() => onLevel(level === "WARNING" ? "INFO" : "WARNING")}
           />
         </div>
@@ -99,7 +104,7 @@ export const LogHealthStrip: React.FC<{
         {/* Records by source */}
         <div className="flex flex-col justify-center gap-2 px-4 py-3">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="eyebrow">Records</span>
+            <span className="eyebrow">{t("Records")}</span>
             <span className="num text-sm font-semibold text-white">{fmtInt(total)}</span>
           </div>
           <div className="flex h-2 w-full overflow-hidden rounded-full bg-white/[0.05]" aria-hidden>
@@ -126,7 +131,7 @@ export const LogHealthStrip: React.FC<{
                   )}
                 >
                   <span className={cn("h-1.5 w-1.5 rounded-full", s.dot)} />
-                  {s.label}
+                  {t(s.label)}
                   <span className="num font-semibold text-slate-200">{fmtInt(summary ? summary.by_source[s.key] : null)}</span>
                 </button>
               );
@@ -142,7 +147,7 @@ export const LogHealthStrip: React.FC<{
           lastError ? "border-red-400/15 bg-red-400/[0.05]" : "border-white/[0.06]",
         )}
       >
-        <span className="eyebrow shrink-0">Last error</span>
+        <span className="eyebrow shrink-0">{t("Last error")}</span>
         {lastError ? (
           <button
             type="button"
@@ -155,7 +160,7 @@ export const LogHealthStrip: React.FC<{
             <span className="truncate">{lastError.message}</span>
           </button>
         ) : (
-          <span className="text-slate-500">{summary == null ? "—" : "None in 24 h"}</span>
+          <span className="text-slate-500">{summary == null ? "—" : t("None in 24 h")}</span>
         )}
       </div>
     </Card>

@@ -8,6 +8,7 @@ import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
 import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
 import { Badge } from "@/components/ui/badge";
+import { useI18n } from "../i18n";
 
 function plantToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
@@ -39,6 +40,7 @@ const Card: React.FC<{
 );
 
 const Slot: React.FC<{ hour: string; slot: GoogleWeatherSlot | null }> = ({ hour, slot }) => {
+  const { t } = useI18n();
   const tone =
     slot?.raining == null ? "border-white/[0.06] text-slate-400" : slot.raining ? "border-sky-400/40 text-sky-300" : "border-emerald-400/30 text-emerald-300";
   return (
@@ -46,7 +48,7 @@ const Slot: React.FC<{ hour: string; slot: GoogleWeatherSlot | null }> = ({ hour
       <span className="num text-xs text-slate-400">{hour}:00</span>
       <span className="text-sm font-semibold">{slot?.status_th ?? "—"}</span>
       <span className="num text-[10px] text-slate-400">
-        {slot ? `${fmt(slot.precip_mm, 1)} mm · ☁ ${fmt(slot.cloud_cover_pct, 0)}%` : "not stored yet"}
+        {slot ? `${fmt(slot.precip_mm, 1)} mm · ☁ ${fmt(slot.cloud_cover_pct, 0)}%` : t("not stored yet")}
       </span>
     </div>
   );
@@ -63,6 +65,7 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<GrowattLive<GoogleWeatherNow> | null>(null);
+  const { t, locale } = useI18n();
 
   useEffect(() => {
     let cancelled = false;
@@ -106,59 +109,59 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
       xKind: "band",
       x: hours.map((h) => h.hour),
       xTickLabel: hh,
-      xTipLabel: (v) => `${hh(v)} · modelled`,
+      xTipLabel: (v) => `${hh(v)} · ${t("modelled")}`,
       panels: [
         {
           key: "rain",
-          title: "Rain (mm/h)",
-          series: [{ key: "rain", name: "Rain", type: "bar", color: SERIES.ambient, y: hours.map((h) => h.precip_mm), unit: "mm/h" }],
+          title: t("Rain (mm/h)"),
+          series: [{ key: "rain", name: t("Rain"), type: "bar", color: SERIES.ambient, y: hours.map((h) => h.precip_mm), unit: "mm/h" }],
         },
         {
           key: "cloud",
-          title: "Cloud cover (%)",
+          title: t("Cloud cover (%)"),
           yMin: 0,
           yMax: 100,
           tickSuffix: "%",
-          series: [{ key: "cloud", name: "Cloud cover", type: "line", color: SERIES.reference, y: hours.map((h) => h.cloud_cover_pct), format: (v) => `${fmt(v, 0)}%` }],
+          series: [{ key: "cloud", name: t("Cloud cover"), type: "line", color: SERIES.reference, y: hours.map((h) => h.cloud_cover_pct), format: (v) => `${fmt(v, 0)}%` }],
         },
         {
           key: "temp",
-          title: "Air temp (°C)",
+          title: t("Air temp (°C)"),
           zero: false,
-          series: [{ key: "temp", name: "Air temp", type: "line", color: SERIES.temp, y: hours.map((h) => h.temp_c), unit: "°C" }],
+          series: [{ key: "temp", name: t("Air temp"), type: "line", color: SERIES.temp, y: hours.map((h) => h.temp_c), unit: "°C" }],
         },
       ],
     };
-  }, [wx]);
+  }, [wx, t]);
 
   const cell = wx?.meta.cell;
-  const subtitle = `Modelled by Google Maps Platform${cell ? ` · cell ${cell.key}` : ""} · hourly · ${wx?.meta.day ?? "no data"}`;
+  const subtitle = `${t("Modelled by Google Maps Platform")}${cell ? ` · ${t("cell {key}", { key: cell.key })}` : ""} · ${t("hourly")} · ${wx?.meta.day ?? t("no data")}`;
 
   return (
     <Panel
       icon={CloudRain}
-      title="Google Weather (modelled)"
+      title={t("Google Weather (modelled)")}
       subtitle={subtitle}
       actions={
         live ? (
           <Badge
             variant={live.stale ? "warn" : "ok"}
             className="px-2 py-0.5 text-[10px] font-semibold"
-            title={`Fetched ${new Date(live.fetched_at).toLocaleTimeString()}${live.error ? ` · ${live.error}` : ""}`}
+            title={`${t("Fetched {time}", { time: new Date(live.fetched_at).toLocaleTimeString(locale) })}${live.error ? ` · ${live.error}` : ""}`}
           >
-            {live.stale ? "LIVE (STALE)" : "LIVE"} {new Date(live.fetched_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })}
+            {live.stale ? t("LIVE (STALE)") : t("LIVE")} {new Date(live.fetched_at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })}
           </Badge>
         ) : null
       }
     >
       {loading && !wx ? (
-        <LoadingState label="Loading Google weather…" shape="lines" />
+        <LoadingState label={t("Loading Google weather…")} shape="lines" />
       ) : error ? (
-        <EmptyState icon={CloudSun} title="Google weather unavailable" description={error} />
+        <EmptyState icon={CloudSun} title={t("Google weather unavailable")} description={error} />
       ) : !wx?.has_location ? (
-        <EmptyState icon={CloudSun} title="Plant has no coordinates" description="Google weather is looked up by the plant's latitude/longitude from Growatt." />
+        <EmptyState icon={CloudSun} title={t("Plant has no coordinates")} description={t("Google weather is looked up by the plant's latitude/longitude from Growatt.")} />
       ) : !wx.configured && !wx.hours.length ? (
-        <EmptyState icon={CloudSun} title="Google Weather not configured" description="Set GOOGLE_WEATHER_API_KEY on the backend and worker." />
+        <EmptyState icon={CloudSun} title={t("Google Weather not configured")} description={t("Set GOOGLE_WEATHER_API_KEY on the backend and worker.")} />
       ) : (
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -168,52 +171,52 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <Card
-              label={now ? "Now" : "Condition"}
+              label={now ? t("Now") : t("Condition")}
               icon={Thermometer}
               tone="text-amber-300"
               value={`${fmt(now ? now.temp_c : k?.temp_max_c, 1)}°`}
               unit="C"
               hint={
                 now
-                  ? `${now.condition_text ?? label(now.condition)} · feels ${fmt(now.feels_like_c, 1)}°C`
-                  : `${label(k?.condition)} · min ${fmt(k?.temp_min_c, 1)}°C`
+                  ? `${now.condition_text ?? label(now.condition)} · ${t("feels {t}°C", { t: fmt(now.feels_like_c, 1) })}`
+                  : `${label(k?.condition)} · ${t("min {t}°C", { t: fmt(k?.temp_min_c, 1) })}`
               }
             />
             <Card
-              label="Cloud cover"
+              label={t("Cloud cover")}
               icon={CloudSun}
               tone="text-slate-300"
               value={fmt(now ? now.cloud_cover_pct : k?.cloud_cover_daytime_pct, 0)}
               unit="%"
-              hint={now ? `Daytime mean ${fmt(k?.cloud_cover_daytime_pct, 0)}% (stored day)` : "Daytime mean"}
+              hint={now ? t("Daytime mean {pct}% (stored day)", { pct: fmt(k?.cloud_cover_daytime_pct, 0) }) : t("Daytime mean")}
               meter={{ value: now ? now.cloud_cover_pct : k?.cloud_cover_daytime_pct, max: 100, tone: "info" }}
             />
             <Card
-              label="Rain"
+              label={t("Rain")}
               icon={Droplets}
               tone="text-sky-300"
               value={fmt(now ? now.past24h_precip_mm : k?.rain_mm, 1)}
               unit="mm"
               hint={
                 now
-                  ? `Past 24 h · chance now ${fmt(now.precip_prob_pct, 0)}%`
-                  : `${fmt(k?.rain_hours, 0)} rain hours · ${k?.hours ?? 0}/12 h stored (06–18)`
+                  ? t("Past 24 h · chance now {pct}%", { pct: fmt(now.precip_prob_pct, 0) })
+                  : t("{n} rain hours · {h}/12 h stored (06–18)", { n: fmt(k?.rain_hours, 0), h: k?.hours ?? 0 })
               }
             />
             <Card
-              label="Days since rain"
+              label={t("Days since rain")}
               icon={Umbrella}
               tone={wx.rain.days_since_rain != null && wx.rain.days_since_rain >= 14 ? "text-amber-300" : "text-emerald-300"}
               value={fmt(wx.rain.days_since_rain, 0)}
-              hint={wx.rain.last_rain_day ? `Last ≥ 1 mm: ${wx.rain.last_rain_day} (${fmt(wx.rain.last_rain_mm, 1)} mm)` : "No rain day in stored history"}
+              hint={wx.rain.last_rain_day ? t("Last ≥ 1 mm: {day} ({mm} mm)", { day: wx.rain.last_rain_day, mm: fmt(wx.rain.last_rain_mm, 1) }) : t("No rain day in stored history")}
             />
             <Card
-              label="UV · wind"
+              label={t("UV · wind")}
               icon={now?.uv_index || k?.uv_max ? Sun : Wind}
               tone="text-solar-400"
               value={fmt(now ? now.uv_index : k?.uv_max, 0)}
               unit="UV"
-              hint={`Gust ${fmt(now ? now.wind_gust_ms : k?.wind_gust_max_ms, 1)} m/s`}
+              hint={t("Gust {v} m/s", { v: fmt(now ? now.wind_gust_ms : k?.wind_gust_max_ms, 1) })}
             />
           </div>
           {spec ? (
@@ -221,8 +224,8 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
           ) : (
             <EmptyState
               icon={CloudRain}
-              title="No hourly weather stored for this day"
-              description="The worker stores Google's daytime hours (06:00–18:00) every day at 18:15 (Bangkok), so today's hours appear this evening."
+              title={t("No hourly weather stored for this day")}
+              description={t("The worker stores Google's daytime hours (06:00–18:00) every day at 18:15 (Bangkok), so today's hours appear this evening.")}
             />
           )}
         </div>

@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { LogHealthStrip } from "./systemLogs/LogHealthStrip";
 import { LogTable } from "./systemLogs/LogTable";
+import { useI18n } from "../i18n";
 
 /** New rows are polled this often while the newest page is shown and the tab is visible. */
 const POLL_MS = 15_000;
@@ -30,6 +31,7 @@ const JOBS = ["all", "history", "env_history", "inverter_latest", "backfill", "f
  */
 export const SystemLogsPage: React.FC = () => {
   const [url, setUrl] = useUrlState();
+  const { t } = useI18n();
   const level: SystemLogLevel = pick(url.get("level"), LEVELS, "INFO");
   const source = pick(url.get("source"), SOURCES, "all");
   const range: Range = pick(url.get("range"), RANGE_KEYS, "24h");
@@ -147,20 +149,20 @@ export const SystemLogsPage: React.FC = () => {
 
   const anyFilter = level !== "INFO" || source !== "all" || range !== "24h" || job !== "all" || runId != null || q !== "";
   const chips = [
-    ...(runId != null ? [{ label: `Run #${runId}`, clear: () => setUrl({ run: null }) }] : []),
+    ...(runId != null ? [{ label: t("Run #{id}", { id: runId }), clear: () => setUrl({ run: null }) }] : []),
     ...(q ? [{ label: `“${q}”`, clear: () => setUrl({ q: null }) }] : []),
   ];
 
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="System"
-        title="Logs"
+        eyebrow={t("System")}
+        title={t("Logs")}
       />
 
       {meta && !meta.enabled && (
         <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-200">
-          Database logging is switched off (<span className="num">LOG_DB_ENABLED=false</span>): no new records are stored. Older ones are shown until retention removes them.
+          {t("Database logging is switched off ({setting}): no new records are stored. Older ones are shown until retention removes them.", { setting: "LOG_DB_ENABLED=false" })}
         </div>
       )}
 
@@ -173,54 +175,54 @@ export const SystemLogsPage: React.FC = () => {
       />
 
       <Panel
-        title="Log records"
-        subtitle={`${fmtInt(items.length)} shown · newest first · times in Bangkok${meta ? ` · kept ${meta.retention_days} days, stored from ${meta.level}` : ""}${error ? ` · failed: ${error}` : ""}`}
+        title={t("Log records")}
+        subtitle={`${t("{n} shown · newest first · times in Bangkok", { n: fmtInt(items.length) })}${meta ? t(" · kept {days} days, stored from {level}", { days: meta.retention_days, level: meta.level }) : ""}${error ? t(" · failed: {error}", { error }) : ""}`}
         bodyClassName="p-0"
       >
         <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-4 py-3">
           <Select value={level} onValueChange={(v) => setUrl({ level: v === "INFO" ? null : v })}>
-            <SelectTrigger size="sm" className="w-32" aria-label="Minimum level">
+            <SelectTrigger size="sm" className="w-32" aria-label={t("Minimum level")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {LEVELS.map((l) => (
                 <SelectItem key={l} value={l}>
-                  {l === "ERROR" ? "Errors" : l === "WARNING" ? "Warnings +" : l === "INFO" ? "Info +" : "Debug +"}
+                  {l === "ERROR" ? t("Errors") : l === "WARNING" ? t("Warnings +") : l === "INFO" ? t("Info +") : t("Debug +")}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={source} onValueChange={(v) => setUrl({ source: v === "all" ? null : v })}>
-            <SelectTrigger size="sm" className="w-32" aria-label="Source">
+            <SelectTrigger size="sm" className="w-32" aria-label={t("Source")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All sources</SelectItem>
+              <SelectItem value="all">{t("All sources")}</SelectItem>
               <SelectItem value="api">API</SelectItem>
               <SelectItem value="worker">Worker</SelectItem>
               <SelectItem value="cli">CLI</SelectItem>
             </SelectContent>
           </Select>
           <Select value={job} onValueChange={(v) => setUrl({ job: v === "all" ? null : v })}>
-            <SelectTrigger size="sm" className="w-40" aria-label="Job">
+            <SelectTrigger size="sm" className="w-40" aria-label={t("Job")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {JOBS.map((j) => (
                 <SelectItem key={j} value={j}>
-                  {j === "all" ? "All jobs" : j}
+                  {j === "all" ? t("All jobs") : j}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={range} onValueChange={(v) => setUrl({ range: v === "24h" ? null : v })} disabled={runId != null}>
-            <SelectTrigger size="sm" className="w-28" aria-label="Time range" title={runId != null ? "A job run is shown whole" : undefined}>
+            <SelectTrigger size="sm" className="w-28" aria-label={t("Time range")} title={runId != null ? t("A job run is shown whole") : undefined}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {RANGE_KEYS.map((r) => (
                 <SelectItem key={r} value={r}>
-                  Last {r}
+                  {t("Last {range}", { range: r })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -229,10 +231,10 @@ export const SystemLogsPage: React.FC = () => {
             <InputGroupAddon>
               <Search className="size-3.5" />
             </InputGroupAddon>
-            <InputGroupInput value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Text in message" aria-label="Search messages" maxLength={200} />
+            <InputGroupInput value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder={t("Text in message")} aria-label={t("Search messages")} maxLength={200} />
             {qInput && (
               <InputGroupAddon align="inline-end">
-                <button type="button" onClick={() => setQInput("")} aria-label="Clear search">
+                <button type="button" onClick={() => setQInput("")} aria-label={t("Clear search")}>
                   <X className="size-3.5" />
                 </button>
               </InputGroupAddon>
@@ -244,7 +246,7 @@ export const SystemLogsPage: React.FC = () => {
               type="button"
               onClick={c.clear}
               className="inline-flex items-center gap-1 rounded-full border border-solar-400/30 bg-solar-500/10 px-2 py-0.5 text-[11px] text-solar-200 transition hover:bg-solar-500/20"
-              title="Remove this filter"
+              title={t("Remove this filter")}
             >
               {c.label}
               <X className="size-3" />
@@ -252,20 +254,20 @@ export const SystemLogsPage: React.FC = () => {
           ))}
           {anyFilter && (
             <Button variant="ghost" size="xs" className="ml-auto" onClick={() => setUrl({ level: null, source: null, range: null, job: null, run: null, q: null })}>
-              Clear all
+              {t("Clear all")}
             </Button>
           )}
         </div>
 
         {loading && !items.length ? (
-          <LoadingState label="Loading log records…" shape="table" />
+          <LoadingState label={t("Loading log records…")} shape="table" />
         ) : error && !items.length ? (
-          <EmptyState icon={ServerCrash} title="Logs unavailable" description={error} />
+          <EmptyState icon={ServerCrash} title={t("Logs unavailable")} description={error} />
         ) : !items.length ? (
           <EmptyState
             icon={Check}
-            title={anyFilter ? "No matching records" : "No records"}
-            description={anyFilter ? "Change or clear the filters to see more." : `Nothing at ${level} or above in the last ${range}.`}
+            title={anyFilter ? t("No matching records") : t("No records")}
+            description={anyFilter ? t("Change or clear the filters to see more.") : t("Nothing at {level} or above in the last {range}.", { level, range })}
             className="py-10"
           />
         ) : (
@@ -280,20 +282,20 @@ export const SystemLogsPage: React.FC = () => {
             <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2.5 text-[11px] text-slate-500">
               <span className="flex items-center gap-2">
                 <Clock className="size-3" />
-                {olderLoaded ? "Older rows loaded: new records are not added" : "Newest first · new records appear every 15 s"}
+                {olderLoaded ? t("Older rows loaded: new records are not added") : t("Newest first · new records appear every 15 s")}
                 {olderLoaded && (
                   <Button variant="ghost" size="xs" onClick={load} disabled={loading}>
-                    Back to newest
+                    {t("Back to newest")}
                   </Button>
                 )}
               </span>
               {nextBefore != null ? (
                 <Button variant="outline" size="xs" onClick={loadOlder} disabled={loadingOlder}>
                   {loadingOlder && <Spinner data-icon="inline-start" className="size-3" />}
-                  {loadingOlder ? "Loading…" : "Load older"}
+                  {loadingOlder ? t("Loading…") : t("Load older")}
                 </Button>
               ) : (
-                <span>End of the {runId != null ? "run" : `last ${range}`}</span>
+                <span>{runId != null ? t("End of the run") : t("End of the last {range}", { range })}</span>
               )}
             </div>
           </>

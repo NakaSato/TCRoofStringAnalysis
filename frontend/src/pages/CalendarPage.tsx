@@ -15,6 +15,7 @@ import { CalendarPlus, ChevronLeft, ChevronRight, Plus, Repeat, Users } from "lu
 import { api } from "../api/client";
 import type { OmAssignees, OmTask, OmTaskList, OmTaskStatus, OmTaskType } from "../api/client";
 import { useAppContext } from "../context/AppContext";
+import { translate, useI18n } from "@/i18n";
 import { isAdmin } from "../auth/access";
 import { plantToday } from "../context/alarmLogStore";
 import { pick, pickDay, useUrlState } from "@/lib/useUrlState";
@@ -49,6 +50,7 @@ const Stat: React.FC<{ label: string; value: number | null; tone?: string; onCli
 
 export const CalendarPage: React.FC = () => {
   const { user, growattPlants } = useAppContext();
+  const { t } = useI18n();
   const admin = isAdmin(user);
   const me = user?.id;
   const [url, setUrl] = useUrlState();
@@ -130,7 +132,7 @@ export const CalendarPage: React.FC = () => {
   const move = async (t: OmTask, d: string) => {
     try {
       await api.patchOmTask(t.plant_id, t.id, { start_day: d });
-      setNotice(`Moved "${t.title || t.label}" (${t.plant_name ?? t.plant_id}) to ${d}.`);
+      setNotice(translate("Moved \"{task}\" ({plant}) to {day}.", { task: t.title || t.label, plant: t.plant_name ?? t.plant_id, day: d }));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -155,31 +157,31 @@ export const CalendarPage: React.FC = () => {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
-          <h1 className="text-lg font-semibold">Calendar</h1>
-          <p className="text-xs text-muted-foreground">Planned O&M work: cleaning rounds, PM and repairs, by week and month</p>
+          <h1 className="text-lg font-semibold">{t("Calendar")}</h1>
+          <p className="text-xs text-muted-foreground">{t("Planned O&M work: cleaning rounds, PM and repairs, by week and month")}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
-            {loading ? "Refreshing…" : "Refresh"}
+            {loading ? t("Refreshing…") : t("Refresh")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setPlansOpen(true)}>
             <Repeat data-icon="inline-start" />
-            Plans
+            {t("Plans")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setFeedOpen(true)}>
             <CalendarPlus data-icon="inline-start" />
-            Subscribe
+            {t("Subscribe")}
           </Button>
           {admin && (
             <Button variant="outline" size="sm" onClick={() => setTeamsOpen(true)}>
               <Users data-icon="inline-start" />
-              Teams
+              {t("Teams")}
             </Button>
           )}
           <Button size="sm" onClick={() => create()}>
             <Plus data-icon="inline-start" />
-            Plan task
+            {t("Plan task")}
           </Button>
         </div>
       </div>
@@ -189,14 +191,14 @@ export const CalendarPage: React.FC = () => {
           <AlertDescription className="flex items-center justify-between gap-2">
             {notice}
             <Button variant="ghost" size="xs" onClick={() => setNotice(null)}>
-              Dismiss
+              {t("Dismiss")}
             </Button>
           </AlertDescription>
         </Alert>
       )}
       {error && (
         <Alert variant="destructive">
-          <AlertTitle>Could not load the calendar</AlertTitle>
+          <AlertTitle>{t("Could not load the calendar")}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -204,11 +206,11 @@ export const CalendarPage: React.FC = () => {
       {view !== "due" && (
       <Card className="py-0">
         <CardContent className="grid grid-cols-2 divide-white/[0.06] px-0 sm:grid-cols-5 lg:divide-x">
-          <Stat label="Tasks" value={data?.total ?? null} tone="text-foreground" onClick={() => setUrl({ status: null })} active={status === ALL} />
-          <Stat label="Planned" value={n("planned")} tone="text-sky-300" onClick={() => setUrl({ status: "planned" })} active={status === "planned"} />
-          <Stat label="In progress" value={n("in_progress")} tone="text-amber-300" onClick={() => setUrl({ status: "in_progress" })} active={status === "in_progress"} />
-          <Stat label="Done" value={n("done")} tone="text-emerald-300" onClick={() => setUrl({ status: "done" })} active={status === "done"} />
-          <Stat label="Overdue" value={s?.overdue ?? null} tone="text-red-300" onClick={() => setUrl({ status: "overdue" })} active={status === "overdue"} />
+          <Stat label={t("Tasks")} value={data?.total ?? null} tone="text-foreground" onClick={() => setUrl({ status: null })} active={status === ALL} />
+          <Stat label={t("Planned")} value={n("planned")} tone="text-sky-300" onClick={() => setUrl({ status: "planned" })} active={status === "planned"} />
+          <Stat label={t("In progress")} value={n("in_progress")} tone="text-amber-300" onClick={() => setUrl({ status: "in_progress" })} active={status === "in_progress"} />
+          <Stat label={t("Done")} value={n("done")} tone="text-emerald-300" onClick={() => setUrl({ status: "done" })} active={status === "done"} />
+          <Stat label={t("Overdue")} value={s?.overdue ?? null} tone="text-red-300" onClick={() => setUrl({ status: "overdue" })} active={status === "overdue"} />
         </CardContent>
       </Card>
       )}
@@ -217,23 +219,23 @@ export const CalendarPage: React.FC = () => {
         <CardContent className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="icon-sm" onClick={() => step(-1)} aria-label="Previous">
+              <Button variant="outline" size="icon-sm" onClick={() => step(-1)} aria-label={t("Previous")}>
                 <ChevronLeft />
               </Button>
               <Button variant="outline" size="sm" onClick={() => setUrl({ d: null })} disabled={day === today}>
-                Today
+                {t("Today")}
               </Button>
-              <Button variant="outline" size="icon-sm" onClick={() => step(1)} aria-label="Next">
+              <Button variant="outline" size="icon-sm" onClick={() => step(1)} aria-label={t("Next")}>
                 <ChevronRight />
               </Button>
               <span className="ml-2 text-sm font-medium">{periodLabel}</span>
             </div>
             <Tabs value={view} onValueChange={(v) => setUrl({ view: v === "month" ? null : v })}>
               <TabsList variant="line">
-                <TabsTrigger value="month">Month</TabsTrigger>
-                <TabsTrigger value="week">Week</TabsTrigger>
-                <TabsTrigger value="list">List</TabsTrigger>
-                <TabsTrigger value="due">Due</TabsTrigger>
+                <TabsTrigger value="month">{t("Month")}</TabsTrigger>
+                <TabsTrigger value="week">{t("Week")}</TabsTrigger>
+                <TabsTrigger value="list">{t("List")}</TabsTrigger>
+                <TabsTrigger value="due">{t("Due")}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -241,12 +243,12 @@ export const CalendarPage: React.FC = () => {
           {view !== "due" && (
           <div className="flex flex-wrap items-center gap-2">
             <Select value={userParam} onValueChange={(v) => setUrl({ user: v === userDefault ? null : v })}>
-              <SelectTrigger size="sm" className="w-44" aria-label="Person">
+              <SelectTrigger size="sm" className="w-44" aria-label={t("Person")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="me">My tasks</SelectItem>
-                <SelectItem value="all">Everyone</SelectItem>
+                <SelectItem value="me">{t("My tasks")}</SelectItem>
+                <SelectItem value="all">{t("Everyone")}</SelectItem>
                 {(lanes?.users ?? [])
                   .filter((u) => u.id !== me)
                   .map((u) => (
@@ -257,41 +259,41 @@ export const CalendarPage: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={teamId != null ? String(teamId) : ALL} onValueChange={(v) => setUrl({ team: v === ALL ? null : v })}>
-              <SelectTrigger size="sm" className="w-40" aria-label="Team">
+              <SelectTrigger size="sm" className="w-40" aria-label={t("Team")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All teams</SelectItem>
-                {(lanes?.teams ?? []).map((t) => (
-                  <SelectItem key={t.id} value={String(t.id)}>
-                    {t.name}
+                <SelectItem value={ALL}>{t("All teams")}</SelectItem>
+                {(lanes?.teams ?? []).map((x) => (
+                  <SelectItem key={x.id} value={String(x.id)}>
+                    {x.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Select value={type} onValueChange={(v) => setUrl({ type: v === ALL ? null : v })}>
-              <SelectTrigger size="sm" className="w-40" aria-label="Task type">
+              <SelectTrigger size="sm" className="w-40" aria-label={t("Task type")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
-                {TASK_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
+                <SelectItem value={ALL}>{t("All types")}</SelectItem>
+                {TASK_TYPES.map((x) => (
+                  <SelectItem key={x.value} value={x.value}>
+                    {t(x.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Select value={status} onValueChange={(v) => setUrl({ status: v === ALL ? null : v })}>
-              <SelectTrigger size="sm" className="w-36" aria-label="Status">
+              <SelectTrigger size="sm" className="w-36" aria-label={t("Status")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
+                <SelectItem value={ALL}>{t("All statuses")}</SelectItem>
+                <SelectItem value="overdue">{t("Overdue")}</SelectItem>
                 {STATUSES.map((x) => (
                   <SelectItem key={x.value} value={x.value}>
-                    {x.label}
+                    {t(x.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -301,13 +303,13 @@ export const CalendarPage: React.FC = () => {
               plants={growattPlants}
               value={plantId ?? null}
               onChange={(id) => setUrl({ plant: id })}
-              placeholder="All plants"
+              placeholder={t("All plants")}
               allowAll
               className="w-52 justify-between"
             />
             {view === "list" && (
               <Button variant="outline" size="sm" className="ml-auto" onClick={exportCsv} disabled={!tasks.length}>
-                Export CSV
+                {t("Export CSV")}
               </Button>
             )}
           </div>
@@ -336,7 +338,7 @@ export const CalendarPage: React.FC = () => {
             <TaskList tasks={tasks} onOpen={open} />
           )}
           {view === "week" && !admin && (data?.busy.length ?? 0) > 0 && (
-            <p className="text-[11px] text-muted-foreground">“Busy” = work on a plant you are not assigned to: only the dates are shown.</p>
+            <p className="text-[11px] text-muted-foreground">{t("“Busy” = work on a plant you are not assigned to: only the dates are shown.")}</p>
           )}
         </CardContent>
       </Card>

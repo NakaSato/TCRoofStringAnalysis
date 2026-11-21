@@ -376,14 +376,14 @@ def test_open_string_above_thb_line_is_p1_and_disabled_rules_do_not_fire(factory
         _seed_day(db, current=lambda sn, s, ts, i: 0.0 if (sn, s) == (A, 3) and _between(ts, 10, 11) else i)
         _compute(db)
         assert _rules(db)[("R2", A, 3)]["tier"] == "P2"
-        growatt_rules.put_rule_settings(db, {"p1_thb_per_day": 1}, "admin")
+        from app.db.models import AppSetting  # overrides live in app_settings (edited in the DB; no API)
+
+        db.add(AppSetting(key=growatt_rules.SETTING_KEY, value={"p1_thb_per_day": 1}))
+        db.commit()
         assert _rules(db)[("R2", A, 3)]["tier"] == "P1"
-        growatt_rules.put_rule_settings(db, {"rules": {"R2": {"enabled": False}}}, "admin")
+        db.get(AppSetting, growatt_rules.SETTING_KEY).value = {"p1_thb_per_day": 1, "rules": {"R2": {"enabled": False}}}
+        db.commit()
         assert ("R2", A, 3) not in _rules(db)
-        with pytest.raises(ValueError):
-            growatt_rules.validate_settings({"r2_open_min": "ten"})
-        with pytest.raises(ValueError):
-            growatt_rules.validate_settings({"rules": {"R99": {"enabled": True}}})
 
 
 def test_issue_opens_updates_and_closes_itself(factory):
@@ -511,17 +511,10 @@ def test_issues_api_scoping_shadow_and_actions(tmp_path):
     assert client.get("/growatt/issues?status=closed", headers=eng).json()["total"] == 1
 
 
-def test_rules_and_tariff_routes(tmp_path):
+def test_rule_settings_routes_are_gone_and_tariff_routes_work(tmp_path):
     f, client, admin, eng = _api(tmp_path)
-    assert client.get("/growatt/rules", headers=eng).status_code == 403
-    assert client.put("/growatt/rules", json={"r2_open_min": 30}, headers=eng).status_code == 403
-    body = client.get("/growatt/rules", headers=admin).json()
-    assert body["settings"]["rules"]["R2"] == {"enabled": True, "shadow": True}
-    assert {r["rule"] for r in body["review"]} == set(growatt_rules.RULE_NAMES)
-    r = client.put("/growatt/rules", json={"r2_open_min": 30, "rules": {"R2": {"shadow": False}}}, headers=admin)
-    assert r.status_code == 200 and r.json()["settings"]["r2_open_min"] == 30
-    assert r.json()["settings"]["rules"]["R2"] == {"enabled": True, "shadow": False}
-    assert client.put("/growatt/rules", json={"nope": 1}, headers=admin).status_code == 422
+    assert client.get("/growatt/rules", headers=admin).status_code in (404, 405)
+    assert client.put("/growatt/rules", json={"r2_open_min": 30}, headers=admin).status_code in (404, 405)
 
     t = client.get("/growatt/tariff", headers=eng).json()
     assert t["source"] == "default" and t["on_peak_thb"] == tariff.DEFAULT_TARIFF["on_peak_thb"]

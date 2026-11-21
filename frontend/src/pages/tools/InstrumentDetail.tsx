@@ -11,6 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toolsApi } from "./useInstruments";
 import { DUE_KIND, DUE_STATE, STATUS, categoryOf, fmtDay, missingPvRating, relDays, specValue, thb } from "./format";
 import { safeHref } from "@/lib/safeUrl";
+import { useI18n } from "../../i18n";
+
+/** check-in condition as shown (the API sends the code) */
+const CONDITION_LABEL: Record<string, string> = { ok: "OK", damaged: "Damaged", lost: "Lost" };
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex justify-between gap-3 border-b border-white/[0.05] py-1.5 text-xs last:border-0">
@@ -28,6 +32,7 @@ export const InstrumentDetail: React.FC<{
   onClose: () => void;
   actions?: (d: Detail) => React.ReactNode;
 }> = ({ id, version, today, plantName, onClose, actions }) => {
+  const { t } = useI18n();
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,10 +62,10 @@ export const InstrumentDetail: React.FC<{
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {def && <def.icon className="size-4 text-muted-foreground" />}
-            {shown ? `${shown.asset_tag} · ${shown.name}` : `Instrument #${id}`}
+            {shown ? `${shown.asset_tag} · ${shown.name}` : t("Instrument #{id}", { id })}
           </DialogTitle>
           <DialogDescription>
-            {shown ? [def?.label, [shown.make, shown.model].filter(Boolean).join(" "), shown.serial_no && `SN ${shown.serial_no}`].filter(Boolean).join(" · ") : " "}
+            {shown ? [def && t(def.label), [shown.make, shown.model].filter(Boolean).join(" "), shown.serial_no && `SN ${shown.serial_no}`].filter(Boolean).join(" · ") : " "}
           </DialogDescription>
         </DialogHeader>
         {!shown ? (
@@ -80,39 +85,39 @@ export const InstrumentDetail: React.FC<{
                       </Link>
                     </>
                   )}
-                  {" · back "}
+                  {` · ${t("back")} `}
                   <span className={shown.open_checkout.overdue ? "text-red-300" : undefined}>{fmtDay(shown.open_checkout.due_back)}</span>
                 </span>
               )}
-              {missing.length > 0 && <Badge variant="warn">Not entered: {missing.join(", ")}</Badge>}
+              {missing.length > 0 && <Badge variant="warn">{t("Not entered: {list}", { list: missing.map((m) => t(m)).join(", ") })}</Badge>}
               <div className="ml-auto flex gap-1">{actions?.(shown)}</div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <section>
-                <div className="eyebrow mb-1">Specs</div>
+                <div className="eyebrow mb-1">{t("Specs")}</div>
                 {def!.specs.map((f) => (
-                  <Row key={f.key} label={f.label}>
+                  <Row key={f.key} label={t(f.label)}>
                     {specValue(shown, f)}
                   </Row>
                 ))}
-                <Row label="Calibration interval">{shown.calibration_interval_months != null ? `${shown.calibration_interval_months} months` : "—"}</Row>
-                <Row label="Purchased">{fmtDay(shown.purchase_day)}</Row>
-                <Row label="Cost">{thb(shown.cost_thb)}</Row>
+                <Row label={t("Calibration interval")}>{shown.calibration_interval_months != null ? t("{n} months", { n: shown.calibration_interval_months }) : "—"}</Row>
+                <Row label={t("Purchased")}>{fmtDay(shown.purchase_day)}</Row>
+                <Row label={t("Cost")}>{thb(shown.cost_thb)}</Row>
               </section>
               <section>
-                <div className="eyebrow mb-1">Due dates</div>
+                <div className="eyebrow mb-1">{t("Due dates")}</div>
                 {shown.due.map((x) => (
-                  <Row key={x.kind} label={DUE_KIND[x.kind]}>
+                  <Row key={x.kind} label={t(DUE_KIND[x.kind])}>
                     <span className="num">{fmtDay(x.next_due)}</span>{" "}
                     <Badge variant={DUE_STATE[x.state].variant} className="ml-1">
-                      {x.next_due ? relDays(x.next_due, today) : DUE_STATE[x.state].label}
+                      {x.next_due ? relDays(x.next_due, today) : t(DUE_STATE[x.state].label)}
                     </Badge>
                   </Row>
                 ))}
                 {shown.note && (
                   <>
-                    <div className="eyebrow mt-3 mb-1">Note</div>
+                    <div className="eyebrow mt-3 mb-1">{t("Note")}</div>
                     <p className="text-xs whitespace-pre-wrap text-slate-300">{shown.note}</p>
                   </>
                 )}
@@ -120,31 +125,31 @@ export const InstrumentDetail: React.FC<{
             </div>
 
             <section>
-              <div className="eyebrow mb-1">Calibration & renewals</div>
+              <div className="eyebrow mb-1">{t("Calibration & renewals")}</div>
               {shown.due_history.length === 0 ? (
-                <p className="text-xs text-muted-foreground">None recorded.</p>
+                <p className="text-xs text-muted-foreground">{t("None recorded.")}</p>
               ) : (
                 <Table containerClassName="table-wrap">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>What</TableHead>
-                      <TableHead>Day</TableHead>
-                      <TableHead>Next due</TableHead>
-                      <TableHead>Number</TableHead>
-                      <TableHead>Lab / issuer</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
+                      <TableHead>{t("What")}</TableHead>
+                      <TableHead>{t("Day")}</TableHead>
+                      <TableHead>{t("Next due")}</TableHead>
+                      <TableHead>{t("Number")}</TableHead>
+                      <TableHead>{t("Lab / issuer")}</TableHead>
+                      <TableHead className="text-right">{t("Cost")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {shown.due_history.map((h) => (
                       <TableRow key={h.id}>
-                        <TableCell>{DUE_KIND[h.kind]}</TableCell>
+                        <TableCell>{t(DUE_KIND[h.kind])}</TableCell>
                         <TableCell className="num whitespace-nowrap">{fmtDay(h.day)}</TableCell>
                         <TableCell className="num whitespace-nowrap">{fmtDay(h.next_due)}</TableCell>
                         <TableCell className="num">
                           {safeHref(h.url) ? (
                             <a href={safeHref(h.url)} target="_blank" rel="noreferrer" className="hover:text-solar-400">
-                              {h.number ?? "Link"}
+                              {h.number ?? t("Link")}
                             </a>
                           ) : (
                             (h.number ?? "—")
@@ -160,19 +165,19 @@ export const InstrumentDetail: React.FC<{
             </section>
 
             <section>
-              <div className="eyebrow mb-1">Check-outs</div>
+              <div className="eyebrow mb-1">{t("Check-outs")}</div>
               {shown.checkouts.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Never checked out.</p>
+                <p className="text-xs text-muted-foreground">{t("Never checked out.")}</p>
               ) : (
                 <Table containerClassName="table-wrap">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Holder</TableHead>
-                      <TableHead>Plant</TableHead>
-                      <TableHead>Out</TableHead>
-                      <TableHead>Due back</TableHead>
-                      <TableHead>Returned</TableHead>
-                      <TableHead>Condition</TableHead>
+                      <TableHead>{t("Holder")}</TableHead>
+                      <TableHead>{t("Plant")}</TableHead>
+                      <TableHead>{t("Out")}</TableHead>
+                      <TableHead>{t("Due back")}</TableHead>
+                      <TableHead>{t("Returned")}</TableHead>
+                      <TableHead>{t("Condition")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -182,12 +187,12 @@ export const InstrumentDetail: React.FC<{
                         <TableCell className="max-w-[180px] truncate">{c.plant_id != null ? (c.plant_name ?? plantName(c.plant_id)) : "—"}</TableCell>
                         <TableCell className="num whitespace-nowrap">{c.out_at.slice(0, 16)}</TableCell>
                         <TableCell className={c.overdue ? "num whitespace-nowrap text-red-300" : "num whitespace-nowrap"}>{fmtDay(c.due_back)}</TableCell>
-                        <TableCell className="num whitespace-nowrap">{c.returned_at ? c.returned_at.slice(0, 16) : <Badge variant="info">Out</Badge>}</TableCell>
+                        <TableCell className="num whitespace-nowrap">{c.returned_at ? c.returned_at.slice(0, 16) : <Badge variant="info">{t("Out")}</Badge>}</TableCell>
                         <TableCell>
-                          {c.condition ? <Badge variant={c.condition === "ok" ? "ok" : "crit"}>{c.condition}</Badge> : "—"}
+                          {c.condition ? <Badge variant={c.condition === "ok" ? "ok" : "crit"}>{t(CONDITION_LABEL[c.condition] ?? c.condition)}</Badge> : "—"}
                           {c.ack_warnings.length > 0 && (
                             <Badge variant="warn" className="ml-1" title={c.ack_warnings.join(", ")}>
-                              Warned
+                              {t("Warned")}
                             </Badge>
                           )}
                         </TableCell>

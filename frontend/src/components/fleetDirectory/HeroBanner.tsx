@@ -11,23 +11,35 @@ import { getLastPlantId } from "../../context/routes";
 import { Led, fmt, fmtInt } from "../ui";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { MultiSegmentDonut } from "./parts";
+import { useI18n } from "../../i18n";
 
 const hhmmLocal = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
   const { selectGrowattPlant, statusFilter, setStatusFilter, showInspectorDrawer, setShowInspectorDrawer, heroMetrics, growattLiveStatus } = d;
+  const { t } = useI18n();
   const yl = heroMetrics.yieldLive;
   const sweeping = yl.checked < yl.total;
   const kpiFresh = yl.loading || growattLiveStatus.loading
-    ? { level: "off" as const, text: "Loading…" }
+    ? { level: "off" as const, text: t("Loading…") }
     : yl.stale || growattLiveStatus.stale
-      ? { level: "warn" as const, text: `Last sync${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` }
+      ? { level: "warn" as const, text: `${t("Last sync")}${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` }
       : sweeping
-        ? { level: "warn" as const, text: `Checking ${yl.checked}/${yl.total}` }
-        : { level: "ok" as const, text: `Live${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` };
+        ? { level: "warn" as const, text: t("Checking {n}/{total}", { n: yl.checked, total: yl.total }) }
+        : { level: "ok" as const, text: `${t("Live")}${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` };
   const il = heroMetrics.invLive;
-  const invHint = `Live from Growatt (maxs_data, not stored): each inverter's newest record. Normal / waiting / fault = a record from today with that status; offline = no record today${il.other ? `; ${il.other} in another state` : ""}. ${fmtInt(il.answered)} of ${il.total != null ? fmtInt(il.total) : "—"} inverters answered so far.`;
-  const todayHint = `Live from Growatt (plant/data, not stored): ${yl.checked} of ${yl.total} plants checked; a plant not checked yet or not reporting today counts as —`;
+  const invHint = t(
+    "Live from Growatt (maxs_data, not stored): each inverter's newest record. Normal / waiting / fault = a record from today with that status; offline = no record today{other}. {n} of {total} inverters answered so far.",
+    {
+      other: il.other ? t("; {n} in another state", { n: il.other }) : "",
+      n: fmtInt(il.answered),
+      total: il.total != null ? fmtInt(il.total) : "—",
+    }
+  );
+  const todayHint = t(
+    "Live from Growatt (plant/data, not stored): {n} of {total} plants checked; a plant not checked yet or not reporting today counts as —",
+    { n: yl.checked, total: yl.total }
+  );
   return (
     <section className="relative overflow-hidden rounded-xl border border-sky-400/20 bg-gradient-to-b from-[#07264e] via-[#061c38] to-[#081224] shadow-[0_14px_40px_-12px_rgba(2,132,199,0.35)]">
       {/* Perspective Solar Array Horizon Backdrop SVG */}
@@ -70,14 +82,14 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
         <div className="min-w-0 p-5 xl:col-span-4 xl:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold tracking-tight text-white">Plant KPIs</h3>
+              <h3 className="text-sm font-semibold tracking-tight text-white">{t("Plant KPIs")}</h3>
               <span className="num inline-flex items-center gap-1.5 text-[11px] text-slate-400" title={todayHint}>
                 <Led level={kpiFresh.level} pulse={kpiFresh.level === "ok"} />
                 {kpiFresh.text}
               </span>
               <Link
                 to="/settings"
-                title="Configure Plant KPIs & Tariff"
+                title={t("Configure Plant KPIs & Tariff")}
                 className="rounded p-1 text-slate-400 transition hover:bg-white/10 hover:text-white"
               >
                 <Settings className="h-3.5 w-3.5" />
@@ -104,7 +116,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   </span>
                   <span className="text-[11px] text-slate-300">kW</span>
                 </div>
-                <div className="text-[11px] text-slate-400">Current power</div>
+                <div className="text-[11px] text-slate-400">{t("Current power")}</div>
               </div>
             </div>
 
@@ -121,7 +133,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <span className="text-[11px] text-slate-300">kWh</span>
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                  Yield today
+                  {t("Yield today")}
                   <span title={todayHint}>
                     <Info className="h-3 w-3 text-slate-500" />
                   </span>
@@ -142,8 +154,8 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <span className="text-[11px] text-slate-300">฿</span>
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                  Revenue today
-                  <span title={`Estimated: each plant's live yield today × its own rate (PPA, or TOU weighted by its stored power today). ${todayHint}`}>
+                  {t("Revenue today")}
+                  <span title={`${t("Estimated: each plant's live yield today × its own rate (PPA, or TOU weighted by its stored power today).")} ${todayHint}`}>
                     <Info className="h-3 w-3 text-slate-500" />
                   </span>
                 </div>
@@ -163,8 +175,8 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <span className="text-[11px] text-slate-300">kW</span>
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                  Inverter rated power
-                  <span title="Total installed rated capacity across monitored plants">
+                  {t("Inverter rated power")}
+                  <span title={t("Total installed rated capacity across monitored plants")}>
                     <Info className="h-3 w-3 text-slate-500" />
                   </span>
                 </div>
@@ -179,19 +191,19 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-baseline gap-x-1">
                   <span className="num text-lg font-bold text-white">{il.answered ? fmtInt(il.normal) : "—"}</span>
-                  <span className="text-[11px] text-slate-300">normal</span>
-                  {il.waiting > 0 && <span className="num text-[11px] text-amber-300">· {fmtInt(il.waiting)} waiting</span>}
-                  {il.fault > 0 && <span className="num text-[11px] font-semibold text-red-300">· {fmtInt(il.fault)} fault</span>}
-                  {il.offline > 0 && <span className="num text-[11px] text-slate-400">· {fmtInt(il.offline)} offline</span>}
+                  <span className="text-[11px] text-slate-300">{t("normal")}</span>
+                  {il.waiting > 0 && <span className="num text-[11px] text-amber-300">· {t("{n} waiting", { n: fmtInt(il.waiting) })}</span>}
+                  {il.fault > 0 && <span className="num text-[11px] font-semibold text-red-300">· {t("{n} fault", { n: fmtInt(il.fault) })}</span>}
+                  {il.offline > 0 && <span className="num text-[11px] text-slate-400">· {t("{n} offline", { n: fmtInt(il.offline) })}</span>}
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
                   {il.loading
-                    ? "Inverters · loading…"
+                    ? `${t("Inverters")} · ${t("loading…")}`
                     : il.stale
-                      ? `Inverters · last sync${il.fetchedAt ? ` ${hhmmLocal(il.fetchedAt)}` : ""}`
+                      ? `${t("Inverters")} · ${t("last sync")}${il.fetchedAt ? ` ${hhmmLocal(il.fetchedAt)}` : ""}`
                       : !il.complete
-                        ? `Inverters · checking ${fmtInt(il.answered)}/${il.total != null ? fmtInt(il.total) : "—"}`
-                        : "Inverters"}
+                        ? `${t("Inverters")} · ${t("checking {n}/{total}", { n: fmtInt(il.answered), total: il.total != null ? fmtInt(il.total) : "—" })}`
+                        : t("Inverters")}
                   <span title={invHint}>
                     <Info className="h-3 w-3 text-slate-500" />
                   </span>
@@ -212,8 +224,8 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <span className="text-[11px] text-slate-300">kWh</span>
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                  Total yield
-                  <span title="Cumulative energy yield across monitored fleet">
+                  {t("Total yield")}
+                  <span title={t("Cumulative energy yield across monitored fleet")}>
                     <Info className="h-3 w-3 text-slate-500" />
                   </span>
                 </div>
@@ -225,10 +237,10 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
         {/* ---------------- COLUMN 2: Plant Status Donut ---------------- */}
         <div className="min-w-0 p-5 xl:col-span-4 xl:p-6">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold tracking-tight text-white">Plant Status</h3>
+            <h3 className="text-sm font-semibold tracking-tight text-white">{t("Plant Status")}</h3>
             <button
               onClick={() => setStatusFilter("ALL")}
-              title="Show all plants"
+              title={t("Show all plants")}
               className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
             >
               <ChevronRight className="h-4 w-4" />
@@ -238,11 +250,11 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           <div className="flex items-center justify-center gap-8 pt-1">
             <MultiSegmentDonut
               totalValue={heroMetrics.totalPlants}
-              centerLabel="Total plants"
+              centerLabel={t("Total plants")}
               segments={[
-                { label: "Normal", value: heroMetrics.normalPlants, color: "#10b981" },
-                { label: "Faulty", value: heroMetrics.faultyPlants, color: "#ef4444" },
-                { label: "Disconnected", value: heroMetrics.disconnectedPlants, color: "#64748b" },
+                { label: t("Normal"), value: heroMetrics.normalPlants, color: "#10b981" },
+                { label: t("Faulty"), value: heroMetrics.faultyPlants, color: "#ef4444" },
+                { label: t("Disconnected"), value: heroMetrics.disconnectedPlants, color: "#64748b" },
               ]}
             />
 
@@ -258,7 +270,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <div className="num text-sm font-bold leading-tight text-white">
                     {heroMetrics.normalPlants}
                   </div>
-                  <div className="text-[11px] text-slate-400">Normal</div>
+                  <div className="text-[11px] text-slate-400">{t("Normal")}</div>
                 </div>
               </button>
 
@@ -273,7 +285,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <div className="num text-sm font-bold leading-tight text-white">
                     {heroMetrics.faultyPlants}
                   </div>
-                  <div className="text-[11px] text-slate-400">Faulty</div>
+                  <div className="text-[11px] text-slate-400">{t("Faulty")}</div>
                 </div>
               </button>
 
@@ -290,7 +302,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   <div className="num text-sm font-bold leading-tight text-white">
                     {heroMetrics.disconnectedPlants}
                   </div>
-                  <div className="text-[11px] text-slate-400">Disconnected</div>
+                  <div className="text-[11px] text-slate-400">{t("Disconnected")}</div>
                 </div>
               </button>
             </div>
@@ -301,10 +313,10 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
         <div className="min-w-0 p-5 pr-14 xl:col-span-4 xl:p-6 xl:pr-14">
           <div className="mb-3 flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-2">
-              <h3 className="text-sm font-semibold tracking-tight text-white">Active Alarms</h3>
+              <h3 className="text-sm font-semibold tracking-tight text-white">{t("Active Alarms")}</h3>
               <button
                 onClick={() => setStatusFilter(statusFilter === "Faulty" ? "ALL" : "Faulty")}
-                title="Plants Growatt reports as faulty right now (live plant status); click to list them"
+                title={t("Plants Growatt reports as faulty right now (live plant status); click to list them")}
                 className={`num inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] transition ${
                   statusFilter === "Faulty" ? "bg-white/10 ring-1 ring-red-400/40" : "hover:bg-white/5"
                 } ${heroMetrics.faultyPlants > 0 ? "text-red-300" : "text-slate-400"}`}
@@ -313,12 +325,12 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   level={growattLiveStatus.loading ? "off" : heroMetrics.faultyPlants > 0 ? "crit" : "ok"}
                   pulse={!growattLiveStatus.loading && !growattLiveStatus.stale}
                 />
-                {growattLiveStatus.loading ? "Live …" : `${heroMetrics.faultyPlants} faulty now`}
+                {growattLiveStatus.loading ? `${t("Live")} …` : t("{n} faulty now", { n: heroMetrics.faultyPlants })}
               </button>
             </div>
             <Link
               to="/alarms"
-              title="Open Active Alarm (whole fleet)"
+              title={t("Open Active Alarm (whole fleet)")}
               className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
             >
               <ChevronRight className="h-4 w-4" />
@@ -328,20 +340,20 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           <div className="flex items-center justify-center gap-8 pt-1">
             <MultiSegmentDonut
               totalValue={heroMetrics.totalAlarms == null ? "—" : heroMetrics.totalAlarms}
-              centerLabel={heroMetrics.alarmSyncedAt ? `Log · ${hhmmLocal(heroMetrics.alarmSyncedAt)}` : "Log today"}
+              centerLabel={heroMetrics.alarmSyncedAt ? `${t("Log")} · ${hhmmLocal(heroMetrics.alarmSyncedAt)}` : t("Log today")}
               segments={[
-                { label: "Faults", value: heroMetrics.faultCount ?? 0, color: "#ef4444" },
-                { label: "Warnings", value: heroMetrics.warningCount ?? 0, color: "#f59e0b" },
-                { label: "Other", value: heroMetrics.otherCount ?? 0, color: "#64748b" },
+                { label: t("Faults"), value: heroMetrics.faultCount ?? 0, color: "#ef4444" },
+                { label: t("Warnings"), value: heroMetrics.warningCount ?? 0, color: "#f59e0b" },
+                { label: t("Other"), value: heroMetrics.otherCount ?? 0, color: "#64748b" },
               ]}
             />
 
             <div className="grid grid-cols-1 gap-2">
               {[
-                { label: "Faults", value: heroMetrics.faultCount, icon: Bell, cls: "border-red-400/40 bg-red-500/15 text-red-400" },
-                { label: "Warnings", value: heroMetrics.warningCount, icon: AlertCircle, cls: "border-amber-400/40 bg-amber-500/15 text-amber-300" },
-                { label: "Other", value: heroMetrics.otherCount, icon: Info, cls: "border-slate-400/40 bg-slate-500/15 text-slate-300" },
-                { label: "Still open", value: heroMetrics.openCount, icon: Zap, cls: "border-sky-400/40 bg-sky-500/15 text-sky-300" },
+                { label: t("Faults"), value: heroMetrics.faultCount, icon: Bell, cls: "border-red-400/40 bg-red-500/15 text-red-400" },
+                { label: t("Warnings"), value: heroMetrics.warningCount, icon: AlertCircle, cls: "border-amber-400/40 bg-amber-500/15 text-amber-300" },
+                { label: t("Other"), value: heroMetrics.otherCount, icon: Info, cls: "border-slate-400/40 bg-slate-500/15 text-slate-300" },
+                { label: t("Still open"), value: heroMetrics.openCount, icon: Zap, cls: "border-sky-400/40 bg-sky-500/15 text-sky-300" },
               ].map((row) => {
                 const Icon = row.icon;
                 return (
@@ -369,7 +381,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
       <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 flex-col gap-1 rounded-lg border border-white/15 bg-ink-900/90 p-1 shadow-xl backdrop-blur md:flex">
         <button
           onClick={() => setShowInspectorDrawer((v) => !v)}
-          title="Toggle Selected Plant String Inspector Strip"
+          title={t("Toggle Selected Plant String Inspector Strip")}
           className={`rounded p-1.5 transition ${
             showInspectorDrawer ? "bg-sky-500/20 text-sky-300" : "text-slate-400 hover:bg-white/10 hover:text-white"
           }`}
@@ -382,14 +394,14 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             if (last != null) selectGrowattPlant(last);
           }}
           disabled={getLastPlantId() == null}
-          title="Open the last plant you viewed"
+          title={t("Open the last plant you viewed")}
           className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
         >
           <Eye className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          title="Scroll to top"
+          title={t("Scroll to top")}
           className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
         >
           <ChevronUp className="h-3.5 w-3.5" />

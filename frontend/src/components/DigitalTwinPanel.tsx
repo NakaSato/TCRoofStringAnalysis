@@ -4,6 +4,7 @@ import { useAppContext } from "../context/AppContext";
 import { Panel, Led, statusLevel, fmt } from "./ui";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useI18n } from "../i18n";
 
 type TwinView = "roof" | "sld";
 type OverlayMode = "status" | "pr" | "peer";
@@ -11,6 +12,7 @@ type OverlayMode = "status" | "pr" | "peer";
 export const DigitalTwinPanel: React.FC = () => {
   const { analysisRun, activePlant, setInspectedStringId } = useAppContext();
   const [view, setView] = useState<TwinView>("roof");
+  const { t } = useI18n();
   const [overlay, setOverlay] = useState<OverlayMode>("status");
 
   const strings = analysisRun?.string_summary_json || [];
@@ -89,21 +91,21 @@ export const DigitalTwinPanel: React.FC = () => {
   return (
     <Panel
       icon={view === "roof" ? Layers : GitCommitHorizontal}
-      title="Interactive Rooftop Digital Twin & Electrical Single-Line Diagram"
-      subtitle="Click any PV string array or feeder to open the String Telemetry Inspector"
+      title={t("Interactive Rooftop Digital Twin & Electrical Single-Line Diagram")}
+      subtitle={t("Click any PV string array or feeder to open the String Telemetry Inspector")}
       actions={
         <div className="flex flex-wrap items-center gap-2">
           {view === "roof" && (
             <Tabs value={overlay} onValueChange={(v) => setOverlay(v as OverlayMode)}>
               <TabsList>
                 <TabsTrigger value="status" className="text-[11px]">
-                  Diagnostic Status
+                  {t("Diagnostic Status")}
                 </TabsTrigger>
                 <TabsTrigger value="pr" className="text-[11px]">
-                  PR % Thermal
+                  {t("PR % Thermal")}
                 </TabsTrigger>
                 <TabsTrigger value="peer" className="text-[11px]">
-                  Peer Gap
+                  {t("Peer Gap")}
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -112,11 +114,11 @@ export const DigitalTwinPanel: React.FC = () => {
             <TabsList>
               <TabsTrigger value="roof">
                 <Layers className="h-3.5 w-3.5" />
-                2D Roof Array Map
+                {t("2D Roof Array Map")}
               </TabsTrigger>
               <TabsTrigger value="sld">
                 <GitCommitHorizontal className="h-3.5 w-3.5" />
-                Electrical SLD
+                {t("Electrical SLD")}
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -133,22 +135,22 @@ export const DigitalTwinPanel: React.FC = () => {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] pb-3 text-[11px]">
               <div className="flex items-center gap-3">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300">
-                  Perimeter Lifeline & Fall-Arrest Zone (ISO 45001)
+                  {t("Perimeter Lifeline & Fall-Arrest Zone (ISO 45001)")}
                 </span>
                 <span className="text-slate-500">
-                  Tilt <strong className="num text-slate-300">12° S</strong> · Azimuth{" "}
+                  {t("Tilt")} <strong className="num text-slate-300">12° S</strong> · {t("Azimuth")}{" "}
                   <strong className="num text-slate-300">180°</strong>
                 </span>
               </div>
               <div className="flex items-center gap-3 text-[11px] text-slate-400">
                 <span className="inline-flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-xs bg-sky-500/60 ring-1 ring-sky-300/50" /> Healthy Module
+                  <span className="h-2.5 w-2.5 rounded-xs bg-sky-500/60 ring-1 ring-sky-300/50" /> {t("Healthy Module")}
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-xs bg-amber-400/85 ring-1 ring-amber-200" /> Shaded / Bypassed Diode
+                  <span className="h-2.5 w-2.5 rounded-xs bg-amber-400/85 ring-1 ring-amber-200" /> {t("Shaded / Bypassed Diode")}
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-xs bg-red-500/70 ring-1 ring-red-300" /> Open-Circuit String
+                  <span className="h-2.5 w-2.5 rounded-xs bg-red-500/70 ring-1 ring-red-300" /> {t("Open-Circuit String")}
                 </span>
                 <span className="num inline-flex items-center gap-1 text-solar-400">
                   <Compass className="h-3.5 w-3.5" /> N ↑
@@ -167,7 +169,7 @@ export const DigitalTwinPanel: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <Cpu className="h-4 w-4 text-energy-400" />
                       <span className="text-xs font-bold text-white">
-                        Roof Bay {invIdx === 0 ? "A (West Wing)" : "B (East Wing)"} — {inv.id}
+                        {invIdx === 0 ? t("Roof Bay A (West Wing)") : t("Roof Bay B (East Wing)")} — {inv.id}
                       </span>
                       <Led level={inv.worst === 2 ? "crit" : inv.worst === 1 ? "warn" : "ok"} pulse={inv.worst === 2} />
                     </div>
@@ -239,7 +241,7 @@ export const DigitalTwinPanel: React.FC = () => {
                               <div
                                 key={mIdx}
                                 className={`h-5 rounded-[2px] border transition ${getModuleStyle(s, mIdx)}`}
-                                title={`${s.string_id} · Module #${mIdx + 1}`}
+                                title={`${s.string_id} · ${t("Module #{n}", { n: mIdx + 1 })}`}
                               />
                             ))}
                           </div>
@@ -261,7 +263,7 @@ export const DigitalTwinPanel: React.FC = () => {
             <div className="grid grid-cols-12 items-center gap-4">
               {/* COLUMN 1: PV Strings + DC Fuses (col-span-5) */}
               <div className="col-span-5 space-y-2">
-                <div className="eyebrow mb-2">1. Rooftop PV String Feeders (DC 1000V)</div>
+                <div className="eyebrow mb-2">{t("1. Rooftop PV String Feeders (DC 1000V)")}</div>
                 {strings.map((s) => {
                   const lvl = statusLevel(s.status);
                   const isCrit = lvl === "crit";
@@ -297,7 +299,7 @@ export const DigitalTwinPanel: React.FC = () => {
                               : "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
                           }`}
                         >
-                          {isCrit ? "FUSE OPEN" : "CLOSED"}
+                          {isCrit ? t("FUSE OPEN") : t("CLOSED")}
                         </span>
                       </div>
                     </button>
@@ -307,7 +309,7 @@ export const DigitalTwinPanel: React.FC = () => {
 
               {/* COLUMN 2: String Inverters (col-span-3) */}
               <div className="col-span-3 space-y-4">
-                <div className="eyebrow mb-2 text-center">2. String Inverters (DC/AC)</div>
+                <div className="eyebrow mb-2 text-center">{t("2. String Inverters (DC/AC)")}</div>
                 {inverters.map((inv) => (
                   <div
                     key={inv.id}
@@ -322,15 +324,15 @@ export const DigitalTwinPanel: React.FC = () => {
                     </div>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                       <span>MPPT 1000V DC → 400V AC</span>
-                      <span className="num font-semibold text-energy-300">{inv.strings.length} Strings</span>
+                      <span className="num font-semibold text-energy-300">{t("{n} Strings", { n: inv.strings.length })}</span>
                     </div>
                     <div className="num mt-2 grid grid-cols-2 gap-2 border-t border-white/[0.06] pt-2 text-[11px]">
                       <div>
-                        <div className="text-[11px] text-slate-500">Capacity</div>
+                        <div className="text-[11px] text-slate-500">{t("Capacity")}</div>
                         <div className="font-bold text-solar-400">{fmt(inv.cap, 1)} kWp</div>
                       </div>
                       <div>
-                        <div className="text-[11px] text-slate-500">Yield</div>
+                        <div className="text-[11px] text-slate-500">{t("Yield")}</div>
                         <div className="font-bold text-white">{fmt(inv.energy, 1)} kWh</div>
                       </div>
                     </div>
@@ -340,27 +342,27 @@ export const DigitalTwinPanel: React.FC = () => {
 
               {/* COLUMN 3: LV ACB -> MV Transformer -> PCC Grid (col-span-4) */}
               <div className="col-span-4 space-y-3">
-                <div className="eyebrow mb-2">3. LV Switchgear · MV Transformer · PCC Grid</div>
+                <div className="eyebrow mb-2">{t("3. LV Switchgear · MV Transformer · PCC Grid")}</div>
 
                 <div className="rounded-xl border border-white/10 bg-ink-900/90 p-3.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-100">LV Solar Main Switchboard (ACB-01)</span>
-                    <Badge variant="ok">CLOSED · 400V</Badge>
+                    <span className="text-xs font-bold text-slate-100">{t("LV Solar Main Switchboard (ACB-01)")}</span>
+                    <Badge variant="ok">{t("CLOSED")} · 400V</Badge>
                   </div>
                   <div className="num mt-1.5 flex justify-between text-[11px] text-slate-400">
                     <span>3P4W · 50.02 Hz · PF 0.992</span>
-                    <span className="text-emerald-400">LOTO Clear</span>
+                    <span className="text-emerald-400">{t("LOTO Clear")}</span>
                   </div>
                 </div>
 
                 <div className="rounded-xl border border-solar-400/30 bg-ink-900/90 p-3.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-100">MV Step-Up Transformer (TX-01)</span>
+                    <span className="text-xs font-bold text-slate-100">{t("MV Step-Up Transformer (TX-01)")}</span>
                     <Badge variant="info">0.4 / 22 kV · Dyn11</Badge>
                   </div>
                   <div className="num mt-1.5 flex justify-between text-[11px] text-slate-400">
-                    <span>Oil Temp: 54.2°C · Buchholz OK</span>
-                    <span className="text-solar-400">Peak {fmt(peakKw, 1)} kW</span>
+                    <span>{t("Oil Temp: 54.2°C · Buchholz OK")}</span>
+                    <span className="text-solar-400">{t("Peak {kw} kW", { kw: fmt(peakKw, 1) })}</span>
                   </div>
                 </div>
 
@@ -368,19 +370,19 @@ export const DigitalTwinPanel: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Zap className="h-4 w-4 text-emerald-400" />
-                      <span className="text-xs font-bold text-white">PCC Revenue Meter (PEA / MEA Grid)</span>
+                      <span className="text-xs font-bold text-white">{t("PCC Revenue Meter (PEA / MEA Grid)")}</span>
                     </div>
                     <Led level="ok" pulse />
                   </div>
                   <div className="num mt-2 grid grid-cols-2 gap-2 border-t border-white/10 pt-2 text-xs">
                     <div>
-                      <div className="text-[11px] text-slate-400">Net Energy Export</div>
+                      <div className="text-[11px] text-slate-400">{t("Net Energy Export")}</div>
                       <div className="font-bold text-emerald-300">
                         {fmt(kpis.total_energy_kwh, 1)} kWh
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-slate-400">Plant PR</div>
+                      <div className="text-[11px] text-slate-400">{t("Plant PR")}</div>
                       <div className="font-bold text-solar-300">{fmt(kpis.plant_pr_pct, 2)}%</div>
                     </div>
                   </div>

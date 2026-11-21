@@ -3,6 +3,7 @@ import { useAppContext } from "../context/AppContext";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { LoadingState } from "../components/ui";
 import { SensorsView } from "./sensors/SensorsView";
+import { useI18n } from "../i18n";
 
 /**
  * Every weather sensor the user can see (`/growatt/sensors`, DB only): newest stored reading,
@@ -18,11 +19,12 @@ export const SensorsPage: React.FC = () => <SensorsView />;
  */
 export const PlantSensorsPage: React.FC = () => {
   const { selectedGrowattPlantId } = useAppContext();
+  const { t } = useI18n();
   return (
     <div className="space-y-6">
       <SelectedPlantBanner />
       {selectedGrowattPlantId == null ? (
-        <LoadingState label="Loading the plant…" shape="page" />
+        <LoadingState label={t("Loading the plant…")} shape="page" />
       ) : (
         // remount on plant switch: no rows of the previous plant shown under the new one
         <SensorsView key={selectedGrowattPlantId} plantId={selectedGrowattPlantId} />

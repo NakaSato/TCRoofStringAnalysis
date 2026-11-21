@@ -27,6 +27,7 @@ import { TablePager, pageBounds } from "../components/TablePager";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
+import { translate, useI18n, type Lang } from "../i18n";
 
 
 const shiftDay = (day: string, n: number) => {
@@ -36,17 +37,17 @@ const shiftDay = (day: string, n: number) => {
 };
 /** "YYYY-MM-DD" ⇄ local-midnight Date (the Calendar works in local dates) */
 /** sensor last upload: time on `day`, else date + time; null = never */
-const fmtWhen = (t: string | null, day: string) => (!t ? "never" : t.slice(0, 10) === day ? t.slice(11, 16) : t.slice(0, 16));
+const fmtWhen = (t: string | null, day: string) => (!t ? translate("never") : t.slice(0, 10) === day ? t.slice(11, 16) : t.slice(0, 16));
 /** "2026-11-10 06:16:07" → "06:16" */
 const hm = (t: string | null) => (t ? t.slice(11, 16) : "—");
 const fmtDuration = (min: number | null) =>
   min == null
     ? "—"
     : min < 60
-      ? `${min} min`
+      ? translate("{n} min", { n: min })
       : min < 24 * 60
-        ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")} m`
-        : `${Math.floor(min / 1440)} d ${Math.floor((min % 1440) / 60)} h`;
+        ? translate("{h} h {m} m", { h: Math.floor(min / 60), m: String(min % 60).padStart(2, "0") })
+        : translate("{d} d {h} h", { d: Math.floor(min / 1440), h: Math.floor((min % 1440) / 60) });
 /**
  * Weather sensors as rows of the same table. Today: offline / late (live sweep) or with a health
  * flag, all open; duration = time since the last upload. Past day: stored daylight coverage below
@@ -62,7 +63,16 @@ function sensorEvents(rows: ViewRow[], isToday: boolean, now: string): AlarmEven
     if (isToday && !live && !sensorFlags.length) continue;
     const at = isToday ? s.upload : s.last_reading_at;
     const since = ms(now) - ms(at);
-    const flags = sensorFlags.map(flagLabel).join(", ");
+    // screen text in the UI language; `alarm_message_en` for the CSV (exports stay English)
+    const message = (lang?: Lang) =>
+      isToday
+        ? [
+            live ? translate(s.st === "offline" ? "Weather sensor offline" : "Weather sensor uploading late", undefined, lang) : null,
+            sensorFlags.map((f) => flagLabel(f, lang)).join(", ") || null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : translate("Weather sensor: {pct}% of daylight readings stored", { pct: fmt(s.coverage_pct, 0) }, lang);
     out.push({
       key: `sensor|${s.key}`,
       source: "sensor",
@@ -72,9 +82,8 @@ function sensorEvents(rows: ViewRow[], isToday: boolean, now: string): AlarmEven
       plant_name: s.plant_name,
       device_sn: `${s.datalogger_sn}#${s.address}`,
       alarm_code: null,
-      alarm_message: isToday
-        ? [live ? (s.st === "offline" ? "Weather sensor offline" : "Weather sensor uploading late") : null, flags || null].filter(Boolean).join(" · ")
-        : `Weather sensor: ${fmt(s.coverage_pct, 0)}% of daylight readings stored`,
+      alarm_message: message(),
+      alarm_message_en: message("en"),
       fault_type: "Sensor",
       level: isToday ? (s.st === "offline" ? "crit" : "warn") : s.coverage_pct === 0 ? "crit" : "warn",
       start: null,
@@ -135,6 +144,7 @@ const ALL = "all";
  * Repeated reports are grouped into events (see `EVENT_GAP_MIN`).
  */
 export const ActiveAlarmPage: React.FC = () => {
+  const { t } = useI18n();
   const today = plantToday();
   // day and filters live in the URL (?day=&q=&level=&open=1&plant=&code=); a missing or future
   // day means today
@@ -282,7 +292,7 @@ export const ActiveAlarmPage: React.FC = () => {
   const unsynced = plants.filter((p) => p.synced_inverters === 0);
   const partly = plants.filter((p) => p.synced_inverters > 0 && p.synced_inverters < p.inverters);
   const syncedCount = plants.length - unsynced.length;
-  const nameOf = (id: number) => plants.find((p) => p.plant_id === id)?.name ?? `Plant ${id}`;
+  const nameOf = (id: number) => plants.find((p) => p.plant_id === id)?.name ?? t("Plant {id}", { id });
   const anyFilter = levelFilter != null || openOnly || plantFilter != null || codeFilter != null || sourceFilter != null || query.trim() !== "";
   const clearFilters = () => setUrl({ level: null, open: null, plant: null, code: null, src: null, q: null });
   const lastSync = result?.syncedAt ? toPlantLocal(result.syncedAt) : null;
@@ -291,7 +301,7 @@ export const ActiveAlarmPage: React.FC = () => {
     const head = ["source", "plant_id", "plant", "device", "start_time", "last_report", "reports", "state", "fault_type", "alarm_code", "alarm_message"];
     const esc = (v: unknown) => (v == null ? "" : `"${String(v).replace(/"/g, '""')}"`);
     const body = rows.map((a) =>
-      [a.source, a.plant_id, a.plant_name, a.device_sn, a.start, a.last, a.reports || null, a.state ?? (a.open ? "open" : "cleared"), a.fault_type, a.alarm_code, a.alarm_message]
+      [a.source, a.plant_id, a.plant_name, a.device_sn, a.start, a.last, a.reports || null, a.state ?? (a.open ? "open" : "cleared"), a.fault_type, a.alarm_code, a.alarm_message_en ?? a.alarm_message]
         .map(esc)
         .join(",")
     );
@@ -323,28 +333,26 @@ export const ActiveAlarmPage: React.FC = () => {
       {/* header: title, sync state, day */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold tracking-tight">Active Alarm</h1>
+          <h1 className="text-xl font-bold tracking-tight">{t("Active Alarm")}</h1>
           <Tooltip>
             <TooltipTrigger asChild>
               <Badge variant={syncVariant} className="text-xs">
                 {loading && !result && !error && <Spinner data-icon="inline-start" className="size-3" />}
-                {error && !result ? "Not loaded" : loading && !result ? "Loading…" : `Sync ${syncText}`}
-                {notSynced > 0 && <span className="num">· {notSynced} pending</span>}
+                {error && !result ? t("Not loaded") : loading && !result ? t("Loading…") : t("Sync {time}", { time: syncText })}
+                {notSynced > 0 && <span className="num">· {t("{n} pending", { n: notSynced })}</span>}
               </Badge>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
               {error ? (
-                <p>Could not load: {error}</p>
+                <p>{t("Could not load: {error}", { error })}</p>
               ) : (
                 <div className="flex flex-col gap-0.5">
-                  <p>
-                    {fmtInt(syncedCount)} of {fmtInt(plants.length)} plants read for {day}
-                  </p>
-                  {stale && <p>The worker's alarm sync is behind: open alarms are as of {syncText}</p>}
-                  {isToday && <p>Open alarms and faults re-read every 10 min, other inverters hourly</p>}
-                  {historyBehind > 0 && <p>{historyBehind} weather sensors' stored history is behind</p>}
-                  {unsynced.length > 0 && <p>{unsynced.length} not read yet</p>}
-                  {partly.length > 0 && <p>{partly.length} partly read</p>}
+                  <p>{t("{n} of {total} plants read for {day}", { n: fmtInt(syncedCount), total: fmtInt(plants.length), day })}</p>
+                  {stale && <p>{t("The worker's alarm sync is behind: open alarms are as of {time}", { time: syncText })}</p>}
+                  {isToday && <p>{t("Open alarms and faults re-read every 10 min, other inverters hourly")}</p>}
+                  {historyBehind > 0 && <p>{t("{n} weather sensors' stored history is behind", { n: historyBehind })}</p>}
+                  {unsynced.length > 0 && <p>{t("{n} not read yet", { n: unsynced.length })}</p>}
+                  {partly.length > 0 && <p>{t("{n} partly read", { n: partly.length })}</p>}
                 </div>
               )}
             </TooltipContent>
@@ -352,12 +360,12 @@ export const ActiveAlarmPage: React.FC = () => {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ButtonGroup>
-            <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label="Previous day">
+            <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, -1))} aria-label={t("Previous day")}>
               <ChevronLeft />
             </Button>
             <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="num min-w-36" aria-label="Alarm day">
+                <Button variant="outline" size="sm" className="num min-w-36" aria-label={t("Alarm day")}>
                   {dayLabel(day)}
                 </Button>
               </PopoverTrigger>
@@ -375,16 +383,16 @@ export const ActiveAlarmPage: React.FC = () => {
                 />
               </PopoverContent>
             </Popover>
-            <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={isToday} aria-label="Next day">
+            <Button variant="outline" size="icon-sm" onClick={() => setDay(shiftDay(day, 1))} disabled={isToday} aria-label={t("Next day")}>
               <ChevronRight />
             </Button>
           </ButtonGroup>
           <Button variant="outline" size="sm" onClick={() => setDay(today)} disabled={isToday}>
-            Today
+            {t("Today")}
           </Button>
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
-            {loading ? "Refreshing…" : "Refresh"}
+            {loading ? t("Refreshing…") : t("Refresh")}
           </Button>
         </div>
       </div>
@@ -392,11 +400,11 @@ export const ActiveAlarmPage: React.FC = () => {
       {/* summary */}
       <Card className="py-0">
         <CardContent className="grid grid-cols-2 divide-white/[0.06] px-0 sm:grid-cols-3 lg:grid-cols-5 lg:divide-x">
-          <Stat label="Open" value={fmtInt(stats.open)} tone={stats.open ? "text-red-300" : "text-emerald-300"} />
-          <Stat label="Faults" value={fmtInt(stats.byLevel.crit)} tone={stats.byLevel.crit ? "text-red-300" : "text-muted-foreground"} />
-          <Stat label="Warnings" value={fmtInt(stats.byLevel.warn)} tone={stats.byLevel.warn ? "text-amber-300" : "text-muted-foreground"} />
+          <Stat label={t("Open")} value={fmtInt(stats.open)} tone={stats.open ? "text-red-300" : "text-emerald-300"} />
+          <Stat label={t("Faults")} value={fmtInt(stats.byLevel.crit)} tone={stats.byLevel.crit ? "text-red-300" : "text-muted-foreground"} />
+          <Stat label={t("Warnings")} value={fmtInt(stats.byLevel.warn)} tone={stats.byLevel.warn ? "text-amber-300" : "text-muted-foreground"} />
           <Stat
-            label="Plants affected"
+            label={t("Plants affected")}
             value={
               <>
                 {fmtInt(stats.plants)}
@@ -405,7 +413,7 @@ export const ActiveAlarmPage: React.FC = () => {
             }
           />
           <Stat
-            label={isToday ? "Sensors offline" : "Sensor data gaps"}
+            label={isToday ? t("Sensors offline") : t("Sensor data gaps")}
             value={fmtInt(sensorTileCount)}
             tone={!sensorTileCount ? "text-muted-foreground" : isToday ? "text-red-300" : "text-amber-300"}
             onClick={() => setSourceFilter(sourceFilter === "sensor" ? null : "sensor")}
@@ -420,17 +428,17 @@ export const ActiveAlarmPage: React.FC = () => {
           <Tabs value={openOnly ? "open" : ALL} onValueChange={(v) => setOpenOnly(v === "open")}>
             <TabsList variant="line" className="border-0 p-0">
               <TabsTrigger value={ALL} className="px-3 py-2.5 text-sm">
-                All alarms <span className="num text-muted-foreground">{fmtInt(stats.total)}</span>
+                {t("All alarms")} <span className="num text-muted-foreground">{fmtInt(stats.total)}</span>
               </TabsTrigger>
               <TabsTrigger value="open" className="px-3 py-2.5 text-sm">
-                Open <span className="num text-red-300">{fmtInt(stats.open)}</span>
+                {t("Open")} <span className="num text-red-300">{fmtInt(stats.open)}</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
           <div className="flex items-center gap-2 pb-2">
-            <Input className="h-8 w-60" placeholder="Search plant, SN, message" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search alarms" />
+            <Input className="h-8 w-60" placeholder={t("Search plant, SN, message")} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("Search alarms")} />
             <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rows.length}>
-              Export CSV
+              {t("Export CSV")}
             </Button>
           </div>
         </div>
@@ -438,39 +446,39 @@ export const ActiveAlarmPage: React.FC = () => {
         {/* filters: one control type, one line */}
         <CardContent className="flex flex-wrap items-center gap-2 border-b py-3">
           <Select value={sourceFilter ?? ALL} onValueChange={(v) => setSourceFilter(v === "inverter" || v === "sensor" ? v : null)}>
-            <SelectTrigger size="sm" className="w-40" aria-label="Source">
+            <SelectTrigger size="sm" className="w-40" aria-label={t("Source")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value={ALL}>All sources</SelectItem>
-                <SelectItem value="inverter">Inverters ({fmtInt(stats.bySource.inverter)})</SelectItem>
-                <SelectItem value="sensor">Weather sensors ({fmtInt(stats.bySource.sensor)})</SelectItem>
+                <SelectItem value={ALL}>{t("All sources")}</SelectItem>
+                <SelectItem value="inverter">{t("Inverters ({n})", { n: fmtInt(stats.bySource.inverter) })}</SelectItem>
+                <SelectItem value="sensor">{t("Weather sensors ({n})", { n: fmtInt(stats.bySource.sensor) })}</SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
           <Select value={levelFilter ?? ALL} onValueChange={(v) => setLevelFilter(v === "crit" || v === "warn" || v === "info" ? v : null)}>
-            <SelectTrigger size="sm" className="w-40" aria-label="Level">
+            <SelectTrigger size="sm" className="w-40" aria-label={t("Level")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value={ALL}>All levels</SelectItem>
+                <SelectItem value={ALL}>{t("All levels")}</SelectItem>
                 {levelsShown.map((l) => (
                   <SelectItem key={l.level} value={l.level}>
-                    {l.label} ({fmtInt(stats.byLevel[l.level])})
+                    {t(l.label)} ({fmtInt(stats.byLevel[l.level])})
                   </SelectItem>
                 ))}
               </SelectGroup>
             </SelectContent>
           </Select>
           <Select value={plantFilter != null ? String(plantFilter) : ALL} onValueChange={(v) => setPlantFilter(v === ALL ? null : Number(v))}>
-            <SelectTrigger size="sm" className="w-56" aria-label="Plant">
+            <SelectTrigger size="sm" className="w-56" aria-label={t("Plant")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value={ALL}>All plants</SelectItem>
+                <SelectItem value={ALL}>{t("All plants")}</SelectItem>
               </SelectGroup>
               <SelectSeparator />
               <SelectGroup>
@@ -479,7 +487,7 @@ export const ActiveAlarmPage: React.FC = () => {
                 )}
                 {byPlant.map(([id, e]) => (
                   <SelectItem key={id} value={String(id)}>
-                    {e.name} ({e.open ? `${e.open} open · ` : ""}
+                    {e.name} ({e.open ? `${t("{n} open", { n: e.open })} · ` : ""}
                     {e.count})
                   </SelectItem>
                 ))}
@@ -487,16 +495,16 @@ export const ActiveAlarmPage: React.FC = () => {
             </SelectContent>
           </Select>
           <Select value={codeFilter ?? ALL} onValueChange={(v) => setCodeFilter(v === ALL ? null : v)}>
-            <SelectTrigger size="sm" className="w-56" aria-label="Alarm code">
+            <SelectTrigger size="sm" className="w-56" aria-label={t("Alarm code")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
-                <SelectItem value={ALL}>All codes</SelectItem>
+                <SelectItem value={ALL}>{t("All codes")}</SelectItem>
               </SelectGroup>
               <SelectSeparator />
               <SelectGroup>
-                {codeFilter != null && !byCode.some(([c]) => c === codeFilter) && <SelectItem value={codeFilter}>Code {codeFilter} (0)</SelectItem>}
+                {codeFilter != null && !byCode.some(([c]) => c === codeFilter) && <SelectItem value={codeFilter}>{t("Code {code}", { code: codeFilter })} (0)</SelectItem>}
                 {byCode.map(([code, e]) => (
                   <SelectItem key={code} value={code}>
                     {code} · {e.message ?? "—"} ({e.count})
@@ -507,7 +515,7 @@ export const ActiveAlarmPage: React.FC = () => {
           </Select>
           {anyFilter && (
             <Button variant="ghost" size="sm" onClick={clearFilters} className="ml-auto">
-              Clear
+              {t("Clear")}
             </Button>
           )}
         </CardContent>
@@ -516,34 +524,34 @@ export const ActiveAlarmPage: React.FC = () => {
             firstRead ? (
               <SkeletonRows rows={8} className="p-4" />
             ) : !result ? (
-              <EmptyBlock title="Alarm log unavailable" description={error} />
+              <EmptyBlock title={t("Alarm log unavailable")} description={error} />
             ) : (
-              <EmptyBlock title={!plants.length ? "No plants" : stats.total ? "No matching alarms" : syncedCount ? "No alarms" : "Not synced yet"} />
+              <EmptyBlock title={t(!plants.length ? "No plants" : stats.total ? "No matching alarms" : syncedCount ? "No alarms" : "Not synced yet")} />
             )
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>State</TableHead>
-                  <TableHead>Start</TableHead>
-                  <TableHead>Last</TableHead>
-                  <TableHead className="text-right">Duration</TableHead>
-                  <TableHead>Plant</TableHead>
-                  <TableHead>Device</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Message</TableHead>
+                  <TableHead>{t("State")}</TableHead>
+                  <TableHead>{t("Start")}</TableHead>
+                  <TableHead>{t("Last")}</TableHead>
+                  <TableHead className="text-right">{t("Duration")}</TableHead>
+                  <TableHead>{t("Plant")}</TableHead>
+                  <TableHead>{t("Device")}</TableHead>
+                  <TableHead>{t("Code")}</TableHead>
+                  <TableHead>{t("Message")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pageRows.map((a) => (
                   <TableRow key={a.key} className={cn(!a.open && "opacity-70")}>
                     <TableCell>
-                      <Badge variant={a.open || a.state ? badgeOf(a.level) : "neutral"}>{a.state ?? (a.open ? "Open" : "Cleared")}</Badge>
+                      <Badge variant={a.open || a.state ? badgeOf(a.level) : "neutral"}>{t(a.state ?? (a.open ? "Open" : "Cleared"))}</Badge>
                     </TableCell>
                     <TableCell className="num whitespace-nowrap">{hm(a.start)}</TableCell>
                     <TableCell
                       className="num whitespace-nowrap"
-                      title={a.source === "sensor" ? (a.last ? `Last upload ${a.last}` : undefined) : `${a.reports} report${a.reports === 1 ? "" : "s"} from Growatt`}
+                      title={a.source === "sensor" ? (a.last ? t("Last upload {time}", { time: a.last }) : undefined) : t(a.reports === 1 ? "{n} report from Growatt" : "{n} reports from Growatt", { n: a.reports })}
                     >
                       {a.source === "sensor" ? fmtWhen(a.last, day) : a.reports > 1 ? hm(a.last) : "—"}
                     </TableCell>
@@ -564,7 +572,7 @@ export const ActiveAlarmPage: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       {a.source === "sensor" ? (
-                        <Badge variant="info">Sensor</Badge>
+                        <Badge variant="info">{t("Sensor")}</Badge>
                       ) : (
                         <Badge variant={badgeOf(a.level)} className="num" title={a.fault_type ?? undefined}>
                           {a.alarm_code ?? "—"}

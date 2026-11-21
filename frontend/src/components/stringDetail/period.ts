@@ -4,6 +4,7 @@
  * Shared by the String Inspector drawer and the string page.
  */
 import { fromDate, toDate } from "@/lib/day";
+import { dateLocale } from "../../i18n";
 
 export interface StringPeriod {
   /** first (or only) day, "YYYY-MM-DD"; null = the string's newest stored day */
@@ -37,7 +38,7 @@ export const daysBetween = (day: string, today: string) => Math.round((toDate(to
 
 /** "12 Nov" (with the year when it isn't this year's) */
 export const shortDay = (day: string, today: string) =>
-  toDate(day).toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(day.slice(0, 4) !== today.slice(0, 4) && { year: "numeric" }) });
+  toDate(day).toLocaleDateString(dateLocale(), { day: "numeric", month: "short", ...(day.slice(0, 4) !== today.slice(0, 4) && { year: "numeric" }) });
 
 /** "12 Nov" or "6–12 Nov" / "28 Oct – 3 Nov" */
 export const periodDayText = (day: string, endDay: string | null, today: string) => {

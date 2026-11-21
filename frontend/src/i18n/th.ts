@@ -1,0 +1,18 @@
+/**
+ * Thai text, keyed by the English text used in the code (`t("Sign in")`). A key with no entry shows in
+ * English. One file per area under `th/` so pages can be translated independently; a key may appear in
+ * more than one file (the later file wins), so keep the same Thai for the same English.
+ * Keep units, product names and codes (kW, kWp, PR, Growatt, O&M, SN, CSV) as they are.
+ */
+import { TH_CORE } from "./th/core";
+import { TH_CENTER } from "./th/center";
+import { TH_ALARMS } from "./th/alarms";
+import { TH_OVERVIEW } from "./th/overview";
+import { TH_PLANT } from "./th/plant";
+import { TH_STRINGS } from "./th/strings";
+import { TH_CALENDAR } from "./th/calendar";
+import { TH_CLAIMS } from "./th/claims";
+import { TH_ADMIN } from "./th/admin";
+import { TH_SHARED } from "./th/shared";
+
+export const TH: Record<string, string> = { ...TH_CORE, ...TH_CENTER, ...TH_ALARMS, ...TH_OVERVIEW, ...TH_PLANT, ...TH_STRINGS, ...TH_CALENDAR, ...TH_CLAIMS, ...TH_ADMIN, ...TH_SHARED };

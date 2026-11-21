@@ -10,6 +10,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { useI18n } from "../i18n";
 
 type Tone = "solar" | "energy" | "ok" | "warn" | "crit" | "info" | "neutral";
 
@@ -166,13 +167,14 @@ export const StatusBadge: React.FC<{
   loading?: boolean;
 }> = ({ status, level, className = "", dot = true, loading = false }) => {
   const lvl = loading ? "neutral" : level ?? statusLevel(status);
+  const { t } = useI18n();
   return (
     <Badge variant={lvl} className={className} aria-busy={loading || undefined}>
       {loading && (
         <Spinner data-icon="inline-start" className="size-3" aria-hidden />
       )}
       {dot && !loading && <span className={`h-1.5 w-1.5 rounded-full ${lvl === "ok" ? "bg-emerald-400" : lvl === "warn" ? "bg-amber-400" : lvl === "crit" ? "bg-red-400" : lvl === "info" ? "bg-sky-400" : "bg-slate-500"}`} />}
-      {String(status ?? "—")}
+      {t(String(status ?? "—"))}
     </Badge>
   );
 };
@@ -268,8 +270,10 @@ export type LoadingShape = "none" | "lines" | "table" | "chart" | "kpis" | "page
  * Loading placeholder: a spinner with what is loading, and optionally a skeleton of the content
  * that will replace it (`shape`), so the page keeps its layout while it waits.
  */
+const DefaultLoadingLabel = () => <>{useI18n().t("Connecting to plant telemetry…")}</>;
+
 export const LoadingState: React.FC<{ label?: string; shape?: LoadingShape; rows?: number; className?: string }> = ({
-  label = "Connecting to plant telemetry…",
+  label,
   shape = "none",
   rows,
   className,
@@ -277,7 +281,7 @@ export const LoadingState: React.FC<{ label?: string; shape?: LoadingShape; rows
   <Card className={cn("gap-4 p-6", className)} aria-busy>
     <div className="flex items-center gap-3 text-sm text-slate-400">
       <Spinner />
-      {label}
+      {label ?? <DefaultLoadingLabel />}
     </div>
     {shape === "lines" && (
       <div className="flex flex-col gap-2" aria-hidden>

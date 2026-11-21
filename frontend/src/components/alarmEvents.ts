@@ -11,6 +11,7 @@ import type { PanelChartSpec } from "./PanelChart";
 import type { StatusLevel } from "./ui";
 import { STATUS } from "./chartTheme";
 import { fmtInt } from "./ui";
+import { translate } from "../i18n";
 
 export const EVENT_GAP_MIN = 10;
 
@@ -41,6 +42,8 @@ export interface AlarmEvent {
   device_sn: string;
   alarm_code: number | string | null;
   alarm_message: string | null;
+  /** English text of a message the frontend builds (sensor rows), for CSV exports, which stay English */
+  alarm_message_en?: string | null;
   fault_type: string | null;
   level: StatusLevel;
   start: string | null;
@@ -141,14 +144,14 @@ export function alarmHourSpec(events: AlarmEvent[]): PanelChartSpec | null {
     xKind: "band",
     x: hours,
     xTickLabel: (v) => `${v}`,
-    xTipLabel: (v) => `${v}:00–${v}:59 (plant time)`,
+    xTipLabel: (v) => translate("{h}:00–{h}:59 (plant time)", { h: v }),
     panels: [
       {
         key: "starts",
-        title: "Alarms started",
+        title: translate("Alarms started"),
         series: shown.map((l) => ({
           key: l.level,
-          name: l.label,
+          name: translate(l.label),
           type: "bar" as const,
           color: l.color,
           y: counts[l.level],

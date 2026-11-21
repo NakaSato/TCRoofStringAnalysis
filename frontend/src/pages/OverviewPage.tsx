@@ -35,11 +35,12 @@ import { useLiveMeter } from "./overview/useLiveMeter";
 import { SensorTodayCard } from "./overview/SensorTodayCard";
 import { InvertersOnlineTile, StringHealthTile } from "./overview/SummaryCards";
 import { Meter, StatTile } from "./overview/StatTile";
+import { dateLocale, useI18n } from "../i18n";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
 /** "2026-11-11" → "11 Nov" */
 const shortDay = (d: string | null | undefined) =>
-  d ? new Date(`${d}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : undefined;
+  d ? new Date(`${d}T00:00:00`).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" }) : undefined;
 
 const PlantSatelliteMap = React.lazy(() => import("../components/PlantSatelliteMap"));
 
@@ -80,6 +81,7 @@ const PlantFacts: React.FC<{
 export const OverviewPage: React.FC = () => {
   const { selectedPlantOverview: ov, plantOverviewLoading, plantError, plantLive, plantLiveLoading, plantLiveFailed } = useAppContext();
   const plantHref = usePlantHref();
+  const { t } = useI18n();
 
   const plantId = ov?.plant.plant_id ?? null;
   const hasSensor = Boolean(ov?.weather?.has_sensor);
@@ -111,13 +113,13 @@ export const OverviewPage: React.FC = () => {
   const pf = pp.figures;
   const meter = pf && (pf.loadKwh != null || pf.gridImportKwh != null || pf.gridExportKwh != null) ? pf : null;
   // today: the chart's live tail shows live meter values, but the kWh figures cover the stored records only
-  const meterStoredOnly = pp.day === pp.today ? " (stored records only, the chart's live tail is not counted)" : "";
+  const meterStoredOnly = pp.day === pp.today ? t(" (stored records only, the chart's live tail is not counted)") : "";
 
   if (plantOverviewLoading && !ov) {
     return (
       <div className="flex flex-col gap-4">
         <SelectedPlantBanner />
-        <LoadingState label="Loading the plant's inverters, strings & 5-minute history…" shape="page" />
+        <LoadingState label={t("Loading the plant's inverters, strings & 5-minute history…")} shape="page" />
       </div>
     );
   }
@@ -127,8 +129,8 @@ export const OverviewPage: React.FC = () => {
         <SelectedPlantBanner />
         <EmptyState
           icon={Building2}
-          title="Plant overview unavailable"
-          description={plantError?.message ?? "The plant's stored history could not be loaded."}
+          title={t("Plant overview unavailable")}
+          description={plantError?.message ?? t("The plant's stored history could not be loaded.")}
         />
       </div>
     );
@@ -160,7 +162,7 @@ export const OverviewPage: React.FC = () => {
   const yieldKwh = useLiveYield ? liveYield : k.yield_today_kwh;
   const yieldRevenue = yieldKwh != null ? yieldKwh * k.tariff_thb_per_kwh : null;
   const yieldSpecific = useLiveYield ? (k.capacity_kwp ? liveYield / k.capacity_kwp : null) : k.specific_yield_kwh_per_kwp;
-  const yieldPartial = useLiveYield && k.inverter_count != null && todayRecs.length < k.inverter_count ? ` · ${todayRecs.length} of ${k.inverter_count} inverters` : "";
+  const yieldPartial = useLiveYield && k.inverter_count != null && todayRecs.length < k.inverter_count ? t(" · {n} of {total} inverters", { n: todayRecs.length, total: k.inverter_count }) : "";
   const dayPr = k.iec_pr_pct ?? k.plant_pr_pct ?? null;
   const dayPrBar = dayPr == null || target == null ? "bg-slate-400" : dayPr >= target ? "bg-emerald-400" : dayPr >= target - 5 ? "bg-amber-400" : "bg-red-400";
   const yieldSrc = useLiveYield ? ` · live ${hhmm(liveAt ?? "")}${yieldPartial}` : "";
@@ -172,17 +174,17 @@ export const OverviewPage: React.FC = () => {
       {/* KPI strip under the tab bar */}
       <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
         <StatTile
-          label="PV Power"
-          tag={liveAt ? `Live ${hhmm(liveAt)}` : undefined}
+          label={t("PV Power")}
+          tag={liveAt ? t("Live {time}", { time: hhmm(liveAt) }) : undefined}
           value={acW == null ? "—" : fmt(acW / 1000, 1)}
           unit="kW"
           tone="text-solar-300"
-          meter={<Meter segments={ofKwp != null ? [{ pct: ofKwp, className: "bg-solar-400" }] : []} title={ofKwp != null ? `${fmt(ofKwp, 0)}% of capacity` : undefined} />}
-          footer={<span className="num">{k.capacity_kwp != null ? `${ofKwp == null ? "—" : fmt(ofKwp, 0)}% of ${fmt(k.capacity_kwp, 0)} kWp` : "Capacity unknown"}</span>}
+          meter={<Meter segments={ofKwp != null ? [{ pct: ofKwp, className: "bg-solar-400" }] : []} title={ofKwp != null ? t("{pct}% of capacity", { pct: fmt(ofKwp, 0) }) : undefined} />}
+          footer={<span className="num">{k.capacity_kwp != null ? t("{pct}% of {kwp} kWp", { pct: ofKwp == null ? "—" : fmt(ofKwp, 0), kwp: fmt(k.capacity_kwp, 0) }) : t("Capacity unknown")}</span>}
         />
         <StatTile
-          label="Yield"
-          tag={useLiveYield ? `Live ${hhmm(liveAt ?? "")}` : shortDay(day)}
+          label={t("Yield")}
+          tag={useLiveYield ? t("Live {time}", { time: hhmm(liveAt ?? "") }) : shortDay(day)}
           tagWarn={!useLiveYield && behind}
           value={fmt(yieldKwh, 1)}
           unit="kWh"
@@ -191,7 +193,7 @@ export const OverviewPage: React.FC = () => {
             <>
               {yieldRevenue != null && <span className="num font-semibold text-foreground">≈ ฿{fmt(yieldRevenue, 0)}</span>}
               <span className="num">{fmt(yieldSpecific, 2)} kWh/kWp</span>
-              {yieldPartial && <span className="num text-amber-300" title={yieldPartial.replace(/^ · /, "")}>partial</span>}
+              {yieldPartial && <span className="num text-amber-300" title={yieldPartial.replace(/^ · /, "")}>{t("partial")}</span>}
             </>
           }
         />
@@ -206,10 +208,10 @@ export const OverviewPage: React.FC = () => {
             <Meter
               segments={dayPr != null ? [{ pct: dayPr, className: dayPrBar }] : []}
               mark={target}
-              title={`PR ${fmt(dayPr, 1)}%${target != null ? ` · target ${fmt(target, 0)}%` : ""}`}
+              title={`PR ${fmt(dayPr, 1)}%${target != null ? t(" · target {pct}%", { pct: fmt(target, 0) }) : ""}`}
             />
           }
-          footer={<span className="num">{target != null ? `target ${fmt(target, 0)}%` : "no target"} · {k.iec_pr_pct != null ? "IEC 61724" : "peer"}</span>}
+          footer={<span className="num">{target != null ? t("target {pct}%", { pct: fmt(target, 0) }) : t("no target")} · {k.iec_pr_pct != null ? "IEC 61724" : t("peer")}</span>}
         />
         <InvertersOnlineTile ov={ov} href={plantHref("inverters")} recs={recs} liveLoading={plantLiveLoading} online={online}
           liveLoaded={plantLive?.data != null}
@@ -227,7 +229,7 @@ export const OverviewPage: React.FC = () => {
               {/* the period the chart follows */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <CardTitle>Production</CardTitle>
+                  <CardTitle>{t("Production")}</CardTitle>
                   {pp.mode === "own" && untilText && <span className="num text-xs text-muted-foreground">{dayText} · {untilText}</span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -240,10 +242,10 @@ export const OverviewPage: React.FC = () => {
                     loading={pp.loading}
                     time={false}
                     align="end"
-                    resetLabel="Today"
-                    resetTitle="Back to today"
+                    resetLabel={t("Today")}
+                    resetTitle={t("Back to today")}
                   />
-                  <Button asChild variant="ghost" size="icon-sm" aria-label="Generation details" title="Generation details">
+                  <Button asChild variant="ghost" size="icon-sm" aria-label={t("Generation details")} title={t("Generation details")}>
                     <Link to={plantHref("generation")}>
                       <ArrowRight />
                     </Link>
@@ -255,7 +257,13 @@ export const OverviewPage: React.FC = () => {
                 minHeight={240}
                 legendToggle
                 legendPosition="bottom"
-                emptyLabel={pp.error ? `Could not load: ${pp.error}` : `No stored records for ${pp.label}${pp.day === pp.today ? " yet (the worker stores them every 10 min)" : ""}`}
+                emptyLabel={
+                  pp.error
+                    ? t("Could not load: {error}", { error: pp.error })
+                    : pp.day === pp.today
+                      ? t("No stored records for {period} yet (the worker stores them every 10 min)", { period: pp.label })
+                      : t("No stored records for {period}", { period: pp.label })
+                }
                 onBrush={pp.multi || !pp.day ? undefined : (lo, hi) => pp.setPeriod({ ...pp.period, day: pp.day, start: slotTime(lo, pp.day!, false), end: slotTime(hi, pp.day!, true) })}
               />
               {/* energy meter at the grid point, for the chart's period: only when the period has meter readings */}
@@ -264,24 +272,24 @@ export const OverviewPage: React.FC = () => {
                   items={[
                     {
                       icon: House,
-                      label: "Load (derived)",
+                      label: t("Load (derived)"),
                       value: fmt(meter.loadKwh, 1),
                       unit: "kWh",
-                      tip: `Site consumption for ${pp.label}: PV AC + grid, derived from the energy meter, not measured${meterStoredOnly}`,
+                      tip: t("Site consumption for {period}: PV AC + grid, derived from the energy meter, not measured{note}", { period: pp.label, note: meterStoredOnly }),
                     },
                     {
                       icon: ArrowDownToLine,
-                      label: "Grid import",
+                      label: t("Grid import"),
                       value: fmt(meter.gridImportKwh, 1),
                       unit: "kWh",
-                      tip: `Bought from the grid for ${pp.label}, measured by the energy meter${meterStoredOnly}`,
+                      tip: t("Bought from the grid for {period}, measured by the energy meter{note}", { period: pp.label, note: meterStoredOnly }),
                     },
                     {
                       icon: ArrowUpFromLine,
-                      label: "Grid export",
+                      label: t("Grid export"),
                       value: fmt(meter.gridExportKwh, 1),
                       unit: "kWh",
-                      tip: `Sent to the grid for ${pp.label}, measured by the energy meter${meterStoredOnly}`,
+                      tip: t("Sent to the grid for {period}, measured by the energy meter{note}", { period: pp.label, note: meterStoredOnly }),
                     },
                   ]}
                 />
@@ -294,10 +302,10 @@ export const OverviewPage: React.FC = () => {
         <div className="flex flex-col gap-4">
           <Card className="gap-3">
             <CardHeader>
-              <CardTitle>Site</CardTitle>
+              <CardTitle>{t("Location")}</CardTitle>
               {hasLocation && (
                 <CardAction>
-                  <Button asChild variant="ghost" size="icon-sm" aria-label="Open in Google Maps" title="Open in Google Maps">
+                  <Button asChild variant="ghost" size="icon-sm" aria-label={t("Open in Google Maps")} title={t("Open in Google Maps")}>
                     <a href={`https://www.google.com/maps?q=${plant.latitude},${plant.longitude}`} target="_blank" rel="noreferrer">
                       <ExternalLink />
                     </a>
@@ -307,7 +315,7 @@ export const OverviewPage: React.FC = () => {
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               {hasLocation ? (
-                <Suspense fallback={<Skeleton className="h-56 w-full" aria-label="Loading map…" />}>
+                <Suspense fallback={<Skeleton className="h-56 w-full" aria-label={t("Loading map…")} />}>
                   <PlantSatelliteMap
                     lat={plant.latitude as number}
                     lon={plant.longitude as number}
@@ -318,7 +326,7 @@ export const OverviewPage: React.FC = () => {
                 </Suspense>
               ) : (
                 <div className="flex h-32 items-center justify-center gap-2 rounded-lg border border-dashed border-white/[0.08] text-xs text-muted-foreground">
-                  <MapPin className="size-4" /> No location
+                  <MapPin className="size-4" /> {t("No location")}
                 </div>
               )}
             </CardContent>

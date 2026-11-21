@@ -5,6 +5,7 @@ import { INVERTER_STATUS_NAMES, OFFLINE_LABEL, inverterStatusLevel } from "../..
 import { LOADING_STATUS, StatusBadge } from "../../components/ui";
 import type { StatusLevel } from "../../components/ui";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 
 export type OverviewInverter = GrowattPlantOverview["inverters"][number];
 export type PlantKpis = GrowattPlantOverview["kpis"];
@@ -72,26 +73,32 @@ export const Stat: React.FC<{ label: string; children: React.ReactNode; hint?: R
   children,
   hint,
   className,
-}) => (
-  <div className={cn("flex min-w-0 flex-col gap-1", KPI_CELL, className)}>
-    <span className="eyebrow">{label}</span>
-    <span className="num truncate text-lg font-semibold tracking-tight text-foreground">{children}</span>
-    {hint && <span className="truncate text-[11px] text-muted-foreground">{hint}</span>}
-  </div>
-);
+}) => {
+  const { t } = useI18n();
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-1", KPI_CELL, className)}>
+      <span className="eyebrow">{t(label)}</span>
+      <span className="num truncate text-lg font-semibold tracking-tight text-foreground">{children}</span>
+      {hint && <span className="truncate text-[11px] text-muted-foreground">{hint}</span>}
+    </div>
+  );
+};
 
 /** Unit after a number in a Stat. */
 export const Unit: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <span className="text-xs font-normal text-muted-foreground">{children}</span>
 );
 
-/** Label / value line of a definition list. */
-export const Row: React.FC<{ label: string; children: React.ReactNode; title?: string }> = ({ label, children, title }) => (
-  <div className="flex items-baseline justify-between gap-4 border-b border-white/[0.04] py-1.5 last:border-0" title={title}>
-    <span className="text-xs text-slate-400">{label}</span>
-    <span className="num text-right text-sm text-slate-100">{children}</span>
-  </div>
-);
+/** Label / value line of a definition list (label and title are translated here). */
+export const Row: React.FC<{ label: string; children: React.ReactNode; title?: string }> = ({ label, children, title }) => {
+  const { t } = useI18n();
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-b border-white/[0.04] py-1.5 last:border-0" title={title ? t(title) : undefined}>
+      <span className="text-xs text-slate-400">{t(label)}</span>
+      <span className="num text-right text-sm text-slate-100">{children}</span>
+    </div>
+  );
+};
 
 /** A fault / warning code: 0 = none, non-zero highlighted, null = not reported. */
 export const Code: React.FC<{ v: number | null | undefined; tone?: "crit" | "warn" }> = ({ v, tone = "crit" }) =>
@@ -106,6 +113,7 @@ export const Code: React.FC<{ v: number | null | undefined; tone?: "crit" | "war
 /** Status badge of the live state: spinner while waiting, Offline when it has no record today. */
 export const LiveBadge: React.FC<{ s: LiveState }> = ({ s }) =>
   s.kind === "live" ? (
+    // StatusBadge translates the text: "{label} (stale)" is a key of its own
     <StatusBadge status={s.rec.stale ? `${s.label} (stale)` : s.label} level={s.rec.stale ? "warn" : s.level} />
   ) : s.kind === "waiting" ? (
     <StatusBadge status={LOADING_STATUS} loading />
@@ -115,10 +123,13 @@ export const LiveBadge: React.FC<{ s: LiveState }> = ({ s }) =>
     <StatusBadge status={OFFLINE_LABEL} level="crit" />
   );
 
-/** Small heading above a group of figures ("Now · live 13:05"). */
-export const GroupLabel: React.FC<{ title: string; note?: React.ReactNode }> = ({ title, note }) => (
-  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-    <span className="text-[11px] font-semibold tracking-wide text-slate-200 uppercase">{title}</span>
-    {note && <span className="text-[11px] text-muted-foreground">{note}</span>}
-  </div>
-);
+/** Small heading above a group of figures ("Now · live 13:05"); the title is translated here. */
+export const GroupLabel: React.FC<{ title: string; note?: React.ReactNode }> = ({ title, note }) => {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="text-[11px] font-semibold tracking-wide text-slate-200 uppercase">{t(title)}</span>
+      {note && <span className="text-[11px] text-muted-foreground">{note}</span>}
+    </div>
+  );
+};

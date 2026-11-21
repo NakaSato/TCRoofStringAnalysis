@@ -200,7 +200,7 @@ class GrowattIssue(Base):
     At most one open issue per (plant, inverter, string, rule): `status` open / acknowledged. It
     closes itself (`close_reason = auto`) when its rule has a verdict and does not fire for 2 days
     in a row; engineers resolve or dismiss it. `daily` holds each day it fired: {day: {kwh, thb}},
-    estimated. `shadow` issues (rule still being calibrated) are shown to admins in Rule review only.
+    estimated. `shadow` issues (rule still being calibrated) are shown to admins only.
     """
 
     __tablename__ = "growatt_issues"

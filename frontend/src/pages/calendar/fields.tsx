@@ -3,6 +3,7 @@ import React, { useMemo, useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import type { GrowattPlant } from "../../api/client";
 import { dayLabel, fromDate, toDate } from "@/lib/day";
+import { useI18n } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -18,6 +19,7 @@ export const DayPicker: React.FC<{
   max?: string;
   disabled?: boolean;
 }> = ({ id, label, value, onChange, min, max, disabled }) => {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const off = [...(min ? [{ before: toDate(min) }] : []), ...(max ? [{ after: toDate(max) }] : [])];
   return (
@@ -26,7 +28,7 @@ export const DayPicker: React.FC<{
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button id={id} variant="outline" size="sm" className="num w-full justify-start" disabled={disabled}>
-            {value ? dayLabel(value) : <span className="text-slate-500">Pick a day</span>}
+            {value ? dayLabel(value) : <span className="text-slate-500">{t("Pick a day")}</span>}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
@@ -57,22 +59,23 @@ export const PlantPicker: React.FC<{
   placeholder?: string;
   allowAll?: boolean;
   className?: string;
-}> = ({ id, plants, value, onChange, placeholder = "Pick a plant", allowAll, className }) => {
+}> = ({ id, plants, value, onChange, placeholder, allowAll, className }) => {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const current = plants.find((p) => p.plant_id === value);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button id={id} variant="outline" size="sm" role="combobox" aria-expanded={open} className={className ?? "w-full justify-between"}>
-          <span className="truncate">{current ? current.name : value != null ? `Plant ${value}` : placeholder}</span>
+          <span className="truncate">{current ? current.name : value != null ? t("Plant {id}", { id: value }) : placeholder ?? t("Pick a plant")}</span>
           <ChevronsUpDown data-icon="inline-end" className="opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search plants…" />
+          <CommandInput placeholder={t("Search plants…")} />
           <CommandList>
-            <CommandEmpty>No plant found.</CommandEmpty>
+            <CommandEmpty>{t("No plant found.")}</CommandEmpty>
             <CommandGroup>
               {allowAll && (
                 <CommandItem
@@ -82,7 +85,7 @@ export const PlantPicker: React.FC<{
                     setOpen(false);
                   }}
                 >
-                  All plants
+                  {t("All plants")}
                 </CommandItem>
               )}
               {plants.map((p) => (
@@ -114,6 +117,7 @@ export const PlantMultiPicker: React.FC<{
   onChange: (ids: number[]) => void;
   disabled?: boolean;
 }> = ({ id, plants, value, onChange, disabled }) => {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const chosen = useMemo(() => new Set(value), [value]);
   const phases = useMemo(() => [...new Set(plants.map((p) => p.phase).filter((x): x is number => x != null))].sort((a, b) => a - b), [plants]);
@@ -122,7 +126,7 @@ export const PlantMultiPicker: React.FC<{
     const ids = plants.filter((p) => p.phase === ph).map((p) => p.plant_id);
     onChange(on ? [...new Set([...value, ...ids])] : value.filter((x) => !ids.includes(x)));
   };
-  const label = value.length === 0 ? "Pick plants" : value.length === 1 ? (plants.find((p) => p.plant_id === value[0])?.name ?? `Plant ${value[0]}`) : `${value.length} plants`;
+  const label = value.length === 0 ? t("Pick plants") : value.length === 1 ? (plants.find((p) => p.plant_id === value[0])?.name ?? t("Plant {id}", { id: value[0] })) : t("{n} plants", { n: value.length });
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -138,21 +142,21 @@ export const PlantMultiPicker: React.FC<{
               const all = plants.filter((p) => p.phase === ph).every((p) => chosen.has(p.plant_id));
               return (
                 <Button key={ph} variant={all ? "secondary" : "outline"} size="xs" onClick={() => setPhase(ph, !all)}>
-                  {all ? "−" : "+"} Phase {ph}
+                  {all ? "−" : "+"} {t("Phase {n}", { n: ph })}
                 </Button>
               );
             })}
             {value.length > 0 && (
               <Button variant="ghost" size="xs" className="ml-auto" onClick={() => onChange([])}>
-                Clear
+                {t("Clear")}
               </Button>
             )}
           </div>
         )}
         <Command>
-          <CommandInput placeholder="Search plants…" />
+          <CommandInput placeholder={t("Search plants…")} />
           <CommandList>
-            <CommandEmpty>No plant found.</CommandEmpty>
+            <CommandEmpty>{t("No plant found.")}</CommandEmpty>
             <CommandGroup>
               {plants.map((p) => (
                 <CommandItem key={p.plant_id} value={`${p.name} ${p.city ?? ""} ${p.plant_id}`} onSelect={() => toggle(p.plant_id)}>

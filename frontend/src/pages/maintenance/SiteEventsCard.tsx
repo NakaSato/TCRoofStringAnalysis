@@ -12,6 +12,7 @@ import { isAdmin } from "../../auth/access";
 import { plantToday } from "../../context/alarmLogStore";
 import { pick, useUrlState } from "../../lib/useUrlState";
 import { dayLabel, fromDate, toDate } from "@/lib/day";
+import { translate, useI18n } from "@/i18n";
 import { fmtInt, LoadingState } from "../../components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,10 +60,10 @@ const span = (e: SiteEvent) => (e.end_day ? `${dayLabel(e.day)} → ${dayLabel(e
 const where = (e: SiteEvent) => {
   const inv = e.inverter_name || e.device_sn;
   if (inv && e.string_no != null) return `${inv} · PV${e.string_no}`;
-  return inv || "Whole plant";
+  return inv || translate("Whole plant");
 };
 const issueLabel = (i: Issue) =>
-  `#${i.id} ${i.rule} ${i.name} · ${i.inverter_name || i.device_sn || "plant"}${i.string_no != null ? ` · PV${i.string_no}` : ""}${i.shadow ? " (shadow)" : ""}`;
+  `#${i.id} ${i.rule} ${i.name} · ${i.inverter_name || i.device_sn || translate("plant")}${i.string_no != null ? ` · PV${i.string_no}` : ""}${i.shadow ? ` ${translate("(shadow)")}` : ""}`;
 
 const DayField: React.FC<{
   id: string;
@@ -72,6 +73,7 @@ const DayField: React.FC<{
   min?: string;
   optional?: boolean;
 }> = ({ id, label, value, onChange, min, optional }) => {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const today = plantToday();
   return (
@@ -81,7 +83,7 @@ const DayField: React.FC<{
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button id={id} variant="outline" size="sm" className="num w-full justify-start">
-              {value ? dayLabel(value) : <span className="text-slate-500">{optional ? "Same day" : "Pick a day"}</span>}
+              {value ? dayLabel(value) : <span className="text-slate-500">{optional ? t("Same day") : t("Pick a day")}</span>}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
@@ -99,8 +101,8 @@ const DayField: React.FC<{
           </PopoverContent>
         </Popover>
         {optional && value && (
-          <Button variant="ghost" size="sm" onClick={() => onChange(null)} aria-label={`Clear ${label}`}>
-            Clear
+          <Button variant="ghost" size="sm" onClick={() => onChange(null)} aria-label={t("Clear {label}", { label })}>
+            {t("Clear")}
           </Button>
         )}
       </div>
@@ -153,6 +155,7 @@ const EventDialog: React.FC<{
   onSaved: () => void;
 }> = ({ plantId, open, editing, inverters, onClose, onSaved }) => {
   const { user } = useAppContext();
+  const { t } = useI18n();
   const admin = isAdmin(user);
   const [d, setD] = useState<Draft>(blank);
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -181,8 +184,8 @@ const EventDialog: React.FC<{
   const submit = async () => {
     const stringNo = d.string_no.trim() === "" ? null : Number(d.string_no);
     const cost = d.cost_thb.trim() === "" ? null : Number(d.cost_thb.replace(/,/g, ""));
-    if (stringNo != null && (!Number.isInteger(stringNo) || stringNo < 1 || stringNo > 64)) return setError("String number: 1–64");
-    if (cost != null && (!Number.isFinite(cost) || cost < 0)) return setError("Cost: a number of baht, 0 or more");
+    if (stringNo != null && (!Number.isInteger(stringNo) || stringNo < 1 || stringNo > 64)) return setError(t("String number: 1–64"));
+    if (cost != null && (!Number.isFinite(cost) || cost < 0)) return setError(t("Cost: a number of baht, 0 or more"));
     const body: SiteEventBody = {
       event_type: d.event_type,
       day: d.day,
@@ -211,20 +214,20 @@ const EventDialog: React.FC<{
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit site event" : "Record site event"}</DialogTitle>
-          <DialogDescription>Work done on the plant, with the plant-local date it was done.</DialogDescription>
+          <DialogTitle>{editing ? t("Edit site event") : t("Record site event")}</DialogTitle>
+          <DialogDescription>{t("Work done on the plant, with the plant-local date it was done.")}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="ev-type">Type</Label>
+            <Label htmlFor="ev-type">{t("Type")}</Label>
             <Select value={d.event_type} onValueChange={(v) => set({ event_type: v as SiteEventType })}>
               <SelectTrigger id="ev-type" size="sm" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {EVENT_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
+                {EVENT_TYPES.map((x) => (
+                  <SelectItem key={x.value} value={x.value}>
+                    {t(x.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -232,19 +235,19 @@ const EventDialog: React.FC<{
           </div>
           <DayField
             id="ev-day"
-            label="Date"
+            label={t("Date")}
             value={d.day}
             onChange={(v) => v && set({ day: v, end_day: d.end_day && d.end_day < v ? null : d.end_day })}
           />
-          <DayField id="ev-end" label="Until (if several days)" value={d.end_day} onChange={(v) => set({ end_day: v })} min={d.day} optional />
+          <DayField id="ev-end" label={t("Until (if several days)")} value={d.end_day} onChange={(v) => set({ end_day: v })} min={d.day} optional />
           <div className="space-y-1.5">
-            <Label htmlFor="ev-inv">Inverter</Label>
+            <Label htmlFor="ev-inv">{t("Inverter")}</Label>
             <Select value={d.device_sn} onValueChange={(v) => set({ device_sn: v, string_no: v === NONE ? "" : d.string_no })}>
               <SelectTrigger id="ev-inv" size="sm" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Whole plant</SelectItem>
+                <SelectItem value={NONE}>{t("Whole plant")}</SelectItem>
                 {inverters.map((i) => (
                   <SelectItem key={i.device_sn} value={i.device_sn}>
                     {i.alias || i.device_sn}
@@ -254,34 +257,34 @@ const EventDialog: React.FC<{
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ev-string">String (PV no.)</Label>
+            <Label htmlFor="ev-string">{t("String (PV no.)")}</Label>
             <Input
               id="ev-string"
               inputMode="numeric"
               value={d.string_no}
               disabled={d.device_sn === NONE}
-              placeholder={d.device_sn === NONE ? "Pick an inverter" : "All strings"}
+              placeholder={d.device_sn === NONE ? t("Pick an inverter") : t("All strings")}
               onChange={(e) => set({ string_no: e.target.value })}
             />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="ev-cost">Cost (THB)</Label>
+            <Label htmlFor="ev-cost">{t("Cost (THB)")}</Label>
             <Input
               id="ev-cost"
               inputMode="decimal"
               value={d.cost_thb}
-              placeholder="Leave empty if not known"
+              placeholder={t("Leave empty if not known")}
               onChange={(e) => set({ cost_thb: e.target.value })}
             />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="ev-issue">Answers issue</Label>
+            <Label htmlFor="ev-issue">{t("Answers issue")}</Label>
             <Select value={d.issue_id} onValueChange={(v) => set({ issue_id: v })}>
               <SelectTrigger id="ev-issue" size="sm" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>None</SelectItem>
+                <SelectItem value={NONE}>{t("None")}</SelectItem>
                 {linked && (
                   <SelectItem value={String(linked.id)}>
                     #{linked.id} {linked.rule} ({linked.status})
@@ -297,29 +300,29 @@ const EventDialog: React.FC<{
             {chosen && (
               <label className="flex items-center gap-2 text-xs text-slate-300">
                 <input type="checkbox" checked={d.close_issue} onChange={(e) => set({ close_issue: e.target.checked })} />
-                Resolve this issue as a confirmed fault
+                {t("Resolve this issue as a confirmed fault")}
               </label>
             )}
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="ev-note">Note</Label>
+            <Label htmlFor="ev-note">{t("Note")}</Label>
             <Textarea
               id="ev-note"
               rows={3}
               value={d.note}
               onChange={(e) => set({ note: e.target.value })}
-              placeholder="What was done, by whom (contractor), what was found"
+              placeholder={t("What was done, by whom (contractor), what was found")}
             />
           </div>
         </div>
         {error && <div className="callout-crit text-xs">{error}</div>}
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {t("Cancel")}
           </Button>
           <Button onClick={() => void submit()} disabled={busy || !d.day}>
             {busy && <Spinner data-icon="inline-start" className="size-3" />}
-            {editing ? "Save" : "Record"}
+            {editing ? t("Save") : t("Record")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -329,6 +332,7 @@ const EventDialog: React.FC<{
 
 export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
   const { user } = useAppContext();
+  const { t } = useI18n();
   const admin = isAdmin(user);
   const me = user?.username || user?.email;
   const [url, setUrl] = useUrlState();
@@ -384,54 +388,56 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Site log</CardTitle>
+        <CardTitle>{t("Site log")}</CardTitle>
         <CardDescription>
-          Cleanings, repairs and other work on this plant.
-          {type === "all" && lastCleaning ? ` Last cleaning: ${dayLabel(lastCleaning.end_day ?? lastCleaning.day)}.` : ""}
-          {data?.summary.cost_thb != null ? ` Cost entered: ${thb(data.summary.cost_thb)} over ${fmtInt(data.summary.costed)} event${data.summary.costed === 1 ? "" : "s"}.` : ""}
+          {t("Cleanings, repairs and other work on this plant.")}
+          {type === "all" && lastCleaning ? ` ${t("Last cleaning: {day}.", { day: dayLabel(lastCleaning.end_day ?? lastCleaning.day) })}` : ""}
+          {data?.summary.cost_thb != null
+            ? ` ${t(data.summary.costed === 1 ? "Cost entered: {cost} over {n} event." : "Cost entered: {cost} over {n} events.", { cost: thb(data.summary.cost_thb), n: fmtInt(data.summary.costed) })}`
+            : ""}
         </CardDescription>
         <CardAction className="flex flex-wrap items-center gap-2">
           <Select value={type} onValueChange={(v) => setUrl({ type: v === "all" ? null : v })}>
-            <SelectTrigger size="sm" className="w-40" aria-label="Event type">
+            <SelectTrigger size="sm" className="w-40" aria-label={t("Event type")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {EVENT_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>
-                  {t.label}
+              <SelectItem value="all">{t("All types")}</SelectItem>
+              {EVENT_TYPES.map((x) => (
+                <SelectItem key={x.value} value={x.value}>
+                  {t(x.label)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Button size="sm" onClick={() => setDialog({ editing: null })}>
             <Plus data-icon="inline-start" />
-            Record event
+            {t("Record event")}
           </Button>
         </CardAction>
       </CardHeader>
       <CardContent className="p-0">
         {error && <div className="callout-crit mx-4 mb-3 text-xs">{error}</div>}
         {!data ? (
-          !error && <LoadingState label="Loading site log…" shape="table" />
+          !error && <LoadingState label={t("Loading site log…")} shape="table" />
         ) : data.events.length === 0 ? (
           <Empty>
             <EmptyHeader>
-              <EmptyTitle>{type === "all" ? "Nothing recorded yet" : "No events of this type"}</EmptyTitle>
-              <EmptyDescription>Record each cleaning with its date: the platform measures what each one recovered from them.</EmptyDescription>
+              <EmptyTitle>{type === "all" ? t("Nothing recorded yet") : t("No events of this type")}</EmptyTitle>
+              <EmptyDescription>{t("Record each cleaning with its date: the platform measures what each one recovered from them.")}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
           <Table containerClassName="scroll-x-hint max-h-[28rem] overflow-auto">
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Where</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead>Issue</TableHead>
-                <TableHead>Note</TableHead>
-                <TableHead>By</TableHead>
+                <TableHead>{t("Date")}</TableHead>
+                <TableHead>{t("Type")}</TableHead>
+                <TableHead>{t("Where")}</TableHead>
+                <TableHead className="text-right">{t("Cost")}</TableHead>
+                <TableHead>{t("Issue")}</TableHead>
+                <TableHead>{t("Note")}</TableHead>
+                <TableHead>{t("By")}</TableHead>
                 <TableHead className="text-right" />
               </TableRow>
             </TableHeader>
@@ -440,13 +446,13 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
                 <TableRow key={e.id}>
                   <TableCell className="num whitespace-nowrap text-xs text-white">{span(e)}</TableCell>
                   <TableCell>
-                    <Badge variant={TYPE_VARIANT[e.event_type]}>{e.label}</Badge>
+                    <Badge variant={TYPE_VARIANT[e.event_type]}>{t(e.label)}</Badge>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-xs text-slate-300">{where(e)}</TableCell>
                   <TableCell className="num whitespace-nowrap text-right text-xs">{thb(e.cost_thb)}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">
                     {e.issue ? (
-                      <span className="text-slate-300" title={`Issue #${e.issue.id}`}>
+                      <span className="text-slate-300" title={t("Issue #{id}", { id: e.issue.id })}>
                         {e.issue.rule} · {e.issue.status}
                       </span>
                     ) : (
@@ -461,11 +467,11 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
                   <TableCell className="whitespace-nowrap text-xs text-slate-400">{e.created_by ?? "—"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button size="icon-xs" variant="ghost" aria-label="Edit event" title="Edit" onClick={() => setDialog({ editing: e })}>
+                      <Button size="icon-xs" variant="ghost" aria-label={t("Edit event")} title={t("Edit")} onClick={() => setDialog({ editing: e })}>
                         <Pencil />
                       </Button>
                       {(admin || e.created_by === me) && (
-                        <Button size="icon-xs" variant="ghost" aria-label="Delete event" title="Delete" onClick={() => setDeleting(e)}>
+                        <Button size="icon-xs" variant="ghost" aria-label={t("Delete event")} title={t("Delete")} onClick={() => setDeleting(e)}>
                           <Trash2 />
                         </Button>
                       )}
@@ -490,18 +496,18 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
       <Dialog open={deleting != null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete site event</DialogTitle>
+            <DialogTitle>{t("Delete site event")}</DialogTitle>
             <DialogDescription>
-              {deleting ? `${deleting.label} on ${span(deleting)} · ${where(deleting)}.` : ""} A resolved issue stays resolved.
+              {deleting ? `${t("{type} on {when}", { type: t(deleting.label), when: span(deleting) })} · ${where(deleting)}.` : ""} {t("A resolved issue stays resolved.")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDeleting(null)} disabled={busy}>
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button variant="destructive" onClick={() => void remove()} disabled={busy}>
               {busy && <Spinner data-icon="inline-start" className="size-3" />}
-              Delete
+              {t("Delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

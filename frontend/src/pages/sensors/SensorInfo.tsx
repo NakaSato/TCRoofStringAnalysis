@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FIELD_UNIT, FIELDS, hhmm, minutesBetween, fmtAge, coverageTone, compass, DIGITS } from "./format";
 import { useSensorDetail } from "./useSensorDetail";
+import { useI18n } from "../../i18n";
 
 export const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex items-baseline justify-between gap-4 border-b border-white/[0.04] py-1.5 last:border-0">
@@ -33,26 +34,27 @@ const PlantAlarmsByHour: React.FC<{ plantId: number; plantName: string }> = ({ p
   const events = useMemo(() => inverterEvents(result, true).filter((e) => e.plant_id === plantId), [result, plantId]);
   const spec = useMemo(() => alarmHourSpec(events), [events]);
   const synced = result?.plants.find((p) => p.plant_id === plantId);
+  const { t } = useI18n();
   return (
     <Panel
-      title="Alarms by hour"
-      subtitle={`${plantName} · today · ${fmtInt(events.length)} alarm${events.length === 1 ? "" : "s"}`}
+      title={t("Alarms by hour")}
+      subtitle={`${plantName} · ${t("today")} · ${t(events.length === 1 ? "{n} alarm" : "{n} alarms", { n: fmtInt(events.length) })}`}
       actions={
         <Link to={`/alarms?plant=${plantId}`} className="text-xs text-solar-300 hover:text-solar-200">
-          Active Alarm →
+          {t("Active Alarm")} →
         </Link>
       }
     >
       {!result ? (
         view?.error ? (
-          <EmptyState title="Alarm log unavailable" description={view.error} className="py-8" />
+          <EmptyState title={t("Alarm log unavailable")} description={view.error} className="py-8" />
         ) : (
-          <LoadingState label="Loading alarms…" shape="table" />
+          <LoadingState label={t("Loading alarms…")} shape="table" />
         )
       ) : spec ? (
         <PanelChart spec={spec} height={180} />
       ) : (
-        <EmptyState title={synced && synced.synced_inverters > 0 ? "No alarms today" : "Not synced yet"} className="py-8" />
+        <EmptyState title={t(synced && synced.synced_inverters > 0 ? "No alarms today" : "Not synced yet")} className="py-8" />
       )}
     </Panel>
   );
@@ -71,10 +73,11 @@ export const SensorInfo: React.FC<{
   onPick: (key: string) => void;
 }> = ({ sensor, sensors, now, until, onPick }) => {
   const { detail, detailError, countdown, storedError, spec, today } = useSensorDetail(sensor, now);
+  const { t } = useI18n();
   const picker = (
     <Select value={sensor?.key ?? ""} onValueChange={onPick}>
-      <SelectTrigger size="sm" className="w-72" aria-label="Sensor">
-        <SelectValue placeholder="Pick a sensor" />
+      <SelectTrigger size="sm" className="w-72" aria-label={t("Sensor")}>
+        <SelectValue placeholder={t("Pick a sensor")} />
       </SelectTrigger>
       <SelectContent>
         {sensors.map((s) => (
@@ -87,8 +90,8 @@ export const SensorInfo: React.FC<{
   );
   if (!sensor)
     return (
-      <Panel icon={Info} title="Sensor info" actions={picker}>
-        <EmptyState icon={Gauge} title="No sensor selected" description="Pick one here, or click a row on the Status tab." />
+      <Panel icon={Info} title={t("Sensor info")} actions={picker}>
+        <EmptyState icon={Gauge} title={t("No sensor selected")} description={t("Pick one here, or click a row on the Status tab.")} />
       </Panel>
     );
 
@@ -106,65 +109,73 @@ export const SensorInfo: React.FC<{
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel icon={Info} title={`${sensor.datalogger_sn}#${sensor.address}`} subtitle={sensor.device_name ?? undefined} actions={picker}>
-          <Row label="Status">
+          <Row label={t("Status")}>
             <StatusBadge status={stView.label} level={stView.level} />
           </Row>
-          <Row label="Plant">
+          <Row label={t("Plant")}>
             <Link to={`${plantPath(sensor.plant_id, "sensors")}#weather-station`} className="hover:text-solar-300">
               {sensor.plant_name}
             </Link>
           </Row>
-          <Row label="Phase (Growatt account)">{sensor.phase ?? "—"}</Row>
-          <Row label="Datalogger SN">{sensor.datalogger_sn}</Row>
-          <Row label="Bus address">{sensor.address}</Row>
-          <Row label="Device name">{sensor.device_name ?? "—"}</Row>
-          <Row label="Last upload (Growatt)">
+          <Row label={t("Phase (Growatt account)")}>{sensor.phase ?? "—"}</Row>
+          <Row label={t("Datalogger SN")}>{sensor.datalogger_sn}</Row>
+          <Row label={t("Bus address")}>{sensor.address}</Row>
+          <Row label={t("Device name")}>{sensor.device_name ?? "—"}</Row>
+          <Row label={t("Last upload (Growatt)")}>
             {l?.last_update_time ? `${l.last_update_time} · ${fmtAge(minutesBetween(l.last_update_time, now))}` : "—"}
           </Row>
-          <Row label="Growatt says lost">{l?.lost == null ? "—" : l.lost ? "Yes" : "No"}</Row>
-          <Row label="Live check">
-            {l?.checked_at ? `${hhmm(l.checked_at)}${l.stale ? " · stale" : ""}${l.listed === false ? " · not in the datalogger's list" : ""}` : "Not checked yet"}
+          <Row label={t("Growatt says lost")}>{l?.lost == null ? "—" : l.lost ? t("Yes") : t("No")}</Row>
+          <Row label={t("Live check")}>
+            {l?.checked_at
+              ? `${hhmm(l.checked_at)}${l.stale ? ` · ${t("stale")}` : ""}${l.listed === false ? ` · ${t("not in the datalogger's list")}` : ""}`
+              : t("Not checked yet")}
           </Row>
-          <Row label="Next refresh">{countdown == null ? (detailError ? "—" : "…") : countdown ? `in ${countdown} s` : "now"}</Row>
-          <Row label="Health flags">{infoFlags.length ? `${infoFlags.length}` : "None"}</Row>
+          <Row label={t("Next refresh")}>{countdown == null ? (detailError ? "—" : "…") : countdown ? t("in {n} s", { n: countdown }) : t("now")}</Row>
+          <Row label={t("Health flags")}>{infoFlags.length ? `${infoFlags.length}` : t("None")}</Row>
           {infoFlags.length > 0 && (
             <div className="mt-2">
               <FlagList flags={infoFlags} />
             </div>
           )}
           <p className="mt-3 text-[11px] text-slate-500">
-            Online state comes from Growatt's live sensor list (memory only). Online = upload ≤ {detail?.data.thresholds.late_min ?? 15} min ago, late up to{" "}
-            {detail?.data.thresholds.offline_min ?? 60} min.
-            {detailError ? ` Live request failed: ${detailError}` : detail?.data.errors.status ? ` Status check failed: ${detail.data.errors.status}` : ""}
+            {t("Online state comes from Growatt's live sensor list (memory only). Online = upload ≤ {late} min ago, late up to {offline} min.", {
+              late: detail?.data.thresholds.late_min ?? 15,
+              offline: detail?.data.thresholds.offline_min ?? 60,
+            })}
+            {detailError
+              ? ` ${t("Live request failed: {error}", { error: detailError })}`
+              : detail?.data.errors.status
+                ? ` ${t("Status check failed: {error}", { error: detail.data.errors.status })}`
+                : ""}
           </p>
         </Panel>
 
         <Panel
           icon={Sun}
-          title="Newest reading"
-          subtitle={rd ? `Record ${rd.timestamp} · ${fmtAge(minutesBetween(rd.timestamp, now))}` : "From Growatt, live"}
+          title={t("Newest reading")}
+          subtitle={rd ? `${t("Record {time}", { time: rd.timestamp })} · ${fmtAge(minutesBetween(rd.timestamp, now))}` : t("From Growatt, live")}
           actions={
             rd ? (
-              <Badge variant={rd.stale ? "warn" : "ok"} className="px-2 py-0.5 text-[11px] font-semibold" title={`Fetched ${hhmm(rd.fetched_at)}`}>
-                {rd.stale ? "LIVE (STALE)" : "LIVE"} {rd.timestamp.slice(11, 16)}
+              <Badge variant={rd.stale ? "warn" : "ok"} className="px-2 py-0.5 text-[11px] font-semibold" title={t("Fetched {time}", { time: hhmm(rd.fetched_at) })}>
+                {rd.stale ? t("LIVE (STALE)") : t("LIVE")} {rd.timestamp.slice(11, 16)}
               </Badge>
             ) : null
           }
         >
           {!detail && !detailError ? (
-            <LoadingState label="Asking Growatt for the newest reading…" shape="lines" />
+            <LoadingState label={t("Asking Growatt for the newest reading…")} shape="lines" />
           ) : !rd ? (
             <EmptyState
               icon={CloudOff}
-              title="No live reading"
-              description={readingError ?? detailError ?? "Growatt has no record for this sensor."}
+              title={t("No live reading")}
+              description={readingError ?? detailError ?? t("Growatt has no record for this sensor.")}
               className="py-8"
             />
           ) : (
             <>
               <div className="mb-3 rounded-lg border border-white/[0.06] bg-ink-850/70 p-3">
                 <div className="flex items-baseline justify-between">
-                  <span className="eyebrow">Irradiance</span>
+                  <span className="eyebrow">{t("Irradiance")}</span>
                   <span className="num text-xl font-bold text-solar-300">
                     {fitted("irradiance_wm2") ? fmt(rd.irradiance_wm2, 0) : "—"} <span className="text-xs font-normal text-slate-500">W/m²</span>
                   </span>
@@ -172,9 +183,9 @@ export const SensorInfo: React.FC<{
                 {fitted("irradiance_wm2") && rd.irradiance_wm2 != null && <Meter value={rd.irradiance_wm2} max={1100} tone="solar" className="mt-2" />}
               </div>
               {FIELDS.filter((f) => f !== "irradiance_wm2").map((f) => (
-                <Row key={f} label={FIELD_LABEL[f]}>
+                <Row key={f} label={t(FIELD_LABEL[f])}>
                   {!fitted(f) ? (
-                    <span className="text-slate-500">Not fitted</span>
+                    <span className="text-slate-500">{t("Not fitted")}</span>
                   ) : (
                     <>
                       {fmt(rd[f], DIGITS[f])} <span className="text-xs text-slate-500">{FIELD_UNIT[f]}</span>
@@ -187,21 +198,21 @@ export const SensorInfo: React.FC<{
           )}
           <p className="mt-3 text-[11px] text-slate-500">
             {measured
-              ? "Live from Growatt, never stored here. Not fitted = the probe read 0 in every stored record of the last 7 days."
-              : "Live from Growatt, never stored here. Nothing stored in the last 7 days, so every probe is shown as reported."}
+              ? t("Live from Growatt, never stored here. Not fitted = the probe read 0 in every stored record of the last 7 days.")
+              : t("Live from Growatt, never stored here. Nothing stored in the last 7 days, so every probe is shown as reported.")}
           </p>
         </Panel>
       </div>
 
-      <Panel icon={Database} title="Stored data" subtitle={`Today ${today} · 5-min records in the database`}>
+      <Panel icon={Database} title={t("Stored data")} subtitle={t("Today {day} · 5-min records in the database", { day: today })}>
         <div className="grid gap-x-8 md:grid-cols-3">
-          <Row label="Newest stored reading">
-            {sensor.last_reading_at ? `${sensor.last_reading_at.slice(11, 16)} · ${fmtAge(minutesBetween(sensor.last_reading_at, now))}` : "Nothing stored yet"}
+          <Row label={t("Newest stored reading")}>
+            {sensor.last_reading_at ? `${sensor.last_reading_at.slice(11, 16)} · ${fmtAge(minutesBetween(sensor.last_reading_at, now))}` : t("Nothing stored yet")}
           </Row>
-          <Row label={`Coverage today (06:00–${until ?? "—"})`}>
+          <Row label={t("Coverage today (06:00–{until})", { until: until ?? "—" })}>
             <span className={coverageTone(sensor.coverage_today_pct)}>{sensor.coverage_today_pct == null ? "—" : `${fmt(sensor.coverage_today_pct, 0)}%`}</span>
           </Row>
-          <Row label="Probes reporting (7 d)">{sensor.measured ? sensor.measured.map((f) => FIELD_LABEL[f]).join(", ") || "none" : "—"}</Row>
+          <Row label={t("Probes reporting (7 d)")}>{sensor.measured ? sensor.measured.map((f) => t(FIELD_LABEL[f])).join(", ") || t("none") : "—"}</Row>
         </div>
         <div className="mt-3">
           {spec ? (
@@ -209,8 +220,8 @@ export const SensorInfo: React.FC<{
           ) : (
             <EmptyState
               icon={Sun}
-              title="No readings stored today"
-              description={storedError ?? "The worker stores this sensor's 5-min records every 10 min; nothing has arrived for today yet."}
+              title={t("No readings stored today")}
+              description={storedError ?? t("The worker stores this sensor's 5-min records every 10 min; nothing has arrived for today yet.")}
               className="py-8"
             />
           )}
@@ -220,9 +231,9 @@ export const SensorInfo: React.FC<{
       <PlantAlarmsByHour plantId={sensor.plant_id} plantName={sensor.plant_name} />
 
       {raw && (
-        <Panel icon={Code} title="Raw record" subtitle="Admin only · every field of the newest record as Growatt reported it">
+        <Panel icon={Code} title={t("Raw record")} subtitle={t("Admin only · every field of the newest record as Growatt reported it")}>
           <details>
-            <summary className="cursor-pointer text-xs text-slate-400 hover:text-white">Show {Object.keys(raw).length} fields</summary>
+            <summary className="cursor-pointer text-xs text-slate-400 hover:text-white">{t("Show {n} fields", { n: Object.keys(raw).length })}</summary>
             <div className="mt-2 grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
               {Object.entries(raw)
                 .sort(([a], [b]) => a.localeCompare(b))
@@ -233,7 +244,7 @@ export const SensorInfo: React.FC<{
                 ))}
             </div>
             <p className="mt-2 text-[11px] text-slate-500">
-              Only irradiance, temperatures, humidity and wind are used; the other fields are always 0 at these plants.
+              {t("Only irradiance, temperatures, humidity and wind are used; the other fields are always 0 at these plants.")}
             </p>
           </details>
         </Panel>

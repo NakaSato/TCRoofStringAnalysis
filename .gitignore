@@ -72,3 +72,7 @@ Monitoring Report/รายงาน/_Tools/plant_map.json
 
 # PWA daily meter report imports (client energy data; regenerated from the daily reports)
 data/imports/
+
+# PWA meter billing workbooks (real report data; billing/example.xlsx is committed)
+billing/Phase 1.xlsx
+billing/Phase 2.xlsx

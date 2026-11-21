@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconStat, IconStats } from "./IconStat";
+import { useI18n } from "../../i18n";
 
 const FIELDS: Array<[GrowattWeatherField, string, string, number, LucideIcon]> = [
   ["irradiance_wm2", "Irradiance", "W/m²", 0, Sun],
@@ -39,23 +40,27 @@ const pickReading = (sensor: SensorRow, live: LiveReading | null, envelopeStale:
 };
 
 /** Live / Last sync · time of the reading shown. */
-const Freshness: React.FC<{ r: ReturnType<typeof pickReading> }> = ({ r }) => (
+const Freshness: React.FC<{ r: ReturnType<typeof pickReading> }> = ({ r }) => {
+  const { t } = useI18n();
+  return (
   <span className="num inline-flex shrink-0 items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
     {r.at ? (
       <>
         <Led level={r.useLive ? (r.stale ? "warn" : "ok") : "off"} pulse={r.useLive && !r.stale} />
-        {r.useLive ? (r.stale ? "Stale" : "Live") : "Last sync"} · {r.at.slice(0, 10) === todayBkk() ? r.at.slice(11, 16) : r.at.slice(0, 16)}
+        {r.useLive ? (r.stale ? t("Stale") : t("Live")) : t("Last sync")} · {r.at.slice(0, 10) === todayBkk() ? r.at.slice(11, 16) : r.at.slice(0, 16)}
       </>
     ) : (
-      "No reading yet"
+      t("No reading yet")
     )}
   </span>
-);
+  );
+};
 
 /** One sensor's newest reading as tiles; the id + freshness line only when the plant has several sensors. */
 const SensorReading: React.FC<{ sensor: SensorRow; r: ReturnType<typeof pickReading>; showHeader: boolean }> = ({ sensor, r, showHeader }) => {
   const fitted = (f: GrowattWeatherField) => !sensor.measured || sensor.measured.includes(f);
   const values = r.values;
+  const { t } = useI18n();
   return (
     <div className="flex flex-col gap-2">
       {showHeader && (
@@ -72,10 +77,10 @@ const SensorReading: React.FC<{ sensor: SensorRow; r: ReturnType<typeof pickRead
             <IconStat
               key={f}
               icon={icon}
-              label={label}
+              label={t(label)}
               value={fitted(f) ? fmt(values[f], digits) : "—"}
               unit={unit}
-              hint={fitted(f) ? undefined : "Not fitted on this sensor"}
+              hint={fitted(f) ? undefined : t("Not fitted on this sensor")}
             />
           ))}
         </IconStats>
@@ -88,6 +93,7 @@ const SensorReading: React.FC<{ sensor: SensorRow; r: ReturnType<typeof pickRead
 const RainSlots: React.FC<{ plantId: number; day: string | null }> = ({ plantId, day }) => {
   const [wx, setWx] = useState<GoogleWeatherDay | null>(null);
   const [failed, setFailed] = useState(false);
+  const { t } = useI18n();
   useEffect(() => {
     let cancelled = false;
     setWx(null);
@@ -102,22 +108,22 @@ const RainSlots: React.FC<{ plantId: number; day: string | null }> = ({ plantId,
   }, [plantId, day]);
 
   const note = failed
-    ? "Rain forecast unavailable"
+    ? t("Rain forecast unavailable")
     : !wx
       ? null
       : !wx.configured
-        ? "Google Weather not configured"
+        ? t("Google Weather not configured")
         : !wx.has_location
-          ? "No location for Google Weather"
+          ? t("No location for Google Weather")
           : null;
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span title="Google Weather, modelled">Rain · modelled</span>
+        <span title={t("Google Weather, modelled")}>{t("Rain · modelled")}</span>
         {wx?.rain.days_since_rain != null && (
-          <span className="num" title="Days since the last rain">
-            {wx.rain.days_since_rain} d dry
+          <span className="num" title={t("Days since the last rain")}>
+            {t("{n} d dry", { n: wx.rain.days_since_rain })}
           </span>
         )}
       </div>
@@ -134,8 +140,8 @@ const RainSlots: React.FC<{ plantId: number; day: string | null }> = ({ plantId,
                 className="flex items-center gap-2 rounded-md bg-white/[0.025] px-2.5 py-2"
                 title={
                   slot
-                    ? `${slot.status_th ?? slot.condition ?? ""} · ${fmt(slot.precip_mm, 1)} mm · cloud ${fmt(slot.cloud_cover_pct, 0)}%`
-                    : "Not stored yet"
+                    ? `${slot.status_th ?? slot.condition ?? ""} · ${fmt(slot.precip_mm, 1)} mm · ${t("cloud {pct}%", { pct: fmt(slot.cloud_cover_pct, 0) })}`
+                    : t("Not stored yet")
                 }
               >
                 {!wx ? (
@@ -175,6 +181,7 @@ export const WeatherCard: React.FC<{
 }> = ({ plantId, day, storedUntil, liveWx, liveWxFailed }) => {
   const [sensors, setSensors] = useState<SensorRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useI18n();
   useEffect(() => {
     let cancelled = false;
     api
@@ -202,16 +209,16 @@ export const WeatherCard: React.FC<{
     <Card className="gap-4">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          Weather
+          {t("Weather")}
           {single && <Freshness r={readings[0].r} />}
           {sensors && sensors.length === 0 && (
-            <Badge variant="neutral" title="Irradiance and IEC PR are not measured at this plant">
-              no sensor
+            <Badge variant="neutral" title={t("Irradiance and IEC PR are not measured at this plant")}>
+              {t("no sensor")}
             </Badge>
           )}
         </CardTitle>
         <CardAction>
-          <Button asChild variant="ghost" size="icon-sm" aria-label="Open Sensors" title="Open Sensors">
+          <Button asChild variant="ghost" size="icon-sm" aria-label={t("Open Sensors")} title={t("Open Sensors")}>
             <Link to={`${plantPath(plantId, "sensors")}#weather-station`}>
               <ArrowRight />
             </Link>
@@ -221,9 +228,9 @@ export const WeatherCard: React.FC<{
       <CardContent className="flex flex-col gap-4">
         {sensors == null ? (
           error ? (
-            <p className="text-xs text-muted-foreground">Sensor data unavailable: {error}</p>
+            <p className="text-xs text-muted-foreground">{t("Sensor data unavailable: {error}", { error })}</p>
           ) : (
-            <Skeleton className="h-24 w-full" aria-busy aria-label="Loading sensor data…" />
+            <Skeleton className="h-24 w-full" aria-busy aria-label={t("Loading sensor data…")} />
           )
         ) : (
           readings.map(({ s, r }) => <SensorReading key={s.key} sensor={s} r={r} showHeader={!single} />)

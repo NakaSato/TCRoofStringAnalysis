@@ -1,13 +1,15 @@
-/** PWA Meter data for one window: summary, outage events and meter check, read together on mount,
+/** PWA Meter data for one window: summary, outage events, meter check, the report days and the monthly billing, read together on mount,
  * when the window changes and on Refresh. DB only; the report is imported monthly, so nothing polls. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
-import type { PwaMeterCheck, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent } from "../../api/client";
+import type { PwaBilling, PwaMeterCheck, PwaMeterDaily, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent } from "../../api/client";
 
 export interface PwaMeterData {
   summary: PwaMeterSummary;
   outages: PwaOutageEvent[];
   checks: PwaMeterCheck[];
+  daily: PwaMeterDaily;
+  billing: PwaBilling;
 }
 
 export function usePwaMeter(w: PwaMeterWindow) {
@@ -23,9 +25,15 @@ export function usePwaMeter(w: PwaMeterWindow) {
     setLoading(true);
     try {
       const win = { start, end };
-      const [summary, outages, checks] = await Promise.all([api.getPwaMeterSummary(win), api.getPwaMeterOutages(win), api.getPwaMeterCheck(win)]);
+      const [summary, outages, checks, daily, billing] = await Promise.all([
+        api.getPwaMeterSummary(win),
+        api.getPwaMeterOutages(win),
+        api.getPwaMeterCheck(win),
+        api.getPwaMeterDaily(win),
+        api.getPwaMeterBilling(win),
+      ]);
       if (n !== seq.current) return;
-      setData({ summary, outages, checks });
+      setData({ summary, outages, checks, daily, billing });
       setError(null);
     } catch (e) {
       if (n !== seq.current) return;

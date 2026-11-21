@@ -2,14 +2,16 @@
 import React from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FleetDirectory } from "./useFleetDirectory";
+import { useI18n } from "../../i18n";
 import { pageWindow } from "./parts";
 
 export const PlantPager: React.FC<{ d: FleetDirectory }> = ({ d }) => {
   const { pageSize, setPageSize, setCurrentPage, filteredPlants, totalPages, safePage } = d;
+  const { t } = useI18n();
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.07] bg-ink-900/50 px-5 py-3 text-xs text-slate-400">
       <div>
-        Total: <span className="num font-semibold text-slate-200">{filteredPlants.length}</span>
+        {t("Total")}: <span className="num font-semibold text-slate-200">{filteredPlants.length}</span>
       </div>
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
@@ -58,9 +60,9 @@ export const PlantPager: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="10">10 / page</SelectItem>
-            <SelectItem value="25">25 / page</SelectItem>
-            <SelectItem value="50">50 / page</SelectItem>
+            <SelectItem value="10">{t("{n} / page", { n: 10 })}</SelectItem>
+            <SelectItem value="25">{t("{n} / page", { n: 25 })}</SelectItem>
+            <SelectItem value="50">{t("{n} / page", { n: 50 })}</SelectItem>
           </SelectContent>
         </Select>
       </div>

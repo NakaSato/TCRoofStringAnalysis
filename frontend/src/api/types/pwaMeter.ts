@@ -96,6 +96,41 @@ export interface PwaMeterSummary {
   labels: Record<string, string>;
 }
 
+/** `/pwa/meter/daily`: the report days of a window, for the fleet lines and the site × day chart */
+export interface PwaMeterPhaseDay {
+  phase: number;
+  day: string;
+  /** sites with a meter reading on the day */
+  sites: number;
+  meter_mwh: number | null;
+  /** modelled */
+  contract_mwh: number | null;
+  /** metered energy ÷ kWp of the sites with a reading */
+  yield_kwh_kwp: number | null;
+  vs_contract_pct: number | null;
+}
+
+export interface PwaMeterSiteDaily {
+  site_id: string;
+  phase: number;
+  name: string;
+  region: string | null;
+  kwp: number;
+  growatt_plant_id: number | null;
+  /** one value per entry of `days`; null = no reading */
+  yield_kwh_kwp: Array<number | null>;
+  /** null = the site has no row for the day */
+  status: Array<PwaDayStatus | null>;
+}
+
+export interface PwaMeterDaily {
+  days: string[];
+  /** per phase and day; empty for engineers (fleet totals) */
+  phases: PwaMeterPhaseDay[];
+  sites: PwaMeterSiteDaily[];
+  labels: Record<string, string>;
+}
+
 export interface PwaOutageEvent {
   site_id: string;
   phase: number;
@@ -134,6 +169,7 @@ export interface PwaMeterWindow {
 /** the criteria file (pwa_meter_criteria.json); only the parts the UI reads are typed */
 export interface PwaMeterCriteria {
   outage_event: { long_event_days: number; fixed_fast_days: number };
+  tariff: { book_price_thb_per_kwh: number };
   [key: string]: unknown;
 }
 
@@ -199,4 +235,75 @@ export interface PwaImportResult {
   /** months with no expected energy: those days get no contract / PVsyst figure */
   months_without_expected: string[];
   meter_numbers_learned: number;
+}
+
+/** `/pwa/meter/billing`: billed meter energy per site and calendar month at the book price, the
+ * contract's energy (modelled), the shortfall against it and the engineering causes that explain it.
+ * Outage, under-performance and meter gap are what O&M can win back (`recoverable_*`); curtailment
+ * is PM's (PWA's own load). Causes and recoverable values are estimated; a month's causes are judged
+ * on that month alone. Missing values are null. */
+export type PwaBillingCause = "outage" | "under" | "meter_gap" | "curtailment";
+
+interface PwaBillingFigures {
+  site_id: string;
+  phase: number;
+  name: string;
+  region: string | null;
+  kwp: number | null;
+  growatt_plant_id: number | null;
+  meter_days: number;
+  /** days from the site's first report day with no billed reading */
+  missing_days: number;
+  outage_days: number;
+  billed_kwh: number | null;
+  /** billed kWh × the contract's book price */
+  billed_thb: number | null;
+  /** modelled */
+  contract_kwh: number | null;
+  vs_contract_pct: number | null;
+  /** contract − meter on the days with a contract figure (modelled); negative = above contract */
+  shortfall_kwh: number | null;
+  shortfall_thb: number | null;
+  outage_kwh: number | null;
+  under_kwh: number | null;
+  meter_gap_kwh: number | null;
+  curtailment_kwh: number | null;
+  recoverable_kwh: number | null;
+  recoverable_thb: number | null;
+  /** shortfall the causes don't explain (weather against the model, …); may be negative */
+  unexplained_kwh: number | null;
+}
+
+export interface PwaBillingRow extends PwaBillingFigures {
+  /** YYYY-MM */
+  month: string;
+  start: string;
+  end: string;
+  /** report days in the month */
+  days: number;
+  curtailment_note_days: number;
+}
+
+export interface PwaBillingSite extends PwaBillingFigures {
+  months: number;
+  /** cause with the most energy (curtailment included) */
+  top_cause: PwaBillingCause | null;
+  /** recoverable cause with the most energy: what to act on */
+  action_cause: PwaBillingCause | null;
+  owner: string | null;
+  action: string | null;
+  /** 1 = the most recoverable baht */
+  rank: number;
+}
+
+export interface PwaBilling {
+  window: { start: string | null; end: string | null };
+  months: string[];
+  rows: PwaBillingRow[];
+  sites: PwaBillingSite[];
+  price_thb_per_kwh: number;
+  recoverable_causes: PwaBillingCause[];
+  cause_owner: Record<PwaBillingCause, string>;
+  cause_action: Record<PwaBillingCause, string>;
+  labels: Record<string, string>;
 }

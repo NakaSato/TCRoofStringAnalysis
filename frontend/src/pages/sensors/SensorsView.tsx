@@ -22,6 +22,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { LOW_COVERAGE_PCT, hhmm, plantNow, minutesBetween, fmtAge, coverageTone } from "./format";
 import { SensorInfo } from "./SensorInfo";
 import { PlantSensorView } from "./PlantSensorView";
+import { useI18n } from "../../i18n";
 
 /** DB list re-read while the page is visible: the worker stores new readings every 10 min. */
 const REFRESH_MS = 5 * 60_000;
@@ -89,6 +90,7 @@ const SortHead: React.FC<{
 /** `plantId` set = one plant's sensors (no plant column / phase filter), else every visible sensor. */
 export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
   const one = plantId != null;
+  const { t } = useI18n();
   const [data, setData] = useState<SensorList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -214,30 +216,30 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       {!one && (
       <PageHeader
         icon={Gauge}
-        eyebrow={one ? "Plant" : "Monitoring"}
-        title={one ? "Sensors" : "Weather Sensors"}
+        eyebrow={one ? t("Plant") : t("Monitoring")}
+        title={one ? t("Sensors") : t("Weather Sensors")}
         description={one
-          ? "This plant's Growatt weather sensors: online state from Growatt's live sensor list (never stored), plus the newest stored reading, probes that report, and how much of today's daylight is stored."
-          : "Every Growatt weather sensor you can see: online state from Growatt's live sensor list (checked a few dataloggers at a time, never stored), plus the newest stored reading, probes that report, and how much of today's daylight is stored."}
+          ? t("This plant's Growatt weather sensors: online state from Growatt's live sensor list (never stored), plus the newest stored reading, probes that report, and how much of today's daylight is stored.")
+          : t("Every Growatt weather sensor you can see: online state from Growatt's live sensor list (checked a few dataloggers at a time, never stored), plus the newest stored reading, probes that report, and how much of today's daylight is stored.")}
         actions={
           <>
             {live && !sweeping && !live.stale ? (
-              <Badge variant="ok" className="px-2 py-0.5 text-[11px] font-semibold" title={`Oldest datalogger check ${live.fetched_at}`}>
-                Live · {hhmm(live.fetched_at)}
+              <Badge variant="ok" className="px-2 py-0.5 text-[11px] font-semibold" title={t("Oldest datalogger check {time}", { time: live.fetched_at })}>
+                {t("Live")} · {hhmm(live.fetched_at)}
               </Badge>
             ) : (
-              <Badge variant="info" className="px-2 py-0.5 text-[11px] font-semibold" title="Growatt's sensor list is fetched a few dataloggers per request">
-                {liveError && !live ? "Live status unavailable" : `Status checked ${fmtInt(counts.checked)} / ${fmtInt(sensors.length)}`}
+              <Badge variant="info" className="px-2 py-0.5 text-[11px] font-semibold" title={t("Growatt's sensor list is fetched a few dataloggers per request")}>
+                {liveError && !live ? t("Live status unavailable") : t("Status checked {n} / {total}", { n: fmtInt(counts.checked), total: fmtInt(sensors.length) })}
               </Badge>
             )}
             {syncedAt && (
-              <Badge variant="neutral" className="px-2 py-0.5 text-[11px] font-semibold" title={`History stored up to the sync that started ${data?.meta.synced_at}`}>
-                Last sync {syncedAt}
+              <Badge variant="neutral" className="px-2 py-0.5 text-[11px] font-semibold" title={t("History stored up to the sync that started {time}", { time: data?.meta.synced_at })}>
+                {t("Last sync")} {syncedAt}
               </Badge>
             )}
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
               {loading ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
-              Refresh
+              {t("Refresh")}
             </Button>
           </>
         }
@@ -248,27 +250,27 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
         <TabsList>
           <TabsTrigger value="status">
             <ListChecks className="h-3.5 w-3.5" />
-            Status
+            {t("Status")}
           </TabsTrigger>
           <TabsTrigger value="info">
             <Info className="h-3.5 w-3.5" />
-            Info
+            {t("Info")}
           </TabsTrigger>
         </TabsList>
       </Tabs>}
 
       {loading && !data ? (
-        <LoadingState label="Loading weather sensors…" shape="table" />
+        <LoadingState label={t("Loading weather sensors…")} shape="table" />
       ) : error && !data ? (
-        <EmptyState icon={CloudOff} title="Sensor list unavailable" description={error} />
+        <EmptyState icon={CloudOff} title={t("Sensor list unavailable")} description={error} />
       ) : !sensors.length ? (
         <EmptyState
           icon={Gauge}
-          title="No weather sensors"
+          title={t("No weather sensors")}
           description={
             one
-              ? "This plant has no Growatt weather sensor registered."
-              : "None of the plants you can see has a Growatt weather sensor registered. Engineers see only the plants an admin assigned to them."
+              ? t("This plant has no Growatt weather sensor registered.")
+              : t("None of the plants you can see has a Growatt weather sensor registered. Engineers see only the plants an admin assigned to them.")
           }
         />
       ) : one ? (
@@ -281,43 +283,50 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
           thresholds={live?.data.thresholds ?? { late_min: 15, offline_min: 60 }}
           onRefresh={load}
           refreshing={loading}
-          notes={[error ? `List refresh failed: ${error}` : "", liveError ? `Live check failed: ${liveError}` : ""].filter(Boolean)}
+          notes={[error ? t("List refresh failed: {error}", { error }) : "", liveError ? t("Live check failed: {error}", { error: liveError }) : ""].filter(Boolean)}
         />
       ) : tab === "status" ? (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
             {(
               [
-                ["online", "Online", counts.online, `Upload ≤ ${live?.data.thresholds.late_min ?? 15} min ago`, CircleCheck, "text-emerald-300"],
-                ["late", "Late", counts.late, `${live?.data.thresholds.late_min ?? 15}–${live?.data.thresholds.offline_min ?? 60} min since upload`, Clock, "text-amber-300"],
-                ["offline", "Offline", counts.offline, "Lost, or silent > 1 h", WifiOff, "text-red-300"],
-                ["unknown", "Not checked", counts.unknown, sweeping ? "Live check in progress" : "No usable live answer", CircleHelp, "text-slate-300"],
+                ["online", t("Online"), counts.online, t("Upload ≤ {n} min ago", { n: live?.data.thresholds.late_min ?? 15 }), CircleCheck, "text-emerald-300"],
+                [
+                  "late",
+                  t("Late"),
+                  counts.late,
+                  t("{from}–{to} min since upload", { from: live?.data.thresholds.late_min ?? 15, to: live?.data.thresholds.offline_min ?? 60 }),
+                  Clock,
+                  "text-amber-300",
+                ],
+                ["offline", t("Offline"), counts.offline, t("Lost, or silent > 1 h"), WifiOff, "text-red-300"],
+                ["unknown", t("Not checked"), counts.unknown, t(sweeping ? "Live check in progress" : "No usable live answer"), CircleHelp, "text-slate-300"],
               ] as const
             ).map(([f, label, value, hint, icon, text]) => (
               <Tile key={f} label={label} value={value} hint={hint} icon={icon} text={text} active={filter === f} onClick={() => toggleFilter(f)} />
             ))}
             <Tile
-              label="Data gaps today"
+              label={t("Data gaps today")}
               value={counts.low}
-              hint={`Coverage below ${LOW_COVERAGE_PCT}% · click to filter`}
+              hint={t("Coverage below {pct}% · click to filter", { pct: LOW_COVERAGE_PCT })}
               icon={TriangleAlert}
               text="text-red-300"
               active={filter === "low"}
               onClick={() => toggleFilter("low")}
             />
             <Tile
-              label="Not synced"
+              label={t("Not synced")}
               value={counts.notSynced}
-              hint="Live unknown, nothing stored"
+              hint={t("Live unknown, nothing stored")}
               icon={CloudOff}
               text="text-amber-300"
               active={filter === "not_synced"}
               onClick={() => toggleFilter("not_synced")}
             />
             <Tile
-              label="Health flags"
+              label={t("Health flags")}
               value={counts.flags}
-              hint="Checks on stored data · click to filter"
+              hint={t("Checks on stored data · click to filter")}
               icon={TriangleAlert}
               text="text-amber-300"
               active={filter === "flags"}
@@ -327,21 +336,31 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
 
           <Panel
             icon={ListChecks}
-            title="Sensor status"
-            subtitle={`${rows.length} of ${sensors.length} sensors${filter !== "all" ? ` · filter: ${filter === "low" ? "data gaps" : filter === "flags" ? "health flags" : STATUS_VIEW[filter].label}` : ""} · coverage = stored 5-min slots, 06:00–${until ?? "—"} today${error ? ` · refresh failed: ${error}` : ""}${liveError ? ` · live check failed: ${liveError}` : liveErrors ? ` · ${liveErrors} datalogger(s) not answering` : ""}`}
+            title={t("Sensor status")}
+            subtitle={`${t("{n} of {total} sensors", { n: rows.length, total: sensors.length })}${
+              filter !== "all"
+                ? ` · ${t("filter: {name}", { name: filter === "low" ? t("data gaps") : filter === "flags" ? t("health flags") : t(STATUS_VIEW[filter].label) })}`
+                : ""
+            } · ${t("coverage = stored 5-min slots, 06:00–{until} today", { until: until ?? "—" })}${error ? ` · ${t("refresh failed: {error}", { error })}` : ""}${
+              liveError
+                ? ` · ${t("live check failed: {error}", { error: liveError })}`
+                : liveErrors
+                  ? ` · ${t("{n} datalogger(s) not answering", { n: liveErrors })}`
+                  : ""
+            }`}
             bodyClassName="p-0"
             actions={
               <div className="flex flex-wrap items-center gap-2">
                 {!one && phases.length > 1 && (
                   <Select value={phase || "all"} onValueChange={(v) => setUrl({ phase: v === "all" ? null : v })}>
-                    <SelectTrigger size="sm" className="w-28" aria-label="Phase">
+                    <SelectTrigger size="sm" className="w-28" aria-label={t("Phase")}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All phases</SelectItem>
+                      <SelectItem value="all">{t("All phases")}</SelectItem>
                       {phases.map((p) => (
                         <SelectItem key={p} value={String(p)}>
-                          Phase {p}
+                          {t("Phase {n}", { n: p })}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -351,10 +370,10 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                   <InputGroupAddon>
                     <Search className="size-3.5" />
                   </InputGroupAddon>
-                  <InputGroupInput value={query} onChange={(e) => setUrl({ q: e.target.value })} placeholder={one ? "Sensor" : "Plant or sensor"} aria-label="Search sensors" />
+                  <InputGroupInput value={query} onChange={(e) => setUrl({ q: e.target.value })} placeholder={one ? t("Sensor") : t("Plant or sensor")} aria-label={t("Search sensors")} />
                   {query && (
                     <InputGroupAddon align="inline-end">
-                      <button type="button" onClick={() => setUrl({ q: null })} aria-label="Clear search">
+                      <button type="button" onClick={() => setUrl({ q: null })} aria-label={t("Clear search")}>
                         <X className="size-3.5" />
                       </button>
                     </InputGroupAddon>
@@ -364,22 +383,22 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
             }
           >
             {!rows.length ? (
-              <EmptyState icon={Search} title="No sensor matches" description="Change the filter or search." className="py-10" />
+              <EmptyState icon={Search} title={t("No sensor matches")} description={t("Change the filter or search.")} className="py-10" />
             ) : (
               <Table containerClassName="table-wrap max-h-[680px] overflow-auto">
                 <TableHeader className="sticky top-0 z-10">
                   <TableRow>
-                    <TableHead>Status</TableHead>
-                    {!one && <SortHead id="plant" sort={sort} desc={desc} onSort={onSort}>Plant</SortHead>}
-                    <SortHead id="sensor" sort={sort} desc={desc} onSort={onSort}>Sensor</SortHead>
-                    <SortHead id="last" sort={sort} desc={desc} onSort={onSort}>Last upload</SortHead>
+                    <TableHead>{t("Status")}</TableHead>
+                    {!one && <SortHead id="plant" sort={sort} desc={desc} onSort={onSort}>{t("Plant")}</SortHead>}
+                    <SortHead id="sensor" sort={sort} desc={desc} onSort={onSort}>{t("Sensor")}</SortHead>
+                    <SortHead id="last" sort={sort} desc={desc} onSort={onSort}>{t("Last upload")}</SortHead>
                     <SortHead id="irradiance" sort={sort} desc={desc} onSort={onSort} className="text-right">W/m²</SortHead>
-                    <TableHead className="text-right">Module °C</TableHead>
-                    <TableHead className="text-right">Ambient °C</TableHead>
-                    <TableHead className="text-right">RH %</TableHead>
-                    <TableHead className="text-right">Wind m/s</TableHead>
-                    <SortHead id="coverage" sort={sort} desc={desc} onSort={onSort} className="text-right">Coverage</SortHead>
-                    <TableHead>Flags</TableHead>
+                    <TableHead className="text-right">{t("Module °C")}</TableHead>
+                    <TableHead className="text-right">{t("Ambient °C")}</TableHead>
+                    <TableHead className="text-right">{t("RH %")}</TableHead>
+                    <TableHead className="text-right">{t("Wind m/s")}</TableHead>
+                    <SortHead id="coverage" sort={sort} desc={desc} onSort={onSort} className="text-right">{t("Coverage")}</SortHead>
+                    <TableHead>{t("Flags")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -399,7 +418,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                           >
                             {s.plant_name}
                           </Link>
-                          {s.phase != null && <span className="text-[11px] text-slate-500">Phase {s.phase}</span>}
+                          {s.phase != null && <span className="text-[11px] text-slate-500">{t("Phase {n}", { n: s.phase })}</span>}
                         </TableCell>}
                         <TableCell className="whitespace-nowrap">
                           <span className="num text-slate-200">
@@ -411,9 +430,9 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                           className="num whitespace-nowrap"
                           title={
                             s.uploadLive
-                              ? `Last upload to Growatt ${s.upload} · newest stored reading ${s.last_reading_at ?? "none"}`
+                              ? t("Last upload to Growatt {time} · newest stored reading {stored}", { time: s.upload, stored: s.last_reading_at ?? t("none") })
                               : s.upload
-                                ? `Newest stored reading ${s.upload}`
+                                ? t("Newest stored reading {time}", { time: s.upload })
                                 : undefined
                           }
                         >
@@ -421,7 +440,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                             <>
                               {s.upload.slice(0, 10) === now.slice(0, 10) ? s.upload.slice(11, 16) : s.upload.slice(0, 16)}
                               <div className="text-[11px] text-slate-500">
-                                {fmtAge(minutesBetween(s.upload, now))} · {s.uploadLive ? "Live" : "Last sync"}
+                                {fmtAge(minutesBetween(s.upload, now))} · {s.uploadLive ? t("Live") : t("Last sync")}
                               </div>
                             </>
                           ) : (
@@ -447,12 +466,16 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
             )}
           </Panel>
           <p className="text-[11px] text-slate-500">
-            Status: online = last upload ≤ {live?.data.thresholds.late_min ?? 15} min ago, late up to {live?.data.thresholds.offline_min ?? 60} min, offline after that or when Growatt reports the sensor lost.
-            Readings are the newest stored record, not live values. n/f = probe not fitted (read 0 all of the last 7 days).
-            Coverage counts 5-min slots from 06:00 up to the last history sync{until ? ` (${until})` : ""}.
-            Flags are checks, not measurements (hover for the reason): a probe that reported this week reads 0 all of today (wind not checked: calm days read 0),
-            irradiance 0 for ≥ 1 h between 10:00 and 15:00 while the plant's inverters produced, or stored history over 2 h behind an online sensor.
-            No flag is raised without stored data to support it.
+            {t(
+              "Status: online = last upload ≤ {late} min ago, late up to {offline} min, offline after that or when Growatt reports the sensor lost.",
+              { late: live?.data.thresholds.late_min ?? 15, offline: live?.data.thresholds.offline_min ?? 60 }
+            )}{" "}
+            {t("Readings are the newest stored record, not live values. n/f = probe not fitted (read 0 all of the last 7 days).")}{" "}
+            {t("Coverage counts 5-min slots from 06:00 up to the last history sync{until}.", { until: until ? ` (${until})` : "" })}{" "}
+            {t(
+              "Flags are checks, not measurements (hover for the reason): a probe that reported this week reads 0 all of today (wind not checked: calm days read 0), irradiance 0 for ≥ 1 h between 10:00 and 15:00 while the plant's inverters produced, or stored history over 2 h behind an online sensor."
+            )}{" "}
+            {t("No flag is raised without stored data to support it.")}
           </p>
         </>
       ) : (

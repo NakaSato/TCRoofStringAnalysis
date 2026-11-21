@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { translate, useI18n } from "../i18n";
 
 /** Growatt's own fault_type label → badge colour. */
 function alarmLevel(faultType: string | null): StatusLevel {
@@ -29,11 +30,11 @@ const hhmm = (t: string | null) => (t ? t.slice(11, 16) : "");
 
 /** Minutes → "1 h 05 min" / "12 min" / "<1 min". */
 function durationText(min: number): string {
-  if (min < 1) return "<1 min";
-  if (min < 60) return `${min} min`;
+  if (min < 1) return translate("<1 min");
+  if (min < 60) return translate("{n} min", { n: min });
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h} h ${String(min % 60).padStart(2, "0")} min`;
-  return `${Math.floor(h / 24)} d ${h % 24} h`;
+  if (h < 24) return translate("{h} h {m} min", { h, m: String(min % 60).padStart(2, "0") });
+  return translate("{d} d {h} h", { d: Math.floor(h / 24), h: h % 24 });
 }
 
 const LEVEL_LED: Record<string, "crit" | "warn" | "off"> = { crit: "crit", warn: "warn" };
@@ -61,6 +62,7 @@ export const GrowattAlarmLogPanel: React.FC<{
   /** device SN → link (e.g. the Inverters page with ?sn=) */
   inverterHref?: (sn: string) => string;
 }> = ({ plantId, plantName, day, deviceSn = null, className = "", compact = false, inverterNames, inverterHref }) => {
+  const { t } = useI18n();
   const [res, setRes] = useState<GrowattLive<GrowattLiveAlarms> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<LevelFilter>("all");
@@ -110,22 +112,27 @@ export const GrowattAlarmLogPanel: React.FC<{
   const failed = [...new Set(Object.keys(res?.data.errors ?? {}).map((k) => k.split(" ")[0]))].filter(
     (sn) => !deviceSn || sn === deviceSn
   );
-  const subject = deviceSn ? `inverter ${deviceSn}` : plantName ?? "this plant";
-  const range = res ? `${res.data.from} → ${res.data.to}` : `last ${DAYS} days`;
+  const subject = deviceSn ? t("inverter {sn}", { sn: deviceSn }) : plantName ?? t("this plant");
+  const range = res ? `${res.data.from} → ${res.data.to}` : t("last {n} days", { n: DAYS });
 
   return (
     <Panel
       className={className}
       icon={Bell}
-      title="Growatt Fault Log"
+      title={t("Growatt Fault Log")}
       subtitle={
         compact
           ? res
-            ? `${alarms.length} event${alarms.length === 1 ? "" : "s"}${openCount ? ` · ${openCount} open` : ""} · ${range}`
+            ? `${t(alarms.length === 1 ? "{n} event" : "{n} events", { n: alarms.length })}${openCount ? ` · ${t("{n} open", { n: openCount })}` : ""} · ${range}`
             : range
           : res
-            ? `${alarms.length} alarm event${alarms.length === 1 ? "" : "s"} (${reports} report${reports === 1 ? "" : "s"}) by Growatt for ${subject} · ${range}`
-            : `Alarms reported by Growatt for ${subject} · ${range}`
+            ? t(
+                alarms.length === 1
+                  ? "{n} alarm event ({reports}) by Growatt for {subject} · {range}"
+                  : "{n} alarm events ({reports}) by Growatt for {subject} · {range}",
+                { n: alarms.length, reports: t(reports === 1 ? "{n} report" : "{n} reports", { n: reports }), subject, range }
+              )
+            : t("Alarms reported by Growatt for {subject} · {range}", { subject, range })
       }
       bodyClassName="p-0"
       actions={
@@ -135,7 +142,7 @@ export const GrowattAlarmLogPanel: React.FC<{
               <TabsList>
                 {(["all", ...levels] as LevelFilter[]).map((l) => (
                   <TabsTrigger key={l} value={l} className="px-2 py-1 text-[11px]">
-                    {LEVEL_LABEL[l]}
+                    {t(LEVEL_LABEL[l])}
                     <span className="num text-slate-500">{counts[l]}</span>
                   </TabsTrigger>
                 ))}
@@ -144,32 +151,32 @@ export const GrowattAlarmLogPanel: React.FC<{
           )}
           {res?.stale && (
             <Badge variant="warn" title={res.error ?? undefined}>
-              stale
+              {t("stale")}
             </Badge>
           )}
         </div>
       }
     >
       {!res && !error ? (
-        <LoadingState label="Reading the Growatt fault log…" shape="table" />
+        <LoadingState label={t("Reading the Growatt fault log…")} shape="table" />
       ) : !res && error ? (
-        <EmptyState icon={CloudOff} title="Growatt fault log unavailable" description={error} />
+        <EmptyState icon={CloudOff} title={t("Growatt fault log unavailable")} description={error} />
       ) : alarms.length === 0 && compact ? (
         <div
           className="flex items-center gap-2 px-5 py-3 text-xs text-muted-foreground"
-          title={failed.length ? `Some days could not be read for ${failed.join(", ")}` : undefined}
+          title={failed.length ? t("Some days could not be read for {sns}", { sns: failed.join(", ") }) : undefined}
         >
           <CheckCircle2 className={failed.length ? "size-4 text-amber-300" : "size-4 text-emerald-400"} aria-hidden />
-          No alarms{failed.length ? " · some days unread" : ""}
+          {t("No alarms")}{failed.length ? ` · ${t("some days unread")}` : ""}
         </div>
       ) : alarms.length === 0 ? (
         <EmptyState
           icon={CheckCircle2}
-          title="No alarms reported"
+          title={t("No alarms reported")}
           description={
             failed.length
-              ? `Growatt reported no alarms, but some days could not be read for ${failed.join(", ")}.`
-              : `Growatt reported no alarms for ${subject} in the last ${DAYS} days.`
+              ? t("Growatt reported no alarms, but some days could not be read for {sns}.", { sns: failed.join(", ") })
+              : t("Growatt reported no alarms for {subject} in the last {n} days.", { subject, n: DAYS })
           }
         />
       ) : (
@@ -177,8 +184,11 @@ export const GrowattAlarmLogPanel: React.FC<{
           {shown.length === 0 ? (
             <EmptyState
               icon={CheckCircle2}
-              title={`No ${LEVEL_LABEL[active].toLowerCase()} alarms`}
-              description={`Growatt reported ${alarms.length} other alarm event${alarms.length === 1 ? "" : "s"} for ${subject}.`}
+              title={t(active === "crit" ? "No fault alarms" : active === "warn" ? "No warning alarms" : active === "info" ? "No other alarms" : "No alarms")}
+              description={t(
+                alarms.length === 1 ? "Growatt reported {n} other alarm event for {subject}." : "Growatt reported {n} other alarm events for {subject}.",
+                { n: alarms.length, subject }
+              )}
               className="py-8"
             />
           ) : compact ? (
@@ -187,11 +197,11 @@ export const GrowattAlarmLogPanel: React.FC<{
             <Table containerClassName="max-h-[420px] overflow-auto">
               <TableHeader className="sticky top-0 z-10">
                 <TableRow>
-                  <TableHead>Alarm</TableHead>
-                  {!deviceSn && <TableHead>Inverter</TableHead>}
-                  <TableHead>When</TableHead>
-                  <TableHead className="text-right">Duration</TableHead>
-                  <TableHead className="w-[1%] text-right">State</TableHead>
+                  <TableHead>{t("Alarm")}</TableHead>
+                  {!deviceSn && <TableHead>{t("Inverter")}</TableHead>}
+                  <TableHead>{t("When")}</TableHead>
+                  <TableHead className="text-right">{t("Duration")}</TableHead>
+                  <TableHead className="w-[1%] text-right">{t("State")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -209,7 +219,7 @@ export const GrowattAlarmLogPanel: React.FC<{
           )}
           {failed.length > 0 && (
             <div className="border-t border-white/[0.06] px-4 py-2 text-[11px] text-amber-400">
-              Some days could not be read for {failed.join(", ")}.
+              {t("Some days could not be read for {sns}.", { sns: failed.join(", ") })}
             </div>
           )}
         </>
@@ -222,6 +232,7 @@ export const GrowattAlarmLogPanel: React.FC<{
 const AlarmEventRow: React.FC<{ e: AlarmEvent; showInverter: boolean; name?: string; href?: string }> = ({ e, showInverter, name, href }) => {
   const sameDay = e.last?.slice(0, 10) === e.start?.slice(0, 10);
   const label = name ?? e.device_sn;
+  const { t } = useI18n();
   return (
     <TableRow className={cn(e.open && "bg-red-500/[0.04]")}>
       <TableCell className="max-w-[360px]">
@@ -232,7 +243,7 @@ const AlarmEventRow: React.FC<{ e: AlarmEvent; showInverter: boolean; name?: str
           </span>
           <span
             className={cn("num shrink-0 text-[11px]", LEVEL_TEXT[e.level] ?? "text-slate-500")}
-            title={`${e.fault_type ?? "Alarm"} · code ${e.alarm_code ?? "—"}`}
+            title={`${e.fault_type ?? t("Alarm")} · ${t("code {code}", { code: e.alarm_code ?? "—" })}`}
           >
             {e.alarm_code ?? ""}
           </span>
@@ -268,7 +279,7 @@ const AlarmEventRow: React.FC<{ e: AlarmEvent; showInverter: boolean; name?: str
       <TableCell className="num whitespace-nowrap text-right text-slate-400">
         {e.minutes != null ? durationText(e.minutes) : "—"}
         {e.reports > 1 && (
-          <span className="ml-1.5 text-[11px] text-slate-500" title={`${e.reports} reports from Growatt`}>
+          <span className="ml-1.5 text-[11px] text-slate-500" title={t("{n} reports from Growatt", { n: e.reports })}>
             ×{e.reports}
           </span>
         )}
@@ -276,10 +287,10 @@ const AlarmEventRow: React.FC<{ e: AlarmEvent; showInverter: boolean; name?: str
       <TableCell className="text-right">
         {e.open ? (
           <Badge variant="crit" className="gap-1.5">
-            <Led level="crit" pulse /> Open
+            <Led level="crit" pulse /> {t("Open")}
           </Badge>
         ) : (
-          <span className="text-[11px] text-muted-foreground">Cleared</span>
+          <span className="text-[11px] text-muted-foreground">{t("Cleared")}</span>
         )}
       </TableCell>
     </TableRow>
@@ -325,7 +336,7 @@ const covers = (e: AlarmEvent, min: number) => {
 /** "06:16 – 07:30" (first → last report; "now" while open; the date when it ends on a later day; one report = "06:16"). */
 function rangeText(e: AlarmEvent): string {
   if (!e.start) return "—";
-  if (e.open) return `${hhmm(e.start)} – now`;
+  if (e.open) return `${hhmm(e.start)} – ${translate("now")}`;
   if (e.reports <= 1 || !e.last || e.last === e.start) return hhmm(e.start);
   const later = e.last.slice(0, 10) !== e.start.slice(0, 10);
   return `${hhmm(e.start)} – ${later ? `${e.last.slice(5, 10)} ` : ""}${hhmm(e.last)}`;
@@ -379,7 +390,7 @@ const EventBar: React.FC<{ e: AlarmEvent; hoverMin: number | null }> = ({ e, hov
   const width = Math.max(0, pctOf(l) - left);
   const tone = BAR_TONE[e.level] ?? "bg-slate-400/70";
   const title = `${hhmm(e.start)}${e.reports > 1 && e.last ? ` → ${e.last.slice(0, 10) === day ? "" : e.last.slice(5, 11)}${hhmm(e.last)}` : ""}${
-    e.reports > 1 ? ` · ${e.reports} reports` : ""
+    e.reports > 1 ? ` · ${translate("{n} reports", { n: e.reports })}` : ""
   }`;
   return (
     <div className="relative h-4" title={hoverMin == null ? title : undefined} role="img" aria-label={title}>
@@ -415,6 +426,7 @@ const EventTimelineList: React.FC<{
   inverterHref?: (sn: string) => string;
 }> = ({ events, inverterNames, inverterHref }) => {
   const [all, setAll] = useState(false);
+  const { t } = useI18n();
   // hovered minute of the day window: a crosshair through every day's timeline, with the time in the day headers
   const [hoverMin, setHoverMin] = useState<number | null>(null);
   const today = toPlantLocal(new Date().toISOString()).slice(0, 10);
@@ -446,7 +458,7 @@ const EventTimelineList: React.FC<{
         <section key={day} className="border-b border-white/[0.05] last:border-0">
           <div className={cn(ROW_GRID, "bg-white/[0.015] px-5 py-1.5")}>
             <span className="text-[11px] font-semibold tracking-wide text-slate-300 uppercase">
-              {day === today ? "Today" : day === yesterday ? "Yesterday" : day ? dayLabel(day).replace(/ \d{4}$/, "") : "Unknown day"}
+              {day === today ? t("Today") : day === yesterday ? t("Yesterday") : day ? dayLabel(day).replace(/ \d{4}$/, "") : t("Unknown day")}
               <span className="num ml-2 font-normal text-slate-500 normal-case">{total}</span>
             </span>
             <span className="hidden sm:block" />
@@ -474,7 +486,7 @@ const EventTimelineList: React.FC<{
                   </span>
                   <span
                     className={cn("num shrink-0 text-[11px]", LEVEL_TEXT[e.level] ?? "text-slate-500")}
-                    title={`${e.fault_type ?? "Alarm"} · code ${e.alarm_code ?? "—"}`}
+                    title={`${e.fault_type ?? t("Alarm")} · ${t("code {code}", { code: e.alarm_code ?? "—" })}`}
                   >
                     {e.alarm_code ?? ""}
                   </span>
@@ -497,17 +509,17 @@ const EventTimelineList: React.FC<{
                 </div>
                 <div
                   className="num flex items-center justify-end gap-2 text-xs whitespace-nowrap"
-                  title={e.start ? `${e.start} → ${e.open ? "still reported" : (e.last ?? e.start)}` : undefined}
+                  title={e.start ? `${e.start} → ${e.open ? t("still reported") : (e.last ?? e.start)}` : undefined}
                 >
                   <span className="text-slate-200">{rangeText(e)}</span>
                   {e.open ? (
-                    <Badge variant="crit">Open</Badge>
+                    <Badge variant="crit">{t("Open")}</Badge>
                   ) : (
                     e.minutes != null &&
                     e.reports > 1 && <span className="text-[11px] text-slate-500">{durationText(e.minutes)}</span>
                   )}
                   {e.reports > 1 && (
-                    <span className="text-[11px] text-slate-500" title={`${e.reports} reports from Growatt`}>
+                    <span className="text-[11px] text-slate-500" title={t("{n} reports from Growatt", { n: e.reports })}>
                       ×{e.reports}
                     </span>
                   )}
@@ -520,7 +532,7 @@ const EventTimelineList: React.FC<{
       {sorted.length > COMPACT_ROWS && (
         <div className="border-t border-white/[0.06] px-3 py-1.5">
           <Button variant="ghost" size="sm" onClick={() => setAll((v) => !v)}>
-            {all ? "Show less" : `Show all ${sorted.length}`}
+            {all ? t("Show less") : t("Show all {n}", { n: sorted.length })}
           </Button>
         </div>
       )}

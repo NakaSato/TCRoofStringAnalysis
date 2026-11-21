@@ -8,6 +8,7 @@ import type { GrowattInverter, GrowattPlant, Issue, OmAssignees, OmTask, OmTaskD
 import { plantToday } from "../../context/alarmLogStore";
 import { plantPath } from "../../context/routes";
 import { dayLabel } from "@/lib/day";
+import { dateLocale, translate, useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -76,12 +77,12 @@ const num = (s: string): number | null => {
 const changeText = (change: Record<string, unknown>) =>
   Object.entries(change)
     .map(([k, v]) => {
-      if (k === "created") return "created";
+      if (k === "created") return translate("created");
       if (Array.isArray(v) && v.length === 2) return `${k.replace(/_/g, " ")}: ${fmtVal(v[0])} → ${fmtVal(v[1])}`;
       return k.replace(/_/g, " ");
     })
     .join(" · ");
-const fmtVal = (v: unknown) => (v == null || v === "" ? "—" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : String(v));
+const fmtVal = (v: unknown) => (v == null || v === "" ? "—" : Array.isArray(v) ? (v.length ? v.join(", ") : translate("none")) : String(v));
 
 export const TaskDialog: React.FC<{
   target: TaskDialogTarget | null;
@@ -91,6 +92,7 @@ export const TaskDialog: React.FC<{
   onClose: () => void;
   onChanged: () => void;
 }> = ({ target, plants, me, admin, onClose, onChanged }) => {
+  const { t } = useI18n();
   const [d, setD] = useState<Draft | null>(null);
   const [detail, setDetail] = useState<OmTaskDetail | null>(null);
   const [people, setPeople] = useState<OmAssignees | null>(null);
@@ -154,7 +156,7 @@ export const TaskDialog: React.FC<{
   }, [people, task]);
   const teams = useMemo(() => {
     const list = [...(people?.teams ?? [])];
-    if (task?.team && !list.some((t) => t.id === task.team!.id)) list.push({ ...task.team, active: false, members: [] });
+    if (task?.team && !list.some((x) => x.id === task.team!.id)) list.push({ ...task.team, active: false, members: [] });
     return list;
   }, [people, task]);
 
@@ -191,7 +193,7 @@ export const TaskDialog: React.FC<{
   const save = () =>
     run(async () => {
       if (!task) {
-        if (d.plant_id == null) throw new Error("Pick a plant");
+        if (d.plant_id == null) throw new Error(t("Pick a plant"));
         await api.createOmTask(d.plant_id, body());
         return;
       }
@@ -224,42 +226,42 @@ export const TaskDialog: React.FC<{
   const form = (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="space-y-1.5 sm:col-span-2">
-        <Label htmlFor="om-plant">Plant</Label>
+        <Label htmlFor="om-plant">{t("Plant")}</Label>
         {task || target.lockPlant ? (
-          <p className="text-sm">{plantName ?? `Plant ${d.plant_id}`}</p>
+          <p className="text-sm">{plantName ?? t("Plant {id}", { id: d.plant_id })}</p>
         ) : (
           <PlantPicker id="om-plant" plants={plants} value={d.plant_id} onChange={(id) => set({ plant_id: id, device_sn: NONE, string_no: "", issue_id: NONE, assignee_ids: me != null ? [me] : [] })} />
         )}
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="om-type">Type</Label>
+        <Label htmlFor="om-type">{t("Type")}</Label>
         <Select value={d.task_type} onValueChange={(v) => set({ task_type: v as OmTaskType })} disabled={locked}>
           <SelectTrigger id="om-type" size="sm" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {TASK_TYPES.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                {t.label}
+            {TASK_TYPES.map((x) => (
+              <SelectItem key={x.value} value={x.value}>
+                {t(x.label)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="om-title">Title (optional)</Label>
-        <Input id="om-title" value={d.title} maxLength={160} onChange={(e) => set({ title: e.target.value })} disabled={locked} placeholder="e.g. Whole roof, wet clean" />
+        <Label htmlFor="om-title">{t("Title (optional)")}</Label>
+        <Input id="om-title" value={d.title} maxLength={160} onChange={(e) => set({ title: e.target.value })} disabled={locked} placeholder={t("e.g. Whole roof, wet clean")} />
       </div>
-      <DayPicker id="om-start" label="Start" value={d.start_day} disabled={locked} onChange={(v) => set({ start_day: v, end_day: d.end_day < v ? v : d.end_day })} />
-      <DayPicker id="om-end" label="End" value={d.end_day} min={d.start_day} disabled={locked} onChange={(v) => set({ end_day: v })} />
+      <DayPicker id="om-start" label={t("Start")} value={d.start_day} disabled={locked} onChange={(v) => set({ start_day: v, end_day: d.end_day < v ? v : d.end_day })} />
+      <DayPicker id="om-end" label={t("End")} value={d.end_day} min={d.start_day} disabled={locked} onChange={(v) => set({ end_day: v })} />
       <div className="space-y-1.5">
-        <Label htmlFor="om-inv">Inverter</Label>
+        <Label htmlFor="om-inv">{t("Inverter")}</Label>
         <Select value={d.device_sn} onValueChange={(v) => set({ device_sn: v, string_no: v === NONE ? "" : d.string_no })} disabled={locked || d.plant_id == null}>
           <SelectTrigger id="om-inv" size="sm" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE}>Whole plant</SelectItem>
+            <SelectItem value={NONE}>{t("Whole plant")}</SelectItem>
             {inverters.map((i) => (
               <SelectItem key={i.device_sn} value={i.device_sn}>
                 {i.alias || i.device_sn}
@@ -269,36 +271,36 @@ export const TaskDialog: React.FC<{
         </Select>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="om-string">String (optional)</Label>
-        <Input id="om-string" type="number" min={1} max={64} value={d.string_no} onChange={(e) => set({ string_no: e.target.value })} disabled={locked || d.device_sn === NONE} placeholder="PV no." />
+        <Label htmlFor="om-string">{t("String (optional)")}</Label>
+        <Input id="om-string" type="number" min={1} max={64} value={d.string_no} onChange={(e) => set({ string_no: e.target.value })} disabled={locked || d.device_sn === NONE} placeholder={t("PV no.")} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="om-team">Team / crew</Label>
+        <Label htmlFor="om-team">{t("Team / crew")}</Label>
         <Select value={d.team_id} onValueChange={(v) => set({ team_id: v })} disabled={locked}>
           <SelectTrigger id="om-team" size="sm" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE}>No team</SelectItem>
-            {teams.map((t) => (
-              <SelectItem key={t.id} value={String(t.id)}>
-                {t.name}
-                {t.active ? "" : " (inactive)"}
+            <SelectItem value={NONE}>{t("No team")}</SelectItem>
+            {teams.map((x) => (
+              <SelectItem key={x.id} value={String(x.id)}>
+                {x.name}
+                {x.active ? "" : ` ${t("(inactive)")}`}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="om-cost">Estimated cost (THB)</Label>
+        <Label htmlFor="om-cost">{t("Estimated cost (THB)")}</Label>
         <Input id="om-cost" type="number" min={0} value={d.est_cost_thb} onChange={(e) => set({ est_cost_thb: e.target.value })} disabled={locked} placeholder="—" />
       </div>
       <div className="space-y-1.5 sm:col-span-2">
-        <Label>Assignees</Label>
+        <Label>{t("Assignees")}</Label>
         {d.plant_id == null ? (
-          <p className="text-xs text-muted-foreground">Pick a plant first.</p>
+          <p className="text-xs text-muted-foreground">{t("Pick a plant first.")}</p>
         ) : pickable.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Nobody can be assigned to this plant yet (an admin assigns plants in Users & Access).</p>
+          <p className="text-xs text-muted-foreground">{t("Nobody can be assigned to this plant yet (an admin assigns plants in Users & Access).")}</p>
         ) : (
           <div className="flex flex-wrap gap-x-4 gap-y-2">
             {pickable.map((u) => {
@@ -311,7 +313,7 @@ export const TaskDialog: React.FC<{
                     onCheckedChange={(c) => set({ assignee_ids: c ? [...d.assignee_ids, u.id] : d.assignee_ids.filter((x) => x !== u.id) })}
                   />
                   {personName(u)}
-                  {u.id === me ? " (you)" : ""}
+                  {u.id === me ? ` ${t("(you)")}` : ""}
                 </label>
               );
             })}
@@ -320,13 +322,13 @@ export const TaskDialog: React.FC<{
       </div>
       {(issues.length > 0 || d.issue_id !== NONE) && (
         <div className="space-y-1.5 sm:col-span-2">
-          <Label htmlFor="om-issue">Answers issue (optional)</Label>
+          <Label htmlFor="om-issue">{t("Answers issue (optional)")}</Label>
           <Select value={d.issue_id} onValueChange={(v) => set({ issue_id: v })} disabled={locked}>
             <SelectTrigger id="om-issue" size="sm" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE}>No issue</SelectItem>
+              <SelectItem value={NONE}>{t("No issue")}</SelectItem>
               {task?.issue && !issues.some((i) => i.id === task.issue!.id) && (
                 <SelectItem value={String(task.issue.id)}>
                   #{task.issue.id} {task.issue.rule} ({task.issue.status})
@@ -334,9 +336,9 @@ export const TaskDialog: React.FC<{
               )}
               {issues.map((i) => (
                 <SelectItem key={i.id} value={String(i.id)}>
-                  #{i.id} {i.rule} {i.name} · {i.inverter_name || i.device_sn || "plant"}
+                  #{i.id} {i.rule} {i.name} · {i.inverter_name || i.device_sn || t("plant")}
                   {i.string_no != null ? ` · PV${i.string_no}` : ""}
-                  {i.shadow ? " (shadow)" : ""}
+                  {i.shadow ? ` ${t("(shadow)")}` : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -344,13 +346,13 @@ export const TaskDialog: React.FC<{
         </div>
       )}
       <div className="space-y-1.5 sm:col-span-2">
-        <Label htmlFor="om-note">Note</Label>
+        <Label htmlFor="om-note">{t("Note")}</Label>
         <Textarea id="om-note" rows={2} maxLength={2000} value={d.note} onChange={(e) => set({ note: e.target.value })} />
       </div>
       {task && !locked && (
         <div className="space-y-1.5 sm:col-span-2">
-          <Label htmlFor="om-comment">Reason for the change (optional, kept in the history)</Label>
-          <Input id="om-comment" maxLength={2000} value={d.comment} onChange={(e) => set({ comment: e.target.value })} placeholder="e.g. moved: rain forecast" />
+          <Label htmlFor="om-comment">{t("Reason for the change (optional, kept in the history)")}</Label>
+          <Input id="om-comment" maxLength={2000} value={d.comment} onChange={(e) => set({ comment: e.target.value })} placeholder={t("e.g. moved: rain forecast")} />
         </div>
       )}
     </div>
@@ -359,22 +361,30 @@ export const TaskDialog: React.FC<{
   const doneForm = task && (
     <div className="grid gap-3 sm:grid-cols-2">
       <p className="text-xs text-muted-foreground sm:col-span-2">
-        This writes a <b>{task.label}</b> event to the plant's Site log with the real dates (today or earlier). After that, only the task's note can change.
+        {/* the type is bold, so the sentence is split at its placeholder (t() without vars keeps "{type}") */}
+        {t("This writes a {type} event to the plant's Site log with the real dates (today or earlier). After that, only the task's note can change.")
+          .split("{type}")
+          .map((part, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <b>{t(task.label)}</b>}
+              {part}
+            </React.Fragment>
+          ))}
       </p>
-      <DayPicker id="om-done-day" label="Work started" value={done.day} max={today} onChange={(v) => setDone((x) => ({ ...x, day: v, end_day: x.end_day < v ? v : x.end_day }))} />
-      <DayPicker id="om-done-end" label="Work finished" value={done.end_day} min={done.day} max={today} onChange={(v) => setDone((x) => ({ ...x, end_day: v }))} />
+      <DayPicker id="om-done-day" label={t("Work started")} value={done.day} max={today} onChange={(v) => setDone((x) => ({ ...x, day: v, end_day: x.end_day < v ? v : x.end_day }))} />
+      <DayPicker id="om-done-end" label={t("Work finished")} value={done.end_day} min={done.day} max={today} onChange={(v) => setDone((x) => ({ ...x, end_day: v }))} />
       <div className="space-y-1.5">
-        <Label htmlFor="om-done-cost">Cost paid (THB)</Label>
+        <Label htmlFor="om-done-cost">{t("Cost paid (THB)")}</Label>
         <Input id="om-done-cost" type="number" min={0} value={done.cost} onChange={(e) => setDone((x) => ({ ...x, cost: e.target.value }))} placeholder="—" />
       </div>
       {task.issue_id != null && (
         <label className="flex items-center gap-2 self-end text-xs">
           <Checkbox checked={done.close_issue} onCheckedChange={(c) => setDone((x) => ({ ...x, close_issue: c === true }))} />
-          Resolve issue #{task.issue_id} (confirmed)
+          {t("Resolve issue #{id} (confirmed)", { id: task.issue_id })}
         </label>
       )}
       <div className="space-y-1.5 sm:col-span-2">
-        <Label htmlFor="om-done-note">Note for the Site log</Label>
+        <Label htmlFor="om-done-note">{t("Note for the Site log")}</Label>
         <Textarea id="om-done-note" rows={2} maxLength={2000} value={done.note} onChange={(e) => setDone((x) => ({ ...x, note: e.target.value }))} />
       </div>
     </div>
@@ -385,14 +395,14 @@ export const TaskDialog: React.FC<{
       {!detail ? (
         <Spinner className="size-4" />
       ) : detail.history.length === 0 ? (
-        <p className="text-muted-foreground">No changes yet.</p>
+        <p className="text-muted-foreground">{t("No changes yet.")}</p>
       ) : (
         detail.history.map((h, i) => (
           <div key={i} className="border-b border-white/[0.06] pb-2">
             <div className="text-muted-foreground">
-              {h.at ? new Date(h.at).toLocaleString("en-GB", { timeZone: "Asia/Bangkok", dateStyle: "medium", timeStyle: "short" }) : "—"} · {h.by ?? "—"}
+              {h.at ? new Date(h.at).toLocaleString(dateLocale(), { timeZone: "Asia/Bangkok", dateStyle: "medium", timeStyle: "short" }) : "—"} · {h.by ?? "—"}
             </div>
-            <div>{changeText(h.change) || "comment"}</div>
+            <div>{changeText(h.change) || t("comment")}</div>
             {h.comment && <div className="text-muted-foreground">“{h.comment}”</div>}
           </div>
         ))
@@ -404,24 +414,24 @@ export const TaskDialog: React.FC<{
     <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{task ? (mode === "done" ? "Mark done" : task.title || task.label) : "Plan a task"}</DialogTitle>
+          <DialogTitle>{task ? (mode === "done" ? t("Mark done") : task.title || t(task.label)) : t("Plan a task")}</DialogTitle>
           <DialogDescription className="flex flex-wrap items-center gap-2">
             {task ? (
               <>
-                <Badge variant={statusOf(task.status).variant}>{statusOf(task.status).label}</Badge>
-                {task.overdue && <Badge variant="crit">Overdue</Badge>}
+                <Badge variant={statusOf(task.status).variant}>{t(statusOf(task.status).label)}</Badge>
+                {task.overdue && <Badge variant="crit">{t("Overdue")}</Badge>}
                 <span>
-                  {task.plant_name ?? `Plant ${task.plant_id}`} · {dayLabel(task.start_day)}
+                  {task.plant_name ?? t("Plant {id}", { id: task.plant_id })} · {dayLabel(task.start_day)}
                   {task.end_day !== task.start_day ? ` → ${dayLabel(task.end_day)}` : ""}
                 </span>
                 {task.site_event_id != null && (
                   <Link className="underline" to={`${plantPath(task.plant_id, "maintenance")}`} onClick={onClose}>
-                    Site log
+                    {t("Site log")}
                   </Link>
                 )}
               </>
             ) : (
-              "Planned work on one plant. Dates may be in the future; mark it done when the work is finished."
+              t("Planned work on one plant. Dates may be in the future; mark it done when the work is finished.")
             )}
           </DialogDescription>
         </DialogHeader>
@@ -431,8 +441,8 @@ export const TaskDialog: React.FC<{
         ) : task ? (
           <Tabs defaultValue="details">
             <TabsList variant="line">
-              <TabsTrigger value="details">Details</TabsTrigger>
-              <TabsTrigger value="history">History</TabsTrigger>
+              <TabsTrigger value="details">{t("Details")}</TabsTrigger>
+              <TabsTrigger value="history">{t("History")}</TabsTrigger>
             </TabsList>
             <TabsContent value="details" className="pt-3">
               {form}
@@ -451,27 +461,27 @@ export const TaskDialog: React.FC<{
           <div className="flex flex-wrap gap-2">
             {mode === "edit" && task && detail?.can_delete && (
               <Button variant="destructive" size="sm" disabled={busy} onClick={() => run(() => api.deleteOmTask(task.plant_id, task.id))}>
-                Delete
+                {t("Delete")}
               </Button>
             )}
             {mode === "edit" && task?.status === "planned" && (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => setStatus("in_progress")}>
-                Start
+                {t("Start")}
               </Button>
             )}
             {mode === "edit" && active && (
               <>
                 <Button variant="outline" size="sm" disabled={busy} onClick={() => setStatus("skipped")}>
-                  Skip
+                  {t("Skip")}
                 </Button>
                 <Button variant="outline" size="sm" disabled={busy} onClick={() => setStatus("cancelled")}>
-                  Cancel task
+                  {t("Cancel task")}
                 </Button>
               </>
             )}
             {mode === "edit" && (task?.status === "skipped" || task?.status === "cancelled") && (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => setStatus("planned")}>
-                Reopen
+                {t("Reopen")}
               </Button>
             )}
           </div>
@@ -479,23 +489,23 @@ export const TaskDialog: React.FC<{
             {mode === "done" ? (
               <>
                 <Button variant="ghost" size="sm" disabled={busy} onClick={() => setMode("edit")}>
-                  Back
+                  {t("Back")}
                 </Button>
                 <Button size="sm" disabled={busy || !done.day} onClick={finish}>
                   {busy && <Spinner data-icon="inline-start" className="size-3" />}
-                  Mark done
+                  {t("Mark done")}
                 </Button>
               </>
             ) : (
               <>
                 {active && (
                   <Button variant="accent" size="sm" disabled={busy} onClick={startDone}>
-                    Mark done…
+                    {t("Mark done…")}
                   </Button>
                 )}
                 <Button size="sm" disabled={busy || (!task && d.plant_id == null)} onClick={save}>
                   {busy && <Spinner data-icon="inline-start" className="size-3" />}
-                  {task ? "Save" : "Plan task"}
+                  {task ? t("Save") : t("Plan task")}
                 </Button>
               </>
             )}

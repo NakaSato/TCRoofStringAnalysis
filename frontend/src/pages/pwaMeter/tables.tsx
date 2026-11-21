@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EST, MODELLED, fmtDay, issueTone } from "./format";
+import { useI18n } from "../../i18n";
 
 export const SiteSortKeys = ["rank", "name", "meter", "contract", "pvsyst", "yield", "avail", "outage", "gaps"] as const;
 export type SiteSort = (typeof SiteSortKeys)[number];
@@ -17,7 +18,7 @@ export type OutageSort = (typeof OutageSortKeys)[number];
 export const CheckSortKeys = ["gap", "median", "name", "low"] as const;
 export type CheckSort = (typeof CheckSortKeys)[number];
 
-function SortHead<K extends string>({
+export function SortHead<K extends string>({
   k,
   label,
   sort,
@@ -44,11 +45,12 @@ function SortHead<K extends string>({
   );
 }
 
-const Tag: React.FC<{ kind: "est" | "mod" }> = ({ kind }) => (
-  <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{kind === "est" ? "est." : "mod."}</span>
-);
+export const Tag: React.FC<{ kind: "est" | "mod" }> = ({ kind }) => {
+  const { t } = useI18n();
+  return <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{kind === "est" ? t("est.") : t("mod.")}</span>;
+};
 
-const SiteCell: React.FC<{ name: string; siteId: string; region: string | null; onOpen?: () => void }> = ({ name, siteId, region, onOpen }) => {
+export const SiteCell: React.FC<{ name: string; siteId: string; region: string | null; onOpen?: () => void }> = ({ name, siteId, region, onOpen }) => {
   const body = (
     <>
       <span className="block truncate">{name}</span>
@@ -68,39 +70,41 @@ const SiteCell: React.FC<{ name: string; siteId: string; region: string | null; 
   );
 };
 
-const pctTone = (v: number | null, good: number, bad: number) => (v == null ? "" : v >= good ? "text-emerald-300" : v < bad ? "text-red-300" : "text-amber-300");
+export const pctTone = (v: number | null, good: number, bad: number) => (v == null ? "" : v >= good ? "text-emerald-300" : v < bad ? "text-red-300" : "text-amber-300");
 
-export const PhaseTotals: React.FC<{ phases: PwaMeterPhaseSummary[] }> = ({ phases }) => (
+export const PhaseTotals: React.FC<{ phases: PwaMeterPhaseSummary[] }> = ({ phases }) => {
+  const { t } = useI18n();
+  return (
   <Table containerClassName="table-wrap">
     <TableHeader>
       <TableRow>
-        <TableHead>Phase</TableHead>
-        <TableHead className="text-right">Sites</TableHead>
+        <TableHead>{t("Phase")}</TableHead>
+        <TableHead className="text-right">{t("Sites")}</TableHead>
         <TableHead className="text-right">kWp</TableHead>
-        <TableHead className="text-right">Meter MWh</TableHead>
-        <TableHead className="text-right" title={MODELLED}>
-          vs contract <Tag kind="mod" />
+        <TableHead className="text-right">{t("Meter MWh")}</TableHead>
+        <TableHead className="text-right" title={t(MODELLED)}>
+          {t("vs contract")} <Tag kind="mod" />
         </TableHead>
-        <TableHead className="text-right" title="Pooled meter ÷ PVsyst on producing days of the sites that are not curtailed">
+        <TableHead className="text-right" title={t("Pooled meter ÷ PVsyst on producing days of the sites that are not curtailed")}>
           PI_free
         </TableHead>
-        <TableHead className="text-right" title="Share of site-days that were not an outage">
-          Availability
+        <TableHead className="text-right" title={t("Share of site-days that were not an outage")}>
+          {t("Availability")}
         </TableHead>
-        <TableHead className="text-right" title="Share of site-days with both readings">
-          Data avail.
+        <TableHead className="text-right" title={t("Share of site-days with both readings")}>
+          {t("Data avail.")}
         </TableHead>
-        <TableHead className="text-right" title={EST}>
-          Curtail. MWh <Tag kind="est" />
+        <TableHead className="text-right" title={t(EST)}>
+          {t("Curtail. MWh")} <Tag kind="est" />
         </TableHead>
-        <TableHead className="text-right" title={EST}>
-          Outage MWh <Tag kind="est" />
+        <TableHead className="text-right" title={t(EST)}>
+          {t("Outage MWh")} <Tag kind="est" />
         </TableHead>
-        <TableHead className="text-right" title={EST}>
-          Under-perf. MWh <Tag kind="est" />
+        <TableHead className="text-right" title={t(EST)}>
+          {t("Under-perf. MWh")} <Tag kind="est" />
         </TableHead>
-        <TableHead className="text-right" title="Meter energy × book price">
-          Fee ฿
+        <TableHead className="text-right" title={t("Meter energy × book price")}>
+          {t("Fee ฿")}
         </TableHead>
       </TableRow>
     </TableHeader>
@@ -108,7 +112,7 @@ export const PhaseTotals: React.FC<{ phases: PwaMeterPhaseSummary[] }> = ({ phas
       {phases.map((p) => (
         <TableRow key={p.phase}>
           <TableCell className="whitespace-nowrap font-medium" title={`${fmtDay(p.first_day)} – ${fmtDay(p.last_day)}`}>
-            Phase {p.phase}
+            {t("Phase {n}", { n: p.phase })}
           </TableCell>
           <TableCell className="num text-right">{fmtInt(p.sites)}</TableCell>
           <TableCell className="num text-right">{fmt(p.kwp, 0)}</TableCell>
@@ -119,7 +123,7 @@ export const PhaseTotals: React.FC<{ phases: PwaMeterPhaseSummary[] }> = ({ phas
           <TableCell className={cn("num text-right", pctTone(p.data_availability_pct, 99.5, 99))}>{fmt(p.data_availability_pct, 2)} %</TableCell>
           <TableCell className="num text-right">
             {fmt(p.curtailment_loss_mwh, 1)}
-            <span className="ml-1 text-[11px] text-muted-foreground">({fmtInt(p.curtailed_sites)} sites)</span>
+            <span className="ml-1 text-[11px] text-muted-foreground">{t("({n} sites)", { n: fmtInt(p.curtailed_sites) })}</span>
           </TableCell>
           <TableCell className="num text-right">{fmt(p.outage_loss_mwh, 1)}</TableCell>
           <TableCell className="num text-right">{fmt(p.under_loss_mwh, 1)}</TableCell>
@@ -128,7 +132,8 @@ export const PhaseTotals: React.FC<{ phases: PwaMeterPhaseSummary[] }> = ({ phas
       ))}
     </TableBody>
   </Table>
-);
+  );
+};
 
 const lossMwh = (r: PwaMeterSiteSummary): number | null =>
   r.curtailment_loss_mwh == null && r.outage_loss_mwh == null && r.under_loss_mwh == null
@@ -164,48 +169,50 @@ export const SitesTable: React.FC<{
   desc: boolean;
   onSort: (k: SiteSort) => void;
   onOpen: (siteId: string) => void;
-}> = ({ rows, sort, desc, onSort, onOpen }) => (
+}> = ({ rows, sort, desc, onSort, onOpen }) => {
+  const { t } = useI18n();
+  return (
   <Table>
     <TableHeader className="sticky top-0 z-10 bg-card">
       <TableRow>
-        <SortHead k="rank" label="#" sort={sort} desc={desc} onSort={onSort} title="Rank by estimated loss ฿" />
-        <SortHead k="name" label="Site" sort={sort} desc={desc} onSort={onSort} />
-        <SortHead k="meter" label="Meter MWh" sort={sort} desc={desc} onSort={onSort} className="text-right" />
+        <SortHead k="rank" label="#" sort={sort} desc={desc} onSort={onSort} title={t("Rank by estimated loss ฿")} />
+        <SortHead k="name" label={t("Site")} sort={sort} desc={desc} onSort={onSort} />
+        <SortHead k="meter" label={t("Meter MWh")} sort={sort} desc={desc} onSort={onSort} className="text-right" />
         <SortHead
           k="contract"
           label={
             <>
-              vs contract <Tag kind="mod" />
+              {t("vs contract")} <Tag kind="mod" />
             </>
           }
           sort={sort}
           desc={desc}
           onSort={onSort}
           className="text-right"
-          title={`Meter ÷ contract expected energy. ${MODELLED}`}
+          title={`${t("Meter ÷ contract expected energy.")} ${t(MODELLED)}`}
         />
         <SortHead
           k="pvsyst"
           label={
             <>
-              vs PVsyst <Tag kind="mod" />
+              {t("vs PVsyst")} <Tag kind="mod" />
             </>
           }
           sort={sort}
           desc={desc}
           onSort={onSort}
           className="text-right"
-          title={`Meter ÷ PVsyst P50 on producing days (PI_PVsyst). ${MODELLED}`}
+          title={`${t("Meter ÷ PVsyst P50 on producing days (PI_PVsyst).")} ${t(MODELLED)}`}
         />
-        <SortHead k="yield" label="kWh/kWp" sort={sort} desc={desc} onSort={onSort} className="text-right" title="Meter energy ÷ contract kWp" />
-        <SortHead k="avail" label="Availability" sort={sort} desc={desc} onSort={onSort} className="text-right" />
-        <SortHead k="outage" label="Outage d" sort={sort} desc={desc} onSort={onSort} className="text-right" />
-        <SortHead k="gaps" label="Gap d" sort={sort} desc={desc} onSort={onSort} className="text-right" title="Days with the meter or the inverter reading missing" />
-        <TableHead className="text-right" title={`(Curtailment + outage + under-performance) × book price; the MWh split is in each cell's tooltip. ${EST}`}>
-          Loss ฿ <Tag kind="est" />
+        <SortHead k="yield" label="kWh/kWp" sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Meter energy ÷ contract kWp")} />
+        <SortHead k="avail" label={t("Availability")} sort={sort} desc={desc} onSort={onSort} className="text-right" />
+        <SortHead k="outage" label={t("Outage d")} sort={sort} desc={desc} onSort={onSort} className="text-right" />
+        <SortHead k="gaps" label={t("Gap d")} sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Days with the meter or the inverter reading missing")} />
+        <TableHead className="text-right" title={`${t("(Curtailment + outage + under-performance) × book price; the MWh split is in each cell's tooltip.")} ${t(EST)}`}>
+          {t("Loss ฿")} <Tag kind="est" />
         </TableHead>
-        <TableHead>Issues</TableHead>
-        <TableHead>Owner</TableHead>
+        <TableHead>{t("Issues")}</TableHead>
+        <TableHead>{t("Owner")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -220,13 +227,13 @@ export const SitesTable: React.FC<{
           <TableCell className="num text-right">{r.vs_pvsyst_pct == null ? "—" : `${fmt(r.vs_pvsyst_pct, 1)} %`}</TableCell>
           <TableCell className="num text-right">{fmtInt(r.yield_kwh_kwp)}</TableCell>
           <TableCell className={cn("num text-right", pctTone(r.availability_pct, 99.5, 99))}>{r.availability_pct == null ? "—" : `${fmt(r.availability_pct, 2)} %`}</TableCell>
-          <TableCell className={cn("num text-right", r.outage_recent_days > 0 && "text-red-300")} title={r.outage_recent_days ? `${r.outage_recent_days} in the last 14 days of the window` : undefined}>
+          <TableCell className={cn("num text-right", r.outage_recent_days > 0 && "text-red-300")} title={r.outage_recent_days ? t("{n} in the last 14 days of the window", { n: r.outage_recent_days }) : undefined}>
             {fmtInt(r.outage_days)}
           </TableCell>
           <TableCell className="num text-right">{fmtInt(r.data_gap_days)}</TableCell>
           <TableCell
             className="num text-right"
-            title={`${fmt(lossMwh(r), 1)} MWh: curtailment ${fmt(r.curtailment_loss_mwh, 2)} · outage ${fmt(r.outage_loss_mwh, 2)} · under-performance ${fmt(r.under_loss_mwh, 2)}`}
+            title={t("{mwh} MWh: curtailment {c} · outage {o} · under-performance {u}", { mwh: fmt(lossMwh(r), 1), c: fmt(r.curtailment_loss_mwh, 2), o: fmt(r.outage_loss_mwh, 2), u: fmt(r.under_loss_mwh, 2) })}
           >
             {fmtInt(r.loss_thb)}
           </TableCell>
@@ -238,8 +245,8 @@ export const SitesTable: React.FC<{
                 </Badge>
               ))}
               {r.curtailed && !r.issues.includes("หรี่กำลัง") && (
-                <Badge variant="neutral" title={`${r.curtailment_note_days} days with a curtailment note`}>
-                  Curtailed
+                <Badge variant="neutral" title={t("{n} days with a curtailment note", { n: r.curtailment_note_days })}>
+                  {t("Curtailed")}
                 </Badge>
               )}
             </span>
@@ -249,7 +256,8 @@ export const SitesTable: React.FC<{
       ))}
     </TableBody>
   </Table>
-);
+  );
+};
 
 export const outageSortValue = (r: PwaOutageEvent, k: OutageSort): number | string | null =>
   k === "days" ? r.days : k === "start" ? r.start : k === "lost" ? r.lost_mwh : r.name;
@@ -261,32 +269,34 @@ export const OutagesTable: React.FC<{
   onSort: (k: OutageSort) => void;
   onOpen?: (siteId: string) => void;
   longDays: number;
-}> = ({ rows, sort, desc, onSort, onOpen, longDays }) => (
+}> = ({ rows, sort, desc, onSort, onOpen, longDays }) => {
+  const { t } = useI18n();
+  return (
   <Table>
     <TableHeader className="sticky top-0 z-10 bg-card">
       <TableRow>
-        <SortHead k="name" label="Site" sort={sort} desc={desc} onSort={onSort} />
-        <SortHead k="start" label="From" sort={sort} desc={desc} onSort={onSort} />
-        <TableHead>To</TableHead>
-        <SortHead k="days" label="Days" sort={sort} desc={desc} onSort={onSort} className="text-right" />
-        <TableHead>Cause</TableHead>
+        <SortHead k="name" label={t("Site")} sort={sort} desc={desc} onSort={onSort} />
+        <SortHead k="start" label={t("From")} sort={sort} desc={desc} onSort={onSort} />
+        <TableHead>{t("To")}</TableHead>
+        <SortHead k="days" label={t("Days")} sort={sort} desc={desc} onSort={onSort} className="text-right" />
+        <TableHead>{t("Cause")}</TableHead>
         <SortHead
           k="lost"
           label={
             <>
-              Lost MWh <Tag kind="est" />
+              {t("Lost MWh")} <Tag kind="est" />
             </>
           }
           sort={sort}
           desc={desc}
           onSort={onSort}
           className="text-right"
-          title={`PVsyst on the outage days × the phase PI_free. ${EST}`}
+          title={`${t("PVsyst on the outage days × the phase PI_free.")} ${t(EST)}`}
         />
-        <TableHead className="text-right" title={EST}>
-          Lost ฿ <Tag kind="est" />
+        <TableHead className="text-right" title={t(EST)}>
+          {t("Lost ฿")} <Tag kind="est" />
         </TableHead>
-        <TableHead>Note</TableHead>
+        <TableHead>{t("Note")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -296,7 +306,7 @@ export const OutagesTable: React.FC<{
             <SiteCell name={r.name} siteId={r.site_id} region={r.region} onOpen={onOpen && (() => onOpen(r.site_id))} />
           </TableCell>
           <TableCell className="num whitespace-nowrap">{fmtDay(r.start)}</TableCell>
-          <TableCell className="num whitespace-nowrap">{r.end === r.start ? <span className="text-muted-foreground">same day</span> : fmtDay(r.end)}</TableCell>
+          <TableCell className="num whitespace-nowrap">{r.end === r.start ? <span className="text-muted-foreground">{t("same day")}</span> : fmtDay(r.end)}</TableCell>
           <TableCell className={cn("num text-right", r.days >= longDays && "text-red-300")}>{r.days}</TableCell>
           <TableCell className="whitespace-nowrap">{r.cause}</TableCell>
           <TableCell className="num text-right">{fmt(r.lost_mwh, 2)}</TableCell>
@@ -310,7 +320,8 @@ export const OutagesTable: React.FC<{
       ))}
     </TableBody>
   </Table>
-);
+  );
+};
 
 export const checkSortValue = (r: PwaMeterCheck, k: CheckSort): number | string | null =>
   k === "gap" ? r.gap_mwh : k === "median" ? r.median_ratio_pct : k === "low" ? r.low_days + r.meter_missing_days : r.name;
@@ -321,47 +332,49 @@ export const MeterCheckTable: React.FC<{
   desc: boolean;
   onSort: (k: CheckSort) => void;
   onOpen: (siteId: string) => void;
-}> = ({ rows, sort, desc, onSort, onOpen }) => (
+}> = ({ rows, sort, desc, onSort, onOpen }) => {
+  const { t } = useI18n();
+  return (
   <Table>
     <TableHeader className="sticky top-0 z-10 bg-card">
       <TableRow>
-        <SortHead k="name" label="Site" sort={sort} desc={desc} onSort={onSort} />
+        <SortHead k="name" label={t("Site")} sort={sort} desc={desc} onSort={onSort} />
         <SortHead
           k="median"
-          label="Meter ÷ inverter"
+          label={t("Meter ÷ inverter")}
           sort={sort}
           desc={desc}
           onSort={onSort}
           className="text-right"
-          title="The site's median ratio on days both read > 0 (the AC losses; fleet ≈ 99.4 %)"
+          title={t("The site's median ratio on days both read > 0 (the AC losses; fleet ≈ 99.4 %)")}
         />
-        <TableHead className="text-right" title="5th percentile of the daily ratio">
+        <TableHead className="text-right" title={t("5th percentile of the daily ratio")}>
           P05
         </TableHead>
-        <SortHead k="low" label="Low / meter missing d" sort={sort} desc={desc} onSort={onSort} className="text-right" title="Days the ratio fell > 3 points under the median, and days the meter read nothing while the inverter produced" />
-        <TableHead className="text-right" title="Days the meter read above the inverter (ratio > 1.005)">
-          High d
+        <SortHead k="low" label={t("Low / meter missing d")} sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Days the ratio fell > 3 points under the median, and days the meter read nothing while the inverter produced")} />
+        <TableHead className="text-right" title={t("Days the meter read above the inverter (ratio > 1.005)")}>
+          {t("High d")}
         </TableHead>
-        <TableHead className="text-right" title="Days the meter read but the inverter total is missing">
-          Inv. missing d
+        <TableHead className="text-right" title={t("Days the meter read but the inverter total is missing")}>
+          {t("Inv. missing d")}
         </TableHead>
         <SortHead
           k="gap"
           label={
             <>
-              Gap MWh <Tag kind="est" />
+              {t("Gap MWh")} <Tag kind="est" />
             </>
           }
           sort={sort}
           desc={desc}
           onSort={onSort}
           className="text-right"
-          title={`Energy the meter may have missed: inverter × the site median − meter on low / high days, + inverter × median on meter-missing days. ${EST}`}
+          title={`${t("Energy the meter may have missed: inverter × the site median − meter on low / high days, + inverter × median on meter-missing days.")} ${t(EST)}`}
         />
-        <TableHead className="text-right" title={EST}>
-          Gap ฿ <Tag kind="est" />
+        <TableHead className="text-right" title={t(EST)}>
+          {t("Gap ฿")} <Tag kind="est" />
         </TableHead>
-        <TableHead>Flags</TableHead>
+        <TableHead>{t("Flags")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -394,4 +407,5 @@ export const MeterCheckTable: React.FC<{
       ))}
     </TableBody>
   </Table>
-);
+  );
+};

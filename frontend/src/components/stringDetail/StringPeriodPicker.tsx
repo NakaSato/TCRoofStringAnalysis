@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { dayLabel, fromDate, toDate } from "@/lib/day";
 import { MAX_RANGE_DAYS, daysBetween, isRange, periodDayText, rangeDays, shiftDay, windowText } from "./period";
 import type { StringPeriod } from "./period";
+import { useI18n } from "../../i18n";
 
 const QUICK = [
   { label: "Today", back: 0, days: 1 },
@@ -52,6 +53,7 @@ export const StringPeriodPicker: React.FC<{
   resetLabel?: string;
   resetTitle?: string;
 }> = ({ period, onChange, shownDay, shownEndDay, today, loading, onPopoverOpenChange, hint, time = true, align = "start", resetLabel = "Latest", resetTitle = "The newest stored day, all day" }) => {
+  const { t } = useI18n();
   const uid = useId();
   const [open, setOpen] = useState(false);
   useEffect(() => onPopoverOpenChange?.(open), [open, onPopoverOpenChange]);
@@ -65,7 +67,7 @@ export const StringPeriodPicker: React.FC<{
   const last = isRange(period) ? period.endDay : shownLast;
   const span = rangeDays(period);
   const win = windowText(period);
-  const label = first ? `${periodDayText(first, last, today)}${win ? ` · ${win}` : ""}` : "Pick a date";
+  const label = first ? `${periodDayText(first, last, today)}${win ? ` · ${win}` : ""}` : t("Pick a date");
 
   const openChange = (o: boolean) => {
     setOpen(o);
@@ -114,8 +116,8 @@ export const StringPeriodPicker: React.FC<{
           size="icon-sm"
           onClick={() => move(-1)}
           disabled={!first || loading}
-          aria-label={span > 1 ? `Previous ${span} days` : "Previous day"}
-          title={span > 1 ? `Previous ${span} days` : "Previous day"}
+          aria-label={span > 1 ? t("Previous {n} days", { n: span }) : t("Previous day")}
+          title={span > 1 ? t("Previous {n} days", { n: span }) : t("Previous day")}
         >
           <ChevronLeft />
         </Button>
@@ -126,8 +128,8 @@ export const StringPeriodPicker: React.FC<{
               size="sm"
               data-empty={!first}
               className="num justify-start font-normal data-[empty=true]:text-muted-foreground"
-              aria-label="Period shown"
-              title={first ? (last ? `${dayLabel(first)} – ${dayLabel(last)} (${span} days)` : dayLabel(first)) : undefined}
+              aria-label={t("Period shown")}
+              title={first ? (last ? `${dayLabel(first)} – ${dayLabel(last)} (${t("{n} days", { n: span })})` : dayLabel(first)) : undefined}
             >
               <CalendarIcon data-icon="inline-start" />
               {label}
@@ -152,14 +154,14 @@ export const StringPeriodPicker: React.FC<{
               <div className="flex flex-wrap gap-1">
                 {QUICK.map((q) => (
                   <Button key={q.label} variant="outline" size="xs" onClick={() => quick(q.back, q.days)}>
-                    {q.label}
+                    {t(q.label)}
                   </Button>
                 ))}
               </div>
               {time && (
                 <FieldGroup className="flex-row gap-3">
                   <Field data-invalid={badTime}>
-                    <FieldLabel htmlFor={`${uid}-from`}>From</FieldLabel>
+                    <FieldLabel htmlFor={`${uid}-from`}>{t("From")}</FieldLabel>
                     <Input
                       id={`${uid}-from`}
                       type="time"
@@ -171,7 +173,7 @@ export const StringPeriodPicker: React.FC<{
                     />
                   </Field>
                   <Field data-invalid={badTime}>
-                    <FieldLabel htmlFor={`${uid}-to`}>To</FieldLabel>
+                    <FieldLabel htmlFor={`${uid}-to`}>{t("To")}</FieldLabel>
                     <Input
                       id={`${uid}-to`}
                       type="time"
@@ -184,21 +186,21 @@ export const StringPeriodPicker: React.FC<{
                   </Field>
                 </FieldGroup>
               )}
-              {time && badTime && <FieldError>“From” is after “To”.</FieldError>}
-              {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+              {time && badTime && <FieldError>{t("“From” is after “To”.")}</FieldError>}
+              {hint && <p className="text-xs text-muted-foreground">{t(hint)}</p>}
               <div className="flex items-center justify-between gap-2">
                 <span className="num text-xs text-muted-foreground">
-                  {picked ? `${picked} day${picked === 1 ? "" : "s"}` : "Pick a day or a range"}
-                  {!time ? "" : from || to ? ` · ${from || "00:00"}–${to || "24:00"}` : " · all day"}
+                  {picked ? t(picked === 1 ? "{n} day" : "{n} days", { n: picked }) : t("Pick a day or a range")}
+                  {!time ? "" : from || to ? ` · ${from || "00:00"}–${to || "24:00"}` : ` · ${t("all day")}`}
                 </span>
                 <div className="flex gap-2">
                   {time && (
                     <Button variant="ghost" size="sm" onClick={() => (setFrom(""), setTo(""))} disabled={!from && !to}>
-                      All day
+                      {t("All day")}
                     </Button>
                   )}
                   <Button size="sm" onClick={apply} disabled={!range?.from || (time && badTime)}>
-                    Apply
+                    {t("Apply")}
                   </Button>
                 </div>
               </div>
@@ -210,15 +212,15 @@ export const StringPeriodPicker: React.FC<{
           size="icon-sm"
           onClick={() => move(1)}
           disabled={!canNext || loading}
-          aria-label={span > 1 ? `Next ${span} days` : "Next day"}
-          title={span > 1 ? `Next ${span} days` : "Next day"}
+          aria-label={span > 1 ? t("Next {n} days", { n: span }) : t("Next day")}
+          title={span > 1 ? t("Next {n} days", { n: span }) : t("Next day")}
         >
           <ChevronRight />
         </Button>
       </ButtonGroup>
       {(period.day != null || win) && (
-        <Button variant="ghost" size="sm" onClick={() => onChange({ day: null, endDay: null, start: "", end: "" })} title={resetTitle}>
-          {resetLabel}
+        <Button variant="ghost" size="sm" onClick={() => onChange({ day: null, endDay: null, start: "", end: "" })} title={t(resetTitle)}>
+          {t(resetLabel)}
         </Button>
       )}
     </div>

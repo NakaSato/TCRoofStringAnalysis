@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toolsApi } from "./useInstruments";
 import { CATEGORIES, DUE_KIND, addDays, addMonths, categoryOf, fmtDay } from "./format";
 import { isWebUrl } from "@/lib/safeUrl";
+import { translate, useI18n } from "../../i18n";
 
 const NONE = "__none";
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -49,7 +50,8 @@ export const DayInput: React.FC<{
   max?: string;
   placeholder?: string;
   clearable?: boolean;
-}> = ({ id, value, onChange, min, max, placeholder = "Pick a day", clearable }) => {
+}> = ({ id, value, onChange, min, max, placeholder, clearable }) => {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const disabled = [...(min ? [{ before: toDate(min) }] : []), ...(max ? [{ after: toDate(max) }] : [])];
   return (
@@ -57,7 +59,7 @@ export const DayInput: React.FC<{
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button id={id} variant="outline" size="sm" className="num w-full justify-start">
-            {value ? fmtDay(value) : <span className="text-slate-500">{placeholder}</span>}
+            {value ? fmtDay(value) : <span className="text-slate-500">{placeholder ?? t("Pick a day")}</span>}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
@@ -77,7 +79,7 @@ export const DayInput: React.FC<{
       </Popover>
       {clearable && value && (
         <Button variant="ghost" size="sm" onClick={() => onChange(null)}>
-          Clear
+          {t("Clear")}
         </Button>
       )}
     </div>
@@ -92,20 +94,23 @@ export const Footer: React.FC<{ busy: boolean; error: string | null; onClose: ()
   label,
   disabled,
   destructive,
-}) => (
-  <>
-    {error && <div className="callout-crit text-xs">{error}</div>}
-    <DialogFooter>
-      <Button variant="ghost" onClick={onClose} disabled={busy}>
-        Cancel
-      </Button>
-      <Button variant={destructive ? "destructive" : "default"} onClick={onSubmit} disabled={busy || disabled}>
-        {busy && <Spinner data-icon="inline-start" className="size-3" />}
-        {label}
-      </Button>
-    </DialogFooter>
-  </>
-);
+}) => {
+  const { t } = useI18n();
+  return (
+    <>
+      {error && <div className="callout-crit text-xs">{error}</div>}
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
+          {t("Cancel")}
+        </Button>
+        <Button variant={destructive ? "destructive" : "default"} onClick={onSubmit} disabled={busy || disabled}>
+          {busy && <Spinner data-icon="inline-start" className="size-3" />}
+          {label}
+        </Button>
+      </DialogFooter>
+    </>
+  );
+};
 
 /** run an async action with busy / error state; closes and calls `onDone` on success */
 export function useSubmit(onDone: () => void) {
@@ -162,6 +167,7 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
   onClose,
   onSaved,
 }) => {
+  const { t } = useI18n();
   const [d, setD] = useState<Draft>(() => toDraft(editing));
   const { busy, error, setError, run } = useSubmit(() => {
     onSaved();
@@ -183,14 +189,14 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
       const raw = (d.specs[f.key] ?? "").trim();
       if (f.kind === "number") {
         const n = numOrNull(raw);
-        if (n === undefined) return setError(`${f.label} must be a number`);
+        if (n === undefined) return setError(t("{label} must be a number", { label: t(f.label) }));
         specs[f.key] = n;
       } else specs[f.key] = raw || null;
     }
     const interval = numOrNull(d.interval);
     const cost = numOrNull(d.cost);
-    if (interval === undefined || (interval != null && (interval <= 0 || !Number.isInteger(interval)))) return setError("Interval must be whole months");
-    if (cost === undefined) return setError("Cost must be a number");
+    if (interval === undefined || (interval != null && (interval <= 0 || !Number.isInteger(interval)))) return setError(t("Interval must be whole months"));
+    if (cost === undefined) return setError(t("Cost must be a number"));
     const body: InstrumentBody = {
       asset_tag: d.asset_tag.trim(),
       name: d.name.trim(),
@@ -211,11 +217,11 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{editing ? `Edit ${editing.asset_tag}` : "Add instrument"}</DialogTitle>
-          <DialogDescription>Leave a field empty when you don't know it: it shows as "—", never as a typical value.</DialogDescription>
+          <DialogTitle>{editing ? t("Edit {name}", { name: editing.asset_tag }) : t("Add instrument")}</DialogTitle>
+          <DialogDescription>{t('Leave a field empty when you don\'t know it: it shows as "—", never as a typical value.')}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field id="in-cat" label="Category" wide>
+          <Field id="in-cat" label={t("Category")} wide>
             <Select value={d.category} onValueChange={(v) => set({ category: v as InstrumentCategory })}>
               <SelectTrigger id="in-cat" size="sm" className="w-full">
                 <SelectValue />
@@ -224,58 +230,62 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
                 {CATEGORIES.map((c) => (
                   <SelectItem key={c.value} value={c.value}>
                     <c.icon />
-                    {c.label}
+                    {t(c.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field id="in-tag" label="Asset tag">
-            <Input id="in-tag" value={d.asset_tag} onChange={(e) => set({ asset_tag: e.target.value })} placeholder="e.g. MT-012" />
+          <Field id="in-tag" label={t("Asset tag")}>
+            <Input id="in-tag" value={d.asset_tag} onChange={(e) => set({ asset_tag: e.target.value })} placeholder={t("e.g. MT-012")} />
           </Field>
-          <Field id="in-name" label="Name">
-            <Input id="in-name" value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. DC clamp meter" />
+          <Field id="in-name" label={t("Name")}>
+            <Input id="in-name" value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder={t("e.g. DC clamp meter")} />
           </Field>
-          <Field id="in-make" label="Make">
+          <Field id="in-make" label={t("Make")}>
             <Input id="in-make" value={d.make} onChange={(e) => set({ make: e.target.value })} />
           </Field>
-          <Field id="in-model" label="Model">
+          <Field id="in-model" label={t("Model")}>
             <Input id="in-model" value={d.model} onChange={(e) => set({ model: e.target.value })} />
           </Field>
-          <Field id="in-sn" label="Serial no." wide>
+          <Field id="in-sn" label={t("Serial no.")} wide>
             <Input id="in-sn" value={d.serial_no} onChange={(e) => set({ serial_no: e.target.value })} />
           </Field>
 
-          <div className="eyebrow pt-1 sm:col-span-2">Specs · {def.label}</div>
+          <div className="eyebrow pt-1 sm:col-span-2">{t("Specs · {name}", { name: t(def.label) })}</div>
           {def.specs.map((f) => (
-            <Field key={f.key} id={`in-spec-${f.key}`} label={f.unit ? `${f.label} (${f.unit})` : f.label}>
+            <Field key={f.key} id={`in-spec-${f.key}`} label={f.unit ? `${t(f.label)} (${t(f.unit)})` : t(f.label)}>
               <Input
                 id={`in-spec-${f.key}`}
                 inputMode={f.kind === "number" ? "decimal" : undefined}
                 value={d.specs[f.key] ?? ""}
-                placeholder={f.placeholder}
+                placeholder={f.placeholder && t(f.placeholder)}
                 onChange={(e) => set({ specs: { ...d.specs, [f.key]: e.target.value } })}
               />
             </Field>
           ))}
 
-          <div className="eyebrow pt-1 sm:col-span-2">Ownership</div>
+          <div className="eyebrow pt-1 sm:col-span-2">{t("Ownership")}</div>
           {usesCalibration && (
-            <Field id="in-int" label="Calibration interval (months)" hint="Used to set the next due date from a calibration day. Empty = enter each due date by hand.">
+            <Field
+              id="in-int"
+              label={t("Calibration interval (months)")}
+              hint={t("Used to set the next due date from a calibration day. Empty = enter each due date by hand.")}
+            >
               <Input id="in-int" inputMode="numeric" value={d.interval} onChange={(e) => set({ interval: e.target.value })} />
             </Field>
           )}
-          <Field id="in-buy" label="Purchased">
-            <DayInput id="in-buy" value={d.purchase_day} onChange={(v) => set({ purchase_day: v })} max={plantToday()} clearable placeholder="Not entered" />
+          <Field id="in-buy" label={t("Purchased")}>
+            <DayInput id="in-buy" value={d.purchase_day} onChange={(v) => set({ purchase_day: v })} max={plantToday()} clearable placeholder={t("Not entered")} />
           </Field>
-          <Field id="in-cost" label="Cost (THB)">
+          <Field id="in-cost" label={t("Cost (THB)")}>
             <Input id="in-cost" inputMode="decimal" value={d.cost} onChange={(e) => set({ cost: e.target.value })} />
           </Field>
-          <Field id="in-note" label="Note" wide>
+          <Field id="in-note" label={t("Note")} wide>
             <Textarea id="in-note" rows={2} value={d.note} onChange={(e) => set({ note: e.target.value })} />
           </Field>
         </div>
-        <Footer busy={busy} error={error} onClose={onClose} onSubmit={submit} label={editing ? "Save" : "Add"} disabled={!d.asset_tag.trim() || !d.name.trim()} />
+        <Footer busy={busy} error={error} onClose={onClose} onSubmit={submit} label={editing ? t("Save") : t("Add")} disabled={!d.asset_tag.trim() || !d.name.trim()} />
       </DialogContent>
     </Dialog>
   );
@@ -283,16 +293,21 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
 
 /* ------------------------------------------------------------------ check out */
 
-/** warnings shown before a check-out; the keys are recorded as acknowledged */
+/** warnings shown before a check-out; the keys are recorded as acknowledged (title / text translated) */
 export function checkoutWarnings(i: Instrument): Array<{ key: string; title: string; text: string; crit: boolean }> {
   const out: Array<{ key: string; title: string; text: string; crit: boolean }> = [];
   const cal = i.due.find((x) => x.kind === "calibration");
   if (cal?.state === "overdue")
-    out.push({ key: "calibration_overdue", title: "Calibration overdue", text: `Overdue since ${fmtDay(cal.next_due)}: readings may not be valid.`, crit: false });
+    out.push({
+      key: "calibration_overdue",
+      title: translate("Calibration overdue"),
+      text: translate("Overdue since {day}: readings may not be valid.", { day: fmtDay(cal.next_due) }),
+      crit: false,
+    });
   if (i.category === "drone") {
-    const expired = i.due.filter((x) => x.state === "overdue").map((x) => DUE_KIND[x.kind]);
+    const expired = i.due.filter((x) => x.state === "overdue").map((x) => translate(DUE_KIND[x.kind]));
     if (expired.length)
-      out.push({ key: "drone_documents_expired", title: `${expired.join(", ")} expired`, text: "Do not fly until it is renewed.", crit: true });
+      out.push({ key: "drone_documents_expired", title: translate("{list} expired", { list: expired.join(", ") }), text: translate("Do not fly until it is renewed."), crit: true });
   }
   return out;
 }
@@ -300,6 +315,7 @@ export function checkoutWarnings(i: Instrument): Array<{ key: string; title: str
 export const CheckoutDialog: React.FC<{ instrument: Instrument | null; onClose: () => void; onDone: () => void }> = ({ instrument, onClose, onDone }) => {
   const { user, growattPlants } = useAppContext();
   const admin = isAdmin(user);
+  const { t } = useI18n();
   const today = plantToday();
   const [plant, setPlant] = useState(NONE);
   const [holder, setHolder] = useState(NONE);
@@ -344,7 +360,7 @@ export const CheckoutDialog: React.FC<{ instrument: Instrument | null; onClose: 
     <Dialog open={instrument != null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Check out {instrument?.asset_tag}</DialogTitle>
+          <DialogTitle>{t("Check out {name}", { name: instrument?.asset_tag ?? "" })}</DialogTitle>
           <DialogDescription>{instrument?.name}</DialogDescription>
         </DialogHeader>
         {warnings.map((w) => (
@@ -354,14 +370,14 @@ export const CheckoutDialog: React.FC<{ instrument: Instrument | null; onClose: 
           </Alert>
         ))}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field id="co-holder" label="Holder" wide={!admin}>
+          <Field id="co-holder" label={t("Holder")} wide={!admin}>
             {admin ? (
               <Select value={holder} onValueChange={setHolder}>
                 <SelectTrigger id="co-holder" size="sm" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>Me</SelectItem>
+                  <SelectItem value={NONE}>{t("Me")}</SelectItem>
                   {users.filter((u) => u.id !== user?.id).length > 0 && <SelectSeparator />}
                   {users
                     .filter((u) => u.id !== user?.id)
@@ -376,16 +392,16 @@ export const CheckoutDialog: React.FC<{ instrument: Instrument | null; onClose: 
               <Input id="co-holder" value={user?.full_name || user?.username || ""} disabled />
             )}
           </Field>
-          <Field id="co-back" label="Due back">
+          <Field id="co-back" label={t("Due back")}>
             <DayInput id="co-back" value={dueBack} onChange={setDueBack} min={today} />
           </Field>
-          <Field id="co-plant" label="Plant" wide>
+          <Field id="co-plant" label={t("Plant")} wide>
             <Select value={plant} onValueChange={setPlant}>
               <SelectTrigger id="co-plant" size="sm" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Not to a plant</SelectItem>
+                <SelectItem value={NONE}>{t("Not to a plant")}</SelectItem>
                 <SelectSeparator />
                 {plants.map((p) => (
                   <SelectItem key={p.plant_id} value={String(p.plant_id)}>
@@ -395,16 +411,17 @@ export const CheckoutDialog: React.FC<{ instrument: Instrument | null; onClose: 
               </SelectContent>
             </Select>
           </Field>
-          <Field id="co-note" label="Note" wide>
-            <Textarea id="co-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it is for (IR flight, I-V test, …)" />
+          <Field id="co-note" label={t("Note")} wide>
+            <Textarea id="co-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("What it is for (IR flight, I-V test, …)")} />
           </Field>
         </div>
         {warnings.length > 0 && (
           <label className="flex items-center gap-2 text-xs text-slate-300">
-            <Checkbox checked={ack} onCheckedChange={(v) => setAck(v === true)} />I have read the warning{warnings.length > 1 ? "s" : ""} above
+            <Checkbox checked={ack} onCheckedChange={(v) => setAck(v === true)} />
+            {warnings.length > 1 ? t("I have read the warnings above") : t("I have read the warning above")}
           </label>
         )}
-        <Footer busy={busy} error={error} onClose={onClose} onSubmit={submit} label="Check out" disabled={!dueBack || (warnings.length > 0 && !ack)} />
+        <Footer busy={busy} error={error} onClose={onClose} onSubmit={submit} label={t("Check out")} disabled={!dueBack || (warnings.length > 0 && !ack)} />
       </DialogContent>
     </Dialog>
   );
@@ -419,6 +436,7 @@ const CONDITIONS: Array<{ value: CheckoutCondition; label: string; hint: string 
 ];
 
 export const ReturnDialog: React.FC<{ instrument: Instrument | null; onClose: () => void; onDone: () => void }> = ({ instrument, onClose, onDone }) => {
+  const { t } = useI18n();
   const [condition, setCondition] = useState<CheckoutCondition>("ok");
   const [note, setNote] = useState("");
   const { busy, error, setError, run } = useSubmit(() => {
@@ -436,14 +454,14 @@ export const ReturnDialog: React.FC<{ instrument: Instrument | null; onClose: ()
     <Dialog open={instrument != null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Check in {instrument?.asset_tag}</DialogTitle>
+          <DialogTitle>{t("Check in {name}", { name: instrument?.asset_tag ?? "" })}</DialogTitle>
           <DialogDescription>
             {instrument?.name}
-            {instrument?.open_checkout?.holder ? ` · held by ${instrument.open_checkout.holder.name}` : ""}
+            {instrument?.open_checkout?.holder ? ` · ${t("held by {name}", { name: instrument.open_checkout.holder.name })}` : ""}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <Field id="rt-cond" label="Condition">
+          <Field id="rt-cond" label={t("Condition")}>
             <Select value={condition} onValueChange={(v) => setCondition(v as CheckoutCondition)}>
               <SelectTrigger id="rt-cond" size="sm" className="w-full">
                 <SelectValue />
@@ -451,13 +469,13 @@ export const ReturnDialog: React.FC<{ instrument: Instrument | null; onClose: ()
               <SelectContent>
                 {CONDITIONS.map((c) => (
                   <SelectItem key={c.value} value={c.value}>
-                    {c.label} <span className="text-muted-foreground">· {c.hint}</span>
+                    {t(c.label)} <span className="text-muted-foreground">· {t(c.hint)}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field id="rt-note" label={needsNote ? "What happened" : "Note"}>
+          <Field id="rt-note" label={needsNote ? t("What happened") : t("Note")}>
             <Textarea id="rt-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
         </div>
@@ -466,7 +484,7 @@ export const ReturnDialog: React.FC<{ instrument: Instrument | null; onClose: ()
           error={error}
           onClose={onClose}
           onSubmit={() => void run(() => toolsApi.returnInstrument(instrument!.id, { condition, note: note.trim() || null }))}
-          label="Check in"
+          label={t("Check in")}
           disabled={needsNote && !note.trim()}
         />
       </DialogContent>
@@ -481,6 +499,7 @@ export const DueDialog: React.FC<{ target: { instrument: Instrument; kind?: DueK
   onClose,
   onDone,
 }) => {
+  const { t } = useI18n();
   const instrument = target?.instrument ?? null;
   const kinds = instrument ? categoryOf(instrument.category).dueKinds : [];
   const [kind, setKind] = useState<DueKind>("calibration");
@@ -513,9 +532,9 @@ export const DueDialog: React.FC<{ target: { instrument: Instrument; kind?: DueK
   const interval = instrument?.calibration_interval_months ?? null;
   const fromInterval = kind === "calibration" && interval && day ? addMonths(day, interval) : null;
   const submit = () => {
-    if (url.trim() && !isWebUrl(url)) return setError("The link must start with http:// or https://");
+    if (url.trim() && !isWebUrl(url)) return setError(t("The link must start with http:// or https://"));
     const c = numOrNull(cost);
-    if (c === undefined) return setError("Cost must be a number");
+    if (c === undefined) return setError(t("Cost must be a number"));
     void run(() =>
       toolsApi.recordInstrumentDue(instrument!.id, {
         kind,
@@ -534,12 +553,12 @@ export const DueDialog: React.FC<{ target: { instrument: Instrument; kind?: DueK
     <Dialog open={target != null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Record {kind === "calibration" ? "calibration" : "renewal"} · {instrument?.asset_tag}</DialogTitle>
+          <DialogTitle>{t(kind === "calibration" ? "Record calibration · {name}" : "Record renewal · {name}", { name: instrument?.asset_tag ?? "" })}</DialogTitle>
           <DialogDescription>{instrument?.name}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {kinds.length > 1 && (
-            <Field id="du-kind" label="What" wide>
+            <Field id="du-kind" label={t("What")} wide>
               <Select value={kind} onValueChange={(v) => setKind(v as DueKind)}>
                 <SelectTrigger id="du-kind" size="sm" className="w-full">
                   <SelectValue />
@@ -547,40 +566,46 @@ export const DueDialog: React.FC<{ target: { instrument: Instrument; kind?: DueK
                 <SelectContent>
                   {kinds.map((k) => (
                     <SelectItem key={k} value={k}>
-                      {DUE_KIND[k]}
+                      {t(DUE_KIND[k])}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </Field>
           )}
-          <Field id="du-day" label={kind === "calibration" ? "Calibrated on" : "Issued / renewed on"}>
+          <Field id="du-day" label={kind === "calibration" ? t("Calibrated on") : t("Issued / renewed on")}>
             <DayInput id="du-day" value={day} onChange={setDay} max={plantToday()} />
           </Field>
           <Field
             id="du-next"
-            label="Next due"
-            hint={next ? undefined : fromInterval ? `Empty = ${fmtDay(fromInterval)} (${interval}-month interval)` : "Empty = no due date (shown as “No date”)"}
+            label={t("Next due")}
+            hint={
+              next
+                ? undefined
+                : fromInterval
+                  ? t("Empty = {day} ({n}-month interval)", { day: fmtDay(fromInterval), n: interval })
+                  : t("Empty = no due date (shown as “No date”)")
+            }
           >
-            <DayInput id="du-next" value={next} onChange={setNext} min={day ?? undefined} clearable placeholder={fromInterval ? fmtDay(fromInterval) : "Not entered"} />
+            <DayInput id="du-next" value={next} onChange={setNext} min={day ?? undefined} clearable placeholder={fromInterval ? fmtDay(fromInterval) : t("Not entered")} />
           </Field>
-          <Field id="du-no" label={kind === "calibration" ? "Certificate no." : "Number"}>
+          <Field id="du-no" label={kind === "calibration" ? t("Certificate no.") : t("Number")}>
             <Input id="du-no" value={number} onChange={(e) => setNumber(e.target.value)} />
           </Field>
-          <Field id="du-iss" label={kind === "calibration" ? "Lab" : "Issuer"}>
+          <Field id="du-iss" label={kind === "calibration" ? t("Lab") : t("Issuer")}>
             <Input id="du-iss" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
           </Field>
-          <Field id="du-cost" label="Cost (THB)">
+          <Field id="du-cost" label={t("Cost (THB)")}>
             <Input id="du-cost" inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} />
           </Field>
-          <Field id="du-url" label="Document link">
+          <Field id="du-url" label={t("Document link")}>
             <Input id="du-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" aria-invalid={url.trim() !== "" && !isWebUrl(url)} />
           </Field>
-          <Field id="du-note" label="Note" wide>
+          <Field id="du-note" label={t("Note")} wide>
             <Textarea id="du-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
         </div>
-        <Footer busy={busy} error={error} onClose={onClose} onSubmit={submit} label="Record" disabled={!day} />
+        <Footer busy={busy} error={error} onClose={onClose} onSubmit={submit} label={t("Record")} disabled={!day} />
       </DialogContent>
     </Dialog>
   );

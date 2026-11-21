@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import { api } from "../../api/client";
 import type { OmPerson, OmTeam } from "../../api/client";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,6 +33,7 @@ const Dot: React.FC<{ color: string | null; className?: string }> = ({ color, cl
 );
 
 export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChanged: () => void }> = ({ open, onClose, onChanged }) => {
+  const { t: tr } = useI18n();
   const [teams, setTeams] = useState<OmTeam[] | null>(null);
   const [users, setUsers] = useState<OmPerson[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -91,11 +93,11 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
     <Dialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{draft ? (draft.id == null ? "New team" : "Edit team") : "Teams"}</DialogTitle>
+          <DialogTitle>{draft ? (draft.id == null ? tr("New team") : tr("Edit team")) : tr("Teams")}</DialogTitle>
           <DialogDescription>
             {draft
-              ? "A team with no members works as a contractor crew without logins."
-              : "Crews that tasks can be planned for. Work given to a team with no people assigned gets the team's own row in the week view."}
+              ? tr("A team with no members works as a contractor crew without logins.")
+              : tr("Crews that tasks can be planned for. Work given to a team with no people assigned gets the team's own row in the week view.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -107,7 +109,7 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
               <Spinner className="size-4" />
             </div>
           ) : teams.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No teams yet.</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">{tr("No teams yet.")}</p>
           ) : (
             <ul className="divide-y divide-white/[0.06] rounded-md border border-white/[0.06]">
               {teams.map((t) => (
@@ -117,10 +119,10 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 text-sm font-medium">
                         {t.name}
-                        {!t.active && <Badge variant="outline">Inactive</Badge>}
+                        {!t.active && <Badge variant="outline">{tr("Inactive")}</Badge>}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
-                        {t.members.length ? t.members.map(personName).join(", ") : "No members (contractor crew)"}
+                        {t.members.length ? t.members.map(personName).join(", ") : tr("No members (contractor crew)")}
                       </div>
                     </div>
                   </button>
@@ -131,17 +133,17 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
         ) : (
           <div className="flex flex-col gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="team-name">Name</Label>
-              <Input id="team-name" value={draft.name} maxLength={80} autoFocus onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Cleaning crew A" />
+              <Label htmlFor="team-name">{tr("Name")}</Label>
+              <Input id="team-name" value={draft.name} maxLength={80} autoFocus onChange={(e) => set({ name: e.target.value })} placeholder={tr("e.g. Cleaning crew A")} />
             </div>
             <div className="space-y-1.5">
-              <Label>Colour</Label>
+              <Label>{tr("Colour")}</Label>
               <div className="flex flex-wrap items-center gap-2">
                 {COLORS.map((c) => (
                   <button
                     key={c}
                     type="button"
-                    aria-label={`Colour ${c}`}
+                    aria-label={tr("Colour {c}", { c })}
                     aria-pressed={draft.color === c}
                     onClick={() => set({ color: c })}
                     className={cn("size-6 rounded-full border-2 transition", draft.color === c ? "border-white" : "border-transparent opacity-70 hover:opacity-100")}
@@ -149,14 +151,14 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
                   />
                 ))}
                 <Button variant="ghost" size="sm" onClick={() => set({ color: null })} disabled={draft.color == null}>
-                  None
+                  {tr("None")}
                 </Button>
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Members</Label>
+              <Label>{tr("Members")}</Label>
               {users.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No active users.</p>
+                <p className="text-xs text-muted-foreground">{tr("No active users.")}</p>
               ) : (
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                   {users.map((u) => (
@@ -166,7 +168,7 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
                         onCheckedChange={(c) => set({ member_ids: c ? [...draft.member_ids, u.id] : draft.member_ids.filter((x) => x !== u.id) })}
                       />
                       <span className="truncate">{personName(u)}</span>
-                      {u.role === "admin" && <span className="text-muted-foreground">admin</span>}
+                      {u.role === "admin" && <span className="text-muted-foreground">{tr("admin")}</span>}
                     </label>
                   ))}
                 </div>
@@ -174,7 +176,7 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
             </div>
             <label className="flex items-center gap-2 text-xs">
               <Checkbox checked={draft.active} onCheckedChange={(c) => set({ active: c === true })} />
-              Active (inactive teams can't be picked for new tasks)
+              {tr("Active (inactive teams can't be picked for new tasks)")}
             </label>
           </div>
         )}
@@ -184,11 +186,11 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
             {draft?.id != null &&
               (confirmDelete ? (
                 <Button variant="destructive" size="sm" disabled={busy} onClick={() => run(() => api.deleteOmTeam(draft.id!))}>
-                  Delete team: its tasks keep their people
+                  {tr("Delete team: its tasks keep their people")}
                 </Button>
               ) : (
                 <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmDelete(true)}>
-                  Delete…
+                  {tr("Delete…")}
                 </Button>
               ))}
           </div>
@@ -196,17 +198,17 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
             {draft ? (
               <>
                 <Button variant="ghost" size="sm" disabled={busy} onClick={() => setDraft(null)}>
-                  Back
+                  {tr("Back")}
                 </Button>
                 <Button size="sm" disabled={busy || !draft.name.trim()} onClick={save}>
                   {busy && <Spinner data-icon="inline-start" className="size-3" />}
-                  {draft.id == null ? "Create team" : "Save"}
+                  {draft.id == null ? tr("Create team") : tr("Save")}
                 </Button>
               </>
             ) : (
               <Button size="sm" onClick={() => edit(null)} disabled={teams == null}>
                 <Plus data-icon="inline-start" />
-                New team
+                {tr("New team")}
               </Button>
             )}
           </div>

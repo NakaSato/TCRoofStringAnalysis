@@ -71,6 +71,18 @@ def summary(
     return svc.summary(db, allowed_plant_ids(db, user), start, end, phase)
 
 
+@router.get("/daily")
+def daily(
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Per report day: phase energy, contract and specific yield (admins), and each visible site's yield and status."""
+    _window(start, end)
+    return svc.daily(db, allowed_plant_ids(db, user), start, end)
+
+
 @router.get("/outages")
 def outages(
     start: Optional[date] = Query(None),
@@ -91,6 +103,20 @@ def meter_check(
 ) -> List[Dict[str, Any]]:
     _window(start, end)
     return svc.meter_check(db, allowed_plant_ids(db, user), start, end)
+
+
+@router.get("/billing")
+def billing(
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    phase: Optional[int] = Query(None, ge=1, le=4),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Billed meter energy per site and calendar month (book price), the contract's energy (modelled)
+    and the shortfall split into outage / under-performance / meter gap (recoverable) and curtailment."""
+    _window(start, end)
+    return svc.billing(db, allowed_plant_ids(db, user), start, end, phase)
 
 
 @router.get("/plants/{plant_id}")

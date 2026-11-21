@@ -186,8 +186,6 @@ def test_thresholds_are_settings_and_rule_can_be_disabled(db):
     row.value = {"rules": {"R16": {"enabled": False}}}
     db.commit()
     assert _r16(db) == {}
-    with pytest.raises(ValueError):
-        growatt_rules.validate_settings({"r16_neighbour_ratio": "low"})
 
 
 def _epi_history(db, pid: int, end: date, today_epi: float):
