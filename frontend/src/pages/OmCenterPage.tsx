@@ -19,7 +19,7 @@
  * see their plants, no phase totals; issues of rules in shadow mode are never counted here.
  * Pieces in `pages/center/` and `pages/pwaMeter/`; docs/plans/om-center-dashboard.md.
  *
- * URL: `range` (mtd | 7d | 30d | 90d | ytd), `from`, `to` (YYYY-MM-DD, custom),
+ * URL: `range` (today | mtd | 7d | 30d | 90d | ytd), `from`, `to` (YYYY-MM-DD, custom; a whole calendar month shows as "Select month"),
  * `view` (issues | plants | billing | finance | sites | outages | meter | growatt), `q`, `phase`, `show`
  * (sites view), `month` (billing view, YYYY-MM), `sort`, `desc`, `site` (site detail open).
  * `/pwa-meter` redirects here.
@@ -42,6 +42,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Meter, StatTile } from "./overview/StatTile";
 import { usePwaMeter } from "./pwaMeter/usePwaMeter";
@@ -62,7 +63,7 @@ import {
 import { SiteDialog } from "./pwaMeter/SiteDialog";
 import { ImportDialog } from "./pwaMeter/ImportDialog";
 import { useCenter } from "./center/useCenter";
-import { ENTERED, RANGES, RANGE_LABEL, VIEWS, rangeStart, thb, thbShort } from "./center/format";
+import { ENTERED, RANGES, RANGE_LABEL, VIEWS, monthWindow, prevMonth, rangeStart, thb, thbShort, windowMonth } from "./center/format";
 import type { Range, View } from "./center/format";
 import { IssuesTable, PlantSortKeys, PlantsTable, plantSortValue } from "./center/tables";
 import { fleetDailySpec } from "./center/chartSpecs";
@@ -165,6 +166,7 @@ export const OmCenterPage: React.FC = () => {
   const from = pickDay(url.get("from"));
   const to = pickDay(url.get("to"));
   const custom = from != null || to != null;
+  const pickedMonth = windowMonth(from, to); // a custom window that is exactly one calendar month
   const range: Range = pick(url.get("range"), RANGES, "mtd");
   const view: View = pick(url.get("view"), VIEWS, "issues");
   const query = url.get("q") ?? "";
@@ -183,6 +185,8 @@ export const OmCenterPage: React.FC = () => {
   const pwa = usePwaMeter(win);
   const c = center.data;
   const loading = center.loading || pwa.loading;
+  // a re-read (period change, Refresh) with figures already on screen: suspend them until both sources answer
+  const refreshing = loading && (c != null || pwa.data != null);
   const reload = () => {
     void center.reload();
     void pwa.reload();
@@ -406,7 +410,14 @@ export const OmCenterPage: React.FC = () => {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={custom ? "custom" : range} onValueChange={(v) => v !== "custom" && setUrl({ range: v === "mtd" ? null : v, from: null, to: null })}>
+          <Select
+            value={pickedMonth ? "month" : custom ? "custom" : range}
+            onValueChange={(v) => {
+              if (v === "custom") return;
+              if (v === "month") setUrl({ ...monthWindow(pickedMonth ?? prevMonth()), range: null });
+              else setUrl({ range: v === "mtd" ? null : v, from: null, to: null });
+            }}
+          >
             <SelectTrigger size="sm" className="w-40" aria-label={t("Period")}>
               <SelectValue />
             </SelectTrigger>
@@ -416,14 +427,21 @@ export const OmCenterPage: React.FC = () => {
                   {t(RANGE_LABEL[r])}
                 </SelectItem>
               ))}
-              {custom && (
-                <>
-                  <SelectSeparator />
-                  <SelectItem value="custom">{t("Custom")}</SelectItem>
-                </>
-              )}
+              <SelectSeparator />
+              <SelectItem value="month">{t("Select month")}</SelectItem>
+              {custom && !pickedMonth && <SelectItem value="custom">{t("Custom")}</SelectItem>}
             </SelectContent>
           </Select>
+          {pickedMonth && (
+            <Input
+              type="month"
+              aria-label={t("Month")}
+              className="h-8 w-40 [color-scheme:dark]"
+              value={pickedMonth}
+              max={(c?.window.today ?? rangeStart("today")).slice(0, 7)}
+              onChange={(e) => /^\d{4}-\d{2}$/.test(e.target.value) && setUrl({ ...monthWindow(e.target.value), range: null })}
+            />
+          )}
           <Input type="date" aria-label={t("From")} className="h-8 w-36 [color-scheme:dark]" value={start ?? ""} max={to ?? c?.window.today} onChange={(e) => setUrl({ from: pickDay(e.target.value), to: to ?? c?.window.end ?? null, range: null })} />
           <Input type="date" aria-label={t("To")} className="h-8 w-36 [color-scheme:dark]" value={to ?? c?.window.end ?? ""} min={start ?? undefined} max={c?.window.today} onChange={(e) => setUrl({ to: pickDay(e.target.value), from: start, range: null })} />
           <Button variant="outline" size="sm" onClick={reload} disabled={loading}>
@@ -438,6 +456,10 @@ export const OmCenterPage: React.FC = () => {
         </div>
       </div>
 
+      <div className={cn("loading-bar -mt-3 transition-opacity", refreshing ? "opacity-100" : "opacity-0")} role="progressbar" aria-hidden={!refreshing} aria-label={t("Loading the period…")}>
+        {refreshing && <span />}
+      </div>
+
       {center.error && (
         <Alert variant="destructive">
           <AlertTitle>{t("Could not load the inverter-side figures")}</AlertTitle>
@@ -450,377 +472,390 @@ export const OmCenterPage: React.FC = () => {
           <AlertDescription>{pwa.error}</AlertDescription>
         </Alert>
       )}
-      {/* ---- figures: billing first, then engineering (meter report, inverters) and the team's work; sources are never added together */}
-      <div className="grid gap-x-5 gap-y-5 xl:grid-cols-2">
-        <Group
-          title={t("Billing")}
-          source={t("PWA meter report · ฿ at the contract's book price")}
-          cols="sm:grid-cols-3"
-          badge={
-            <Select value={phase} onValueChange={(v) => setUrl({ phase: v === ALL ? null : v })}>
-              <SelectTrigger size="sm" className="h-6 w-28 text-[11px]" aria-label={t("Phase")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>{t("Phases 1–2")}</SelectItem>
-                <SelectSeparator />
-                <SelectItem value="1">{t("Phase {n}", { n: 1 })}</SelectItem>
-                <SelectItem value="2">{t("Phase {n}", { n: 2 })}</SelectItem>
-              </SelectContent>
-            </Select>
-          }
-        >
-          <StatTile
-            label={t("Billed energy")}
-            value={billedKwh == null ? "—" : fmt(billedKwh / 1000, 0)}
-            unit="MWh"
-            href={listHref({ view: "billing" })}
-            linkLabel={t("Open the billing by month")}
-            footer={
-              <span title={`${t(BILLED_HINT)}. ${t("Days without a reading are counted from each site's first report day.")}`}>
-                {t("{n} sites", { n: cnt(bill, billSites.length) })}{missingDays > 0 ? <span className="text-red-300"> · {t("{n} days unread", { n: fmtInt(missingDays) })}</span> : ""}
-              </span>
-            }
-          />
-          <StatTile
-            label={t("Billed value")}
-            value={thbShort(billedThb)}
-            footer={<span title={`${t(BILLED_HINT)}: ${thb(billedThb)}`}>{price != null ? t("at ฿{price} / kWh", { price: fmt(price, 4) }) : t("Book price")}</span>}
-          />
-          <StatTile
-            label={t("vs contract")}
-            tag={t("mod.")}
-            value={vsContract == null ? "—" : fmt(vsContract, 1)}
-            unit="%"
-            tone={vsContract == null ? undefined : vsContract >= 100 ? "text-emerald-300" : vsContract < 90 ? "text-red-300" : "text-amber-300"}
-            meter={vsContract != null ? <Meter segments={[{ pct: Math.min(100, vsContract), className: vsContract >= 100 ? "bg-emerald-400" : "bg-amber-400" }]} mark={100} title={t("Tick = the contract's energy (modelled)")} /> : undefined}
-            footer={
-              <span title={t("Contract − billed energy on the days with a contract figure; the contract is modelled")}>
-                {shortKwh == null ? "—" : shortKwh > 0 ? t("{v} MWh short", { v: fmt(shortKwh / 1000, 1) }) : t("{v} MWh above", { v: fmt(-shortKwh / 1000, 1) })} · {t("{n} sites below", { n: cnt(bill, belowContract) })}
-              </span>
-            }
-          />
-        </Group>
+      {/* ---- figures, suspended (dimmed, not clickable) while a new period loads */}
+      <div className="relative flex flex-col gap-5" aria-busy={refreshing}>
+        {refreshing && (
+          <div className="pointer-events-none sticky top-3 z-20 -mb-5 flex h-0 justify-center">
+            <Badge variant="neutral" className="h-7 gap-2 bg-ink-900/90 px-3 shadow-lg backdrop-blur animate-in fade-in-0 zoom-in-95">
+              <Spinner data-icon="inline-start" className="size-3" />
+              {t("Loading the period…")}
+            </Badge>
+          </div>
+        )}
+        <div className={cn("flex flex-col gap-5 transition-[opacity,filter] duration-200", refreshing && "pointer-events-none select-none opacity-50 saturate-50")} inert={refreshing || undefined}>
+          {/* ---- figures: billing first, then engineering (meter report, inverters) and the team's work; sources are never added together */}
+          <div className="grid gap-x-5 gap-y-5 xl:grid-cols-2">
+            <Group
+              title={t("Billing")}
+              source={t("PWA meter report · ฿ at the contract's book price")}
+              cols="sm:grid-cols-3"
+              badge={
+                <Select value={phase} onValueChange={(v) => setUrl({ phase: v === ALL ? null : v })}>
+                  <SelectTrigger size="sm" className="h-6 w-28 text-[11px]" aria-label={t("Phase")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>{t("Phases 1–2")}</SelectItem>
+                    <SelectSeparator />
+                    <SelectItem value="1">{t("Phase {n}", { n: 1 })}</SelectItem>
+                    <SelectItem value="2">{t("Phase {n}", { n: 2 })}</SelectItem>
+                  </SelectContent>
+                </Select>
+              }
+            >
+              <StatTile
+                label={t("Billed energy")}
+                value={billedKwh == null ? "—" : fmt(billedKwh / 1000, 0)}
+                unit="MWh"
+                href={listHref({ view: "billing" })}
+                linkLabel={t("Open the billing by month")}
+                footer={
+                  <span title={`${t(BILLED_HINT)}. ${t("Days without a reading are counted from each site's first report day.")}`}>
+                    {t("{n} sites", { n: cnt(bill, billSites.length) })}{missingDays > 0 ? <span className="text-red-300"> · {t("{n} days unread", { n: fmtInt(missingDays) })}</span> : ""}
+                  </span>
+                }
+              />
+              <StatTile
+                label={t("Billed value")}
+                value={thbShort(billedThb)}
+                footer={<span title={`${t(BILLED_HINT)}: ${thb(billedThb)}`}>{price != null ? t("at ฿{price} / kWh", { price: fmt(price, 4) }) : t("Book price")}</span>}
+              />
+              <StatTile
+                label={t("vs contract")}
+                tag={t("mod.")}
+                value={vsContract == null ? "—" : fmt(vsContract, 1)}
+                unit="%"
+                tone={vsContract == null ? undefined : vsContract >= 100 ? "text-emerald-300" : vsContract < 90 ? "text-red-300" : "text-amber-300"}
+                meter={vsContract != null ? <Meter segments={[{ pct: Math.min(100, vsContract), className: vsContract >= 100 ? "bg-emerald-400" : "bg-amber-400" }]} mark={100} title={t("Tick = the contract's energy (modelled)")} /> : undefined}
+                footer={
+                  <span title={t("Contract − billed energy on the days with a contract figure; the contract is modelled")}>
+                    {shortKwh == null ? "—" : shortKwh > 0 ? t("{v} MWh short", { v: fmt(shortKwh / 1000, 1) }) : t("{v} MWh above", { v: fmt(-shortKwh / 1000, 1) })} · {t("{n} sites below", { n: cnt(bill, belowContract) })}
+                  </span>
+                }
+              />
+            </Group>
 
-        <Group title={t("Finance")} source={t("Billing (measured × book price) vs Site log costs (entered)")} cols="sm:grid-cols-4">
-          <StatTile
-            label={t("O&M spend")}
-            value={thbShort(fin.spend.thb)}
-            href={listHref({ view: "finance" })}
-            linkLabel={t("Open the finance by site")}
-            footer={
-              <span title={`${t("Site log costs of the report sites' Growatt plants, in the report's months.")} ${t(ENTERED)}`}>
-                {!finReady ? "—" : fin.spend.events ? t("{n} of {total} events have a cost", { n: fmtInt(fin.spend.priced), total: fmtInt(fin.spend.events) }) : t("No Site log events")}
-              </span>
-            }
-          />
-          <StatTile
-            label={t("Spend ÷ billed")}
-            value={fin.ratio_pct == null ? "—" : fmt(fin.ratio_pct, 2)}
-            unit="%"
-            footer={<span title={t(FINANCE_HINT)}>{t("{n} sites with a cost", { n: finReady ? fmtInt(fin.sites_with_spend) : "—" })}</span>}
-          />
-          <StatTile
-            label={t("O&M ฿ / MWh")}
-            value={fin.per_mwh == null ? "—" : fmt(fin.per_mwh, 0)}
-            footer={<span title={t(FINANCE_HINT)}>{price != null ? t("Book price ฿{v} / MWh", { v: fmt(price * 1000, 0) }) : t("Per billed MWh")}</span>}
-          />
-          <StatTile
-            label={t("Billed − spend")}
-            value={thbShort(fin.net_thb)}
-            footer={<span title={t("Billed value minus the entered O&M spend; — when no cost is entered")}>{t("After entered O&M costs")}</span>}
-          />
-        </Group>
+            <Group title={t("Finance")} source={t("Billing (measured × book price) vs Site log costs (entered)")} cols="sm:grid-cols-4">
+              <StatTile
+                label={t("O&M spend")}
+                value={thbShort(fin.spend.thb)}
+                href={listHref({ view: "finance" })}
+                linkLabel={t("Open the finance by site")}
+                footer={
+                  <span title={`${t("Site log costs of the report sites' Growatt plants, in the report's months.")} ${t(ENTERED)}`}>
+                    {!finReady ? "—" : fin.spend.events ? t("{n} of {total} events have a cost", { n: fmtInt(fin.spend.priced), total: fmtInt(fin.spend.events) }) : t("No Site log events")}
+                  </span>
+                }
+              />
+              <StatTile
+                label={t("Spend ÷ billed")}
+                value={fin.ratio_pct == null ? "—" : fmt(fin.ratio_pct, 2)}
+                unit="%"
+                footer={<span title={t(FINANCE_HINT)}>{t("{n} sites with a cost", { n: finReady ? fmtInt(fin.sites_with_spend) : "—" })}</span>}
+              />
+              <StatTile
+                label={t("O&M ฿ / MWh")}
+                value={fin.per_mwh == null ? "—" : fmt(fin.per_mwh, 0)}
+                footer={<span title={t(FINANCE_HINT)}>{price != null ? t("Book price ฿{v} / MWh", { v: fmt(price * 1000, 0) }) : t("Per billed MWh")}</span>}
+              />
+              <StatTile
+                label={t("Billed − spend")}
+                value={thbShort(fin.net_thb)}
+                footer={<span title={t("Billed value minus the entered O&M spend; — when no cost is entered")}>{t("After entered O&M costs")}</span>}
+              />
+            </Group>
 
-        <Group title={t("Engineering · meter report")} source={t("PWA meter report and its criteria file")} cols="sm:grid-cols-4">
-          <StatTile
-            label={t("O&M to act")}
-            value={cnt(pwa.data, omSites)}
-            unit={t("sites")}
-            tone={omSites ? "text-amber-300" : undefined}
-            href={listHref({ view: "sites", show: "om" })}
-            linkLabel={t("Open the sites O&M has to act on")}
-            footer={
-              <span title={t("Sites with an issue; PM = curtailment loss over the threshold, a PM matter")}>
-                {t("{n} with issues · {pm} PM", { n: cnt(pwa.data, issueSites), pm: cnt(pwa.data, pmSites) })}
-              </span>
-            }
-          />
-          <StatTile
-            label={t("Outage events")}
-            value={cnt(pwa.data, outageAll.length)}
-            href={listHref({ view: "outages" })}
-            linkLabel={t("Open the outage events")}
-            footer={
-              outageAll.length ? (
-                <span title={t("Mean event length; fixed fast = {fast} days or less, long = {long} days or more (criteria file)", { fast: fastDays ?? "—", long: longDays ?? "—" })}>
-                  {t("MTTR {d} d · {fast} fast · {long} long", { d: fmt(mttr, 1), fast: fastPct == null ? "—" : `${fmt(fastPct, 0)} %`, long: longCount ?? "—" })}
-                </span>
+            <Group title={t("Engineering · meter report")} source={t("PWA meter report and its criteria file")} cols="sm:grid-cols-4">
+              <StatTile
+                label={t("O&M to act")}
+                value={cnt(pwa.data, omSites)}
+                unit={t("sites")}
+                tone={omSites ? "text-amber-300" : undefined}
+                href={listHref({ view: "sites", show: "om" })}
+                linkLabel={t("Open the sites O&M has to act on")}
+                footer={
+                  <span title={t("Sites with an issue; PM = curtailment loss over the threshold, a PM matter")}>
+                    {t("{n} with issues · {pm} PM", { n: cnt(pwa.data, issueSites), pm: cnt(pwa.data, pmSites) })}
+                  </span>
+                }
+              />
+              <StatTile
+                label={t("Outage events")}
+                value={cnt(pwa.data, outageAll.length)}
+                href={listHref({ view: "outages" })}
+                linkLabel={t("Open the outage events")}
+                footer={
+                  outageAll.length ? (
+                    <span title={t("Mean event length; fixed fast = {fast} days or less, long = {long} days or more (criteria file)", { fast: fastDays ?? "—", long: longDays ?? "—" })}>
+                      {t("MTTR {d} d · {fast} fast · {long} long", { d: fmt(mttr, 1), fast: fastPct == null ? "—" : `${fmt(fastPct, 0)} %`, long: longCount ?? "—" })}
+                    </span>
+                  ) : (
+                    <span>{pwa.data ? t("None in the period") : "—"}</span>
+                  )
+                }
+              />
+              <StatTile
+                label={t("Meter check")}
+                value={cnt(pwa.data, flaggedChecks.length)}
+                unit={t("sites")}
+                tone={flaggedChecks.length ? "text-amber-300" : undefined}
+                href={listHref({ view: "meter" })}
+                linkLabel={t("Open the meter check")}
+                footer={<span title={t("Sites with a meter vs inverter flag")}>{t("Meter ÷ inverter, productive days")}</span>}
+              />
+              <StatTile
+                label={t("Meter ÷ Growatt")}
+                value={vsgRatio == null ? "—" : fmt(vsgRatio, 2)}
+                unit="%"
+                tone={vsgRatio == null ? undefined : vsgRatio < 97 || vsgRatio > 100.5 ? "text-amber-300" : undefined}
+                href={listHref({ view: "growatt" })}
+                linkLabel={t("Open meter vs Growatt")}
+                footer={
+                  <span title={`${t(GROWATT_HINT)}. ${t("{n} of {total} sites compared", { n: cnt(vsg, vsgCompared), total: cnt(vsg, vsgSites.length) })}`}>
+                    {t("{n} sites flagged", { n: cnt(vsg, vsgFlagged) })}
+                  </span>
+                }
+              />
+            </Group>
+
+            <Group title={t("Engineering · inverters")} source={t("Stored Growatt data · decision rules")} cols="sm:grid-cols-3">
+              <StatTile
+                label={t("Active issues")}
+                value={cnt(m, m?.active_issues ?? 0)}
+                tone={m?.active_issues ? "text-amber-300" : undefined}
+                href={listHref({ view: null })}
+                linkLabel={t("Open the issues to fix first")}
+                footer={(m?.safety_issues ?? 0) > 0 ? <span className="text-red-300">{t("{n} safety", { n: fmtInt(m?.safety_issues) })}</span> : <span>{t("Decision rules, live only")}</span>}
+              />
+              <StatTile
+                label={t("Produced")}
+                value={m?.produced_kwh == null ? "—" : fmt(m.produced_kwh / 1000, 1)}
+                unit="MWh"
+                footer={<span title={t("Measured: each inverter's day energy, summed over the period")}>{t("Measured, inverters")}</span>}
+              />
+              <StatTile
+                label={t("Availability")}
+                value={m?.availability_pct == null ? "—" : fmt(m.availability_pct, 2)}
+                unit="%"
+                tone={m?.availability_pct == null ? undefined : m.availability_pct >= 99 ? "text-emerald-300" : m.availability_pct < 95 ? "text-red-300" : "text-amber-300"}
+                meter={m?.availability_pct != null ? <Meter segments={[{ pct: m.availability_pct, className: "bg-emerald-400" }]} mark={99} title={t("Tick = 99 %")} /> : undefined}
+                footer={<span title={t("Inverter minutes not in fault / off / standby ÷ daylight minutes with data. Power limiting is not downtime.")}>{t("Time based")}{m?.limited_min ? ` · ${t("{n} h limited", { n: fmtInt(Math.round(m.limited_min / 60)) })}` : ""}</span>}
+              />
+            </Group>
+
+            <Group title={t("Work")} source={t("Entered by the team")} cols="sm:grid-cols-2">
+              <StatTile
+                label={t("O&M spend")}
+                value={m?.spend_thb == null ? "—" : thb(m.spend_thb)}
+                footer={<span title={t(ENTERED)}>{!m ? "—" : m.spend_events ? t("{n} of {total} Site log events have a cost", { n: fmtInt(m.spend_events_priced), total: fmtInt(m.spend_events) }) : t("No Site log events")}</span>}
+              />
+              <StatTile
+                label={t("Committed")}
+                value={m?.committed_thb == null ? "—" : thb(m.committed_thb)}
+                href="/calendar"
+                linkLabel={t("Open the Calendar")}
+                footer={<span title={t(ENTERED)}>{!m ? "—" : m.committed_tasks ? t("{n} of {total} open tasks have a cost", { n: fmtInt(m.committed_tasks_priced), total: fmtInt(m.committed_tasks) }) : t("No open tasks")}</span>}
+              />
+            </Group>
+          </div>
+
+          {/* ---- billing by month: what was billed against the contract, and against the O&M spend */}
+          <div className="grid gap-4 xl:grid-cols-2">
+            <ChartCard
+              title={t("Billed vs contract by month")}
+              source={t("PWA meter")}
+              badge={t("Contract modelled")}
+              badgeTitle={t("Measured meter kWh; the contract's energy is modelled")}
+              loading={pwaLoading}
+              empty={!billSpec ? noReport : null}
+              note={t("Bars = billed meter energy per calendar month (a segment per phase); dashed = the contract's energy (modelled). The first and last month of the period may be partial.")}
+            >
+              <PanelChart spec={billSpec} height={330} />
+            </ChartCard>
+            <ChartCard
+              title={t("Billing vs O&M spend by month")}
+              source={t("PWA meter · Site log")}
+              badge={t("Measured · entered")}
+              badgeTitle={t(FINANCE_HINT)}
+              loading={pwaLoading || (center.loading && !c)}
+              empty={!finSpec ? noReport : null}
+              note={t("Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend ÷ billed. Months without a priced event have no spend bar.")}
+            >
+              <PanelChart spec={finSpec} height={330} legendPosition="bottom" />
+            </ChartCard>
+          </div>
+
+          {/* ---- charts: where to look, per source */}
+          <div className="grid gap-4 xl:grid-cols-2">
+            {admin && (
+              <ChartCard title={t("Fleet by day: daily specific yield of the fleet (kWh/kWp)")} source={t("PWA meter")} badge={t("Contract modelled")} badgeTitle={t("Measured meter kWh; the contract's energy is modelled")} className="xl:col-span-2" loading={pwaLoading} empty={!fleetSpec ? noReport : null}>
+                <PanelChart spec={fleetSpec} height={372} />
+              </ChartCard>
+            )}
+            <ChartCard
+              title={t("Meter vs Growatt by day")}
+              source={t("PWA meter · Growatt plant/energy")}
+              badge={t("Measured")}
+              badgeTitle={t(GROWATT_HINT)}
+              className="xl:col-span-2"
+              loading={pwaLoading}
+              empty={!vsgSpec ? t("No day with both a meter reading and a Growatt day energy in this period") : null}
+              note={t("Summed per day over the sites with both readings (the phase above applies). Bottom: meter ÷ Growatt; a day outside 90–104 % is drawn on the edge in red.")}
+            >
+              <PanelChart spec={vsgSpec} height={330} legendPosition="bottom" />
+            </ChartCard>
+            <ChartCard
+              title={t("Daily heatmap: site × day (kWh/kWp)")}
+              source={t("PWA meter")}
+              badge={t("Measured")}
+              badgeTitle={t("Meter kWh ÷ kWp per report day")}
+              className="xl:col-span-2"
+              loading={pwaLoading}
+              empty={!daily || !daily.days.length || !heatOrder.length ? noReport : null}
+              note={t("One row per site, lowest yield first · hover for the value, click a row to open the site")}
+            >
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <label className="flex items-center gap-2 text-xs font-semibold">
+                  {t("Phase")}
+                  <Select value={phase} onValueChange={(v) => setUrl({ phase: v === ALL ? null : v })}>
+                    <SelectTrigger size="sm" className="w-28" aria-label={t("Phase")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>{t("All phases")}</SelectItem>
+                      <SelectSeparator />
+                      <SelectItem value="1">{t("Phase {n}", { n: 1 })}</SelectItem>
+                      <SelectItem value="2">{t("Phase {n}", { n: 2 })}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <Legend items={HEAT_LEGEND} />
+              </div>
+              {daily && <YieldHeatmap daily={daily} order={heatOrder} onOpen={openSite} />}
+            </ChartCard>
+          </div>
+
+          {/* ---- the lists */}
+          <Card className="scroll-mt-4 gap-0 py-0" ref={listsRef} id="lists">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 border-b px-4 pt-2 sm:px-5">
+              <Tabs value={view} onValueChange={switchView}>
+                <TabsList variant="line" className="border-0 p-0">
+                  <TabsTrigger value="issues" className="px-3 py-2.5 text-sm">
+                    {t("Fix first")} <span className="num text-muted-foreground">{cnt(c, c?.issues.total ?? 0)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="plants" className="px-3 py-2.5 text-sm">
+                    {t("Plants")} <span className="num text-muted-foreground">{cnt(c, c?.plants.length ?? 0)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="billing" className="px-3 py-2.5 text-sm">
+                    {t("Billing by month")} <span className="num text-muted-foreground">{cnt(bill, billRowsAll.length)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="finance" className="px-3 py-2.5 text-sm">
+                    {t("Finance")} <span className="num text-muted-foreground">{finReady ? fmtInt(fin.sites_with_spend) : "—"}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="sites" className="px-3 py-2.5 text-sm">
+                    {t("Meter sites")} <span className="num text-muted-foreground">{cnt(pwa.data, inPhase.length)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="outages" className="px-3 py-2.5 text-sm">
+                    {t("Outage events")} <span className="num text-muted-foreground">{cnt(pwa.data, outageAll.length)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="meter" className="px-3 py-2.5 text-sm">
+                    {t("Meter check")} <span className="num text-muted-foreground">{cnt(pwa.data, (pwa.data?.checks ?? []).filter((r) => (phase === ALL || r.phase === Number(phase)) && r.flags.length).length)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="growatt" className="px-3 py-2.5 text-sm">
+                    {t("Meter vs Growatt")} <span className="num text-muted-foreground">{cnt(vsg, vsgFlagged)}</span>
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <div className="flex flex-wrap items-center gap-2 pb-2">
+                {view === "billing" && (
+                  <Select value={billMonth} onValueChange={(v) => setUrl({ month: v === ALL ? null : v })}>
+                    <SelectTrigger size="sm" className="w-40" aria-label={t("Month")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>{t("Every month")}</SelectItem>
+                      <SelectSeparator />
+                      {[...(bill?.months ?? [])].reverse().map((mo) => (
+                        <SelectItem key={mo} value={mo}>
+                          {fmtMonth(mo, true)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {view === "sites" && (
+                  <Select value={show} onValueChange={(v) => setUrl({ show: v === "all" ? null : v })}>
+                    <SelectTrigger size="sm" className="w-40" aria-label={t("Show sites")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SHOW.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {t(SHOW_LABEL[s])}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Input className="h-8 w-52" placeholder={meterView ? t("Search site, id, region") : view === "plants" ? t("Search plant") : t("Search plant, inverter, rule")} value={query} onChange={(e) => setUrl({ q: e.target.value })} aria-label={t("Search the list")} />
+                {anyFilter && (
+                  <Button variant="ghost" size="sm" onClick={() => setUrl({ q: null, phase: null, show: null, month: null })}>
+                    {t("Clear")}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rowsShown}>
+                  {t("Export CSV")}
+                </Button>
+              </div>
+            </div>
+
+            {view === "sites" && admin && phases.length > 0 && (
+              <div className="border-b">
+                <p className="eyebrow px-4 pt-3 sm:px-5">{t("Phase totals")}</p>
+                <PhaseTotals phases={phases} />
+              </div>
+            )}
+            {meterView && !admin && pwa.data && sites.length > 0 && (
+              <p className="border-b px-4 py-2 text-[11px] text-muted-foreground sm:px-5">{t("Phase totals are for admins: they include plants you are not assigned.")}</p>
+            )}
+
+            <CardContent className="max-h-[70vh] overflow-auto px-0">
+              {rowsShown === 0 ? (
+                viewLoading ? (
+                  <SkeletonRows rows={8} className="p-4" />
+                ) : (
+                  <Empty className="py-16">
+                    <EmptyHeader>
+                      <EmptyTitle>{emptyTitle}</EmptyTitle>
+                      {emptyText && <EmptyDescription>{emptyText}</EmptyDescription>}
+                    </EmptyHeader>
+                  </Empty>
+                )
+              ) : view === "issues" ? (
+                <IssuesTable rows={issueRows} />
+              ) : view === "plants" ? (
+                <PlantsTable rows={plantRows} sort={pick(sortKey, PlantSortKeys, "issues")} desc={desc} onSort={onSort} sites={siteByPlant} onOpenSite={openSite} />
+              ) : view === "billing" ? (
+                <BillingTable rows={billRows} sort={pick(sortKey, BillSortKeys, "month")} desc={desc} onSort={onSort} onOpen={openSite} />
+              ) : view === "finance" ? (
+                <FinanceTable rows={financeRows} sort={pick(sortKey, FinanceSortKeys, "spend")} desc={desc} onSort={onSort} onOpen={openSite} />
+              ) : view === "sites" ? (
+                <SitesTable rows={siteRows} sort={pick(sortKey, SiteSortKeys, "yield")} desc={desc} onSort={onSort} onOpen={openSite} />
+              ) : view === "outages" ? (
+                <OutagesTable rows={outageRows} sort={pick(sortKey, OutageSortKeys, "days")} desc={desc} onSort={onSort} onOpen={openSite} longDays={longDays ?? Infinity} />
+              ) : view === "growatt" ? (
+                <VsGrowattTable rows={vsgRows} sort={pick(sortKey, VsGrowattSortKeys, "median")} desc={desc} onSort={onSort} onOpen={openSite} />
               ) : (
-                <span>{pwa.data ? t("None in the period") : "—"}</span>
-              )
-            }
-          />
-          <StatTile
-            label={t("Meter check")}
-            value={cnt(pwa.data, flaggedChecks.length)}
-            unit={t("sites")}
-            tone={flaggedChecks.length ? "text-amber-300" : undefined}
-            href={listHref({ view: "meter" })}
-            linkLabel={t("Open the meter check")}
-            footer={<span title={t("Sites with a meter vs inverter flag")}>{t("Meter ÷ inverter, productive days")}</span>}
-          />
-          <StatTile
-            label={t("Meter ÷ Growatt")}
-            value={vsgRatio == null ? "—" : fmt(vsgRatio, 2)}
-            unit="%"
-            tone={vsgRatio == null ? undefined : vsgRatio < 97 || vsgRatio > 100.5 ? "text-amber-300" : undefined}
-            href={listHref({ view: "growatt" })}
-            linkLabel={t("Open meter vs Growatt")}
-            footer={
-              <span title={`${t(GROWATT_HINT)}. ${t("{n} of {total} sites compared", { n: cnt(vsg, vsgCompared), total: cnt(vsg, vsgSites.length) })}`}>
-                {t("{n} sites flagged", { n: cnt(vsg, vsgFlagged) })}
-              </span>
-            }
-          />
-        </Group>
-
-        <Group title={t("Engineering · inverters")} source={t("Stored Growatt data · decision rules")} cols="sm:grid-cols-3">
-          <StatTile
-            label={t("Active issues")}
-            value={cnt(m, m?.active_issues ?? 0)}
-            tone={m?.active_issues ? "text-amber-300" : undefined}
-            href={listHref({ view: null })}
-            linkLabel={t("Open the issues to fix first")}
-            footer={(m?.safety_issues ?? 0) > 0 ? <span className="text-red-300">{t("{n} safety", { n: fmtInt(m?.safety_issues) })}</span> : <span>{t("Decision rules, live only")}</span>}
-          />
-          <StatTile
-            label={t("Produced")}
-            value={m?.produced_kwh == null ? "—" : fmt(m.produced_kwh / 1000, 1)}
-            unit="MWh"
-            footer={<span title={t("Measured: each inverter's day energy, summed over the period")}>{t("Measured, inverters")}</span>}
-          />
-          <StatTile
-            label={t("Availability")}
-            value={m?.availability_pct == null ? "—" : fmt(m.availability_pct, 2)}
-            unit="%"
-            tone={m?.availability_pct == null ? undefined : m.availability_pct >= 99 ? "text-emerald-300" : m.availability_pct < 95 ? "text-red-300" : "text-amber-300"}
-            meter={m?.availability_pct != null ? <Meter segments={[{ pct: m.availability_pct, className: "bg-emerald-400" }]} mark={99} title={t("Tick = 99 %")} /> : undefined}
-            footer={<span title={t("Inverter minutes not in fault / off / standby ÷ daylight minutes with data. Power limiting is not downtime.")}>{t("Time based")}{m?.limited_min ? ` · ${t("{n} h limited", { n: fmtInt(Math.round(m.limited_min / 60)) })}` : ""}</span>}
-          />
-        </Group>
-
-        <Group title={t("Work")} source={t("Entered by the team")} cols="sm:grid-cols-2">
-          <StatTile
-            label={t("O&M spend")}
-            value={m?.spend_thb == null ? "—" : thb(m.spend_thb)}
-            footer={<span title={t(ENTERED)}>{!m ? "—" : m.spend_events ? t("{n} of {total} Site log events have a cost", { n: fmtInt(m.spend_events_priced), total: fmtInt(m.spend_events) }) : t("No Site log events")}</span>}
-          />
-          <StatTile
-            label={t("Committed")}
-            value={m?.committed_thb == null ? "—" : thb(m.committed_thb)}
-            href="/calendar"
-            linkLabel={t("Open the Calendar")}
-            footer={<span title={t(ENTERED)}>{!m ? "—" : m.committed_tasks ? t("{n} of {total} open tasks have a cost", { n: fmtInt(m.committed_tasks_priced), total: fmtInt(m.committed_tasks) }) : t("No open tasks")}</span>}
-          />
-        </Group>
-      </div>
-
-      {/* ---- billing by month: what was billed against the contract, and against the O&M spend */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <ChartCard
-          title={t("Billed vs contract by month")}
-          source={t("PWA meter")}
-          badge={t("Contract modelled")}
-          badgeTitle={t("Measured meter kWh; the contract's energy is modelled")}
-          loading={pwaLoading}
-          empty={!billSpec ? noReport : null}
-          note={t("Bars = billed meter energy per calendar month (a segment per phase); dashed = the contract's energy (modelled). The first and last month of the period may be partial.")}
-        >
-          <PanelChart spec={billSpec} height={330} />
-        </ChartCard>
-        <ChartCard
-          title={t("Billing vs O&M spend by month")}
-          source={t("PWA meter · Site log")}
-          badge={t("Measured · entered")}
-          badgeTitle={t(FINANCE_HINT)}
-          loading={pwaLoading || (center.loading && !c)}
-          empty={!finSpec ? noReport : null}
-          note={t("Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend ÷ billed. Months without a priced event have no spend bar.")}
-        >
-          <PanelChart spec={finSpec} height={330} legendPosition="bottom" />
-        </ChartCard>
-      </div>
-
-      {/* ---- charts: where to look, per source */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        {admin && (
-          <ChartCard title={t("Fleet by day: daily specific yield of the fleet (kWh/kWp)")} source={t("PWA meter")} badge={t("Contract modelled")} badgeTitle={t("Measured meter kWh; the contract's energy is modelled")} className="xl:col-span-2" loading={pwaLoading} empty={!fleetSpec ? noReport : null}>
-            <PanelChart spec={fleetSpec} height={372} />
-          </ChartCard>
-        )}
-        <ChartCard
-          title={t("Meter vs Growatt by day")}
-          source={t("PWA meter · Growatt plant/energy")}
-          badge={t("Measured")}
-          badgeTitle={t(GROWATT_HINT)}
-          className="xl:col-span-2"
-          loading={pwaLoading}
-          empty={!vsgSpec ? t("No day with both a meter reading and a Growatt day energy in this period") : null}
-          note={t("Summed per day over the sites with both readings (the phase above applies). Bottom: meter ÷ Growatt; a day outside 90–104 % is drawn on the edge in red.")}
-        >
-          <PanelChart spec={vsgSpec} height={330} legendPosition="bottom" />
-        </ChartCard>
-        <ChartCard
-          title={t("Daily heatmap: site × day (kWh/kWp)")}
-          source={t("PWA meter")}
-          badge={t("Measured")}
-          badgeTitle={t("Meter kWh ÷ kWp per report day")}
-          className="xl:col-span-2"
-          loading={pwaLoading}
-          empty={!daily || !daily.days.length || !heatOrder.length ? noReport : null}
-          note={t("One row per site, lowest yield first · hover for the value, click a row to open the site")}
-        >
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <label className="flex items-center gap-2 text-xs font-semibold">
-              {t("Phase")}
-              <Select value={phase} onValueChange={(v) => setUrl({ phase: v === ALL ? null : v })}>
-                <SelectTrigger size="sm" className="w-28" aria-label={t("Phase")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>{t("All phases")}</SelectItem>
-                  <SelectSeparator />
-                  <SelectItem value="1">{t("Phase {n}", { n: 1 })}</SelectItem>
-                  <SelectItem value="2">{t("Phase {n}", { n: 2 })}</SelectItem>
-                </SelectContent>
-              </Select>
-            </label>
-            <Legend items={HEAT_LEGEND} />
-          </div>
-          {daily && <YieldHeatmap daily={daily} order={heatOrder} onOpen={openSite} />}
-        </ChartCard>
-      </div>
-
-      {/* ---- the lists */}
-      <Card className="scroll-mt-4 gap-0 py-0" ref={listsRef} id="lists">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 border-b px-4 pt-2 sm:px-5">
-          <Tabs value={view} onValueChange={switchView}>
-            <TabsList variant="line" className="border-0 p-0">
-              <TabsTrigger value="issues" className="px-3 py-2.5 text-sm">
-                {t("Fix first")} <span className="num text-muted-foreground">{cnt(c, c?.issues.total ?? 0)}</span>
-              </TabsTrigger>
-              <TabsTrigger value="plants" className="px-3 py-2.5 text-sm">
-                {t("Plants")} <span className="num text-muted-foreground">{cnt(c, c?.plants.length ?? 0)}</span>
-              </TabsTrigger>
-              <TabsTrigger value="billing" className="px-3 py-2.5 text-sm">
-                {t("Billing by month")} <span className="num text-muted-foreground">{cnt(bill, billRowsAll.length)}</span>
-              </TabsTrigger>
-              <TabsTrigger value="finance" className="px-3 py-2.5 text-sm">
-                {t("Finance")} <span className="num text-muted-foreground">{finReady ? fmtInt(fin.sites_with_spend) : "—"}</span>
-              </TabsTrigger>
-              <TabsTrigger value="sites" className="px-3 py-2.5 text-sm">
-                {t("Meter sites")} <span className="num text-muted-foreground">{cnt(pwa.data, inPhase.length)}</span>
-              </TabsTrigger>
-              <TabsTrigger value="outages" className="px-3 py-2.5 text-sm">
-                {t("Outage events")} <span className="num text-muted-foreground">{cnt(pwa.data, outageAll.length)}</span>
-              </TabsTrigger>
-              <TabsTrigger value="meter" className="px-3 py-2.5 text-sm">
-                {t("Meter check")} <span className="num text-muted-foreground">{cnt(pwa.data, (pwa.data?.checks ?? []).filter((r) => (phase === ALL || r.phase === Number(phase)) && r.flags.length).length)}</span>
-              </TabsTrigger>
-              <TabsTrigger value="growatt" className="px-3 py-2.5 text-sm">
-                {t("Meter vs Growatt")} <span className="num text-muted-foreground">{cnt(vsg, vsgFlagged)}</span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <div className="flex flex-wrap items-center gap-2 pb-2">
-            {view === "billing" && (
-              <Select value={billMonth} onValueChange={(v) => setUrl({ month: v === ALL ? null : v })}>
-                <SelectTrigger size="sm" className="w-40" aria-label={t("Month")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>{t("Every month")}</SelectItem>
-                  <SelectSeparator />
-                  {[...(bill?.months ?? [])].reverse().map((mo) => (
-                    <SelectItem key={mo} value={mo}>
-                      {fmtMonth(mo, true)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {view === "sites" && (
-              <Select value={show} onValueChange={(v) => setUrl({ show: v === "all" ? null : v })}>
-                <SelectTrigger size="sm" className="w-40" aria-label={t("Show sites")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SHOW.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {t(SHOW_LABEL[s])}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Input className="h-8 w-52" placeholder={meterView ? t("Search site, id, region") : view === "plants" ? t("Search plant") : t("Search plant, inverter, rule")} value={query} onChange={(e) => setUrl({ q: e.target.value })} aria-label={t("Search the list")} />
-            {anyFilter && (
-              <Button variant="ghost" size="sm" onClick={() => setUrl({ q: null, phase: null, show: null, month: null })}>
-                {t("Clear")}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rowsShown}>
-              {t("Export CSV")}
-            </Button>
-          </div>
+                <MeterCheckTable rows={checkRows} sort={pick(sortKey, CheckSortKeys, "low")} desc={desc} onSort={onSort} onOpen={openSite} />
+              )}
+            </CardContent>
+            <CardContent className="border-t py-2.5 text-[11px] text-muted-foreground">
+              {view === "issues" && c && c.issues.total > c.issues.top.length ? `${t("The {n} most urgent of {total}.", { n: c.issues.top.length, total: fmtInt(c.issues.total) })} ` : ""}
+              {footnote}
+            </CardContent>
+          </Card>
         </div>
-
-        {view === "sites" && admin && phases.length > 0 && (
-          <div className="border-b">
-            <p className="eyebrow px-4 pt-3 sm:px-5">{t("Phase totals")}</p>
-            <PhaseTotals phases={phases} />
-          </div>
-        )}
-        {meterView && !admin && pwa.data && sites.length > 0 && (
-          <p className="border-b px-4 py-2 text-[11px] text-muted-foreground sm:px-5">{t("Phase totals are for admins: they include plants you are not assigned.")}</p>
-        )}
-
-        <CardContent className="max-h-[70vh] overflow-auto px-0">
-          {rowsShown === 0 ? (
-            viewLoading ? (
-              <SkeletonRows rows={8} className="p-4" />
-            ) : (
-              <Empty className="py-16">
-                <EmptyHeader>
-                  <EmptyTitle>{emptyTitle}</EmptyTitle>
-                  {emptyText && <EmptyDescription>{emptyText}</EmptyDescription>}
-                </EmptyHeader>
-              </Empty>
-            )
-          ) : view === "issues" ? (
-            <IssuesTable rows={issueRows} />
-          ) : view === "plants" ? (
-            <PlantsTable rows={plantRows} sort={pick(sortKey, PlantSortKeys, "issues")} desc={desc} onSort={onSort} sites={siteByPlant} onOpenSite={openSite} />
-          ) : view === "billing" ? (
-            <BillingTable rows={billRows} sort={pick(sortKey, BillSortKeys, "month")} desc={desc} onSort={onSort} onOpen={openSite} />
-          ) : view === "finance" ? (
-            <FinanceTable rows={financeRows} sort={pick(sortKey, FinanceSortKeys, "spend")} desc={desc} onSort={onSort} onOpen={openSite} />
-          ) : view === "sites" ? (
-            <SitesTable rows={siteRows} sort={pick(sortKey, SiteSortKeys, "yield")} desc={desc} onSort={onSort} onOpen={openSite} />
-          ) : view === "outages" ? (
-            <OutagesTable rows={outageRows} sort={pick(sortKey, OutageSortKeys, "days")} desc={desc} onSort={onSort} onOpen={openSite} longDays={longDays ?? Infinity} />
-          ) : view === "growatt" ? (
-            <VsGrowattTable rows={vsgRows} sort={pick(sortKey, VsGrowattSortKeys, "median")} desc={desc} onSort={onSort} onOpen={openSite} />
-          ) : (
-            <MeterCheckTable rows={checkRows} sort={pick(sortKey, CheckSortKeys, "low")} desc={desc} onSort={onSort} onOpen={openSite} />
-          )}
-        </CardContent>
-        <CardContent className="border-t py-2.5 text-[11px] text-muted-foreground">
-          {view === "issues" && c && c.issues.total > c.issues.top.length ? `${t("The {n} most urgent of {total}.", { n: c.issues.top.length, total: fmtInt(c.issues.total) })} ` : ""}
-          {footnote}
-        </CardContent>
-      </Card>
+      </div>
 
       <ImportDialog open={importing} onClose={() => setImporting(false)} onImported={() => void pwa.reload()} />
       <SiteDialog

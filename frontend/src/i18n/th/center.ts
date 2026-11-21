@@ -55,6 +55,8 @@ export const TH_CENTER: Record<string, string> = {
 
   // ---- period presets, list filters ----
   "Month to date": "เดือนนี้ถึงวันนี้",
+  "Select month": "เลือกเดือน",
+  "Loading the period…": "กำลังโหลดช่วงเวลา…",
   "Last 7 days": "7 วันล่าสุด",
   "Last 30 days": "30 วันล่าสุด",
   "Last 90 days": "90 วันล่าสุด",

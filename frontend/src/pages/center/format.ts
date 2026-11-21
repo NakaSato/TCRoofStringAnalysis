@@ -2,9 +2,9 @@
 import { fmt } from "../../components/ui";
 import { dateLocale } from "../../i18n";
 
-export const RANGES = ["mtd", "7d", "30d", "90d", "ytd"] as const;
+export const RANGES = ["today", "mtd", "7d", "30d", "90d", "ytd"] as const;
 export type Range = (typeof RANGES)[number];
-export const RANGE_LABEL: Record<Range, string> = { mtd: "Month to date", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", ytd: "Year to date" };
+export const RANGE_LABEL: Record<Range, string> = { today: "Today", mtd: "This month", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", ytd: "Year to date" };
 
 export const VIEWS = ["issues", "plants", "billing", "finance", "sites", "outages", "meter", "growatt"] as const;
 export type View = (typeof VIEWS)[number];
@@ -20,10 +20,34 @@ const parseDay = (s: string) => {
 /** first day of a preset, counted back from today (the browser's date) */
 export const rangeStart = (r: Range): string => {
   const d = new Date();
+  if (r === "today") return iso(d);
   if (r === "mtd") d.setDate(1);
   else if (r === "ytd") d.setMonth(0, 1);
   else d.setDate(d.getDate() - (r === "7d" ? 6 : r === "30d" ? 29 : 89));
   return iso(d);
+};
+
+/** a calendar month (YYYY-MM) as a window: its first day to its last day, the last capped at today */
+export const monthWindow = (ym: string): { from: string; to: string } => {
+  const [y, m] = ym.split("-").map(Number);
+  const today = iso(new Date());
+  const last = iso(new Date(y, m, 0));
+  return { from: `${ym}-01`, to: last > today ? today : last };
+};
+
+/** the month a custom window covers exactly (first day to last day, or to today in the current month), else null */
+export const windowMonth = (from: string | null, to: string | null): string | null => {
+  if (!from || !to || !from.endsWith("-01")) return null;
+  const ym = from.slice(0, 7);
+  return monthWindow(ym).to === to ? ym : null;
+};
+
+/** the previous calendar month (YYYY-MM): the default of "Select month", the report being imported monthly */
+export const prevMonth = (): string => {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - 1);
+  return iso(d).slice(0, 7);
 };
 
 export const fmtDay = (s: string | null | undefined): string =>
