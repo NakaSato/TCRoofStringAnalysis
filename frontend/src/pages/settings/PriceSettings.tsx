@@ -189,9 +189,14 @@ export const PriceSettings: React.FC = () => {
     setNewHoliday("");
   };
 
-  const ft = num(draft.ft) ?? 0;
-  const onEff = (num(draft.on) ?? NaN) + ft;
-  const offEff = (num(draft.off) ?? NaN) + ft;
+  // "with Ft" only when both parts are entered; a blank field shows "—", never a price without Ft
+  const withFt = (v: string) => {
+    const p = num(v);
+    const ft = num(draft.ft);
+    return p != null && ft != null ? p + ft : null;
+  };
+  const onEff = withFt(draft.on);
+  const offEff = withFt(draft.off);
   const pwa = tariff.pwa_contract;
   const rateIds = new Set(draft.rates.map((r) => r.id));
   const pwaMissing = [...pwaIds].filter((id) => !rateIds.has(id)).length;
