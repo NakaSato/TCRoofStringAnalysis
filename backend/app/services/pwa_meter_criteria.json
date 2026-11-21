@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-21d",
+  "version": "2026-11-21e",
   "source": "PWA solar rooftop phases 1-2 daily meter reports (Cewe meters) under contract ธพ.(บล) 20/2566; TFRS 16 model v1.0",
   "units": {
     "energy": "kWh",
@@ -152,6 +152,21 @@
     },
     "gap_kwh": "sum over low and high days of (inverter_kwh * site median ratio - meter_kwh), floored at 0 (high days offset meter read-time shifts) + inverter_kwh * median ratio on meter-missing days",
     "label": "estimated"
+  },
+  "meter_vs_growatt": {
+    "note": "Engineering O&M, Meter vs Growatt (GET /pwa/meter/vs-growatt): the Cewe meter day against Growatt's own plant/energy day of the site's Growatt plant (growatt_plant_energy_days, finished days). Both measured; nothing estimated. The ratio carries the AC losses between the inverters and the grid-point meter (fleet median about 98.5-99 %)",
+    "ratio": "meter_kwh / growatt_kwh on days both > 0",
+    "growatt_max_kwh_per_kwp_day": 10.0,
+    "production_gate_kwh_per_kwp": 0.5,
+    "low_day_drop": 0.03,
+    "high_day_ratio": 1.005,
+    "flags": {
+      "ratio_low_median": 0.97,
+      "low_or_missing_meter_days": 3,
+      "growatt_missing_days": 10,
+      "meter_above_growatt_days": 10
+    },
+    "label": "measured"
   },
   "billing": {
     "note": "monthly billing view (GET /pwa/meter/billing): per site and calendar month, billed meter kWh priced at tariff.book_price_thb_per_kwh, the contract's energy (modelled) and the shortfall split into engineering causes; each month's losses come from summary() and meter_check() over that month alone, so PI_free is the month's",

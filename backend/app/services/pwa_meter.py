@@ -873,6 +873,108 @@ def plant_days(db: Session, allowed: Optional[Set[int]], plant_id: int, start: O
             "labels": {"contract_kwh": "modelled", "pvsyst_kwh": "modelled"}}
 
 
+def meter_vs_growatt(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None) -> Dict[str, Any]:
+    """Every visible report site's Cewe meter days against Growatt's own `plant/energy` day of its
+    Growatt plant (`growatt_plant_energy_days`, finished days), over [start, end]: per site the
+    pooled and median meter ÷ Growatt, low / high / missing days and flags (criteria
+    `meter_vs_growatt`), and per day and phase the pooled energy of the site-days compared. Both
+    sides measured, nothing estimated. A Growatt day above `growatt_max_kwh_per_kwp_day` × kWp is
+    withheld (`implausible_days`); a ratio only where both are > 0. A Growatt day counts as missing
+    only on days Growatt is stored for some of these plants. Totals cover the visible sites only."""
+    c = criteria()["meter_vs_growatt"]
+    fl = c["flags"]
+    sites = _visible_sites(db, allowed)
+    plants = {s.growatt_plant_id for s in sites if s.growatt_plant_id is not None}
+    q = select(PwaMeterDay).where(PwaMeterDay.site_id.in_([s.site_id for s in sites]))
+    gq = select(GrowattPlantEnergyDay.plant_id, GrowattPlantEnergyDay.day, GrowattPlantEnergyDay.energy_kwh).where(GrowattPlantEnergyDay.plant_id.in_(plants))
+    if start:
+        q = q.where(PwaMeterDay.day >= start)
+        gq = gq.where(GrowattPlantEnergyDay.day >= start)
+    if end:
+        q = q.where(PwaMeterDay.day <= end)
+        gq = gq.where(GrowattPlantEnergyDay.day <= end)
+    growatt = {(p, d): e for p, d, e in db.execute(gq).all()} if plants else {}
+    # days Growatt's day energy is stored for at least one of these plants: outside them a site's
+    # missing Growatt day is the store's reach (energy_backfill fills 90 days), not a gap of the site
+    stored_days = {d for _, d in growatt}
+    by_site: Dict[str, List[PwaMeterDay]] = {}
+    for r in db.scalars(q.order_by(PwaMeterDay.day)).all() if sites else []:
+        by_site.setdefault(r.site_id, []).append(r)
+    days: Dict[Tuple[date, int], List[float]] = {}  # (day, phase) -> [sites, meter, growatt]
+    out, site_medians = [], []
+    for s in sites:
+        rows = by_site.get(s.site_id)
+        if not rows:
+            continue
+        cap = s.growatt_kwp or s.kwp
+        gate = c["production_gate_kwh_per_kwp"] * cap
+        per: List[Tuple[Optional[float], Optional[float]]] = []  # (meter, growatt) per report day
+        withheld: List[bool] = []
+        for r in rows:
+            g = growatt.get((s.growatt_plant_id, r.day)) if s.growatt_plant_id is not None else None
+            bad = g is not None and bool(cap) and g > cap * c["growatt_max_kwh_per_kwp_day"]
+            per.append((r.meter_kwh, None if bad else g))
+            withheld.append(bad)
+        implausible = sum(withheld)
+        both = [(m, g, r.day) for (m, g), r in zip(per, rows) if m and g and m > 0 and g > 0]
+        ratios = [m / g for m, g, _ in both]
+        med = float(pd.Series(ratios).median()) if ratios else None
+        low = sum(1 for m, g, _ in both if g > gate and med is not None and m / g < med - c["low_day_drop"])
+        high = sum(1 for m, g, _ in both if g > gate and m / g > c["high_day_ratio"])
+        meter_missing = sum(1 for m, g in per if g is not None and g > gate and not (m and m > 0))
+        # the meter read but Growatt has no day stored (or 0); a withheld glitch day is counted apart
+        growatt_missing = sum(1 for (m, g), bad, r in zip(per, withheld, rows) if m and m > 0 and not (g and g > 0) and not bad and r.day in stored_days) if s.growatt_plant_id is not None else 0
+        meter_kwh, growatt_kwh = sum(m for m, _, _ in both), sum(g for _, g, _ in both)
+        for m, g, d in both:
+            acc = days.setdefault((d, s.phase), [0, 0.0, 0.0])
+            acc[0] += 1
+            acc[1] += m
+            acc[2] += g
+        flags = []
+        if s.growatt_plant_id is not None:
+            if med is not None and med < fl["ratio_low_median"]:
+                flags.append("มิเตอร์ต่ำกว่า Growatt")
+            if low + meter_missing >= fl["low_or_missing_meter_days"]:
+                flags.append("มิเตอร์อ่านต่ำ/ขาด")
+            if growatt_missing >= fl["growatt_missing_days"]:
+                flags.append("ข้อมูล Growatt ขาด")
+            if high >= fl["meter_above_growatt_days"]:
+                flags.append("มิเตอร์สูงกว่า Growatt")
+        if med is not None:
+            site_medians.append(med)
+        out.append({
+            "site_id": s.site_id, "phase": s.phase, "name": s.name, "region": s.region, "kwp": s.kwp, "growatt_plant_id": s.growatt_plant_id,
+            "report_days": len(rows), "compared_days": len(both),
+            "meter_kwh": _f(meter_kwh, 1) if both else None, "growatt_kwh": _f(growatt_kwh, 1) if both else None,
+            "ratio_pct": _f(100 * meter_kwh / growatt_kwh, 2) if both else None,
+            "median_ratio_pct": _f(100 * med, 2) if med is not None else None,
+            "p05_ratio_pct": _f(100 * float(pd.Series(ratios).quantile(0.05)), 2) if ratios else None,
+            "low_days": low, "high_days": high, "meter_missing_days": meter_missing, "growatt_missing_days": growatt_missing,
+            "implausible_days": implausible, "flags": flags,
+        })
+    out.sort(key=lambda r: (-len(r["flags"]), r["median_ratio_pct"] is None, r["median_ratio_pct"] or 0))
+    day_rows = [{"day": d.isoformat(), "phase": ph, "sites": int(v[0]), "meter_kwh": _f(v[1], 1), "growatt_kwh": _f(v[2], 1)}
+                for (d, ph), v in sorted(days.items())]
+    tm, tg = sum(r["meter_kwh"] or 0 for r in out), sum(r["growatt_kwh"] or 0 for r in out)
+    reach = db.execute(select(func.min(GrowattPlantEnergyDay.day), func.max(GrowattPlantEnergyDay.day)).where(
+        GrowattPlantEnergyDay.plant_id.in_(plants), *([GrowattPlantEnergyDay.day >= start] if start else []), *([GrowattPlantEnergyDay.day <= end] if end else []))).one() if plants else (None, None)
+    return {
+        "window": {"start": start and start.isoformat(), "end": end and end.isoformat()},
+        "summary": {
+            "sites": len(out), "linked_sites": sum(1 for r in out if r["growatt_plant_id"] is not None),
+            "compared_sites": sum(1 for r in out if r["compared_days"]), "compared_site_days": sum(r["compared_days"] for r in out),
+            "meter_kwh": _f(tm, 1) if tg else None, "growatt_kwh": _f(tg, 1) if tg else None,
+            "ratio_pct": _f(100 * tm / tg, 2) if tg else None,
+            "median_site_ratio_pct": _f(100 * float(pd.Series(site_medians).median()), 2) if site_medians else None,
+            "flagged_sites": sum(1 for r in out if r["flags"]),
+            "growatt_first_day": reach[0] and reach[0].isoformat(), "growatt_last_day": reach[1] and reach[1].isoformat(),
+        },
+        "days": day_rows,
+        "sites": out,
+        "labels": {"meter_kwh": "measured", "growatt_kwh": "measured"},
+    }
+
+
 # ---------- CLI ----------
 
 def main(argv: Optional[List[str]] = None) -> int:

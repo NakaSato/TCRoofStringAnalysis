@@ -4,8 +4,9 @@
  *
  * - **Billing** (PWA meter report imported from the Excel workbooks, `/pwa/meter/*`, phases 1–2,
  *   imported monthly): billed meter energy per month at the contract's book price against the
- *   contract (modelled), then the report's lists: sites, outage events and the meter vs inverter
- *   check. Admins import the workbooks here.
+ *   contract (modelled), then the report's lists: sites, outage events, the meter vs inverter
+ *   check and meter vs Growatt (the Cewe meter day against Growatt's own day energy, both
+ *   measured, `center/vsGrowatt.tsx`). Admins import the workbooks here.
  * - **Finance** (`center/finance.tsx`): that billing against the O&M spend entered in the Site log
  *   (`spend_by_month` of `/growatt/center`), per month and per report site: spend ÷ billed, ฿ / kWp,
  *   ฿ / MWh, billed − spend. Measured × book price against entered costs, nothing estimated.
@@ -19,7 +20,7 @@
  * Pieces in `pages/center/` and `pages/pwaMeter/`; docs/plans/om-center-dashboard.md.
  *
  * URL: `range` (mtd | 7d | 30d | 90d | ytd), `from`, `to` (YYYY-MM-DD, custom),
- * `view` (issues | plants | billing | finance | sites | outages | meter), `q`, `phase`, `show`
+ * `view` (issues | plants | billing | finance | sites | outages | meter | growatt), `q`, `phase`, `show`
  * (sites view), `month` (billing view, YYYY-MM), `sort`, `desc`, `site` (site detail open).
  * `/pwa-meter` redirects here.
  */
@@ -68,10 +69,11 @@ import { fleetDailySpec } from "./center/chartSpecs";
 import { HEAT_LEGEND, Legend, YieldHeatmap } from "./center/charts";
 import { BILLED_HINT, BillSortKeys, BillingTable, billSortValue, billedMonthSpec, fmtMonth, monthTotals } from "./center/billing";
 import { FINANCE_HINT, FinanceSortKeys, FinanceTable, SPEND_GROUPS, financeModel, financeMonthSpec, financeSortValue } from "./center/finance";
+import { GROWATT_HINT, VsGrowattSortKeys, VsGrowattTable, vsGrowattDaySpec, vsGrowattDays, vsGrowattSortValue } from "./center/vsGrowatt";
 import { useI18n } from "../i18n";
 
 const ALL = "all";
-const METER_VIEWS: readonly View[] = ["billing", "finance", "sites", "outages", "meter"];
+const METER_VIEWS: readonly View[] = ["billing", "finance", "sites", "outages", "meter", "growatt"];
 /** default sort key and direction per view (the issues list keeps the backend's order) */
 const DEFAULT_SORT: Record<Exclude<View, "issues">, readonly [string, boolean]> = {
   plants: ["issues", true],
@@ -80,6 +82,7 @@ const DEFAULT_SORT: Record<Exclude<View, "issues">, readonly [string, boolean]> 
   sites: ["yield", false],
   outages: ["days", true],
   meter: ["low", true],
+  growatt: ["median", false],
 };
 const SORT_KEYS: Record<Exclude<View, "issues">, readonly string[]> = {
   plants: PlantSortKeys,
@@ -88,6 +91,7 @@ const SORT_KEYS: Record<Exclude<View, "issues">, readonly string[]> = {
   sites: SiteSortKeys,
   outages: OutageSortKeys,
   meter: CheckSortKeys,
+  growatt: VsGrowattSortKeys,
 };
 const SHOW_LABEL: Record<Show, string> = { all: "All sites", issues: "With issues", om: "O&M to act", pm: "PM (curtailment)" };
 
@@ -225,6 +229,14 @@ export const OmCenterPage: React.FC = () => {
   const issueSites = inPhase.filter((r) => r.issues.length).length;
   const pmSites = inPhase.filter((r) => r.owner?.includes("PM")).length;
   const flaggedChecks = (pwa.data?.checks ?? []).filter((r) => (phase === ALL || r.phase === Number(phase)) && r.flags.length);
+  // ---- meter vs Growatt (both measured)
+  const vsg = pwa.data?.vsGrowatt ?? null;
+  const vsgSites = useMemo(() => (vsg?.sites ?? []).filter((r) => phase === ALL || r.phase === Number(phase)), [vsg, phase]);
+  const vsgMeter = sum(vsgSites, (r) => r.meter_kwh);
+  const vsgGrowatt = sum(vsgSites, (r) => r.growatt_kwh);
+  const vsgRatio = vsgMeter != null && vsgGrowatt ? (100 * vsgMeter) / vsgGrowatt : null;
+  const vsgFlagged = vsgSites.filter((r) => r.flags.length).length;
+  const vsgCompared = vsgSites.filter((r) => r.compared_days > 0).length;
   const phases = (pwa.data?.summary.phases ?? []).filter((p) => phase === ALL || p.phase === Number(phase));
 
   // ---- billing: the meter report by calendar month, and the causes of its shortfall
@@ -251,6 +263,7 @@ export const OmCenterPage: React.FC = () => {
   // ---- charts
   const daily = pwa.data?.daily ?? null;
   const phaseNo = phase === ALL ? null : Number(phase);
+  const vsgSpec = useMemo(() => (vsg ? vsGrowattDaySpec(vsGrowattDays(vsg.days, phaseNo)) : null), [vsg, phaseNo]);
   const fleetSpec = useMemo(() => (daily ? fleetDailySpec(daily, phaseNo) : null), [daily, phaseNo]);
   // heatmap rows: lowest measured yield first (sites without one last)
   const heatOrder = useMemo(() => byKey(inPhase, (r) => r.yield_kwh_kwp, false).map((r) => r.site_id), [inPhase]);
@@ -278,6 +291,7 @@ export const OmCenterPage: React.FC = () => {
   const outageAll = useMemo(() => (pwa.data?.outages ?? []).filter((r) => phase === ALL || r.phase === Number(phase)), [pwa.data, phase]);
   const outageRows = useMemo(() => byKey((pwa.data?.outages ?? []).filter(matchSite), (r) => outageSortValue(r, pick(sortKey, OutageSortKeys, "days")), desc), [pwa.data, matchSite, sortKey, desc]);
   const checkRows = useMemo(() => byKey((pwa.data?.checks ?? []).filter(matchSite), (r) => checkSortValue(r, pick(sortKey, CheckSortKeys, "low")), desc), [pwa.data, matchSite, sortKey, desc]);
+  const vsgRows = useMemo(() => byKey((vsg?.sites ?? []).filter(matchSite), (r) => vsGrowattSortValue(r, pick(sortKey, VsGrowattSortKeys, "median")), desc), [vsg, matchSite, sortKey, desc]);
   const billRows = useMemo(
     () => byKey(billRowsAll.filter((r) => (billMonth === ALL || r.month === billMonth) && matchSite(r)), (r) => billSortValue(r, pick(sortKey, BillSortKeys, "month")), desc),
     [billRowsAll, billMonth, matchSite, sortKey, desc]
@@ -288,7 +302,7 @@ export const OmCenterPage: React.FC = () => {
   const fastPct = fastDays != null && outageAll.length ? (100 * outageAll.filter((e) => e.days <= fastDays).length) / outageAll.length : null;
 
   const meterView = METER_VIEWS.includes(view);
-  const rowsShown = { issues: issueRows.length, plants: plantRows.length, billing: billRows.length, finance: financeRows.length, sites: siteRows.length, outages: outageRows.length, meter: checkRows.length }[view];
+  const rowsShown = { issues: issueRows.length, plants: plantRows.length, billing: billRows.length, finance: financeRows.length, sites: siteRows.length, outages: outageRows.length, meter: checkRows.length, growatt: vsgRows.length }[view];
   const viewLoading = meterView ? pwa.loading && !pwa.data : center.loading && !c;
   const anyFilter = query.trim() !== "" || (meterView && phase !== ALL) || (view === "sites" && show !== "all") || (view === "billing" && billMonth !== ALL);
   const cnt = (ready: unknown, v: number) => (ready ? fmtInt(v) : "—"); // not read yet ≠ none
@@ -298,7 +312,7 @@ export const OmCenterPage: React.FC = () => {
   const onSort = (k: string) => {
     if (view === "issues") return;
     // a new column starts worst-first, except names and dates; yield and the meter ratio start lowest
-    const nextDesc = k === sortKey ? !desc : !["name", "start", "visit", "yield", "median"].includes(k);
+    const nextDesc = k === sortKey ? !desc : !["name", "start", "visit", "yield", "median", "ratio"].includes(k);
     setUrl({ sort: k === DEFAULT_SORT[view][0] ? null : k, desc: nextDesc ? "1" : "0" });
   };
   const openSite = (id: string) => setUrl({ site: id });
@@ -341,6 +355,12 @@ export const OmCenterPage: React.FC = () => {
         ["site_id", "phase", "name", "region", "start", "end", "days", "cause", "note"],
         outageRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.start, r.end, r.days, r.cause, r.note])
       );
+    else if (view === "growatt")
+      downloadCsv(
+        `pwa-meter-vs-growatt-${tag}.csv`,
+        ["site_id", "phase", "name", "region", "kwp", "growatt_plant_id", "report_days", "compared_days", "meter_kwh", "growatt_kwh", "meter_vs_growatt_pct", "median_ratio_pct", "p05_ratio_pct", "low_days", "high_days", "meter_missing_days", "growatt_missing_days", "growatt_withheld_days", "flags"],
+        vsgRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.kwp, r.growatt_plant_id, r.report_days, r.compared_days, r.meter_kwh, r.growatt_kwh, r.ratio_pct, r.median_ratio_pct, r.p05_ratio_pct, r.low_days, r.high_days, r.meter_missing_days, r.growatt_missing_days, r.implausible_days, r.flags.join(" | ")])
+      );
     else
       downloadCsv(
         `pwa-meter-check-${tag}.csv`,
@@ -369,6 +389,7 @@ export const OmCenterPage: React.FC = () => {
     sites: t("PWA meter report. Contract and PVsyst are modelled. Lowest yield first. A site's row opens its days."),
     outages: `${t("Consecutive outage days of a site (meter and inverter both < 1 kWh). Cause = first keyword group in the notes.")}${longDays != null ? ` ${t("Red = {n} days or more.", { n: longDays })}` : ""}`,
     meter: t("Meter ÷ inverter per site, judged on productive days."),
+    growatt: `${t("Cewe meter (PWA report) ÷ Growatt's own day energy of the site's plant, per site on the days both read > 0; both measured. About 98.5–99 % is normal (AC losses to the grid-point meter). A Growatt day above 10 kWh/kWp is withheld. A row opens the site's days.")}${vsg?.summary.growatt_first_day ? ` ${t("Growatt day energy stored {from} – {to}.", { from: fmtDayLong(vsg.summary.growatt_first_day), to: fmtDayLong(vsg.summary.growatt_last_day) })}` : ` ${t("No Growatt day energy stored for this period.")}`}`,
   }[view];
 
   return (
@@ -511,7 +532,7 @@ export const OmCenterPage: React.FC = () => {
           />
         </Group>
 
-        <Group title={t("Engineering · meter report")} source={t("PWA meter report and its criteria file")} cols="sm:grid-cols-3">
+        <Group title={t("Engineering · meter report")} source={t("PWA meter report and its criteria file")} cols="sm:grid-cols-4">
           <StatTile
             label={t("O&M to act")}
             value={cnt(pwa.data, omSites)}
@@ -548,6 +569,19 @@ export const OmCenterPage: React.FC = () => {
             href={listHref({ view: "meter" })}
             linkLabel={t("Open the meter check")}
             footer={<span title={t("Sites with a meter vs inverter flag")}>{t("Meter ÷ inverter, productive days")}</span>}
+          />
+          <StatTile
+            label={t("Meter ÷ Growatt")}
+            value={vsgRatio == null ? "—" : fmt(vsgRatio, 2)}
+            unit="%"
+            tone={vsgRatio == null ? undefined : vsgRatio < 97 || vsgRatio > 100.5 ? "text-amber-300" : undefined}
+            href={listHref({ view: "growatt" })}
+            linkLabel={t("Open meter vs Growatt")}
+            footer={
+              <span title={`${t(GROWATT_HINT)}. ${t("{n} of {total} sites compared", { n: cnt(vsg, vsgCompared), total: cnt(vsg, vsgSites.length) })}`}>
+                {t("{n} sites flagged", { n: cnt(vsg, vsgFlagged) })}
+              </span>
+            }
           />
         </Group>
 
@@ -626,6 +660,18 @@ export const OmCenterPage: React.FC = () => {
           </ChartCard>
         )}
         <ChartCard
+          title={t("Meter vs Growatt by day")}
+          source={t("PWA meter · Growatt plant/energy")}
+          badge={t("Measured")}
+          badgeTitle={t(GROWATT_HINT)}
+          className="xl:col-span-2"
+          loading={pwaLoading}
+          empty={!vsgSpec ? t("No day with both a meter reading and a Growatt day energy in this period") : null}
+          note={t("Summed per day over the sites with both readings (the phase above applies). Bottom: meter ÷ Growatt; a day outside 90–104 % is drawn on the edge in red.")}
+        >
+          <PanelChart spec={vsgSpec} height={330} legendPosition="bottom" />
+        </ChartCard>
+        <ChartCard
           title={t("Daily heatmap: site × day (kWh/kWp)")}
           source={t("PWA meter")}
           badge={t("Measured")}
@@ -681,6 +727,9 @@ export const OmCenterPage: React.FC = () => {
               </TabsTrigger>
               <TabsTrigger value="meter" className="px-3 py-2.5 text-sm">
                 {t("Meter check")} <span className="num text-muted-foreground">{cnt(pwa.data, (pwa.data?.checks ?? []).filter((r) => (phase === ALL || r.phase === Number(phase)) && r.flags.length).length)}</span>
+              </TabsTrigger>
+              <TabsTrigger value="growatt" className="px-3 py-2.5 text-sm">
+                {t("Meter vs Growatt")} <span className="num text-muted-foreground">{cnt(vsg, vsgFlagged)}</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -761,6 +810,8 @@ export const OmCenterPage: React.FC = () => {
             <SitesTable rows={siteRows} sort={pick(sortKey, SiteSortKeys, "yield")} desc={desc} onSort={onSort} onOpen={openSite} />
           ) : view === "outages" ? (
             <OutagesTable rows={outageRows} sort={pick(sortKey, OutageSortKeys, "days")} desc={desc} onSort={onSort} onOpen={openSite} longDays={longDays ?? Infinity} />
+          ) : view === "growatt" ? (
+            <VsGrowattTable rows={vsgRows} sort={pick(sortKey, VsGrowattSortKeys, "median")} desc={desc} onSort={onSort} onOpen={openSite} />
           ) : (
             <MeterCheckTable rows={checkRows} sort={pick(sortKey, CheckSortKeys, "low")} desc={desc} onSort={onSort} onOpen={openSite} />
           )}

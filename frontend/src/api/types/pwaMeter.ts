@@ -161,6 +161,66 @@ export interface PwaMeterCheck {
   flags: string[];
 }
 
+/** Cewe meter vs Growatt's own day energy (`plant/energy`) of one report site over the window; both measured */
+export interface PwaVsGrowattSite {
+  site_id: string;
+  phase: number;
+  name: string;
+  region: string | null;
+  kwp: number;
+  /** null = the site has no Growatt plant: nothing to compare */
+  growatt_plant_id: number | null;
+  report_days: number;
+  /** days both read > 0 (a Growatt glitch day withheld) */
+  compared_days: number;
+  /** summed over the compared days only */
+  meter_kwh: number | null;
+  growatt_kwh: number | null;
+  /** pooled meter ÷ Growatt on the compared days */
+  ratio_pct: number | null;
+  median_ratio_pct: number | null;
+  p05_ratio_pct: number | null;
+  low_days: number;
+  high_days: number;
+  /** Growatt produced, the meter read nothing */
+  meter_missing_days: number;
+  /** the meter read, Growatt has no day stored (only on days Growatt is stored for some plant) */
+  growatt_missing_days: number;
+  /** Growatt day above the plausible maximum, withheld */
+  implausible_days: number;
+  flags: string[];
+}
+
+export interface PwaVsGrowattDay {
+  day: string;
+  phase: number;
+  /** sites compared that day */
+  sites: number;
+  meter_kwh: number | null;
+  growatt_kwh: number | null;
+}
+
+export interface PwaVsGrowatt {
+  window: { start: string | null; end: string | null };
+  summary: {
+    sites: number;
+    linked_sites: number;
+    compared_sites: number;
+    compared_site_days: number;
+    meter_kwh: number | null;
+    growatt_kwh: number | null;
+    ratio_pct: number | null;
+    median_site_ratio_pct: number | null;
+    flagged_sites: number;
+    /** how far Growatt's stored day energy reaches inside the window */
+    growatt_first_day: string | null;
+    growatt_last_day: string | null;
+  };
+  days: PwaVsGrowattDay[];
+  sites: PwaVsGrowattSite[];
+  labels: Record<string, string>;
+}
+
 export interface PwaMeterWindow {
   start?: string | null;
   end?: string | null;

@@ -56,7 +56,7 @@ import type {
 } from "./types/calendar";
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
 import type { OmCenter } from "./types/center";
-import type { PwaBilling, PwaImportResult, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent } from "./types/pwaMeter";
+import type { PwaBilling, PwaImportResult, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
@@ -566,6 +566,8 @@ export const api = {
     return apiFetch<PwaImportResult>("/pwa/meter/import", { method: "POST", body: form });
   },
   getPwaMeterCheck: (w: PwaMeterWindow = {}) => apiFetch<PwaMeterCheck[]>(`/pwa/meter/meter-check${pwaWindow(w)}`),
+  /** every report site's Cewe meter days against Growatt's own day energy (both measured) */
+  getPwaMeterVsGrowatt: (w: PwaMeterWindow = {}) => apiFetch<PwaVsGrowatt>(`/pwa/meter/vs-growatt${pwaWindow(w)}`),
   // ---- claims (warranty / insurance claims for plant equipment; DB only)
   listClaims: () => apiFetch<ClaimList>("/claims"),
   getClaim: (id: number) => apiFetch<ClaimDetail>(`/claims/${id}`),

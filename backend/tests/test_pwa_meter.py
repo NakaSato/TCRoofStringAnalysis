@@ -250,6 +250,40 @@ def test_plant_days_compare_meter_with_growatt(api):
     assert client.get("/pwa/meter/plants/9999", headers=admin).status_code == 404  # no report site
 
 
+def test_meter_vs_growatt_per_site_and_day(api):
+    f, client, admin, eng = api
+    with f() as db:
+        # P1-01 (meter 400, 360 on days 20-24, outage 10-12): Growatt 404 on days 0-29, nothing after,
+        # a glitch on day 5; P1-02 (meter 300): Growatt 400 every day = meter reads 75 %
+        for i in range(30):
+            db.add(GrowattPlantEnergyDay(plant_id=P1, day=D0 + timedelta(days=i), energy_kwh=5000.0 if i == 5 else (0.0 if 10 <= i <= 12 else 404.0)))
+        for i in range(40):
+            db.add(GrowattPlantEnergyDay(plant_id=P2, day=D0 + timedelta(days=i), energy_kwh=400.0))
+        db.commit()
+    body = client.get("/pwa/meter/vs-growatt", headers=admin).json()
+    by = {r["site_id"]: r for r in body["sites"]}
+    a = by["P1-01"]
+    # 30 Growatt days − glitch − 3 outage days = 26 compared; days 20-24 read 360 / 404
+    assert (a["report_days"], a["compared_days"], a["implausible_days"]) == (40, 26, 1)
+    assert a["median_ratio_pct"] == pytest.approx(99.01, abs=0.01) and a["low_days"] == 5
+    assert a["growatt_missing_days"] == 10 and a["meter_missing_days"] == 0  # days 30-39: meter read, no Growatt day
+    assert "มิเตอร์อ่านต่ำ/ขาด" in a["flags"] and "ข้อมูล Growatt ขาด" in a["flags"]
+    b = by["P1-02"]
+    assert b["compared_days"] == 40 and b["ratio_pct"] == 75.0 and "มิเตอร์ต่ำกว่า Growatt" in b["flags"]
+    c = by["P1-03"]  # no Growatt plant: nothing compared, nothing flagged
+    assert c["growatt_plant_id"] is None and c["compared_days"] == 0 and c["ratio_pct"] is None and c["flags"] == []
+    s = body["summary"]
+    assert (s["sites"], s["linked_sites"], s["compared_sites"], s["compared_site_days"], s["flagged_sites"]) == (3, 2, 2, 66, 2)
+    assert s["growatt_first_day"] == "2026-03-01" and s["growatt_last_day"] == "2026-04-09"
+    d0 = [d for d in body["days"] if d["day"] == "2026-03-01"]
+    assert d0 == [{"day": "2026-03-01", "phase": 1, "sites": 2, "meter_kwh": 700.0, "growatt_kwh": 804.0}]
+    e = client.get("/pwa/meter/vs-growatt?start=2026-03-01&end=2026-03-02", headers=eng).json()
+    assert [r["site_id"] for r in e["sites"]] == ["P1-01"] and e["summary"]["compared_site_days"] == 2
+    assert client.get("/pwa/meter/vs-growatt?start=2027-01-01", headers=admin).json()["sites"] == []
+    assert client.get("/pwa/meter/vs-growatt?start=2026-04-01&end=2026-03-01", headers=admin).status_code == 422
+    assert client.get("/pwa/meter/vs-growatt").status_code == 401
+
+
 # ---------- daily report import (Excel) and monthly expected energy ----------
 
 import io  # noqa: E402

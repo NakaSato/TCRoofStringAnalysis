@@ -6,7 +6,7 @@ export const RANGES = ["mtd", "7d", "30d", "90d", "ytd"] as const;
 export type Range = (typeof RANGES)[number];
 export const RANGE_LABEL: Record<Range, string> = { mtd: "Month to date", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", ytd: "Year to date" };
 
-export const VIEWS = ["issues", "plants", "billing", "finance", "sites", "outages", "meter"] as const;
+export const VIEWS = ["issues", "plants", "billing", "finance", "sites", "outages", "meter", "growatt"] as const;
 export type View = (typeof VIEWS)[number];
 
 export const ENTERED = "Entered by the team; items without a cost are not in the sum";

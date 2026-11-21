@@ -559,4 +559,37 @@ export const TH_CENTER: Record<string, string> = {
   "Finance, per report site over the report's months: billed value (Cewe meter kWh × book price, measured) against the Site log costs of the site's Growatt plant (entered; events without a cost are counted, not priced). Nothing estimated. A row opens the site's days.":
     "การเงิน ต่อสถานีในรายงาน ตลอดเดือนที่รายงานครอบคลุม: มูลค่าที่เรียกเก็บ (kWh มิเตอร์ Cewe × ราคาในสัญญา, ค่าวัด) เทียบค่าใช้จ่ายใน Site log ของโรงไฟฟ้า Growatt ของสถานี (บันทึกเอง; เหตุการณ์ที่ไม่มีค่าใช้จ่ายนับจำนวนแต่ไม่คิดเงิน) ไม่มีค่าประมาณ คลิกแถวเพื่อดูรายวันของสถานี",
   "Outside the report (other plants or months): {thb} in {n} events.": "นอกรายงาน (โรงไฟฟ้าหรือเดือนอื่น): {thb} ใน {n} เหตุการณ์",
+  // Meter vs Growatt
+  "Meter vs Growatt": "มิเตอร์ vs Growatt",
+  "Open meter vs Growatt": "เปิดมิเตอร์ vs Growatt",
+  "{n} sites flagged": "{n} สถานีมีข้อสังเกต",
+  "{n} of {total} sites compared": "เทียบได้ {n} จาก {total} สถานี",
+  "Both measured: the Cewe meter kWh of the report against Growatt's own day energy of the site's Growatt plant, on days both read > 0":
+    "ค่าวัดทั้งคู่: kWh มิเตอร์ Cewe ในรายงาน เทียบพลังงานรายวันของ Growatt เองของโรงไฟฟ้า Growatt ของสถานี ในวันที่ทั้งสองอ่านได้ > 0",
+  "Meter vs Growatt by day": "มิเตอร์ vs Growatt รายวัน",
+  "PWA meter · Growatt plant/energy": "มิเตอร์ PWA · Growatt plant/energy",
+  "No day with both a meter reading and a Growatt day energy in this period": "ไม่มีวันที่มีทั้งค่ามิเตอร์และพลังงานรายวันของ Growatt ในช่วงนี้",
+  "Summed per day over the sites with both readings (the phase above applies). Bottom: meter ÷ Growatt; a day outside 90–104 % is drawn on the edge in red.":
+    "รวมต่อวันของสถานีที่มีค่าทั้งสอง (ตามเฟสที่เลือกด้านบน) ล่าง: มิเตอร์ ÷ Growatt วันที่อยู่นอก 90–104 % แสดงที่ขอบเป็นสีแดง",
+  "Energy of the sites compared (MWh/day)": "พลังงานของสถานีที่เทียบ (MWh/วัน)",
+  "Sites compared": "สถานีที่เทียบ",
+  "Compared d": "วันที่เทียบ",
+  "Days both read > 0 / report days": "วันที่ทั้งสองอ่านได้ > 0 / วันในรายงาน",
+  "Summed over the compared days": "รวมเฉพาะวันที่เทียบ",
+  "Growatt MWh": "Growatt MWh",
+  "Growatt's own day energy, summed over the compared days": "พลังงานรายวันของ Growatt เอง รวมเฉพาะวันที่เทียบ",
+  "Pooled over the compared days": "รวมทุกวันที่เทียบแล้วหาร",
+  "Median of the daily ratio": "ค่ามัธยฐานของอัตราส่วนรายวัน",
+  "Days the ratio fell > 3 points under the site's median, and days the meter read nothing while Growatt produced":
+    "วันที่อัตราส่วนต่ำกว่ามัธยฐานของสถานีเกิน 3 จุด และวันที่มิเตอร์ไม่อ่านค่าขณะที่ Growatt ผลิตไฟ",
+  "Days the meter read above Growatt (ratio > 1.005)": "วันที่มิเตอร์อ่านสูงกว่า Growatt (อัตราส่วน > 1.005)",
+  "Growatt missing d": "วันที่ Growatt ขาด",
+  "Days the meter read but no Growatt day is stored (only days Growatt is stored for some plant); withheld glitch days in brackets":
+    "วันที่มิเตอร์อ่านได้แต่ไม่มีค่ารายวันของ Growatt (นับเฉพาะวันที่มีค่า Growatt ของโรงไฟฟ้าอื่นเก็บไว้) ในวงเล็บ = วันที่ตัดค่าผิดปกติออก",
+  "Growatt days withheld as impossible figures": "วันที่ตัดค่า Growatt ออกเพราะเป็นค่าที่เป็นไปไม่ได้",
+  "No Growatt plant": "ไม่มีโรงไฟฟ้า Growatt",
+  "Cewe meter (PWA report) ÷ Growatt's own day energy of the site's plant, per site on the days both read > 0; both measured. About 98.5–99 % is normal (AC losses to the grid-point meter). A Growatt day above 10 kWh/kWp is withheld. A row opens the site's days.":
+    "มิเตอร์ Cewe (รายงาน PWA) ÷ พลังงานรายวันของ Growatt เองของโรงไฟฟ้าของสถานี ต่อสถานีในวันที่ทั้งสองอ่านได้ > 0 ค่าวัดทั้งคู่ ปกติประมาณ 98.5–99 % (การสูญเสีย AC ถึงมิเตอร์จุดเชื่อมต่อ) วันที่ Growatt เกิน 10 kWh/kWp ถูกตัดออก คลิกแถวเพื่อดูรายวันของสถานี",
+  "Growatt day energy stored {from} – {to}.": "มีพลังงานรายวันของ Growatt เก็บไว้ {from} – {to}",
+  "No Growatt day energy stored for this period.": "ไม่มีพลังงานรายวันของ Growatt เก็บไว้ในช่วงนี้",
 };

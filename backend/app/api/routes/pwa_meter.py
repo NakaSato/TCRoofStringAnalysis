@@ -105,6 +105,18 @@ def meter_check(
     return svc.meter_check(db, allowed_plant_ids(db, user), start, end)
 
 
+@router.get("/vs-growatt")
+def vs_growatt(
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Cewe meter vs Growatt's own day energy (`plant/energy`) per visible site and per day: both measured."""
+    _window(start, end)
+    return svc.meter_vs_growatt(db, allowed_plant_ids(db, user), start, end)
+
+
 @router.get("/billing")
 def billing(
     start: Optional[date] = Query(None),
