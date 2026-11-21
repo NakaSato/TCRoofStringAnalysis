@@ -4,6 +4,8 @@ Two layouts are in use, both carrying the same per-site table:
 - phase 1: one day per workbook, sheet `สรุปหน่วยรายวัน`, title "…ประจำวันที่ 11 พฤศจิกายน 2569";
 - phase 2: one sheet per day in one growing workbook, the table from column Y, a `comp_id` per row on
   the left (= `P2-<comp_id>`), and the day only in the sheet name (`711`, `7.11`, `18.11`, …).
+  The phase 1 workbook now comes in this layout too, with its own `comp_id` (not a site id): the
+  matcher uses `comp_id` only on a sheet where it names phase 2 sites (`pwa_meter._Matcher.p2_sheet`).
 
 The table is found by its header text (`หน่วยจากมิเตอร์`), never by sheet name or column position,
 so a renamed or shifted sheet still reads. A sheet without that header (charts, the problem list) is

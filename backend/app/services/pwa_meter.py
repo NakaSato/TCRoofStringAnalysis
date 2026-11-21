@@ -505,8 +505,14 @@ class _Matcher:
         self.by_meter = {s.meter_no: s for s in sites if s.meter_no}
         self.p1 = [(s, _name_key(s.name)) for s in sites if s.phase == 1]
 
-    def match(self, row) -> Tuple[Optional[PwaMeterSite], str]:
-        if row.comp_id is not None:
+    def p2_sheet(self, rows) -> bool:
+        """Whether a sheet's `comp_id`s are phase 2 site ids. The phase 1 workbook uses the same layout with
+        its own `comp_id` (1 = มาบประชัน = P1-04, not P1-01), so a sheet where no `comp_id` is a phase 2
+        site is matched by meter number and name instead."""
+        return any(f"P2-{r.comp_id}" in self.by_id for r in rows if r.comp_id is not None)
+
+    def match(self, row, p2_sheet: bool = True) -> Tuple[Optional[PwaMeterSite], str]:
+        if row.comp_id is not None and p2_sheet:
             s = self.by_id.get(f"P2-{row.comp_id}")
             return s, "comp_id" if s else "no site P2-%d" % row.comp_id
         if row.meter_no and row.meter_no in self.by_meter:
@@ -597,8 +603,9 @@ def import_report(db: Session, files: List[Tuple[str, bytes]], today: date, over
                 info["before_start"] = len(sh.rows)
                 continue
             unknown_weather = set()
+            p2_sheet = matcher.p2_sheet(sh.rows)
             for r in sh.rows:
-                site, how = matcher.match(r)
+                site, how = matcher.match(r, p2_sheet)
                 if site is None:
                     info["unmatched"].append({"row": r.row_no, "name": r.name, "comp_id": r.comp_id, "meter_no": r.meter_no, "reason": how})
                     continue
