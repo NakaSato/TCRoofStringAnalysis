@@ -1,6 +1,6 @@
 ---
 name: gcp
-description: Check and operate TC Roof Solar's production on GCP (project tcroof-string-analysis): status and cost vs deploy/gcp.config, the ฿3,000 budget and cost guard, deploys (backend, frontend, upsize, monitoring, costguard), backups and cleanup. Use for "check GCP", "GCP cost", "deploy", "is the cost guard working", snapshots, or changing the budget / sizing.
+description: 'Check and operate TC Roof Solar''s production on GCP (project tcroof-string-analysis): status and cost vs deploy/gcp.config, the ฿3,000 budget and cost guard, deploys (backend, frontend, upsize, monitoring, costguard), backups and cleanup. Use for "check GCP", "GCP cost", "deploy", "is the cost guard working", snapshots, or changing the budget / sizing.'
 ---
 
 # GCP operations: TC Roof Solar

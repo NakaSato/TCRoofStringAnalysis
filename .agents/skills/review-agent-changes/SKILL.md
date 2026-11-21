@@ -1,5 +1,5 @@
 ---
-name: review-claude-code
+name: review-agent-changes
 description: >-
   Audit and verify code changes made by Claude Code in the TC Roof Solar repository
   against project rules in CLAUDE.md, backend/CLAUDE.md, and frontend/CLAUDE.md, and
@@ -19,19 +19,19 @@ Always start by running the verification script from the repository root. By def
 ```bash
 # Full check (static checks + pyright + pytest + bun lint + bun build)
 # Automatically creates/updates a GitHub Issue if any [FAIL] occurs
-.agents/skills/review-claude-code/scripts/check.sh
+.agents/skills/review-agent-changes/scripts/check.sh
 
 # Compare against a specific commit or branch (e.g. HEAD~1 or main)
-.agents/skills/review-claude-code/scripts/check.sh HEAD~1
+.agents/skills/review-agent-changes/scripts/check.sh HEAD~1
 
 # Fast check (skips pytest and vite build; runs git/rule checks + pyright + tsc)
-.agents/skills/review-claude-code/scripts/check.sh --fast
+.agents/skills/review-agent-changes/scripts/check.sh --fast
 
 # Also open a GitHub Issue even when there are only [WARN] items (0 failures)
-.agents/skills/review-claude-code/scripts/check.sh --issue-on-warn
+.agents/skills/review-agent-changes/scripts/check.sh --issue-on-warn
 
 # Dry run / no GitHub Issue creation
-.agents/skills/review-claude-code/scripts/check.sh --no-issue
+.agents/skills/review-agent-changes/scripts/check.sh --no-issue
 ```
 
 ### How Automatic GitHub Issue Creation Works
@@ -109,12 +109,12 @@ Read the full diff of the target work (`git diff HEAD` if uncommitted, or `git s
 Git hooks (`post-commit` and `post-merge` in `.git/hooks/`) automatically invoke [`scripts/on-main-change.sh`](./scripts/on-main-change.sh) in the background whenever a commit or merge lands on `main`:
 
 1. Runs `scripts/check.sh HEAD~1` (which runs static/architecture checks, `pyright`, `pytest`, `bun run lint`, `bun run build`, and opens/updates a GitHub Issue on `[FAIL]`).
-2. Calls **Gemini** via the Antigravity CLI (`agy --print --dangerously-skip-permissions`) with this skill (`review-claude-code`) to inspect `git diff HEAD~1..HEAD` for deeper domain/architectural violations and post any additional findings to GitHub Issues.
-3. Writes execution logs to `.agents/skills/review-claude-code/logs/audit-<sha>-<timestamp>.log` (gitignored).
+2. Calls **Gemini** via the Antigravity CLI (`agy --print --dangerously-skip-permissions`) with this skill (`review-agent-changes`) to inspect `git diff HEAD~1..HEAD` for deeper domain/architectural violations and post any additional findings to GitHub Issues.
+3. Writes execution logs to `.agents/skills/review-agent-changes/logs/audit-<sha>-<timestamp>.log` (gitignored).
 
 To install or re-install the Git hooks on a clone:
 ```bash
-.agents/skills/review-claude-code/scripts/install-hooks.sh
+.agents/skills/review-agent-changes/scripts/install-hooks.sh
 ```
 
 ## 4. Report Format

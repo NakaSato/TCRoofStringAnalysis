@@ -3,11 +3,11 @@
 # Can automatically open/update a GitHub Issue when failures (or warnings) are found.
 #
 # Usage (from repo root):
-#   .agents/skills/review-claude-code/scripts/check.sh                       # full check + auto-create GitHub issue on FAIL
-#   .agents/skills/review-claude-code/scripts/check.sh --fast                # skip pytest & vite build
-#   .agents/skills/review-claude-code/scripts/check.sh --no-issue            # run checks only, never create GitHub issue
-#   .agents/skills/review-claude-code/scripts/check.sh --issue-on-warn       # also create GitHub issue if warnings > 0
-#   .agents/skills/review-claude-code/scripts/check.sh HEAD~1                # compare against specific ref
+#   .agents/skills/review-agent-changes/scripts/check.sh                       # full check + auto-create GitHub issue on FAIL
+#   .agents/skills/review-agent-changes/scripts/check.sh --fast                # skip pytest & vite build
+#   .agents/skills/review-agent-changes/scripts/check.sh --no-issue            # run checks only, never create GitHub issue
+#   .agents/skills/review-agent-changes/scripts/check.sh --issue-on-warn       # also create GitHub issue if warnings > 0
+#   .agents/skills/review-agent-changes/scripts/check.sh HEAD~1                # compare against specific ref
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
