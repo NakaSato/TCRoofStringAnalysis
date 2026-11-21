@@ -55,7 +55,6 @@ export const routeData = (pathname: string, admin: boolean): RouteData => {
       legacy: admin && plant.page === "maintenance",
     };
   }
-  const top = pathname.replace(/\/+$/, "") || "/";
   return {
     // the sidebar's fleet card shows the fleet on every page (list once per session; the live poll
     // reads the backend's shared memory cache, so it adds no Growatt calls)
@@ -63,7 +62,7 @@ export const routeData = (pathname: string, admin: boolean): RouteData => {
     fleetLive: true,
     plantId: null,
     plantLive: false,
-    legacy: admin && top === "/settings",
+    legacy: false,
   };
 };
 

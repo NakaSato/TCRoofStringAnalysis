@@ -57,7 +57,7 @@ import type {
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
 import type { OmCenter } from "./types/center";
 import type { PwaBilling, PwaImportResult, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent } from "./types/pwaMeter";
-import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, StringRuleDay, TariffRates } from "./types/issues";
+import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -509,6 +509,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  getTariff: () => apiFetch<TariffOut>("/growatt/tariff"),
+  putTariff: (t: Tariff) => apiFetch<TariffOut>("/growatt/tariff", { method: "PUT", body: JSON.stringify(t) }),
+  applyPwaRates: () => apiFetch<PwaRatesResult>("/growatt/tariff/pwa-rates", { method: "POST" }),
   getTariffRates: (day?: string) => apiFetch<TariffRates>(`/growatt/tariff/rates${day ? `?day=${day}` : ""}`),
   getInverterRuleDaily: (plantId: number, sn: string, days = 30, day?: string) =>
     apiFetch<RuleDaily<InverterRuleDay>>(

@@ -464,7 +464,7 @@ export const OmCenterPage: React.FC = () => {
         <Alert>
           <AlertTitle>{t("Inverter-side baht use the default tariff")}</AlertTitle>
           <AlertDescription>
-            {t("No tariff has been saved yet (PUT /growatt/tariff), so the inverter-side ฿ are priced at the built-in default rates.")}
+            {t("No tariff has been saved yet (Settings → Price per kWh), so the inverter-side ฿ are priced at the built-in default rates.")}
           </AlertDescription>
         </Alert>
       )}
