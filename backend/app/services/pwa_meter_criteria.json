@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-21",
+  "version": "2026-11-21b",
   "source": "PWA solar rooftop phases 1-2 daily meter reports (Cewe meters) under contract ธพ.(บล) 20/2566; TFRS 16 model v1.0",
   "units": {
     "energy": "kWh",
@@ -193,5 +193,56 @@
       "ข้อมูลขาด": "O&M",
       "ผลิตต่ำกว่าคาด": "O&M"
     }
+  },
+  "expected_energy": {
+    "note": "modelled contract and PVsyst kWh/day per site and calendar month (pwa_meter_expected), built from the TFRS 16 / PVsyst model workbook by `python -m app.services.pwa_meter expected --model …`; checked 21 Nov 2026 against all 1,440 imported site-months (within 0.006 kWh/day)",
+    "pvsyst": "PVsyst P50 E_Grid of the month (sheet PVsyst_ระยะN, row = pvsyst_seq) × 1000 × site kWp ÷ PVsyst kWp ÷ days in the month",
+    "phase1_contract": "sheet ประมาณการ_kWh (row = contract_seq) month ÷ days; a month the sheet does not cover = the same month of the latest covered year × contract_degradation_per_year per year",
+    "phase2_contract": "kWp × first-year contract specific yield (PVsyst_ระยะ2: ผลผลิตจำเพาะตามสัญญา ระยะ 2 ปีแรก, 1,412.37 kWh/kWp/yr) × the month's share of phase 2's fleet PVsyst year ÷ days, × contract_degradation_per_year per full contract year since phase2_contract_start",
+    "contract_degradation_per_year": 0.993,
+    "contract_degradation_basis": "assumed: the rule the days CSV used for phase 1 Oct-Nov 2026 (same month a year earlier × 0.993); applied to phase 2 from its second contract year. Not stated in the model workbook; confirm with the contract",
+    "phase2_contract_start": "2026-01-01",
+    "phase2_contract_start_source": "model sheet สมมติฐาน: ระยะที่ 2 · วันเริ่มสัญญา"
+  },
+  "report_import": {
+    "note": "daily report Excel import (POST /pwa/meter/import, CLI `report`): the per-site table is found by its header text; phase 2 rows match P2-<comp_id>, others by the meter number learned before, then by site name without the 'กปภ.สาขา…' suffix (phase 1 sites only). Unmatched rows are listed, never guessed",
+    "skip_before": {
+      "1": "2026-01-01",
+      "2": "2026-01-01"
+    },
+    "skip_before_note": "days before these are commissioning / pre-contract sheets (the days CSV starts phase 1 on 17 Jan and phase 2 on 8 Jan 2026); they are counted in the preview and not stored",
+    "round_kwh": 2,
+    "weather_keywords": [
+      [
+        "rain",
+        [
+          "ฝน",
+          "ฝย",
+          "ตก"
+        ]
+      ],
+      [
+        "cloudy",
+        [
+          "เมฆ",
+          "มฆ"
+        ]
+      ],
+      [
+        "clear",
+        [
+          "แดด",
+          "แจ่มใส",
+          "ปลอดโปร่ง",
+          "ปกติ"
+        ]
+      ]
+    ],
+    "weather_note": "first group whose keyword is in the report's สภาพอากาศ (catches the typos ฝนคก, ฝยตก, มีเมฆมมาก, มีมฆมาก; ท้องฟ้าปลอดโปร่ง = clear); no match = null with a warning",
+    "name_suffix_markers": [
+      "กปภ.สาขา",
+      "กปภ. สาขา",
+      "การประปาส่วนภูมิภาค"
+    ]
   }
 }

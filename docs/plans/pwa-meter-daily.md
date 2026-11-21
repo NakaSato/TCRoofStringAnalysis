@@ -1,6 +1,6 @@
 # Plan: PWA daily meter report in the app
 
-Status: **Built 2026-11-21: tables, CSV import, read API, criteria file, tests, PWA Meter page (`/pwa-meter`).** · Owner: Chanthawat
+Status: **Built 2026-11-21: tables, CSV import, read API, criteria file, tests, PWA Meter page (`/pwa-meter`), daily report Excel import, monthly expected energy from the model.** · Owner: Chanthawat
 Data: phases 1–2 daily reports (Cewe meters), 131 sites, 8 Jan – 18 Nov 2026 (phase 1 from 17 Jan), 40,412 site-days.
 
 The PWA daily report is the billing record: the meter kWh each site sends to PEA every day. The Growatt data in the app is inverter-side and kept 90 days. This module stores the meter days indefinitely and computes, from one criteria file, the same engineering and finance figures as the phases 1–2 Engineering & Finance dashboard, so the team can query them from the app.
@@ -13,6 +13,8 @@ The PWA daily report is the billing record: the meter kWh each site sends to PEA
 | Import (upsert, all-or-nothing) and summaries | `app/services/pwa_meter.py` |
 | Criteria: every threshold and formula | `app/services/pwa_meter_criteria.json` |
 | Read API `/pwa/meter/*` | `app/api/routes/pwa_meter.py` |
+| Daily report Excel import (preview, then all-or-nothing) | `app/services/pwa_meter_report.py` (parse), `pwa_meter.import_report` (match, compare, store); `POST /pwa/meter/import`, PWA Meter → Import report |
+| Monthly expected energy `pwa_meter_expected` (+ `pwa_meter_sites.meter_no`) | `app/services/pwa_meter_model.py`, migration `6f2a3b4c5d7e` |
 | Tests | `tests/test_pwa_meter.py` |
 | Clean CSVs (gitignored) | `data/imports/pwa_meter/pwa_meter_sites.csv`, `pwa_meter_days.csv` |
 
@@ -62,6 +64,20 @@ Matching (all 131 sites, one-to-one): phase 1 by plant number + name + kWp, phas
 | `note` | the report's note, whitespace collapsed |
 
 Excluded: phase 1 sheets of May 2025 (commissioning tests).
+
+### 2.3 Daily report workbooks (Excel, from the sites)
+
+The daily reports can be imported as sent, without the CSV step: PWA Meter → **Import report** (admin), or
+`python -m app.services.pwa_meter report FILE… [--commit] [--day "FILE::SHEET=YYYY-MM-DD|skip"]`.
+
+- Two layouts: phase 1 = one day per workbook (sheet `สรุปหน่วยรายวัน`, title "…ประจำวันที่ 11 พฤศจิกายน 2569"); phase 2 = one growing workbook with a sheet per day (names `711`, `017`, `19`, `7.11`, `18.11`, …). The table is found by its header text `หน่วยจากมิเตอร์`, never by sheet name or column, so the changing sheet names no longer matter.
+- Day: the sheet title when it has one (Buddhist Era year converted), else the sheet name read in sequence (digits read as d+mm or dd+m, the reading that follows the previous sheet; the year rolls over in order). The preview says where each day came from; a sheet with no day (`Sheet`) is a problem until it gets a day or is skipped.
+- Phase 2 values come from the system pull on the left of the header row (`Cewe`, `Growatt`, `Weather`), not the typed table: the table repeats an old inverter figure on days the inverter was not reporting (P2-1073, 11–12 Jan 2026). On a `loss_inv` / `loss_meter` day the reading under 1 kWh is stored as null. kWh rounded to 2 decimals.
+- Matching: phase 2 rows by `comp_id` (= `P2-<comp_id>`); other rows by the meter number learned from earlier imports (`pwa_meter_sites.meter_no`, filled on the first import that matched the site), then by site name without the "กปภ.สาขา…" suffix (phase 1 sites). A row that matches nothing is listed and blocks the import; nothing is guessed.
+- Weather by keyword (`report_import.weather_keywords`), including the report's typos; an unknown word is stored as null with a note.
+- Days before each phase's start (`report_import.skip_before`, 1 Jan 2026) are counted as "pre-start" and not stored (the Nov–Dec 2025 commissioning sheets of phase 2).
+- Contract / PVsyst of each day come from `pwa_meter_expected` for its month (§3.8); a month without it keeps the day's stored figures, or null with a warning.
+- Checked 21 Nov 2026 on a copy of the database holding the CSV import: phase 1 report of 11 Nov = 43 / 43 unchanged; the phase 2 workbook (331 sheets, 12 s) = 27,209 days unchanged, 247 changed (notes the CSV had dropped on the sheets of the 10th, 20th and 30th of Jul–Sep), 1,040 pre-start rows, 0 unmatched; a second import = all unchanged; the summary figures unchanged.
 
 ## 3. Criteria (`pwa_meter_criteria.json`)
 
@@ -119,6 +135,18 @@ Remeasure when actual ÷ contract energy is off by more than 5 %. Remeasured lia
 
 The proposed monitoring alerts (comms lost > 2 h in daylight, zero output while the region produces, meter ratio drop > 3 points 2 days, yield < 80 % of the region median 3 days) are in `alerts_proposed`; nothing in the app uses them yet.
 
+### 3.8 Expected energy per month (`expected_energy`, modelled)
+`pwa_meter_expected` holds each site's contract and PVsyst kWh/day per calendar month, built from the model workbook (`Solar-TFRS16-Model-PVsyst-ระยะ1-4.xlsx`, the copy with the `ประมาณการ_kWh` sheet):
+
+```bash
+PYTHONPATH=backend uv run python -m app.services.pwa_meter expected --model Solar-TFRS16-Model-PVsyst-ระยะ1-4.xlsx --until 2027-12 --check
+```
+
+- PVsyst = the station's month (PVsyst_ระยะN, row `pvsyst_seq`) × site kWp ÷ PVsyst kWp ÷ days.
+- Phase 1 contract = `ประมาณการ_kWh` (row `contract_seq`) ÷ days; a month past the sheet (it ends Sep 2026) = the same month of the latest year × 0.993 per year.
+- Phase 2 contract = kWp × 1,412.37 kWh/kWp/yr × the month's share of phase 2's fleet PVsyst year ÷ days, × 0.993 per contract year after the first (from 1 Jan 2026).
+- Checked against all 1,440 site-months of the CSV import: within 0.01 kWh/day. The 0.993 a year is the CSV's rule, not stated in the model: confirm it with the contract. Re-run the command when the model changes or before the table runs out (default: through December next year).
+
 ## 4. API (DB only)
 
 | Route | Returns |
@@ -129,6 +157,7 @@ The proposed monitoring alerts (comms lost > 2 h in daylight, zero output while 
 | `GET /pwa/meter/summary?start=&end=&phase=` | per-site KPIs, losses, issues, owner, rank; per-phase totals (admins) |
 | `GET /pwa/meter/outages?start=&end=` | outage events with cause and estimated loss |
 | `GET /pwa/meter/meter-check?start=&end=` | meter vs inverter per site, flags and estimated gap |
+| `POST /pwa/meter/import` (admin, multipart `files`, `commit`, `days` JSON) | daily report import: preview per sheet, or store when `commit` and no problem |
 | `GET /pwa/meter/plants/{plant_id}?start=&end=` | one Growatt plant's report days (default last 60) with Growatt's own day energy and meter ÷ Growatt; 404 if not in the report |
 
 Checked on the full import (2026-01-01 → 11-18): phase 1 106.1 % of contract, phase 2 92.6 %; PI_free 95.9 % both; availability 99.19 % / 99.03 %; losses (MWh) curtailment 811 / 2,250, outage 145 / 374, under-performance 337 / 127; 71 outage events; 35 sites with meter flags, gap 81.6 MWh. Same as the dashboard.
@@ -136,4 +165,5 @@ Checked on the full import (2026-01-01 → 11-18): phase 1 106.1 % of contract, 
 ## 5. Next
 1. ~~UI: a PWA Meter page~~ done (`/pwa-meter`, frontend/CLAUDE.md).
 2. ~~Compare the meter day with Growatt `growatt_plant_energy_days` per plant~~ done: `GET /pwa/meter/plants/{plant_id}` and the PWA meter card on the plant's Generation page (meter ÷ Growatt per day). Production reach depends on how far back `growatt_plant_energy_days` goes (`energy_backfill` fills 90 days).
-3. Import from the Excel reports in the app once the sheet naming is fixed at the source.
+3. ~~Import from the Excel reports in the app~~ done (§2.3): headers, not sheet names, find the table.
+4. Confirm the 0.993 a year contract degradation with the contract (§3.8).

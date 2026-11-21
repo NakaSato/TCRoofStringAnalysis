@@ -31,6 +31,7 @@ def build_engine(database_url: str | None = None):
 # migrations add the same columns and skip them when already present.
 # (table, column, DDL type, index DDL or None)
 _ADDED_COLUMNS = [
+    ("pwa_meter_sites", "meter_no", "VARCHAR(16)", "CREATE INDEX IF NOT EXISTS ix_pwa_meter_sites_meter_no ON pwa_meter_sites (meter_no)"),
     ("growatt_string_layouts", "azimuth_deg", "FLOAT", None),
     ("growatt_string_layouts", "tilt_deg", "FLOAT", None),
     ("growatt_string_daily", "lost_on_peak_kwh_est", "FLOAT", None),

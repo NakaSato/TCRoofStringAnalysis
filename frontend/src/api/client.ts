@@ -54,7 +54,7 @@ import type {
   OmTeamBody,
 } from "./types/calendar";
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
-import type { PwaMeterCheck, PwaMeterCriteria, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent } from "./types/pwaMeter";
+import type { PwaImportResult, PwaMeterCheck, PwaMeterCriteria, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
@@ -546,6 +546,14 @@ export const api = {
   getPwaMeterOutages: (w: PwaMeterWindow = {}) => apiFetch<PwaOutageEvent[]>(`/pwa/meter/outages${pwaWindow(w)}`),
   /** the plant's report days with Growatt's day energy beside the meter; 404 = the plant is not in the report */
   getPwaMeterPlant: (plantId: number, w: PwaMeterWindow = {}) => apiFetch<PwaPlantDays>(`/pwa/meter/plants/${plantId}${pwaWindow(w)}`),
+  /** admin: daily report workbooks → preview (commit false) or store (commit true); `days` = {"file::sheet": "YYYY-MM-DD" | "skip"} */
+  importPwaReport: (files: File[], commit: boolean, days: Record<string, string>) => {
+    const form = new FormData();
+    files.forEach((f) => form.append("files", f));
+    form.append("commit", commit ? "true" : "false");
+    form.append("days", JSON.stringify(days));
+    return apiFetch<PwaImportResult>("/pwa/meter/import", { method: "POST", body: form });
+  },
   getPwaMeterCheck: (w: PwaMeterWindow = {}) => apiFetch<PwaMeterCheck[]>(`/pwa/meter/meter-check${pwaWindow(w)}`),
   // ---- claims (warranty / insurance claims for plant equipment; DB only)
   listClaims: () => apiFetch<ClaimList>("/claims"),

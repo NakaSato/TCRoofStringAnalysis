@@ -7,19 +7,24 @@ Scoped like the Growatt routes: an engineer sees the report sites of assigned Gr
 
 from __future__ import annotations
 
-from datetime import date
+import json
+import logging
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
-from app.auth import allowed_plant_ids, get_current_user
+from app.auth import allowed_plant_ids, get_current_user, require_admin
 from app.db.models import User
 from app.db.session import get_db
 from app.services import pwa_meter as svc
 from app.services.growatt_common import GrowattNotFound
 
 router = APIRouter(prefix="/pwa/meter", tags=["PWA daily meter report"])
+audit = logging.getLogger("app.audit")
+PLANT_TZ = ZoneInfo("Asia/Bangkok")
 
 
 def _window(start: Optional[date], end: Optional[date]) -> None:
@@ -101,3 +106,38 @@ def plant_days(
         return svc.plant_days(db, allowed_plant_ids(db, user), plant_id, start, end)
     except GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/import")
+async def import_report(
+    files: List[UploadFile] = File(..., description="daily report workbooks (.xlsx)"),
+    commit: bool = Form(False),
+    days: str = Form("{}", description='JSON {"file::sheet": "YYYY-MM-DD" | "skip"}'),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Daily report import (admin): a preview of what the workbooks hold and what would change;
+    with `commit=true` and no problem left, the days are stored (all or nothing)."""
+    try:
+        overrides = json.loads(days or "{}")
+        if not isinstance(overrides, dict):
+            raise ValueError
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="days must be a JSON object") from exc
+    payload, total = [], 0
+    for f in files:
+        name = f.filename or "report.xlsx"
+        if not name.lower().endswith((".xlsx", ".xlsm")):
+            raise HTTPException(status_code=422, detail=f"{name}: only .xlsx workbooks")
+        data = await f.read()
+        total += len(data)
+        if total > svc.REPORT_MAX_BYTES:
+            raise HTTPException(status_code=413, detail=f"files over {svc.REPORT_MAX_BYTES // 2**20} MB in one import")
+        payload.append((name, data))
+    today = datetime.now(PLANT_TZ).date()
+    out = svc.import_report(db, payload, today, {str(k): (None if v is None else str(v)) for k, v in overrides.items()}, commit=commit)
+    if out["committed"]:
+        t = out["totals"]
+        audit.info("PWA meter report imported by %s: %d new, %d changed days (%s .. %s), %d file(s)",
+                   user.username, t["new"], t["changed"], out["days"]["first"], out["days"]["last"], len(payload))
+    return out

@@ -41,6 +41,9 @@ class PwaMeterSite(Base):
     growatt_name: Mapped[Optional[str]] = mapped_column(String(200))
     growatt_kwp: Mapped[Optional[float]] = mapped_column(Float)
     kwp_mismatch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # the Cewe meter number the daily report prints under the site (e.g. WP078250); learned from the
+    # first report import that matched the site by id or name, then used first to match later reports
+    meter_no: Mapped[Optional[str]] = mapped_column(String(16), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 
@@ -66,3 +69,21 @@ class PwaMeterDay(Base):
     weather: Mapped[Optional[str]] = mapped_column(String(12))
     note: Mapped[Optional[str]] = mapped_column(Text)
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class PwaMeterExpected(Base):
+    """Expected daily energy of a site in a calendar month (`month` = its first day), both **modelled**:
+    `contract_kwh_day` = the contract estimate, `pvsyst_kwh_day` = PVsyst P50 (unlimited load), each
+    the month's kWh ÷ days in the month. Built from the TFRS 16 / PVsyst model workbook
+    (`python -m app.services.pwa_meter expected --model …`, services/pwa_meter_model.py); `basis`
+    says how the contract figure was made. The report import fills a day's contract / PVsyst from here."""
+
+    __tablename__ = "pwa_meter_expected"
+
+    site_id: Mapped[str] = mapped_column(String(16), ForeignKey("pwa_meter_sites.site_id", ondelete="CASCADE"), primary_key=True)
+    month: Mapped[date] = mapped_column(Date, primary_key=True)
+    contract_kwh_day: Mapped[Optional[float]] = mapped_column(Float)
+    pvsyst_kwh_day: Mapped[Optional[float]] = mapped_column(Float)
+    basis: Mapped[Optional[str]] = mapped_column(String(64))
+    source: Mapped[Optional[str]] = mapped_column(String(200))
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
