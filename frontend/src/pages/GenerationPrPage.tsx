@@ -5,7 +5,6 @@ import { useAppContext, usePlantHref } from "../context/AppContext";
 import { PanelChart } from "../components/PanelChart";
 import { EmptyState, LoadingState, fmt } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
-import { GoogleWeatherPanel } from "../components/GoogleWeatherPanel";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { dayLabel } from "@/lib/day";
 import { cn } from "@/lib/utils";
@@ -37,7 +36,7 @@ const CHARTS = ["yield", "thermal"] as const;
 /**
  * `/plant/:id/generation`: the stored day of the URL plant (DB overview, not the live overlay).
  * Top to bottom: day figures and the 5-min power curve, per-inverter comparison next to the
- * modelled loss breakdown, Google weather (modelled), and the per-inverter table.
+ * modelled loss breakdown, the PWA meter card, and the per-inverter table.
  */
 export const GenerationPrPage: React.FC = () => {
   const { selectedPlantOverview: ov, plantOverviewLoading, plantLive } = useAppContext();
@@ -238,8 +237,6 @@ export const GenerationPrPage: React.FC = () => {
       </div>
 
       <PwaMeterCard plantId={ov.plant.plant_id} />
-
-      <GoogleWeatherPanel plantId={ov.plant.plant_id} day={day} />
 
       {inverters.length > 0 && target != null && <InverterTable inverters={inverters} target={target} dayText={dayText} />}
 
