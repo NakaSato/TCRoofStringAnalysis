@@ -182,9 +182,6 @@ export const PwaMeterPage: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
           <h1 className="text-lg font-semibold">PWA Meter</h1>
-          <p className="text-xs text-muted-foreground">
-            Daily meter report of phases 1–2: billed meter energy per site against the contract and PVsyst, losses, outages and the meter check
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {data && (
