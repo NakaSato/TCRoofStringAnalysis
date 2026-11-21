@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GroupLabel, HOT_C, Stat, Unit, hhmm, invName } from "./inverters/shared";
 import { inverterThermalSpec, inverterYieldSpec, powerSpec, prTone, waterfallSpec } from "./generation/charts";
 import { InverterTable } from "./generation/InverterTable";
+import { PwaMeterCard } from "./generation/PwaMeterCard";
 import type { EpiFactor } from "../api/client";
 
 /** Four figures in one divided frame: 2 × 2 on phones, one row from md. */
@@ -227,6 +228,8 @@ export const GenerationPrPage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      <PwaMeterCard plantId={ov.plant.plant_id} />
 
       <GoogleWeatherPanel plantId={ov.plant.plant_id} day={day} />
 

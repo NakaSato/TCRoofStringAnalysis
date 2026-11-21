@@ -1,0 +1,197 @@
+{
+  "version": "2026-11-21",
+  "source": "PWA solar rooftop phases 1-2 daily meter reports (Cewe meters) under contract ธพ.(บล) 20/2566; TFRS 16 model v1.0",
+  "units": {
+    "energy": "kWh",
+    "capacity": "kWp",
+    "money": "THB"
+  },
+  "tariff": {
+    "book_price_thb_per_kwh": 2.7647,
+    "tou_net_thb_per_kwh": 2.6356,
+    "tou_p90_thb_per_kwh": 2.4268,
+    "pwa_grid_price_thb_per_kwh": 3.686,
+    "note": "book price is the TFRS 16 model's price; PWA saving per kWh = grid price - book price"
+  },
+  "day_status": {
+    "zero_kwh": 1.0,
+    "rules": [
+      {
+        "status": "outage",
+        "when": "meter_kwh < zero_kwh and inverter_kwh < zero_kwh",
+        "counts_as": "downtime"
+      },
+      {
+        "status": "loss_inv",
+        "when": "inverter_kwh < zero_kwh and meter_kwh >= zero_kwh",
+        "counts_as": "data gap (inverter data missing, usually communications)"
+      },
+      {
+        "status": "loss_meter",
+        "when": "meter_kwh < zero_kwh and inverter_kwh >= zero_kwh",
+        "counts_as": "data gap (meter reading missing)"
+      },
+      {
+        "status": "ok",
+        "when": "otherwise",
+        "counts_as": "producing"
+      }
+    ],
+    "missing_value": "on a loss_* day the missing reading is null, never 0"
+  },
+  "curtailment": {
+    "note_keyword": "หรี่",
+    "site_curtailed_min_note_days": 30,
+    "note": "a site with more than 30 curtailment-note days is a curtailed site; curtailment is a PM issue, not an O&M KPI"
+  },
+  "performance": {
+    "pi_contract": "sum(meter_kwh) / sum(contract_kwh)",
+    "pi_pvsyst": "sum(meter_kwh) / sum(pvsyst_kwh)",
+    "pi_free_group": "per phase: sites with <= 30 curtailment-note days, pooled pi_pvsyst on ok days = PI_free",
+    "under_performance_ratio": 0.95,
+    "specific_yield": "meter_kwh / kwp (kWh/kWp)"
+  },
+  "loss_model": {
+    "curtailment_kwh": "(PI_free - pi_pvsyst_site) * pvsyst_kwh on ok days, for curtailed sites, floored at 0",
+    "outage_kwh": "pvsyst_kwh on outage days * PI_free",
+    "under_performance_kwh": "(0.95 * PI_free - pi_pvsyst_site) * pvsyst_kwh on ok days, for non-curtailed sites, floored at 0",
+    "value_thb": "kWh * tariff.book_price_thb_per_kwh",
+    "label": "estimated"
+  },
+  "availability": {
+    "availability": "1 - outage days / site-days",
+    "data_availability": "1 - (loss_inv + loss_meter days) / site-days"
+  },
+  "outage_event": {
+    "definition": "consecutive outage days of one site",
+    "mttr_days": "mean event length; planned tests / PWA-side work / floods reported separately",
+    "long_event_days": 7,
+    "fixed_fast_days": 3,
+    "cause_keywords": [
+      [
+        "น้ำท่วม",
+        [
+          "น้ำท่วม"
+        ]
+      ],
+      [
+        "มิเตอร์ชำรุด",
+        [
+          "มิเตอร์"
+        ]
+      ],
+      [
+        "ทดสอบ/ปิดตามแผน",
+        [
+          "ทดสอบ",
+          "PQM",
+          "pqm",
+          "Shutdown",
+          "บำรุงรักษา"
+        ]
+      ],
+      [
+        "งานฝั่ง กปภ.",
+        [
+          "ประปาปิด",
+          "ประปาทำการ",
+          "MDB",
+          "ฟิวส์ของประปา",
+          "ปรับพื้นที่"
+        ]
+      ],
+      [
+        "สื่อสาร/zero export",
+        [
+          "สื่อสาร",
+          "ไฟเบอร์",
+          "LAN",
+          "shine",
+          "enable",
+          "ออฟไลน์",
+          "vpn",
+          "VPN",
+          "converter",
+          "Converter",
+          "switch",
+          "Switch"
+        ]
+      ],
+      [
+        "เบรกเกอร์/อุปกรณ์ไฟฟ้า",
+        [
+          "เบรค",
+          "เบรก",
+          "ACB",
+          "ups",
+          "inv",
+          "อินเวอร์เตอร์",
+          "บอร์ด"
+        ]
+      ],
+      [
+        "หรี่จนหยุดผลิต",
+        [
+          "หรี่"
+        ]
+      ]
+    ],
+    "cause_default": "ไม่ระบุ",
+    "cause_rule": "first group whose keyword appears in the day's note"
+  },
+  "meter_vs_inverter": {
+    "ratio": "meter_kwh / inverter_kwh on days both > 0",
+    "production_gate_kwh_per_kwp": 0.5,
+    "low_day_drop": 0.03,
+    "high_day_ratio": 1.005,
+    "flags": {
+      "ratio_low_median": 0.985,
+      "low_or_missing_meter_days": 3,
+      "inverter_missing_days": 10,
+      "meter_above_inverter_days": 10
+    },
+    "gap_kwh": "sum over low and high days of (inverter_kwh * site median ratio - meter_kwh), floored at 0 (high days offset meter read-time shifts) + inverter_kwh * median ratio on meter-missing days",
+    "label": "estimated"
+  },
+  "tfrs16": {
+    "remeasure_threshold": 0.05,
+    "model_assumed_ratio": 0.9,
+    "remeasured_liability": "book liability * actual energy / contract energy",
+    "note": "method from the model's sheet ประเมินใหม่; confirm with the auditor"
+  },
+  "kpi_targets_fy2570": {
+    "availability_min": 0.995,
+    "data_availability_min": 0.995,
+    "mttr_days_max": 3,
+    "fixed_within_3_days_min": 0.85,
+    "outage_events_per_year_max": 50,
+    "pi_free_min": 0.97,
+    "meter_flag_open_days_max": 30,
+    "recovered_kwh_per_year_min": 600000
+  },
+  "alerts_proposed": {
+    "comms_lost_daylight_hours": 2,
+    "daylight_window": [
+      "08:00",
+      "16:00"
+    ],
+    "zero_output_while_region_produces": true,
+    "meter_ratio_drop_points": 0.03,
+    "meter_ratio_drop_days": 2,
+    "yield_below_region_median_ratio": 0.8,
+    "yield_below_region_median_days": 3
+  },
+  "issue_flags": {
+    "curtailment_kwh_min": 20000,
+    "under_performance_kwh_min": 10000,
+    "outage_days_min": 5,
+    "data_gap_days_min": 15,
+    "recent_outage_window_days": 14,
+    "owner": {
+      "หรี่กำลัง": "PM",
+      "ระบบล่ม": "O&M",
+      "ข้อมูลขาด": "O&M",
+      "ผลิตต่ำกว่าคาด": "O&M"
+    }
+  }
+}

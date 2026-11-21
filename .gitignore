@@ -69,3 +69,6 @@ Monitoring Report/รายงาน/_Tools/gsheet_config.json
 Monitoring Report/รายงาน/_Tools/gsheet_ids.json
 Monitoring Report/รายงาน/_Tools/registry.csv
 Monitoring Report/รายงาน/_Tools/plant_map.json
+
+# PWA daily meter report imports (client energy data; regenerated from the daily reports)
+data/imports/
