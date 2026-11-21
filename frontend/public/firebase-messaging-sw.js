@@ -21,6 +21,8 @@ self.addEventListener("push", (event) => {
       tag: data.tag || undefined,
       renotify: Boolean(data.tag),
       icon: "/icons/icon-192.png",
+      // Android status bar: drawn as an alpha mask, so the white logo on transparent (icons/badge.svg)
+      badge: "/icons/badge-96.png",
       data: { url: data.url || "/alarms" },
     })
   );
