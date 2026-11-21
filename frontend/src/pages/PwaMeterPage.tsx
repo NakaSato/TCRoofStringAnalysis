@@ -6,6 +6,8 @@
  * Engineers see the sites of their plants and no phase totals. Pieces in `pages/pwaMeter/`;
  * docs/plans/pwa-meter-daily.md.
  *
+ * Admins import the daily report workbooks here (`pwaMeter/ImportDialog`, preview first).
+ *
  * URL: `tab` (sites | outages | meter), `from`, `to` (YYYY-MM-DD; none = the whole report),
  * `phase`, `q`, `show` (all | issues | om | pm, sites tab), `sort`, `desc`, `site` (detail open).
  */
@@ -43,6 +45,7 @@ import {
 } from "./pwaMeter/tables";
 import type { CheckSort, OutageSort, SiteSort } from "./pwaMeter/tables";
 import { SiteDialog } from "./pwaMeter/SiteDialog";
+import { ImportDialog } from "./pwaMeter/ImportDialog";
 
 const ALL = "all";
 /** default sort and direction per tab */
@@ -97,6 +100,7 @@ export const PwaMeterPage: React.FC = () => {
   }, [data, to]);
   const preset = presetOf(win, lastDay);
 
+  const [importing, setImporting] = useState(false);
   const [criteria, setCriteria] = useState<PwaMeterCriteria | null>(null);
   useEffect(() => {
     api.getPwaMeterCriteria().then(setCriteria, () => setCriteria(null));
@@ -192,6 +196,11 @@ export const PwaMeterPage: React.FC = () => {
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
             {loading ? "Refreshing…" : "Refresh"}
           </Button>
+          {admin && (
+            <Button size="sm" onClick={() => setImporting(true)}>
+              Import report
+            </Button>
+          )}
         </div>
       </div>
 
@@ -355,6 +364,7 @@ export const PwaMeterPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      <ImportDialog open={importing} onClose={() => setImporting(false)} onImported={() => void reload()} />
       <SiteDialog
         siteId={siteId}
         window={win}

@@ -29,7 +29,7 @@ import math
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
 from sqlalchemy import select
@@ -236,12 +236,16 @@ def _frame(db: Session, start: Optional[date], end: Optional[date]) -> pd.DataFr
     sites = pd.DataFrame([(s.site_id, s.phase, s.name, s.region, s.kwp, s.growatt_plant_id) for s in db.scalars(select(PwaMeterSite))],
                          columns=["site_id", "phase", "name", "region", "kwp", "growatt_plant_id"])
     if df.empty:
-        return df.assign(phase=pd.Series(dtype=int), name="", region="", kwp=0.0, growatt_plant_id=None)
+        return df.assign(phase=pd.Series(dtype=int), name="", region="", kwp=0.0, growatt_plant_id=None, meter_c=0.0, meter_p=0.0)
     df = df.merge(sites, on="site_id", how="left")
     for c in ("meter", "inv", "con", "pv"):
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df["curt"] = df.curt.astype(bool)
     df["day"] = pd.to_datetime(df.day)
+    # meter kWh only on days that have the modelled figure it is compared with: a day imported
+    # before its month had expected energy must not count against the contract / PVsyst
+    df["meter_c"] = df.meter.where(df.con.notna())
+    df["meter_p"] = df.meter.where(df.pv.notna())
     return df
 
 
@@ -261,7 +265,7 @@ def _div(a: float, b: float) -> Optional[float]:
 
 def _pi_free(df: pd.DataFrame, curtailed: Set[str]) -> Dict[int, Optional[float]]:
     ok = df[(df.status == "ok") & ~df.site_id.isin(curtailed)]
-    return {int(ph): _div(g.meter.sum(), g.pv.sum()) for ph, g in ok.groupby("phase")}
+    return {int(ph): _div(g.meter_p.sum(), g.pv.sum()) for ph, g in ok.groupby("phase")}
 
 
 def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None, phase: Optional[int] = None) -> Dict[str, Any]:
@@ -284,7 +288,7 @@ def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
         ph = int(g.phase.iloc[0])
         ok = g[g.status == "ok"]
         act, con, pv = g.meter.sum(), g.con.sum(), g.pv.sum()
-        pi_pv = _div(ok.meter.sum(), ok.pv.sum())
+        pi_pv = _div(ok.meter_p.sum(), ok.pv.sum())
         p = pif.get(ph)
         is_cur = sid in curtailed
         cur_kwh = max(0.0, (p - pi_pv) * ok.pv.sum()) if (is_cur and p and pi_pv is not None) else 0.0
@@ -313,7 +317,7 @@ def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             "site_id": sid, "phase": ph, "name": g.name.iloc[0], "region": g.region.iloc[0], "kwp": _f(g.kwp.iloc[0], 2),
             "growatt_plant_id": None if pd.isna(g.growatt_plant_id.iloc[0]) else int(g.growatt_plant_id.iloc[0]),
             "days": n, "meter_mwh": _f(act / 1000, 2), "contract_mwh": _f(con / 1000, 2), "pvsyst_mwh": _f(pv / 1000, 2),
-            "vs_contract_pct": _f(100 * _div(act, con), 1) if con else None, "vs_pvsyst_pct": _f(100 * pi_pv, 1) if pi_pv is not None else None,
+            "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), con), 1) if con else None, "vs_pvsyst_pct": _f(100 * pi_pv, 1) if pi_pv is not None else None,
             "yield_kwh_kwp": _f(act / g.kwp.iloc[0], 0), "availability_pct": _f(100 * (1 - outage / n), 2), "data_availability_pct": _f(100 * (1 - gaps / n), 2),
             "outage_days": outage, "data_gap_days": gaps, "outage_recent_days": recent, "curtailment_note_days": int(curt_days.get(sid, 0)), "curtailed": is_cur,
             "curtailment_loss_mwh": _f(cur_kwh / 1000, 2), "outage_loss_mwh": _f(out_kwh / 1000, 2), "under_loss_mwh": _f(under_kwh / 1000, 2),
@@ -330,7 +334,7 @@ def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             "phase": int(ph), "sites": int(g.site_id.nunique()), "kwp": _f(g.drop_duplicates("site_id").kwp.sum(), 2),
             "first_day": g.day.min().date().isoformat(), "last_day": g.day.max().date().isoformat(),
             "meter_mwh": _f(g.meter.sum() / 1000, 1), "contract_mwh": _f(g.con.sum() / 1000, 1), "pvsyst_mwh": _f(g.pv.sum() / 1000, 1),
-            "vs_contract_pct": _f(100 * _div(g.meter.sum(), g.con.sum()), 1) if g.con.sum() else None,
+            "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), g.con.sum()), 1) if g.con.sum() else None,
             "pi_free_pct": _f(100 * pif[int(ph)], 1) if pif.get(int(ph)) else None,
             "availability_pct": _f(100 * (1 - (g.status == "outage").sum() / n), 2),
             "data_availability_pct": _f(100 * (1 - g.status.isin(["loss_inv", "loss_meter"]).sum() / n), 2),
@@ -432,6 +436,213 @@ def meter_check(db: Session, allowed: Optional[Set[int]], start: Optional[date] 
     return out
 
 
+# ---------- daily report import (Excel, docs/plans/pwa-meter-daily.md §2.3) ----------
+
+REPORT_MAX_BYTES = 40 * 1024 * 1024
+
+
+def weather_of(raw: Optional[str]) -> Optional[str]:
+    """The report's สภาพอากาศ → clear / cloudy / rain by keyword (criteria `report_import`), or None."""
+    if not raw:
+        return None
+    for value, keys in criteria()["report_import"]["weather_keywords"]:
+        if any(k in raw for k in keys):
+            return value
+    return None
+
+
+def _name_key(name: str) -> str:
+    """Site name without the 'กปภ.สาขา…' suffix, spaces and 'ประปา', for matching report rows."""
+    cut = len(name)
+    for marker in criteria()["report_import"]["name_suffix_markers"]:
+        i = name.find(marker)
+        if i > 0:
+            cut = min(cut, i)
+    return "".join(name[:cut].split()).replace("ประปา", "")
+
+
+class _Matcher:
+    def __init__(self, sites: List[PwaMeterSite]):
+        self.by_id = {s.site_id: s for s in sites}
+        self.by_meter = {s.meter_no: s for s in sites if s.meter_no}
+        self.p1 = [(s, _name_key(s.name)) for s in sites if s.phase == 1]
+
+    def match(self, row) -> Tuple[Optional[PwaMeterSite], str]:
+        if row.comp_id is not None:
+            s = self.by_id.get(f"P2-{row.comp_id}")
+            return s, "comp_id" if s else "no site P2-%d" % row.comp_id
+        if row.meter_no and row.meter_no in self.by_meter:
+            return self.by_meter[row.meter_no], "meter_no"
+        key = _name_key(row.name)
+        exact = [s for s, k in self.p1 if k == key]
+        if len(exact) == 1:
+            return exact[0], "name"
+        near = [s for s, k in self.p1 if k and key and (k in key or key in k)]
+        if len(near) == 1:
+            return near[0], "name"
+        return None, "several sites match the name" if (len(exact) + len(near)) > 1 else "no site with this name or meter number"
+
+
+def _same(a: Optional[float], b: Optional[float]) -> bool:
+    # within rounding of the 2-decimal kWh (the days CSV rounded 756.115 up, round() may go down)
+    return (a is None and b is None) or (a is not None and b is not None and abs(a - b) < 0.011)
+
+
+def _readings(meter: Optional[float], inverter: Optional[float]) -> Tuple[Optional[float], Optional[float], str]:
+    """Status of the day and the two readings as stored: on a loss_inv / loss_meter day the reading
+    under 1 kWh is a missing reading (comms or meter down), so it is null, never 0."""
+    status = classify(meter, inverter)
+    if status == "loss_inv":
+        inverter = None
+    elif status == "loss_meter":
+        meter = None
+    return meter, inverter, status
+
+
+def import_report(db: Session, files: List[Tuple[str, bytes]], today: date, overrides: Optional[Dict[str, Optional[str]]] = None,
+                  commit: bool = False) -> Dict[str, Any]:
+    """Parse daily report workbooks, match each row to a site and compare with what is stored.
+
+    `overrides` maps a sheet key (`file::sheet`) to a YYYY-MM-DD day (a date the sheet lacks or got
+    wrong) or "skip". The preview lists per sheet: its day and where it came from, matched / unmatched
+    rows, new / changed / unchanged days, days before the phase's start (not stored) and problems.
+    With `commit` and no problem in any included sheet, every matched day is upserted in one
+    transaction (all or nothing), contract / PVsyst from `pwa_meter_expected` for its month, and a
+    site's meter number is remembered the first time a row of it carries one."""
+    from app.services import pwa_meter_model as model
+    from app.services.pwa_meter_report import parse_workbook
+
+    rules = criteria()["report_import"]
+    skip_before = {int(k): date.fromisoformat(v) for k, v in rules["skip_before"].items()}
+    overrides = overrides or {}
+    sites = list(db.scalars(select(PwaMeterSite)))
+    matcher = _Matcher(sites)
+    sheets_out: List[Dict[str, Any]] = []
+    plan: Dict[Tuple[str, date], Dict[str, Any]] = {}
+    learned: Dict[str, str] = {}
+    problems = 0
+    for name, data in files:
+        try:
+            parsed = parse_workbook(data, name, today)
+        except Exception as exc:  # not a workbook openpyxl can read
+            sheets_out.append({"key": f"{name}::", "file": name, "sheet": None, "day": None, "day_source": None, "skipped": False,
+                               "rows": 0, "matched": 0, "unmatched": [], "new": 0, "changed": 0, "unchanged": 0, "before_start": 0,
+                               "errors": [f"cannot read {name}: {exc}"], "warnings": []})
+            problems += 1
+            continue
+        if not parsed:
+            sheets_out.append({"key": f"{name}::", "file": name, "sheet": None, "day": None, "day_source": None, "skipped": False,
+                               "rows": 0, "matched": 0, "unmatched": [], "new": 0, "changed": 0, "unchanged": 0, "before_start": 0,
+                               "errors": [f"{name}: no sheet has the report table (header '{'หน่วยจากมิเตอร์'}')"], "warnings": []})
+            problems += 1
+            continue
+        for sh in parsed:
+            ov = overrides.get(sh.key)
+            info: Dict[str, Any] = {"key": sh.key, "file": sh.file, "sheet": sh.sheet, "day": sh.day and sh.day.isoformat(),
+                                    "day_source": sh.day_source, "skipped": ov == "skip", "rows": len(sh.rows), "matched": 0,
+                                    "unmatched": [], "new": 0, "changed": 0, "unchanged": 0, "before_start": 0,
+                                    "errors": list(sh.errors), "warnings": []}
+            sheets_out.append(info)
+            if ov == "skip":
+                continue
+            if ov:
+                try:
+                    sh.day = date.fromisoformat(ov)
+                    info["day"], info["day_source"] = ov, "set by you"
+                    info["errors"] = [e for e in info["errors"] if not e.startswith("no date")]
+                except ValueError:
+                    info["errors"].append(f"day {ov!r} is not YYYY-MM-DD")
+            if sh.day and sh.day > today:
+                info["errors"].append(f"day {sh.day} is in the future")
+            if sh.day and sh.day < min(skip_before.values()):
+                # a commissioning / pre-contract sheet: nothing in it is stored, so it is not matched either
+                info["before_start"] = len(sh.rows)
+                continue
+            unknown_weather = set()
+            for r in sh.rows:
+                site, how = matcher.match(r)
+                if site is None:
+                    info["unmatched"].append({"row": r.row_no, "name": r.name, "comp_id": r.comp_id, "meter_no": r.meter_no, "reason": how})
+                    continue
+                info["matched"] += 1
+                if r.meter_no:
+                    if site.meter_no and site.meter_no != r.meter_no:
+                        info["warnings"].append(f"{site.site_id}: meter number {r.meter_no} differs from the stored {site.meter_no}")
+                    elif not site.meter_no and r.meter_no not in matcher.by_meter:
+                        learned.setdefault(site.site_id, r.meter_no)
+                if sh.day is None:
+                    continue
+                if sh.day < skip_before.get(site.phase, date.min):
+                    info["before_start"] += 1
+                    continue
+                w = weather_of(r.weather)
+                if r.weather and w is None:
+                    unknown_weather.add(r.weather)
+                key = (site.site_id, sh.day)
+                if key in plan:
+                    info["errors"].append(f"{site.site_id} {sh.day} is also in {plan[key]['sheet']} (row {plan[key]['row']})")
+                    continue
+                plan[key] = {"sheet": sh.key, "row": r.row_no, "site": site, "meter_kwh": r.meter_kwh, "inverter_kwh": r.inverter_kwh,
+                             "weather": w, "note": r.note, "info": info}
+            if unknown_weather:
+                info["warnings"].append(f"weather not recognised (stored as empty): {', '.join(sorted(unknown_weather))}")
+            if info["unmatched"]:
+                info["errors"].append(f"{len(info['unmatched'])} row(s) match no site")
+    # compare with stored days and fill the modelled figures
+    days = sorted({d for _, d in plan})
+    existing = {}
+    if plan:
+        q = select(PwaMeterDay).where(PwaMeterDay.site_id.in_({k[0] for k in plan}), PwaMeterDay.day >= days[0], PwaMeterDay.day <= days[-1])
+        existing = {(d.site_id, d.day): d for d in db.scalars(q)}
+    exp = model.lookup(db, {(sid, d.replace(day=1)) for sid, d in plan})
+    no_expected: Set[str] = set()
+    curt_kw = criteria()["curtailment"]["note_keyword"]
+    writes = []
+    for (sid, d), p in plan.items():
+        e = exp.get((sid, d.replace(day=1)))
+        cur = existing.get((sid, d))
+        con = e.contract_kwh_day if e else (cur.contract_kwh if cur else None)
+        pvs = e.pvsyst_kwh_day if e else (cur.pvsyst_kwh if cur else None)
+        if e is None and cur is None:
+            no_expected.add(d.strftime("%Y-%m"))
+        meter, inv, status = _readings(p["meter_kwh"], p["inverter_kwh"])
+        vals: Dict[str, Any] = dict(meter_kwh=meter, inverter_kwh=inv, contract_kwh=con, pvsyst_kwh=pvs,
+                    status=status, curtailment_note=bool(p["note"] and curt_kw in p["note"]),
+                    weather=p["weather"], note=p["note"])
+        info = p["info"]
+        if cur is None:
+            info["new"] += 1
+        elif all(_same(getattr(cur, k), vals[k]) if k.endswith("_kwh") else getattr(cur, k) == vals[k] for k in vals):
+            info["unchanged"] += 1
+            continue
+        else:
+            info["changed"] += 1
+        writes.append((sid, d, cur, vals))
+    included = [x for x in sheets_out if not x["skipped"]]
+    problems += sum(1 for x in included if x["errors"])
+    totals = {k: sum(x[k] for x in included) for k in ("rows", "matched", "new", "changed", "unchanged", "before_start")}
+    totals["unmatched"] = sum(len(x["unmatched"]) for x in included)
+    out: Dict[str, Any] = {"ok": problems == 0, "committed": False, "sheets": sheets_out, "totals": totals,
+                           "days": {"first": days[0].isoformat() if days else None, "last": days[-1].isoformat() if days else None},
+                           "months_without_expected": sorted(no_expected), "meter_numbers_learned": len(learned)}
+    if commit and problems == 0:
+        try:
+            for sid, d, cur, vals in writes:
+                if cur is None:
+                    db.add(PwaMeterDay(site_id=sid, day=d, **vals))
+                else:
+                    for k, v in vals.items():
+                        setattr(cur, k, v)
+            for sid, no in learned.items():
+                matcher.by_id[sid].meter_no = no
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        out["committed"] = True
+    return out
+
+
 # ---------- one Growatt plant: meter day vs Growatt's own day energy ----------
 
 PLANT_DEFAULT_DAYS = 60
@@ -502,6 +713,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     sm = sub.add_parser("summary", help="print the phase summary")
     sm.add_argument("--start", type=date.fromisoformat)
     sm.add_argument("--end", type=date.fromisoformat)
+    ex = sub.add_parser("expected", help="build the monthly expected energy from the TFRS 16 / PVsyst model workbook")
+    ex.add_argument("--model", required=True, type=Path)
+    ex.add_argument("--start", default="2026-01", help="first month, YYYY-MM")
+    ex.add_argument("--until", default=f"{date.today().year + 1}-12", help="last month, YYYY-MM (default: December next year)")
+    ex.add_argument("--check", action="store_true", help="then compare with the contract / PVsyst stored on imported days")
+    rp = sub.add_parser("report", help="import daily report workbooks (preview unless --commit)")
+    rp.add_argument("files", nargs="+", type=Path)
+    rp.add_argument("--commit", action="store_true")
+    rp.add_argument("--day", action="append", default=[], help="FILE::SHEET=YYYY-MM-DD or FILE::SHEET=skip")
     a = ap.parse_args(argv)
     ensure_schema(engine)
     with SessionLocal() as db:
@@ -511,6 +731,23 @@ def main(argv: Optional[List[str]] = None) -> int:
             except PwaImportError as exc:
                 print(f"import refused: {exc}")
                 return 1
+        elif a.cmd == "expected":
+            from app.services import pwa_meter_model as model
+
+            first, last = (date.fromisoformat(f"{x}-01") for x in (a.start, a.until))
+            res = model.import_expected(db, model.read_model(a.model), first, last)
+            if a.check:
+                res["check"] = model.check_against_days(db)
+            print(json.dumps(res, ensure_ascii=False, indent=1))
+        elif a.cmd == "report":
+            overrides = dict(x.split("=", 1) for x in a.day)
+            res = import_report(db, [(f.name, f.read_bytes()) for f in a.files], date.today(), overrides, commit=a.commit)
+            brief = {k: res[k] for k in ("ok", "committed", "totals", "days", "months_without_expected", "meter_numbers_learned")}
+            brief["problems"] = [{"key": x["key"], "day": x["day"], "errors": x["errors"][:5], "unmatched": x["unmatched"][:5]}
+                                 for x in res["sheets"] if x["errors"] and not x["skipped"]]
+            brief["warnings"] = [{"key": x["key"], "warnings": x["warnings"]} for x in res["sheets"] if x["warnings"]]
+            print(json.dumps(brief, ensure_ascii=False, indent=1))
+            return 0 if res["ok"] else 1
         else:
             print(json.dumps(summary(db, None, a.start, a.end)["phases"], ensure_ascii=False, indent=1))
     return 0

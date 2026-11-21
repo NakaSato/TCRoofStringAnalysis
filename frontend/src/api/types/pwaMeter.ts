@@ -167,3 +167,36 @@ export interface PwaPlantDays {
   };
   labels: Record<string, string>;
 }
+
+/** one day sheet of an uploaded daily report, as the import preview judged it */
+export interface PwaImportSheet {
+  /** `file::sheet`, the key for a day override or "skip" */
+  key: string;
+  file: string;
+  sheet: string | null;
+  day: string | null;
+  day_source: "title" | "sheet name" | "set by you" | null;
+  skipped: boolean;
+  rows: number;
+  matched: number;
+  unmatched: Array<{ row: number; name: string; comp_id: number | null; meter_no: string | null; reason: string }>;
+  new: number;
+  changed: number;
+  unchanged: number;
+  /** rows of days before the phase's contract start: counted, never stored */
+  before_start: number;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface PwaImportResult {
+  /** no problem in any included sheet: a commit would store everything */
+  ok: boolean;
+  committed: boolean;
+  sheets: PwaImportSheet[];
+  totals: { rows: number; matched: number; new: number; changed: number; unchanged: number; before_start: number; unmatched: number };
+  days: { first: string | null; last: string | null };
+  /** months with no expected energy: those days get no contract / PVsyst figure */
+  months_without_expected: string[];
+  meter_numbers_learned: number;
+}

@@ -78,6 +78,7 @@ from app.db.models.claims import (  # noqa: F401
 )
 from app.db.models.pwa import (  # noqa: F401
     PwaMeterDay,
+    PwaMeterExpected,
     PwaMeterSite,
 )
 from app.db.models.system import (  # noqa: F401

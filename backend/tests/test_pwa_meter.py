@@ -185,3 +185,203 @@ def test_plant_days_compare_meter_with_growatt(api):
     assert len(client.get(f"/pwa/meter/plants/{P1}?start=2026-03-31&end=2026-04-01", headers=eng).json()["days"]) == 2
     assert client.get(f"/pwa/meter/plants/{P2}", headers=eng).status_code == 404  # not assigned
     assert client.get("/pwa/meter/plants/9999", headers=admin).status_code == 404  # no report site
+
+
+# ---------- daily report import (Excel) and monthly expected energy ----------
+
+import io  # noqa: E402
+
+import openpyxl  # noqa: E402
+
+from app.db.models import PwaMeterExpected, PwaMeterSite  # noqa: E402
+from app.services import pwa_meter_model as model  # noqa: E402
+from app.services.pwa_meter_report import parse_workbook, sheet_day_months, title_day  # noqa: E402
+
+TODAY = date(2026, 4, 30)
+TABLE = ["ลำดับ", "สถานที่", "กำลังการผลิตติดตั้ง (kw)", "ชั่วโมงเเดดสูงสุด (hr)", "หน่วยจากมิเตอร์", "หน่วยจากอินเวอร์เตอร์",
+         "Diff", "%Diff", "หน่วยประมาณการ\nจากเล่มข้อเสนอ", "Diff", "%Diff", "สภาพอากาศ", "หมายเหตุ"]
+
+
+def _p1_book(day_title="15 เมษายน 2569", extra_unknown=False):
+    """Phase 1 layout: one sheet, title with the day, site row then the meter number two rows down."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "สรุปหน่วยรายวัน"
+    ws.append([f"สรุปผลการผลิตระบบผลิตไฟฟ้าพลังงานแสงอาทิตย์ประจำวันที่ {day_title}"])
+    ws.append(TABLE)
+    rows = [(1, "Free site กปภ.สาขาบางไทร", 410.4567, 414.2, "มีเมฆมาก", None, "WP000001"),
+            (2, "Curtailed site กปภ.สาขาบางไทร", 300, 303, "ฝนคก", "ระบบหรี่ให้พอดีกับโหลด", "WP000002")]
+    if extra_unknown:
+        rows.append((3, "Unknown place กปภ.สาขาไหน", 100, 101, "มีเมฆมาก", None, None))
+    for seq, name, m, i, w, note, meter in rows:
+        ws.append([seq, name, 100, 4.0, m, i, None, None, None, None, None, w, note])
+        ws.append([None, "หมายเลขมิเตอร์"])
+        ws.append([None, f"{meter} (23:45:00)" if meter else None])
+    ws2 = wb.create_sheet("รายงานปัญหา ")
+    ws2.append(["รายงานสรุปปัญหา"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _p2_book(sheet_names=("16.04",)):
+    """Phase 2 layout: per-day sheets named by day, comp_id + the system pull (Cewe / Growatt /
+    Weather) on the left of the header row, the typed table from column Y."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for name in sheet_names:
+        ws = wb.create_sheet(name)
+        ws.append(["รายงาน"])
+        hdr = [None] * 37
+        hdr[0], hdr[6], hdr[9], hdr[16], hdr[17], hdr[21] = "Selection", "comp_id", "comp_name_th", "Cewe", "Growatt", "Weather"
+        hdr[24:37] = TABLE
+        ws.append(hdr)
+        row = [None] * 37
+        # system: meter 500.123, inverter 0 (comms down); the typed table repeats an old inverter figure
+        row[6], row[16], row[17], row[21] = 1046, 500.123, 0.0, "ฝนตก"
+        row[24:37] = [1, "สถานีผลิตน้ำบ้านนางเลง กปภ.สาขากบินทร์บุรี", 190.38, 3.9, 500.12, 999.0, None, None, 724.9, None, None, "มีเมฆมาก",
+                      "ระบบสื่อสารมีปัญหา"]
+        ws.append(row)
+        sub = [None] * 37
+        sub[15], sub[28] = "WP081205 (23:45:00)", "WP081205 (23:45:00)"
+        ws.append(sub)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _add_p2_site(f):
+    with f() as db:
+        svc.import_rows(db, [{"site_id": "P2-1046", "phase": "2", "name": "สถานีผลิตน้ำบ้านนางเลง", "region": "เขต 1", "kwp": "190.38",
+                              "growatt_plant_id": "", "kwp_mismatch": "0"}], [])
+
+
+def _expected(f, site_id, month, con, pvs):
+    with f() as db:
+        db.add(PwaMeterExpected(site_id=site_id, month=month, contract_kwh_day=con, pvsyst_kwh_day=pvs, basis="test", source="test"))
+        db.commit()
+
+
+def test_report_dates_from_title_and_sheet_names():
+    assert title_day("…ประจำวันที่ 11 พฤศจิกายน 2569") == date(2026, 11, 11)
+    assert title_day("ประจำวันที่ 7 พ.ย. 2025") == date(2025, 11, 7)
+    assert sheet_day_months("18.11") == [(18, 11)]
+    assert sheet_day_months("711") == [(7, 11)]
+    assert (1, 7) in sheet_day_months("017") and (1, 9) in sheet_day_months("19")
+    assert sheet_day_months("Sheet") == []
+    # names read in sequence: 017 after 30 Jun is 1 Jul, 107 after 9 Jul is 10 Jul; the year rolls over
+    sheets = parse_workbook(_p2_book(("3006", "017", "097", "107", "3112", "0101", "Sheet")), "p2.xlsx", date(2027, 2, 1))
+    days = [(s.sheet, s.day) for s in sheets]
+    assert days[:6] == [("3006", date(2026, 6, 30)), ("017", date(2026, 7, 1)), ("097", date(2026, 7, 9)), ("107", date(2026, 7, 10)),
+                        ("3112", date(2026, 12, 31)), ("0101", date(2027, 1, 1))]
+    assert days[6] == ("Sheet", None) and sheets[6].errors
+
+
+def test_report_preview_commit_and_reimport(api):
+    f, *_ = api
+    _expected(f, "P1-01", date(2026, 4, 1), 380.0, 401.5)
+    with f() as db:
+        bad = svc.import_report(db, [("p1.xlsx", _p1_book(extra_unknown=True))], TODAY)
+        assert not bad["ok"] and bad["totals"]["unmatched"] == 1
+        assert bad["sheets"][0]["unmatched"][0]["name"].startswith("Unknown place")
+        assert db.query(PwaMeterDay).filter(PwaMeterDay.day == date(2026, 4, 15)).count() == 0
+        # refused: a commit with an unmatched row writes nothing
+        assert not svc.import_report(db, [("p1.xlsx", _p1_book(extra_unknown=True))], TODAY, commit=True)["committed"]
+        prev = svc.import_report(db, [("p1.xlsx", _p1_book())], TODAY)
+        assert prev["ok"] and prev["totals"]["new"] == 2 and not prev["committed"]
+        assert prev["sheets"][0]["day"] == "2026-04-15" and prev["sheets"][0]["day_source"] == "title"
+        assert prev["months_without_expected"] == ["2026-04"]  # P1-02 has no expected month: left null
+        done = svc.import_report(db, [("p1.xlsx", _p1_book())], TODAY, commit=True)
+        assert done["committed"] and done["meter_numbers_learned"] == 2
+    with f() as db:
+        d1 = db.scalars(select(PwaMeterDay).where(PwaMeterDay.site_id == "P1-01", PwaMeterDay.day == date(2026, 4, 15))).one()
+        assert (d1.meter_kwh, d1.inverter_kwh, d1.status, d1.weather) == (410.46, 414.2, "ok", "cloudy")
+        assert (d1.contract_kwh, d1.pvsyst_kwh) == (380.0, 401.5)  # from the expected month
+        d2 = db.scalars(select(PwaMeterDay).where(PwaMeterDay.site_id == "P1-02", PwaMeterDay.day == date(2026, 4, 15))).one()
+        assert d2.weather == "rain" and d2.curtailment_note and d2.contract_kwh is None  # typo ฝนคก = rain; no expected = null
+        assert db.get(PwaMeterSite, "P1-01").meter_no == "WP000001"
+        again = svc.import_report(db, [("p1.xlsx", _p1_book())], TODAY)
+        assert again["totals"]["unchanged"] == 2 and again["totals"]["new"] == 0
+
+
+def test_report_phase2_uses_system_pull_and_nulls_missing_reading(api):
+    f, *_ = api
+    _add_p2_site(f)
+    with f() as db:
+        out = svc.import_report(db, [("p2.xlsx", _p2_book(("16.04",)))], TODAY, commit=True)
+        assert out["committed"] and out["sheets"][0]["day_source"] == "sheet name" and out["sheets"][0]["day"] == "2026-04-16"
+        d = db.scalars(select(PwaMeterDay).where(PwaMeterDay.site_id == "P2-1046")).one()
+        # Cewe 500.123 (not the table's 500.12 typed value); Growatt 0 while the meter read = inverter data missing -> null
+        assert d.meter_kwh == 500.12 and d.inverter_kwh is None and d.status == "loss_inv"
+        assert d.weather == "rain" and d.note == "ระบบสื่อสารมีปัญหา"
+        assert db.get(PwaMeterSite, "P2-1046").meter_no == "WP081205"
+
+
+def test_report_overrides_skip_and_pre_contract_sheets(api):
+    f, *_ = api
+    _add_p2_site(f)
+    book = _p2_book(("1512", "Sheet", "16.04"))  # 15 Dec 2025 = before phase 2's start; "Sheet" has no date
+    with f() as db:
+        prev = svc.import_report(db, [("p2.xlsx", book)], TODAY)
+        by = {s["sheet"]: s for s in prev["sheets"]}
+        assert by["1512"]["before_start"] == 1 and not by["1512"]["errors"]
+        assert by["Sheet"]["errors"] and not prev["ok"]
+        ok = svc.import_report(db, [("p2.xlsx", book)], TODAY, {"p2.xlsx::Sheet": "2026-04-17"}, commit=True)
+        assert ok["committed"] and ok["totals"]["new"] == 2
+        assert {d.day for d in db.scalars(select(PwaMeterDay).where(PwaMeterDay.site_id == "P2-1046"))} == {date(2026, 4, 16), date(2026, 4, 17)}
+        skipped = svc.import_report(db, [("p2.xlsx", book)], TODAY, {"p2.xlsx::Sheet": "skip"})
+        assert skipped["ok"] and [s["skipped"] for s in skipped["sheets"] if s["sheet"] == "Sheet"] == [True]
+        dup = svc.import_report(db, [("p2.xlsx", book)], TODAY, {"p2.xlsx::Sheet": "2026-04-16"})
+        assert not dup["ok"] and any("also in" in e for s in dup["sheets"] for e in s["errors"])
+
+
+def test_report_route_is_admin_only(api):
+    _, client, admin, eng = api
+    files = {"files": ("p1.xlsx", _p1_book(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    assert client.post("/pwa/meter/import", files=files, headers=eng).status_code == 403
+    r = client.post("/pwa/meter/import", files=files, headers=admin)
+    assert r.status_code == 200 and r.json()["totals"]["matched"] == 2 and not r.json()["committed"]
+    r = client.post("/pwa/meter/import", files={"files": ("notes.csv", b"a,b", "text/csv")}, headers=admin)
+    assert r.status_code == 422
+    r = client.post("/pwa/meter/import", files=files, data={"days": "[1]"}, headers=admin)
+    assert r.status_code == 422
+
+
+def test_expected_rows_follow_the_model_rules(api):
+    f, *_ = api
+    _add_p2_site(f)
+    m = model.Model(source="m.xlsx", spec2=1400.0)
+    m.pvsyst[(1, 1)] = (50.0, [3.1] * 12)  # PVsyst kWp 50 vs contract 100 -> scaled ×2
+    m.pvsyst[(2, 26)] = (190.38, [10.0] * 6 + [20.0] * 6)  # the only phase 2 station: its season is the fleet season
+    m.p1_contract[1] = {date(2025, 12, 1): 3100.0, date(2026, 1, 1): 6200.0}
+    with f() as db:
+        for sid, cseq, pseq in (("P1-01", 1, 1), ("P2-1046", None, 26)):
+            s = db.get(PwaMeterSite, sid)
+            s.contract_seq, s.pvsyst_seq = cseq, pseq
+        db.commit()
+        sites = [db.get(PwaMeterSite, "P1-01"), db.get(PwaMeterSite, "P2-1046")]
+        rows, warn = model.expected_rows(m, sites, date(2026, 1, 1), date(2027, 1, 1))
+    by = {(r["site_id"], r["month"]): r for r in rows}
+    assert by[("P1-01", date(2026, 1, 1))]["contract_kwh_day"] == 200.0  # 6200 / 31
+    assert by[("P1-01", date(2026, 1, 1))]["pvsyst_kwh_day"] == 200.0  # 3.1 MWh × 1000 × 2 / 31
+    assert by[("P1-01", date(2026, 12, 1))]["contract_kwh_day"] == round(3100 * 0.993 / 31, 2)  # Dec 2025 × 0.993
+    assert by[("P1-01", date(2027, 1, 1))]["contract_kwh_day"] == round(6200 * 0.993 / 31, 2)
+    assert by[("P1-01", date(2026, 3, 1))]["contract_kwh_day"] is None  # not in the sheet in any year: null, not made up
+    jan = by[("P2-1046", date(2026, 1, 1))]["contract_kwh_day"]
+    assert jan == round(190.38 * 1400 * 10 / 180 / 31, 2)
+    assert by[("P2-1046", date(2027, 1, 1))]["contract_kwh_day"] == round(190.38 * 1400 * 10 / 180 / 31 * 0.993, 2)  # 2nd contract year
+    assert not warn
+
+
+def test_summary_counts_only_days_with_a_contract_figure(api):
+    f, *_ = api
+    with f() as db:
+        base = {r["site_id"]: r for r in svc.summary(db, None)["sites"]}["P1-01"]
+        for d in db.scalars(select(PwaMeterDay).where(PwaMeterDay.site_id == "P1-01", PwaMeterDay.day >= D0 + timedelta(days=30))):
+            d.contract_kwh = None
+        db.commit()
+        after = {r["site_id"]: r for r in svc.summary(db, None)["sites"]}["P1-01"]
+    # days 0-29 only: 22 × 400 + 5 × 360 + 3 outage days of 0 = 10,600 kWh over 30 × 380 = 11,400 kWh;
+    # counting all 40 days of meter over 30 days of contract would give 128 %
+    assert base["vs_contract_pct"] == 96.1
+    assert after["vs_contract_pct"] == pytest.approx(100 * 10600 / 11400, abs=0.05)
