@@ -1,6 +1,6 @@
 # Plan & Spec: Operations → Measuring Tools (frontend)
 
-Status: **Frontend built on mock data 2026-11-19** (backend `/tools` not started) · Created 2026-11-19 · Owner: Chanthawat
+Status: **Built**: frontend 2026-11-19 on mock data, backend `/tools` 2026-11-21 (mock removed, §7a) · Created 2026-11-19 · Owner: Chanthawat
 
 A new **Measuring Tools** page in the sidebar's **Operations** group. It is the O&M team's register of measuring instruments (drones, thermal cameras, clamp meters, I-V curve tracers, insulation testers, …) and shows who has each instrument, which plant it is at, and when its calibration or its documents (drone registration, insurance) run out. This plan covers the frontend. It lists only the API the page needs (§7); the backend gets its own plan.
 
@@ -133,6 +133,17 @@ POST   /tools/{id}/due        (admin)   → Instrument      { kind: calibration|
 - `created_by, updated_by, created_at, updated_at`
 
 The backend computes `due[].state`, `due_state` and `summary` (due soon = within `meta.due_soon_days`, default 30), so the page, a future push and the AI Assistant all agree. An engineer may pick only their assigned plants for a check-out. The page's plant `Select` already uses the scoped fleet list.
+
+## 7a. Backend as built (2026-11-21)
+
+- Tables (SQL only, kept indefinitely, migration `7b3c4d5e6f8a`): `instruments` (`specs` JSON, `asset_tag` unique, case-insensitive check), `instrument_due_records` (one row per calibration / renewal), `instrument_checkouts` (holder id + name at the time, `plant_id` without FK like `site_events`, `ack_warnings`, `returned_at` null = still out). Models `app/db/models/tools.py`, service `app/services/tools.py`, routes `app/api/routes/tools.py`, tests `backend/tests/test_tools.py`.
+- Due items: the category's kinds (drone: CAAT, NBTC, insurance; every other category: calibration) plus any other kind once recorded (e.g. a pilot licence). The newest record per kind (by day) gives `last_day`, `next_due`, number and issuer. `state`: overdue (before today), due soon (≤ 30 days), ok, or **none** when no date is entered; `due_state` is the worst, and an instrument with no due items is `none`, never ok. `next_due` of a calibration sent without one = day + the instrument's entered interval (month-end clamped); no interval = no date.
+- Check-out: only an `available` instrument (409). Engineers check out to themselves only (403) and to their assigned plants only (404); admins to any active user. `due_back` not before today. The backend works out the warnings (`calibration_overdue`, `drone_documents_expired`, same rule as `checkoutWarnings`) and refuses with 409 until each is in `ack_warnings`; the check-out keeps them.
+- Return: the holder or an admin (403 otherwise); ok → available, damaged → repair, lost → retired.
+- PATCH (admin): any field, `specs` replaced whole; `status` available / at_calibration / repair / retired, not while it is out (409), never `checked_out` (422). DELETE only an instrument never checked out (409: retire it).
+- Due records (admin): a calibration can't be dated in the future (a document renewal can); `next_due` must be after the day; links only http(s) or an app path. A calibration brings `at_calibration` back to available.
+- A check-out on a plant the engineer may not see is answered with `plant_id` / `plant_name` null (the plant is not revealed).
+- Times are plant-local `YYYY-MM-DD HH:MM:SS`; `meta.source` is `db`. Every change is logged to `app.audit`.
 
 ## 8. Build order
 

@@ -125,7 +125,7 @@ export interface InstrumentList {
     overdue: number;
   };
   meta: {
-    source: "db" | "mock";
+    source: "db";
     /** due soon = next due within this many days */
     due_soon_days: number;
     /** plant-local today the states were judged on */

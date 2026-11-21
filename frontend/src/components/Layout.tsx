@@ -39,7 +39,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
 import { CommandPaletteModal, AlarmCenterDrawer } from "./CommandPaletteAndAlarms";
 import { Spinner } from "@/components/ui/spinner";
-import { TOOLS_MOCK } from "../api/mockFlags";
 
 interface NavItem {
   to: string;
@@ -64,8 +63,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
       { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },
       { to: "/pwa-meter", label: "PWA Meter", icon: ReceiptText, description: "Daily billed meter energy per site: contract, losses, outages & meter check" },
-      // mock-only page until the backend has /tools (api/mockFlags.ts): hidden when off
-      ...(TOOLS_MOCK ? [{ to: "/tools", label: "Measuring Tools", icon: Ruler, description: "Drones, meters & testers: who has them, calibration & due dates" }] : []),
+      { to: "/tools", label: "Measuring Tools", icon: Ruler, description: "Drones, meters & testers: who has them, calibration & due dates" },
     ],
   },
   {

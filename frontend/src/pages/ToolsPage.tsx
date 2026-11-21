@@ -67,7 +67,7 @@ export const ToolsPage: React.FC = () => {
   const desc = url.get("desc") === "1";
   const toolId = /^\d+$/.test(url.get("tool") ?? "") ? Number(url.get("tool")) : null;
 
-  const { data, loading, error, reload, mock } = useInstruments(showRetired || status === "retired");
+  const { data, loading, error, reload } = useInstruments(showRetired || status === "retired");
   const [version, setVersion] = useState(0);
   const changed = useCallback(() => {
     setVersion((v) => v + 1);
@@ -185,7 +185,7 @@ export const ToolsPage: React.FC = () => {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [rowCount > 0, firstRead, tab, mock, actionError]);
+  }, [rowCount > 0, firstRead, tab, actionError]);
   useEffect(() => setPage(0), [tab, query, cat, status, due, showRetired, sort, desc]);
   const { pageNo } = pageBounds(rowCount, fit.pageSize, page);
   const slice = <T,>(rows: T[]) => rows.slice(pageNo * fit.pageSize, (pageNo + 1) * fit.pageSize);
@@ -342,15 +342,6 @@ export const ToolsPage: React.FC = () => {
         </div>
       </div>
 
-      {mock && (
-        <Alert variant="warn">
-          <AlertTitle>Mock data</AlertTitle>
-          <AlertDescription>
-            The backend has no <code>/tools</code> API yet. These instruments are examples, and changes stay in this tab only: a reload starts
-            over and nothing is saved.
-          </AlertDescription>
-        </Alert>
-      )}
       {error && !data && (
         <Alert variant="destructive">
           <AlertTitle>Could not load the instruments</AlertTitle>
