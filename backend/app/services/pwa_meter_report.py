@@ -18,7 +18,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, List, Optional, Tuple
 
 HEADER = "หน่วยจากมิเตอร์"
@@ -128,7 +128,7 @@ def sheet_day_months(name: str) -> List[Tuple[int, int]]:
     """Every (day, month) a sheet name can mean. The phase 2 workbook writes `18.11`, `7.11`, `711`
     (7 Nov), `1011` (10 Nov), `017` (1 Jul) and `19` (1 Sep): digits only are read both as d + mm and dd + m, and
     the caller keeps the reading that continues the sheet sequence."""
-    m = re.match(r"^\s*(\d{1,2})[./-](\d{1,2})\s*$", name)
+    m = re.match(r"^\s*(\d{1,2})[./-]+(\d{1,2})\s*$", name)  # `17..11` too
     if m:
         cands = [(int(m.group(1)), int(m.group(2)))]
     elif re.match(r"^\s*\d{2,4}\s*$", name):
@@ -223,14 +223,16 @@ def _parse_sheet(file: str, name: str, rows: List[Tuple[Any, ...]]) -> Optional[
 
 def parse_workbook(data: bytes, file: str, today: date) -> List[ReportSheet]:
     """Every day sheet of one report workbook, in workbook order. A sheet whose day comes from its
-    name gets the year that keeps the sheets in order: the previous sheet's year, +1 when the date
-    would fall more than 15 days before it; the first such sheet takes the latest year not after
-    `today`."""
+    name gets the reading and year closest to the previous dated sheet, before or after it (31 Dec →
+    `0101` = 1 Jan of the next year); the first such sheet takes the latest date not after `today`.
+    A sheet out of order (the phase 1 workbook has a second May block after 27 May) so lands on
+    its own days and is reported as a repeat, instead of moving every later sheet a year ahead."""
     import openpyxl
 
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     out: List[ReportSheet] = []
     last: Optional[date] = None
+    seen: dict = {}
     for ws in wb.worksheets:
         parsed = _parse_sheet(file, ws.title, [tuple(r) for r in ws.iter_rows(values_only=True)])
         if parsed is None:
@@ -238,15 +240,13 @@ def parse_workbook(data: bytes, file: str, today: date) -> List[ReportSheet]:
         if parsed.day is None:
             guesses = []
             for d, mo in sheet_day_months(ws.title):
-                for year in ((last.year, last.year + 1) if last else (today.year, today.year - 1)):
+                for year in ((last.year - 1, last.year, last.year + 1) if last else (today.year, today.year - 1)):
                     try:
                         guesses.append(date(year, mo, d))
                     except ValueError:
                         pass
             if last:
-                # the reading that follows the previous sheet most closely (sheets run in date order)
-                after = [g for g in guesses if g > last - timedelta(days=15)]
-                pick = min(after, key=lambda g: abs((g - last).days), default=None)
+                pick = min(guesses, key=lambda g: (abs((g - last).days), g < last), default=None)
             else:
                 pick = max((g for g in guesses if g <= today), default=None)
             if pick:
@@ -255,5 +255,8 @@ def parse_workbook(data: bytes, file: str, today: date) -> List[ReportSheet]:
                 parsed.errors.append(f"no date: no 'ประจำวันที่ …' title and the sheet name {ws.title!r} is not a day")
         if parsed.day:
             last = parsed.day
+            first = seen.setdefault(parsed.day, ws.title)
+            if first != ws.title:
+                parsed.errors.append(f"day {parsed.day} is also sheet {first!r}: skip one of them or set its day")
         out.append(parsed)
     return out

@@ -300,6 +300,19 @@ def test_report_dates_from_title_and_sheet_names():
     assert days[6] == ("Sheet", None) and sheets[6].errors
 
 
+def test_report_sheet_out_of_order_keeps_its_year_and_is_flagged():
+    """Phase 1 workbook: a second May block after 27 May (`0405` …) read as 2027 moved every later sheet
+    a year ahead. The closest reading wins, so the block lands on May 2026 as repeats and June stays 2026."""
+    assert sheet_day_months("17..11") == [(17, 11)]
+    names = ("26.05", "27.05", "0405", "0505", "28.05", "01.06", "17..11")
+    sheets = parse_workbook(_p2_book(names), "Phase 1.xlsx", date(2026, 11, 21))
+    assert [s.day for s in sheets] == [date(2026, 5, 26), date(2026, 5, 27), date(2026, 5, 4), date(2026, 5, 5), date(2026, 5, 28),
+                                       date(2026, 6, 1), date(2026, 11, 17)]
+    assert not any(s.errors for s in sheets)  # no repeat yet: 4–5 May have no other sheet here
+    again = parse_workbook(_p2_book(("04.05", "05.05", "27.05", "0405")), "p.xlsx", date(2026, 11, 21))
+    assert again[3].day == date(2026, 5, 4) and again[3].errors == ["day 2026-05-04 is also sheet '04.05': skip one of them or set its day"]
+
+
 def test_report_preview_commit_and_reimport(api):
     f, *_ = api
     _expected(f, "P1-01", date(2026, 4, 1), 380.0, 401.5)
