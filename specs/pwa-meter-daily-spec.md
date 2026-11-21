@@ -261,5 +261,8 @@ Every route needs a signed-in user. `start` / `end` are ISO dates; `end < start`
 | `test_report_route_size_limit` | PM-R18 |
 | `test_window_checks_and_empty_window` | 422 for `end < start` (§9), PM-P11 |
 | `test_model_workbook_without_the_sheets_is_refused` | PM-E1 |
+| `test_csv_missing_column_is_refused_before_reading` | PM-C1 |
+| `test_committed_report_import_is_audited` | PM-R19 |
+| `test_expected_check_against_stored_days` | PM-E6 (`--check`) |
 
-Still without a test: PM-C1 (a missing CSV column), PM-R19 (the audit log line) and PM-E6 `--check`. The UI requirements (PM-U*) are checked only by `bun run lint && bun run build`.
+The UI requirements (PM-U*) have no tests and are checked only by `bun run lint && bun run build`.

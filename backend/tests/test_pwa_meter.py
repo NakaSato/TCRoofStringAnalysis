@@ -457,3 +457,46 @@ def test_model_workbook_without_the_sheets_is_refused():
     wb.save(buf)
     with pytest.raises(model.ModelError, match="ประมาณการ_kWh"):
         model.read_model(buf.getvalue())
+
+
+def test_csv_missing_column_is_refused_before_reading(api, tmp_path):
+    """PM-C1: a file without a required column is refused and nothing is written."""
+    f, *_ = api
+    sites, days = tmp_path / "sites.csv", tmp_path / "days.csv"
+    sites.write_text("site_id,phase,name,region\nP1-09,1,New site,เขต 1\n", encoding="utf-8")
+    days.write_text("day,site_id,meter_kwh,inverter_kwh\n", encoding="utf-8")
+    with f() as db:
+        with pytest.raises(svc.PwaImportError, match="sites file is missing column.*kwp"):
+            svc.import_csv(db, sites, days)
+        assert db.get(PwaMeterSite, "P1-09") is None
+    sites.write_text("﻿site_id,phase,name,region,kwp\nP1-09,1,New site,เขต 1,50\n", encoding="utf-8")  # BOM accepted
+    days.write_text("day,site_id,meter_kwh\n2026-04-01,P1-09,100\n", encoding="utf-8")
+    with f() as db:
+        with pytest.raises(svc.PwaImportError, match="days file is missing column.*inverter_kwh"):
+            svc.import_csv(db, sites, days)
+        assert db.get(PwaMeterSite, "P1-09") is None
+
+
+def test_committed_report_import_is_audited(api, caplog):
+    """PM-R19: a committed import logs who, what changed and the day range to app.audit; a preview does not."""
+    import logging
+
+    _, client, admin, _ = api
+    files = {"files": ("p1.xlsx", _p1_book(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    with caplog.at_level(logging.INFO, logger="app.audit"):
+        assert not client.post("/pwa/meter/import", files=files, headers=admin).json()["committed"]
+        assert not [r for r in caplog.records if r.name == "app.audit" and "PWA meter" in r.getMessage()]
+        r = client.post("/pwa/meter/import", files=files, data={"commit": "true"}, headers=admin)
+        assert r.status_code == 200 and r.json()["committed"]
+    lines = [r.getMessage() for r in caplog.records if r.name == "app.audit" and "PWA meter" in r.getMessage()]
+    assert lines == ["PWA meter report imported by admin: 2 new, 0 changed days (2026-04-15 .. 2026-04-15), 1 file(s)"]
+
+
+def test_expected_check_against_stored_days(api):
+    """PM-E6 `--check`: the largest kWh/day difference between the expected table and the stored days."""
+    f, *_ = api
+    _expected(f, "P1-01", date(2026, 3, 1), 381.0, 400.0)  # stored days: contract 380, PVsyst 400
+    with f() as db:
+        out = model.check_against_days(db)
+    # P1-01 has 31 days in March; the other 89 site-days have no expected month
+    assert out == {"days_compared": 31, "days_without_expected": 89, "max_diff_kwh_day": {"contract": 1.0, "pvsyst": 0.0}}
