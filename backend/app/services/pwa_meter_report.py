@@ -40,6 +40,10 @@ THAI_MONTHS = {
 # meter total, the Growatt inverter total and the weather. They are preferred over the typed table:
 # the table repeats an old inverter figure on days the inverter was not reporting (P2-1073, 11-12 Jan
 # 2026: table 1118.4 kWh twice, Growatt 0 with "ระบบสื่อสารมีปัญหา"), and the days CSV was built from them.
+# The phase 1 workbook has the same pull, but there the table is kept: it is `=Q` / `=R` / `=V` of the
+# pull except where the inverter figure was typed over a wrong Growatt total (example.xlsx 18 Nov 2026:
+# มาบประชัน 190.2 over Growatt 0, วารินชำราบ 2,614.3 over 24,719), and it is what was stored. Each row
+# carries both readings (`table`); `pwa_meter.import_report` picks one per sheet.
 SYSTEM_COLUMNS = {"meter": "Cewe", "inverter": "Growatt", "weather": "Weather"}
 TITLE_RE = re.compile(r"ประจำวันที่\s*(\d{1,2})\s*(\S+?)\s*(\d{4})")
 METER_RE = re.compile(r"\b([A-Z]{2}\d{5,8})\b")
@@ -56,6 +60,10 @@ class ReportRow:
     inverter_kwh: Optional[float]
     weather: Optional[str]
     note: Optional[str]
+    # the typed table's reading (meter, inverter, weather) and its problems, when the readings above
+    # come from the system pull; None when they are the table's already
+    table: Optional[Tuple[Optional[float], Optional[float], Optional[str], List[str]]] = None
+    errors: List[str] = field(default_factory=list)  # problems of the readings above (also in the sheet's)
 
 
 @dataclass
@@ -215,7 +223,12 @@ def _parse_sheet(file: str, name: str, rows: List[Tuple[Any, ...]]) -> Optional[
             inverter_kwh=_number(r[src["inverter"]], f"{where} inverter", errs),
             weather=(_clean(r[src["weather"]]) or None) if "weather" in src else None,
             note=(_clean(r[cols["note"]]) or None) if "note" in cols else None,
+            errors=errs,
         ))
+        if src["meter"] != cols["meter"]:
+            t_errs: List[str] = []
+            sheet.rows[-1].table = (_number(r[cols["meter"]], f"{where} meter", t_errs), _number(r[cols["inverter"]], f"{where} inverter", t_errs),
+                                    (_clean(r[cols["weather"]]) or None) if "weather" in cols else None, t_errs)
         sheet.errors.extend(errs)
         i += 1
     return sheet

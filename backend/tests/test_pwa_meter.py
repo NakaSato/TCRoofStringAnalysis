@@ -248,7 +248,7 @@ P2_ROWS = ((1046, "สถานีผลิตน้ำบ้านนางเ�
 def _p2_book(sheet_names=("16.04",), rows=P2_ROWS):
     """Phase 2 layout: per-day sheets named by day, comp_id + the system pull (Cewe / Growatt /
     Weather) on the left of the header row, the typed table from column Y. The phase 1 workbook uses
-    it too, with its own comp_id (`rows` = (comp_id, name, Cewe, Growatt))."""
+    it too, with its own comp_id (`rows` = (comp_id, name, Cewe, Growatt[, typed inverter]))."""
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     for name in sheet_names:
@@ -259,11 +259,12 @@ def _p2_book(sheet_names=("16.04",), rows=P2_ROWS):
         hdr[24:37] = TABLE
         ws.append(hdr)
         row = [None] * 37
-        for comp_id, name, meter, inverter in rows:
+        for comp_id, name, meter, inverter, *typed in rows:
             row = [None] * 37
             # system: meter, inverter 0 (comms down); the typed table repeats an old inverter figure
             row[6], row[16], row[17], row[21] = comp_id, meter, inverter, "ฝนตก"
-            row[24:37] = [1, name, 190.38, 3.9, round(meter, 2), 999.0, None, None, 724.9, None, None, "มีเมฆมาก", "ระบบสื่อสารมีปัญหา"]
+            row[24:37] = [1, name, 190.38, 3.9, round(meter, 2), typed[0] if typed else 999.0, None, None, 724.9, None, None, "มีเมฆมาก",
+                          "ระบบสื่อสารมีปัญหา"]
             ws.append(row)
         sub = [None] * 37
         sub[15], sub[28] = "WP081205 (23:45:00)", "WP081205 (23:45:00)"
@@ -355,17 +356,19 @@ def test_report_phase2_uses_system_pull_and_nulls_missing_reading(api):
 
 def test_report_phase1_in_phase2_layout_matches_by_name_not_comp_id(api):
     """The phase 1 workbook carries its own comp_id (1, 2, …), which is not a phase 2 site id: the rows
-    are matched by name, not refused as "no site P2-1"; the system pull is still the source."""
+    are matched by name, not refused as "no site P2-1", and read from the typed table, where an inverter
+    figure typed over a wrong Growatt total is the correction (example.xlsx: 190.2 over Growatt 0)."""
     f, *_ = api
     _add_p2_site(f)
-    rows = ((1, "Curtailed site กปภ.สาขาบางไทร", 300.456, 303.1), (2, "Free site กปภ.สาขาบางไทร", 410.4, 0.0))
+    rows = ((1, "Curtailed site กปภ.สาขาบางไทร", 300.456, 303.1, 303.1), (2, "Free site กปภ.สาขาบางไทร", 410.4, 0.0, 414.2))
     with f() as db:
         out = svc.import_report(db, [("Phase 1.xlsx", _p2_book(("16.04",), rows))], TODAY, commit=True)
         assert out["committed"] and out["totals"]["matched"] == 2 and out["totals"]["unmatched"] == 0
         got = {d.site_id: d for d in db.scalars(select(PwaMeterDay).where(PwaMeterDay.day == date(2026, 4, 16)))}
         assert set(got) == {"P1-01", "P1-02"}  # comp_id 1 is the Curtailed site here, not P1-01
         assert got["P1-02"].meter_kwh == 300.46 and got["P1-02"].inverter_kwh == 303.1
-        assert got["P1-01"].inverter_kwh is None and got["P1-01"].status == "loss_inv"
+        assert got["P1-01"].inverter_kwh == 414.2 and got["P1-01"].status == "ok"  # typed, not Growatt's 0
+        assert got["P1-01"].weather == "cloudy"  # the table's สภาพอากาศ, not the pull's ฝนตก
         # a phase 2 sheet keeps matching by comp_id: an unknown one is refused, never matched by name
         mixed = P2_ROWS + ((1999, "Free site กปภ.สาขาบางไทร", 410.4, 411.0),)
         bad = svc.import_report(db, [("p2.xlsx", _p2_book(("17.04",), mixed))], TODAY)

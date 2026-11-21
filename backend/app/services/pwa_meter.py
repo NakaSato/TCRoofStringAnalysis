@@ -604,6 +604,17 @@ def import_report(db: Session, files: List[Tuple[str, bytes]], today: date, over
                 continue
             unknown_weather = set()
             p2_sheet = matcher.p2_sheet(sh.rows)
+            if not p2_sheet:
+                # phase 1 workbook in the phase 2 layout: its typed table, not the system pull
+                # (pwa_meter_report.SYSTEM_COLUMNS), is the reading; a blank table cell was not
+                # filled in (3 Aug 2026: no weather), so the pull's value stands there
+                for r in sh.rows:
+                    if r.table is not None:
+                        meter, inv, weather, errs = r.table
+                        info["errors"] = [e for e in info["errors"] if e not in r.errors] + errs
+                        r.meter_kwh = r.meter_kwh if meter is None else meter
+                        r.inverter_kwh = r.inverter_kwh if inv is None else inv
+                        r.weather = weather or r.weather
             for r in sh.rows:
                 site, how = matcher.match(r, p2_sheet)
                 if site is None:
