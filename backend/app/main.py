@@ -24,6 +24,7 @@ from app.api.routes import (
     rca,
     report,
     system,
+    tools,
     users,
 )
 from app.api import request_log
@@ -81,6 +82,8 @@ def create_app() -> FastAPI:
     api_router.include_router(push.router, dependencies=[Depends(get_current_user)])
     # Claims: scoped to the user's plants per route; status changes and delete are admin only
     api_router.include_router(claims.router, dependencies=[Depends(get_current_user)])
+    # Measuring Tools: everyone views and checks out / in; add, edit, delete, calibrations admin only
+    api_router.include_router(tools.router, dependencies=[Depends(get_current_user)])
     # PWA daily meter report: read-only, scoped to the user's plants (import is the CLI)
     api_router.include_router(pwa_meter.router, dependencies=[Depends(get_current_user)])
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the

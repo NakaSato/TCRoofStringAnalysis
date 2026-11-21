@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -714,5 +714,77 @@ class ClaimEventCreate(BaseModel):
 
 class ClaimEvidenceSet(BaseModel):
     done: bool
+    url: Optional[str] = Field(default=None, max_length=1000)
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+# --------------------------------------------------------------------------- measuring tools (docs/plans/measuring-tools.md)
+
+InstrumentCategoryName = Literal[
+    "drone", "thermal_camera", "iv_tracer", "insulation_tester", "clamp_meter",
+    "multimeter", "irradiance_meter", "earth_tester", "power_analyser", "other",
+]
+InstrumentStatusName = Literal["available", "checked_out", "at_calibration", "repair", "retired"]
+InstrumentDueKind = Literal["calibration", "caat", "nbtc", "insurance", "pilot_licence", "other"]
+SpecValue = Union[int, float, str, None]
+
+
+class InstrumentPatch(BaseModel):
+    """Change an instrument: only the fields sent change; null clears an optional one (asset tag,
+    name and category are required, so null there means "unchanged"). `specs` replaces the whole
+    object. `status` may not be `checked_out` (that is the check-out call)."""
+
+    asset_tag: Optional[str] = Field(default=None, max_length=32)
+    name: Optional[str] = Field(default=None, max_length=120)
+    category: Optional[InstrumentCategoryName] = None
+    make: Optional[str] = Field(default=None, max_length=64)
+    model: Optional[str] = Field(default=None, max_length=64)
+    serial_no: Optional[str] = Field(default=None, max_length=64)
+    specs: Optional[Dict[str, SpecValue]] = Field(default=None, max_length=30)
+    calibration_interval_months: Optional[int] = Field(default=None, ge=1, le=120)
+    purchase_day: Optional[date] = None
+    cost_thb: Optional[float] = Field(default=None, ge=0)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    status: Optional[InstrumentStatusName] = None
+
+    @field_validator("specs")
+    @classmethod
+    def _specs(cls, v: Optional[Dict[str, SpecValue]]) -> Optional[Dict[str, SpecValue]]:
+        if v is None:
+            return v
+        for k, val in v.items():
+            if not k.strip() or len(k) > 32:
+                raise ValueError("a spec key is 1–32 characters")
+            if isinstance(val, str) and len(val) > 120:
+                raise ValueError("a spec value is at most 120 characters")
+        return v
+
+
+class InstrumentCreate(InstrumentPatch):
+    asset_tag: str = Field(min_length=1, max_length=32)  # type: ignore[assignment]
+    name: str = Field(min_length=1, max_length=120)  # type: ignore[assignment]
+    category: InstrumentCategoryName  # type: ignore[assignment]
+
+
+class InstrumentCheckoutBody(BaseModel):
+    holder_user_id: Optional[int] = None
+    plant_id: Optional[int] = None
+    due_back: date
+    note: Optional[str] = Field(default=None, max_length=2000)
+    ack_warnings: List[str] = Field(default_factory=list, max_length=10)
+
+
+class InstrumentReturnBody(BaseModel):
+    condition: Literal["ok", "damaged", "lost"]
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class InstrumentDueBody(BaseModel):
+    kind: InstrumentDueKind
+    day: date
+    next_due: Optional[date] = None
+    number: Optional[str] = Field(default=None, max_length=64)
+    issuer: Optional[str] = Field(default=None, max_length=120)
+    cost_thb: Optional[float] = Field(default=None, ge=0)
     url: Optional[str] = Field(default=None, max_length=1000)
     note: Optional[str] = Field(default=None, max_length=2000)

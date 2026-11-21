@@ -114,7 +114,7 @@ src/api/types/claims.ts               Claim, ClaimType, ClaimStatus, ClaimCause,
                                       ClaimList (+ summary), bodies for create / patch / status / event / evidence
 src/api/client.ts                     re-export the types, add the api.* methods of §8
 src/api/claimsMock.ts                 mock with the same signatures, `CLAIMS_MOCK` (dev or VITE_CLAIMS_MOCK=1),
-                                      like toolsMock.ts; removed before merging the backend
+                                      like the Measuring Tools mock; removed before merging the backend
 src/pages/ClaimsPage.tsx              page export only: header, summary, tabs, filters; reads useUrlState
 src/pages/claims/useClaims.ts         listClaims on mount and after each change; re-read every 5 min while visible
 src/pages/claims/ClaimTable.tsx       the table (filter / sort in memory: tens to hundreds of claims)

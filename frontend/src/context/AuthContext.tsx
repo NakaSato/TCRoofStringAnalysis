@@ -1,7 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, UserProfile, getStoredToken, getStoredUser, clearAuthSession, AUTH_EXPIRED_EVENT } from "../api/client";
 import { clearAlarmLogs } from "./alarmLogStore";
-import { resetMocks } from "../api/mockFlags";
 import { clearPlantCache } from "./plantCache";
 import { clearAssistantThreads } from "../components/assistant/useAssistantChat";
 import { releasePush } from "../lib/push";
@@ -67,7 +66,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearAlarmLogs();
     clearPlantCache();
     clearAssistantThreads();
-    resetMocks();
     setUser(null);
   }, []);
 
