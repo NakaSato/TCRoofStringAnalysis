@@ -20,6 +20,7 @@ from app.api.routes import (
     maintenance,
     plants,
     push,
+    pwa_meter,
     rca,
     report,
     system,
@@ -80,6 +81,8 @@ def create_app() -> FastAPI:
     api_router.include_router(push.router, dependencies=[Depends(get_current_user)])
     # Claims: scoped to the user's plants per route; status changes and delete are admin only
     api_router.include_router(claims.router, dependencies=[Depends(get_current_user)])
+    # PWA daily meter report: read-only, scoped to the user's plants (import is the CLI)
+    api_router.include_router(pwa_meter.router, dependencies=[Depends(get_current_user)])
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
     # Growatt plants an engineer is assigned, so they are admin only.
     admin_only = [Depends(require_admin)]

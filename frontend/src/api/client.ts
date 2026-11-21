@@ -20,6 +20,7 @@ export type * from "./types/events";
 export type * from "./types/tools";
 export type * from "./types/claims";
 export type * from "./types/calendar";
+export type * from "./types/pwaMeter";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
@@ -53,6 +54,7 @@ import type {
   OmTeamBody,
 } from "./types/calendar";
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
+import type { PwaMeterCheck, PwaMeterCriteria, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, RuleDaily, RuleSettings, RulesOut, RulesPatch, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
@@ -171,6 +173,15 @@ export async function downloadApiFile(path: string, fallbackName: string): Promi
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+
+/** `?start=&end=` for the PWA meter routes (empty = the whole report) */
+const pwaWindow = (w: PwaMeterWindow): string => {
+  const q = new URLSearchParams();
+  if (w.start) q.set("start", w.start);
+  if (w.end) q.set("end", w.end);
+  const qs = q.toString();
+  return qs ? `?${qs}` : "";
+};
 
 export const api = {
   // Auth
@@ -526,6 +537,16 @@ export const api = {
     apiFetch<Checkout>(`/tools/${id}/return`, { method: "POST", body: JSON.stringify(body) }),
   recordInstrumentDue: (id: number, body: DueBody) =>
     apiFetch<Instrument>(`/tools/${id}/due`, { method: "POST", body: JSON.stringify(body) }),
+  // ---- PWA daily meter report (Cewe meter kWh per site and day, phases 1–2; DB only, read-only)
+  getPwaMeterCriteria: () => apiFetch<PwaMeterCriteria>("/pwa/meter/criteria"),
+  getPwaMeterSites: () => apiFetch<PwaMeterSite[]>("/pwa/meter/sites"),
+  getPwaMeterSiteDays: (siteId: string, w: PwaMeterWindow = {}) =>
+    apiFetch<PwaMeterSiteDays>(`/pwa/meter/sites/${encodeURIComponent(siteId)}/days${pwaWindow(w)}`),
+  getPwaMeterSummary: (w: PwaMeterWindow = {}) => apiFetch<PwaMeterSummary>(`/pwa/meter/summary${pwaWindow(w)}`),
+  getPwaMeterOutages: (w: PwaMeterWindow = {}) => apiFetch<PwaOutageEvent[]>(`/pwa/meter/outages${pwaWindow(w)}`),
+  /** the plant's report days with Growatt's day energy beside the meter; 404 = the plant is not in the report */
+  getPwaMeterPlant: (plantId: number, w: PwaMeterWindow = {}) => apiFetch<PwaPlantDays>(`/pwa/meter/plants/${plantId}${pwaWindow(w)}`),
+  getPwaMeterCheck: (w: PwaMeterWindow = {}) => apiFetch<PwaMeterCheck[]>(`/pwa/meter/meter-check${pwaWindow(w)}`),
   // ---- claims (warranty / insurance claims for plant equipment; DB only)
   listClaims: () => apiFetch<ClaimList>("/claims"),
   getClaim: (id: number) => apiFetch<ClaimDetail>(`/claims/${id}`),

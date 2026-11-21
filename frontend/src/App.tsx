@@ -35,6 +35,7 @@ const RuleReviewPage = page(() => import("./pages/RuleReviewPage"), "RuleReviewP
 const CalendarPage = page(() => import("./pages/CalendarPage"), "CalendarPage");
 const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
 const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
+const PwaMeterPage = page(() => import("./pages/PwaMeterPage"), "PwaMeterPage");
 
 /** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
 const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -108,6 +109,7 @@ export const App: React.FC = () => {
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="tools" element={<ToolsPage />} />
             <Route path="claims" element={<ClaimsPage />} />
+            <Route path="pwa-meter" element={<PwaMeterPage />} />
             <Route path="rules" element={<AdminOnly><RuleReviewPage /></AdminOnly>} />
             <Route path="sensors" element={<SensorsPage />} />
             <Route path="settings" element={<PlantSettingsPage />} />

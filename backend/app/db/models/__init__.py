@@ -3,7 +3,7 @@
 One module per domain: `users`, `legacy` (local plants of the upload / analysis pages), `growatt`
 (Growatt mirror and Google Weather hours), `rules` (daily rows, I-V sweeps, issues, site events),
 `om` (Calendar Team: planned O&M tasks, crews, recurring plans, per-plant planning figures), `claims`
-(warranty / insurance claims) and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
+(warranty / insurance claims), `pwa` (PWA daily meter report) and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
 them all on `Base.metadata` and `from app.db.models import X` works as before.
 """
 
@@ -75,6 +75,10 @@ from app.db.models.claims import (  # noqa: F401
     ClaimEvent,
     ClaimEvidence,
     ClaimLink,
+)
+from app.db.models.pwa import (  # noqa: F401
+    PwaMeterDay,
+    PwaMeterSite,
 )
 from app.db.models.system import (  # noqa: F401
     AiUsage,
