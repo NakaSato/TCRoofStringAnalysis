@@ -44,6 +44,12 @@ def list_sites(db: Session = Depends(get_db), user: User = Depends(get_current_u
     return svc.list_sites(db, allowed_plant_ids(db, user))
 
 
+@router.get("/coverage")
+def coverage(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """First / last report day the user can see, and the report month Engineering O&M opens on."""
+    return svc.coverage(db, allowed_plant_ids(db, user))
+
+
 @router.get("/sites/{site_id}/days")
 def site_days(
     site_id: str,
@@ -145,6 +151,25 @@ def plant_days(
         return svc.plant_days(db, allowed_plant_ids(db, user), plant_id, start, end)
     except GrowattNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/plants/{plant_id}/baseline")
+def plant_baseline(
+    plant_id: int,
+    start: date = Query(...),
+    end: date = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """The plant's Energy & Billing baseline per day of [start, end] (contract kWh and PVsyst P50,
+    modelled): the Plant Overview's Production card compares its yield with it. 404 without a report site."""
+    _window(start, end)
+    try:
+        return svc.plant_baseline(db, allowed_plant_ids(db, user), plant_id, start, end)
+    except GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/import")

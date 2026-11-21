@@ -105,8 +105,8 @@ export const PwaMeterCard: React.FC<{ plantId: number }> = ({ plantId }) => {
           </CardDescription>
         </div>
         {data && (
-          <Link to={`/center?view=sites&site=${encodeURIComponent(data.site.site_id)}`} className="text-xs text-solar-400 hover:underline">
-            {t("{site} in Engineering O&M →", { site: data.site.site_id })}
+          <Link to={`/energy-billing?view=sites&site=${encodeURIComponent(data.site.site_id)}`} className="text-xs text-solar-400 hover:underline">
+            {t("{site} in Energy & Billing →", { site: data.site.site_id })}
           </Link>
         )}
       </CardHeader>

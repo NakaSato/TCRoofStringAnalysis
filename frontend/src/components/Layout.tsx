@@ -59,7 +59,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Operations",
     items: [
-      { to: "/center", label: "Engineering O&M", icon: Banknote },
+      { to: "/energy-billing", label: "Energy & Billing", icon: Banknote, description: "Billed meter energy, finance and the meter / inverter checks of one period" },
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
       { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },

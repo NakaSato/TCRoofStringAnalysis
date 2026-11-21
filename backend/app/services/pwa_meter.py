@@ -183,8 +183,10 @@ def _read_csv(path: Path) -> List[Dict[str, Any]]:
         return list(csv.DictReader(fh))
 
 
-def import_csv(db: Session, sites_path: Path, days_path: Path) -> Dict[str, int]:
-    sites, days = _read_csv(sites_path), _read_csv(days_path)
+def import_csv(db: Session, sites_path: Path, days_path: Optional[Path] = None) -> Dict[str, int]:
+    """Upsert the sites CSV and, when given, the days CSV (without it only the site list is loaded,
+    so the daily report workbooks can be imported onto it)."""
+    sites, days = _read_csv(sites_path), (_read_csv(days_path) if days_path else [])
     for label, rows, cols in (("sites", sites, SITE_COLUMNS[:5]), ("days", days, ("day", "site_id", "meter_kwh", "inverter_kwh"))):
         missing = [c for c in cols if rows and c not in rows[0]]
         if missing:
@@ -209,6 +211,22 @@ def list_sites(db: Session, allowed: Optional[Set[int]]) -> List[Dict[str, Any]]
     return [_site_out(s) for s in _visible_sites(db, allowed)]
 
 
+def coverage(db: Session, allowed: Optional[Set[int]]) -> Dict[str, Any]:
+    """First and last report day of the sites the user may see, and the report month a page opens on:
+    the last calendar month the report covers to its end (the report is imported monthly), else the
+    month of the last day when no month is complete yet."""
+    ids = [s.site_id for s in _visible_sites(db, allowed)]
+    first = last = None
+    if ids:
+        first, last = db.execute(select(func.min(PwaMeterDay.day), func.max(PwaMeterDay.day)).where(PwaMeterDay.site_id.in_(ids))).one()
+    month = None
+    if last is not None:
+        month_end = (last.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+        full = last if last == month_end else last.replace(day=1) - timedelta(days=1)
+        month = (full if full >= first.replace(day=1) else last).strftime("%Y-%m")
+    return {"first_day": first and first.isoformat(), "last_day": last and last.isoformat(), "report_month": month}
+
+
 def site_days(db: Session, allowed: Optional[Set[int]], site_id: str, start: Optional[date] = None, end: Optional[date] = None) -> Dict[str, Any]:
     site = next((s for s in _visible_sites(db, allowed) if s.site_id == site_id), None)
     if site is None:
@@ -227,12 +245,12 @@ def site_days(db: Session, allowed: Optional[Set[int]], site_id: str, start: Opt
 
 def _frame(db: Session, start: Optional[date], end: Optional[date]) -> pd.DataFrame:
     q = select(PwaMeterDay.site_id, PwaMeterDay.day, PwaMeterDay.meter_kwh, PwaMeterDay.inverter_kwh, PwaMeterDay.contract_kwh,
-               PwaMeterDay.pvsyst_kwh, PwaMeterDay.status, PwaMeterDay.curtailment_note, PwaMeterDay.note)
+               PwaMeterDay.pvsyst_kwh, PwaMeterDay.status, PwaMeterDay.curtailment_note, PwaMeterDay.note, PwaMeterDay.weather)
     if start:
         q = q.where(PwaMeterDay.day >= start)
     if end:
         q = q.where(PwaMeterDay.day <= end)
-    df = pd.DataFrame(db.execute(q).all(), columns=["site_id", "day", "meter", "inv", "con", "pv", "status", "curt", "note"])
+    df = pd.DataFrame(db.execute(q).all(), columns=["site_id", "day", "meter", "inv", "con", "pv", "status", "curt", "note", "weather"])
     sites = pd.DataFrame([(s.site_id, s.phase, s.name, s.region, s.kwp, s.growatt_plant_id) for s in db.scalars(select(PwaMeterSite))],
                          columns=["site_id", "phase", "name", "region", "kwp", "growatt_plant_id"])
     if df.empty:
@@ -354,8 +372,9 @@ def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
 
 
 def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None) -> Dict[str, Any]:
-    """The report days of [start, end]: each phase's metered and contract energy and specific yield per day
-    (admins only, like the phase totals), and each visible site's yield and status per day (site × day chart)."""
+    """The report days of [start, end]: each phase's metered and contract energy, specific yield and sites
+    with a curtailment note per day (admins only, like the phase totals), and each visible site's yield,
+    status, report weather and curtailment note per day (site × day chart, weather box plot)."""
     df = _frame(db, start, end)
     if df.empty:
         return {"days": [], "phases": [], "sites": [], "labels": {"contract_mwh": "modelled"}}
@@ -373,6 +392,8 @@ def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None
                 # metered energy ÷ kWp of the sites that have a reading on the day
                 "yield_kwh_kwp": _f(_div(read.meter.sum(), read.kwp.sum()), 3) if len(read) else None,
                 "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), g.con.sum()), 1) if has_con and g.con.sum() else None,
+                # the report's remark says the system was curtailed (หรี่) that day: a PM matter, not a fault
+                "curtailment_sites": int(g.curt.sum()),
             })
     by_site = {sid: g for sid, g in df.groupby("site_id")}
     sites: List[Dict[str, Any]] = []
@@ -382,12 +403,16 @@ def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None
             continue
         y: List[Optional[float]] = [None] * len(days)
         st: List[Optional[str]] = [None] * len(days)
-        for day, meter, status in zip(g.day, g.meter, g.status):
+        wx: List[Optional[str]] = [None] * len(days)
+        curt: List[Optional[bool]] = [None] * len(days)
+        for day, meter, status, weather, c in zip(g.day, g.meter, g.status, g.weather, g.curt):
             i = idx[day.date()]
             y[i] = None if pd.isna(meter) or not s.kwp else round(float(meter) / s.kwp, 2)
             st[i] = status
+            wx[i] = weather if isinstance(weather, str) and weather else None
+            curt[i] = bool(c)
         sites.append({"site_id": s.site_id, "phase": s.phase, "name": s.name, "region": s.region, "kwp": s.kwp,
-                      "growatt_plant_id": s.growatt_plant_id, "yield_kwh_kwp": y, "status": st})
+                      "growatt_plant_id": s.growatt_plant_id, "yield_kwh_kwp": y, "status": st, "weather": wx, "curtailment": curt})
     return {"days": [d.isoformat() for d in days], "phases": phases, "sites": sites, "labels": {"contract_mwh": "modelled"}}
 
 
@@ -759,7 +784,13 @@ def import_report(db: Session, files: List[Tuple[str, bytes]], today: date, over
                              "weather": w, "note": r.note, "info": info}
             if unknown_weather:
                 info["warnings"].append(f"weather not recognised (stored as empty): {', '.join(sorted(unknown_weather))}")
-            if info["unmatched"]:
+            if info["unmatched"] and not sites:
+                # the report does not carry a site's id (P1-<contract no.>) or its model rows, so it can
+                # never create sites: the site list comes from the sites CSV
+                info["errors"].append(f"{len(info['unmatched'])} row(s) match no site: no report sites are loaded. "
+                                      "Load the site list first (python -m app.services.pwa_meter import --sites pwa_meter_sites.csv), "
+                                      "then the expected energy (expected --model …)")
+            elif info["unmatched"]:
                 info["errors"].append(f"{len(info['unmatched'])} row(s) match no site")
     # compare with stored days and fill the modelled figures
     days = sorted({d for _, d in plan})
@@ -873,6 +904,46 @@ def plant_days(db: Session, allowed: Optional[Set[int]], plant_id: int, start: O
             "labels": {"contract_kwh": "modelled", "pvsyst_kwh": "modelled"}}
 
 
+PLANT_BASELINE_MAX_DAYS = 366
+
+
+def plant_baseline(db: Session, allowed: Optional[Set[int]], plant_id: int, start: date, end: date) -> Dict[str, Any]:
+    """The Energy & Billing baseline of the site linked to `plant_id` for each day of [start, end]:
+    the contract's expected kWh (and PVsyst P50), both **modelled**. A report day keeps the figure
+    stored with it (what billing compares against); any other day, today included, takes its
+    month's `pwa_meter_expected` row. A day with neither is null, and the totals are null unless
+    every day has a figure. 404 (GrowattNotFound) outside the scope or without a report site."""
+    if allowed is not None and plant_id not in allowed:
+        raise GrowattNotFound(f"Plant {plant_id} not found")
+    site = db.scalars(select(PwaMeterSite).where(PwaMeterSite.growatt_plant_id == plant_id).order_by(PwaMeterSite.site_id)).first()
+    if site is None:
+        raise GrowattNotFound(f"Plant {plant_id} has no PWA meter report site")
+    from app.services import pwa_meter_model as model
+
+    n = (end - start).days + 1
+    if n > PLANT_BASELINE_MAX_DAYS:
+        raise ValueError(f"at most {PLANT_BASELINE_MAX_DAYS} days")
+    days = [start + timedelta(days=i) for i in range(n)]
+    stored = {r.day: r for r in db.scalars(select(PwaMeterDay).where(PwaMeterDay.site_id == site.site_id, PwaMeterDay.day >= start, PwaMeterDay.day <= end))}
+    exp = model.lookup(db, {(site.site_id, d.replace(day=1)) for d in days})
+    out = []
+    for d in days:
+        r, e = stored.get(d), exp.get((site.site_id, d.replace(day=1)))
+        con = r.contract_kwh if r is not None and r.contract_kwh is not None else (e.contract_kwh_day if e else None)
+        pvs = r.pvsyst_kwh if r is not None and r.pvsyst_kwh is not None else (e.pvsyst_kwh_day if e else None)
+        src = "report" if r is not None and r.contract_kwh is not None else ("model" if e is not None and e.contract_kwh_day is not None else None)
+        out.append({"day": d.isoformat(), "contract_kwh": _f(con, 1), "pvsyst_kwh": _f(pvs, 1), "source": src})
+
+    def total(k: str) -> Optional[float]:
+        vs = [x[k] for x in out]
+        return _f(sum(vs), 1) if vs and all(v is not None for v in vs) else None
+
+    return {"site": _site_out(site), "window": {"start": start.isoformat(), "end": end.isoformat()}, "days": out,
+            "contract_kwh": total("contract_kwh"), "pvsyst_kwh": total("pvsyst_kwh"),
+            "missing_days": sum(1 for x in out if x["contract_kwh"] is None),
+            "labels": {"contract_kwh": "modelled", "pvsyst_kwh": "modelled"}}
+
+
 def meter_vs_growatt(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None) -> Dict[str, Any]:
     """Every visible report site's Cewe meter days against Growatt's own `plant/energy` day of its
     Growatt plant (`growatt_plant_energy_days`, finished days), over [start, end]: per site the
@@ -982,9 +1053,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     ap = argparse.ArgumentParser(prog="python -m app.services.pwa_meter", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    imp = sub.add_parser("import", help="upsert the clean sites + days CSVs")
+    imp = sub.add_parser("import", help="upsert the clean sites CSV (+ the days CSV when given)")
     imp.add_argument("--sites", required=True, type=Path)
-    imp.add_argument("--days", required=True, type=Path)
+    imp.add_argument("--days", type=Path, help="optional: without it only the site list is loaded")
     sm = sub.add_parser("summary", help="print the phase summary")
     sm.add_argument("--start", type=date.fromisoformat)
     sm.add_argument("--end", type=date.fromisoformat)

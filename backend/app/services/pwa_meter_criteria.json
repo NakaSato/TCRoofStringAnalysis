@@ -1,5 +1,5 @@
 {
-  "version": "2026-11-21e",
+  "version": "2026-11-22a",
   "source": "PWA solar rooftop phases 1-2 daily meter reports (Cewe meters) under contract ธพ.(บล) 20/2566; TFRS 16 model v1.0",
   "units": {
     "energy": "kWh",
@@ -49,7 +49,12 @@
     "pi_pvsyst": "sum(meter_kwh) / sum(pvsyst_kwh)",
     "pi_free_group": "per phase: sites with <= 30 curtailment-note days, pooled pi_pvsyst on ok days = PI_free",
     "under_performance_ratio": 0.95,
-    "specific_yield": "meter_kwh / kwp (kWh/kWp)"
+    "specific_yield": "meter_kwh / kwp (kWh/kWp)",
+    "vs_contract_bands": {
+      "good_min": 0.95,
+      "watch_min": 0.9,
+      "note": "Energy & Billing charts of meter ÷ contract energy: reference lines at 95 % (below = watch, amber) and 90 % (below = red), the green / yellow / red status of the TFRS 16 model's ส่วนต่าง sheets as read in the workbook review of 22 Nov 2026; confirm against the workbook"
+    }
   },
   "loss_model": {
     "curtailment_kwh": "(PI_free - pi_pvsyst_site) * pvsyst_kwh on ok days, for curtailed sites, floored at 0",

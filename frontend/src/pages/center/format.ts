@@ -2,11 +2,12 @@
 import { fmt } from "../../components/ui";
 import { dateLocale } from "../../i18n";
 
-export const RANGES = ["today", "mtd", "7d", "30d", "90d", "ytd"] as const;
+/** `report` (the default) = the latest month of the PWA meter report (`/pwa/meter/coverage`), billing being the primary data */
+export const RANGES = ["report", "today", "mtd", "7d", "30d", "90d", "ytd"] as const;
 export type Range = (typeof RANGES)[number];
-export const RANGE_LABEL: Record<Range, string> = { today: "Today", mtd: "This month", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", ytd: "Year to date" };
+export const RANGE_LABEL: Record<Range, string> = { report: "Latest report month", today: "Today", mtd: "This month", "7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days", ytd: "Year to date" };
 
-export const VIEWS = ["issues", "plants", "billing", "finance", "sites", "outages", "meter", "growatt"] as const;
+export const VIEWS = ["billing", "issues", "plants", "finance", "sites", "outages", "meter", "growatt"] as const;
 export type View = (typeof VIEWS)[number];
 
 export const ENTERED = "Entered by the team; items without a cost are not in the sum";
@@ -18,7 +19,7 @@ const parseDay = (s: string) => {
 };
 
 /** first day of a preset, counted back from today (the browser's date) */
-export const rangeStart = (r: Range): string => {
+export const rangeStart = (r: Exclude<Range, "report">): string => {
   const d = new Date();
   if (r === "today") return iso(d);
   if (r === "mtd") d.setDate(1);

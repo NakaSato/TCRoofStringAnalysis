@@ -259,10 +259,51 @@ export const SkeletonKpis: React.FC<{ count?: number; className?: string }> = ({
   </div>
 );
 
-/** Placeholder for a chart area (fixed height, so the layout doesn't jump when it arrives). */
-export const SkeletonChart: React.FC<{ height?: number | string; className?: string }> = ({ height = 220, className }) => (
-  <Skeleton className={cn("w-full", className)} style={{ height }} aria-hidden />
-);
+/** Bar heights (% of the plot) of the chart placeholder: a day-shaped bell, like a PV curve. */
+const SKELETON_BARS = Array.from({ length: 24 }, (_, i) => Math.round(16 + 74 * Math.sin((Math.PI * (i + 0.5)) / 24) ** 1.6));
+
+/**
+ * Placeholder for a chart area (fixed height, so the layout doesn't jump when it arrives): axis
+ * stubs, gridlines and bars that rise and fall from the baseline (`.chart-skel-*` in index.css,
+ * still under reduced motion), with a "Loading chart…" chip in the middle. `label={false}` drops
+ * the chip (e.g. inside `LoadingState`, which already says what is loading).
+ */
+export const SkeletonChart: React.FC<{ height?: number | string; label?: React.ReactNode | false; className?: string }> = ({
+  height = 220,
+  label,
+  className,
+}) => {
+  const { t } = useI18n();
+  const text = label === false ? null : (label ?? t("Loading chart…"));
+  return (
+    <div className={cn("relative w-full overflow-hidden rounded-md bg-white/[0.02]", className)} style={{ height }} aria-busy>
+      <div className="absolute inset-y-3 left-2 flex w-6 flex-col justify-between" aria-hidden>
+        {[0, 1, 2, 3].map((i) => (
+          <span key={i} className="h-1.5 w-full rounded-full bg-white/[0.06]" />
+        ))}
+      </div>
+      <div className="absolute inset-y-3 left-10 right-3 flex flex-col justify-between" aria-hidden>
+        {[0, 1, 2, 3].map((i) => (
+          <span key={i} className={cn("border-t border-white/[0.06]", i < 3 && "border-dashed")} />
+        ))}
+      </div>
+      <div className="absolute inset-y-3 left-10 right-3 flex items-end gap-[3px] px-1" aria-hidden>
+        {SKELETON_BARS.map((h, i) => (
+          <span key={i} className="chart-skel-bar flex-1 rounded-t-sm bg-white/[0.07]" style={{ height: `${h}%`, animationDelay: `${i * 70}ms` }} />
+        ))}
+      </div>
+      <div className="chart-skel-sheen pointer-events-none absolute inset-0 bg-linear-to-r from-transparent via-white/[0.05] to-transparent" aria-hidden />
+      {text && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Badge variant="neutral" className="h-7 gap-2 bg-ink-900/80 px-3 backdrop-blur">
+            <Spinner data-icon="inline-start" className="size-3" />
+            {text}
+          </Badge>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export type LoadingShape = "none" | "lines" | "table" | "chart" | "kpis" | "page";
 
@@ -291,16 +332,71 @@ export const LoadingState: React.FC<{ label?: string; shape?: LoadingShape; rows
       </div>
     )}
     {shape === "table" && <SkeletonRows rows={rows ?? 6} />}
-    {shape === "chart" && <SkeletonChart />}
+    {shape === "chart" && <SkeletonChart label={false} />}
     {shape === "kpis" && <SkeletonKpis />}
     {shape === "page" && (
       <>
         <SkeletonKpis />
-        <SkeletonChart height={240} />
+        <SkeletonChart height={240} label={false} />
         <SkeletonRows rows={rows ?? 4} />
       </>
     )}
   </Card>
+);
+
+/** Indeterminate loading bar (`.loading-bar` in index.css); fades out when not `active`. */
+export const LoadingBar: React.FC<{ active: boolean; label?: string; className?: string }> = ({ active, label, className }) => (
+  <div
+    className={cn("loading-bar transition-opacity", active ? "opacity-100" : "opacity-0", className)}
+    role="progressbar"
+    aria-hidden={!active}
+    aria-label={label}
+  >
+    {active && <span />}
+  </div>
+);
+
+const DefaultSuspendLabel = () => <>{useI18n().t("Loading…")}</>;
+
+/**
+ * Content suspended while it re-reads: what is on screen stays (so the layout doesn't jump) but is
+ * dimmed and `inert` under an indeterminate loading bar and a sticky "Loading…" pill.
+ * Use it only for a re-read with data already shown; the first load gets `LoadingState` / skeletons.
+ */
+export const Suspended: React.FC<{
+  busy: boolean;
+  /** pill text; default "Loading…" */
+  label?: string;
+  /** false = only the bar and the dimming, no pill (small cards); "center" = the pill in the
+   * middle of the content instead of sticky at its top (a chart) */
+  pill?: boolean | "center";
+  className?: string;
+  /** classes of the dimmed content box (e.g. its flex / gap layout) */
+  contentClassName?: string;
+  children: React.ReactNode;
+}> = ({ busy, label, pill = true, className, contentClassName, children }) => (
+  <div className={cn("relative", className)} aria-busy={busy}>
+    <LoadingBar active={busy} label={label} className="pointer-events-none absolute inset-x-0 top-0 z-20" />
+    {busy && pill && (
+      <div
+        className={cn(
+          "pointer-events-none z-20 flex justify-center",
+          pill === "center" ? "absolute inset-0 items-center" : "sticky top-3 h-0"
+        )}
+      >
+        <Badge variant="neutral" className="h-7 gap-2 bg-ink-900/90 px-3 shadow-lg backdrop-blur animate-in fade-in-0 zoom-in-95">
+          <Spinner data-icon="inline-start" className="size-3" />
+          {label ?? <DefaultSuspendLabel />}
+        </Badge>
+      </div>
+    )}
+    <div
+      className={cn("transition-[opacity,filter] duration-200", busy && "pointer-events-none select-none opacity-50 saturate-50", contentClassName)}
+      inert={busy || undefined}
+    >
+      {children}
+    </div>
+  </div>
 );
 
 /* -------------------------------------------------------------------------- */

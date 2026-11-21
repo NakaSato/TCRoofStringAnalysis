@@ -4,7 +4,7 @@
  * Rows come filtered and sorted from the page; the month totals are summed here from the rows the user
  * may see (an engineer's own sites only). */
 import React from "react";
-import type { PwaBillingRow } from "../../api/client";
+import type { PwaBillingRow, PwaBillingSite } from "../../api/client";
 import type { ChartSeries, PanelChartSpec } from "../../components/PanelChart";
 import { SERIES } from "../../components/chartTheme";
 import { fmt, fmtInt } from "../../components/ui";
@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODELLED } from "../pwaMeter/format";
 import { SiteCell, SortHead, Tag, pctTone } from "../pwaMeter/tables";
-import { PHASE_COLOR } from "./chartSpecs";
+import { PHASE_COLOR, contractRefLines } from "./chartSpecs";
+import type { ContractBands } from "./chartSpecs";
 import { thb } from "./format";
 import { dateLocale, translate, useI18n } from "../../i18n";
 
@@ -79,7 +80,7 @@ export const monthTotals = (rows: PwaBillingRow[], months: string[]): MonthTotal
 /* -------------------------------------------------------------------------- */
 /** Billed MWh per month (a bar per month, a segment per phase) against the contract's MWh (modelled,
  * dashed), and billed ÷ contract % under it. Null without billed energy. */
-export const billedMonthSpec = (t: MonthTotal[]): PanelChartSpec | null => {
+export const billedMonthSpec = (t: MonthTotal[], bands: ContractBands | null = null): PanelChartSpec | null => {
   if (!t.some((m) => m.billed_kwh != null)) return null;
   const phases = [...new Set(t.flatMap((m) => Object.keys(m.billed_by_phase).map(Number)))].sort();
   const base = t.map(() => 0);
@@ -111,7 +112,7 @@ export const billedMonthSpec = (t: MonthTotal[]): PanelChartSpec | null => {
         weight: 0.6,
         zero: false,
         tickSuffix: " %",
-        refLines: [{ y: 100, label: translate("Contract") }],
+        refLines: contractRefLines(bands),
         series: [{ key: "pct", name: translate("Billed ÷ contract"), type: "line", color: SERIES.ac, width: 2, y: pct, noLegend: true, format: (v) => `${fmt(v, 1)} %` }],
       },
     ],
@@ -120,6 +121,86 @@ export const billedMonthSpec = (t: MonthTotal[]): PanelChartSpec | null => {
       { label: translate("Billed"), value: `${mwh(t[i].billed_kwh)} MWh · ${thb(t[i].billed_thb)}` },
       { label: translate("Sites"), value: String(t[i].sites) },
       ...(t[i].missing_days ? [{ label: translate("Days without a reading"), value: fmtInt(t[i].missing_days) }] : []),
+    ],
+  };
+};
+
+/* -------------------------------------------------------------------------- */
+/* By region (the sites' period totals)                                       */
+/* -------------------------------------------------------------------------- */
+export interface RegionTotal {
+  region: string;
+  sites: number;
+  kwp: number;
+  billed_kwh: number | null;
+  billed_by_phase: Record<number, number>;
+  contract_kwh: number | null;
+  /** meter kWh on the days with a contract figure (contract − shortfall) */
+  billed_c_kwh: number;
+}
+
+const NO_REGION = "—";
+
+/** the visible sites' billing summed per PWA region (เขต), in the region's number order */
+export const regionTotals = (sites: PwaBillingSite[]): RegionTotal[] => {
+  const by = new Map<string, RegionTotal>();
+  for (const s of sites) {
+    const key = s.region?.trim() || NO_REGION;
+    const t = by.get(key) ?? { region: key, sites: 0, kwp: 0, billed_kwh: null, billed_by_phase: {}, contract_kwh: null, billed_c_kwh: 0 };
+    t.sites += 1;
+    t.kwp += s.kwp ?? 0;
+    t.billed_kwh = add(t.billed_kwh, s.billed_kwh);
+    if (s.billed_kwh != null) t.billed_by_phase[s.phase] = (t.billed_by_phase[s.phase] ?? 0) + s.billed_kwh;
+    if (s.contract_kwh != null) {
+      t.contract_kwh = add(t.contract_kwh, s.contract_kwh);
+      t.billed_c_kwh += s.contract_kwh - (s.shortfall_kwh ?? 0);
+    }
+    by.set(key, t);
+  }
+  return [...by.values()].sort((a, b) => (a.region === NO_REGION ? 1 : b.region === NO_REGION ? -1 : a.region.localeCompare(b.region, "th", { numeric: true })));
+};
+
+/** Billed MWh per region over the period (a segment per phase) against the contract's (modelled,
+ * dashed), and billed ÷ contract % with the criteria file's watch / red lines. Null without billed energy. */
+export const billedRegionSpec = (t: RegionTotal[], bands: ContractBands | null = null): PanelChartSpec | null => {
+  if (!t.some((r) => r.billed_kwh != null)) return null;
+  const phases = [...new Set(t.flatMap((r) => Object.keys(r.billed_by_phase).map(Number)))].sort();
+  const base = t.map(() => 0);
+  const bars: ChartSeries[] = phases.map((ph) => {
+    const y0 = t.map((_, i) => base[i]);
+    const y = t.map((r, i) => (r.billed_by_phase[ph] == null ? null : (base[i] += r.billed_by_phase[ph] / 1000)));
+    return { key: `p${ph}`, name: phases.length > 1 ? translate("Billed, phase {n}", { n: ph }) : translate("Billed (meter)"), type: "bar", color: PHASE_COLOR[ph] ?? SERIES.secondary, y, y0, noTip: true };
+  });
+  const pct = t.map((r) => (r.contract_kwh ? (100 * r.billed_c_kwh) / r.contract_kwh : null));
+  return {
+    xKind: "band",
+    x: t.map((r) => r.region),
+    panels: [
+      {
+        key: "mwh",
+        title: translate("Billed energy (MWh)"),
+        stacked: true,
+        yMin: 0,
+        series: [
+          ...bars,
+          { key: "contract", name: translate("Contract (modelled)"), type: "points", symbol: "diamond", size: 7, color: SERIES.reference, y: t.map((r) => (r.contract_kwh == null ? null : r.contract_kwh / 1000)), format: (v) => `${fmt(v, 1)} MWh` },
+        ],
+      },
+      {
+        key: "pct",
+        title: translate("Billed ÷ contract (%)"),
+        weight: 0.8,
+        zero: false,
+        tickSuffix: " %",
+        refLines: contractRefLines(bands),
+        series: [{ key: "pct", name: translate("Billed ÷ contract"), type: "points", size: 6, color: SERIES.ac, y: pct, noLegend: true, format: (v) => `${fmt(v, 1)} %` }],
+      },
+    ],
+    tipExtra: (i) => [
+      ...phases.filter((ph) => t[i].billed_by_phase[ph] != null).map((ph) => ({ label: translate("Phase {n}", { n: ph }), value: `${mwh(t[i].billed_by_phase[ph])} MWh` })),
+      { label: translate("Billed"), value: `${mwh(t[i].billed_kwh)} MWh` },
+      { label: translate("Billed per kWp"), value: t[i].billed_kwh != null && t[i].kwp ? `${fmt(t[i].billed_kwh! / t[i].kwp, 0)} kWh/kWp` : "—" },
+      { label: translate("Sites"), value: String(t[i].sites) },
     ],
   };
 };

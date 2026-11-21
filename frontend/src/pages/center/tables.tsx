@@ -82,12 +82,13 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
   );
 };
 
-export const PlantSortKeys = ["issues", "name", "epi", "pr", "avail", "contract", "clean", "visit", "spend"] as const;
+export const PlantSortKeys = ["issues", "name", "billed", "epi", "pr", "avail", "contract", "clean", "visit", "spend"] as const;
 export type PlantSort = (typeof PlantSortKeys)[number];
 
 export const plantSortValue = (r: OmCenterPlant, k: PlantSort, sites?: Map<number, PwaMeterSiteSummary>): number | string | null =>
   ({
     contract: sites?.get(r.plant_id)?.vs_contract_pct ?? null,
+    billed: sites?.get(r.plant_id)?.meter_mwh ?? null,
     name: r.name,
     issues: r.active_issues,
     epi: r.epi_median,
@@ -118,11 +119,12 @@ export const PlantsTable: React.FC<{
       <TableHeader>
         <TableRow>
           <SortHead k="name" label={t("Plant")} {...h} />
+          <SortHead k="billed" label={<>{t("Billed")}<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">MWh</span></>} className="text-right" title={t("PWA meter report: the site's billed meter energy for the report days in the period (measured). — = not in the report.")} {...h} />
+          <SortHead k="contract" label={<>{t("Meter vs contract")}<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{t("mod.")}</span></>} className="text-right" title={t("PWA meter report: billed meter energy ÷ the contract's expected energy (modelled), for the report days in the period. Opens the site's days.")} {...h} />
           <SortHead k="issues" label={t("Issues")} className="text-right" {...h} />
           <SortHead k="avail" label={t("Availability")} className="text-right" title={t("Inverter minutes not in fault / off / standby ÷ daylight minutes with data")} {...h} />
           <SortHead k="epi" label="EPI" className="text-right" title={t("Median of the period: measured ÷ modelled energy (modelled). Days with a suspect sensor left out.")} {...h} />
           <SortHead k="pr" label="PR′" className="text-right" title={t("Median temperature-corrected PR of the period. Days with a suspect sensor left out.")} {...h} />
-          <SortHead k="contract" label={<>{t("Meter vs contract")}<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{t("mod.")}</span></>} className="text-right" title={t("PWA meter report: billed meter energy ÷ the contract's expected energy (modelled), for the report days in the period. Opens the site's days.")} {...h} />
           <SortHead k="clean" label={t("Since cleaning")} className="text-right" title={t("Days since the last cleaning in the Site log")} {...h} />
           <SortHead k="visit" label={t("Next visit")} {...h} />
           <SortHead k="spend" label={t("O&M spend")} className="text-right" title={t(ENTERED)} {...h} />
@@ -137,13 +139,12 @@ export const PlantsTable: React.FC<{
               </Link>
               <span className="num block text-[11px] text-muted-foreground">
                 {r.capacity_kwp != null ? `${fmt(r.capacity_kwp, 0)} kWp · ` : ""}
-                {r.energy_kwh != null ? `${fmt(r.energy_kwh, 0)} kWh` : t("no energy stored")}
+                {r.energy_kwh != null ? t("Growatt {v} kWh", { v: fmt(r.energy_kwh, 0) }) : t("no Growatt energy stored")}
               </span>
             </TableCell>
-            <TableCell className="num text-right">{r.active_issues ? fmtInt(r.active_issues) : "—"}</TableCell>
-            <TableCell className={`num text-right ${availTone(r.availability_pct)}`}>{r.availability_pct == null ? "—" : `${fmt(r.availability_pct, 1)} %`}</TableCell>
-            <TableCell className="num text-right">{fmt(r.epi_median, 2)}</TableCell>
-            <TableCell className="num text-right">{r.pr_temp_corrected_median_pct == null ? "—" : `${fmt(r.pr_temp_corrected_median_pct, 1)} %`}</TableCell>
+            <TableCell className="num text-right font-medium">
+              {sites.get(r.plant_id)?.meter_mwh == null ? <span className="text-muted-foreground" title={t("Not in the PWA meter report")}>—</span> : fmt(sites.get(r.plant_id)!.meter_mwh, 1)}
+            </TableCell>
             <TableCell className="num text-right">
               {(() => {
                 const site = sites.get(r.plant_id);
@@ -155,6 +156,10 @@ export const PlantsTable: React.FC<{
                 );
               })()}
             </TableCell>
+            <TableCell className="num text-right">{r.active_issues ? fmtInt(r.active_issues) : "—"}</TableCell>
+            <TableCell className={`num text-right ${availTone(r.availability_pct)}`}>{r.availability_pct == null ? "—" : `${fmt(r.availability_pct, 1)} %`}</TableCell>
+            <TableCell className="num text-right">{fmt(r.epi_median, 2)}</TableCell>
+            <TableCell className="num text-right">{r.pr_temp_corrected_median_pct == null ? "—" : `${fmt(r.pr_temp_corrected_median_pct, 1)} %`}</TableCell>
             <TableCell className="num text-right">{r.days_since_cleaning == null ? <span className="text-muted-foreground">{t("None recorded")}</span> : t("{n} d", { n: r.days_since_cleaning })}</TableCell>
             <TableCell className="num whitespace-nowrap">{r.next_visit ? fmtDay(r.next_visit) : "—"}</TableCell>
             <TableCell className="num text-right">{thb(r.spend_thb)}</TableCell>

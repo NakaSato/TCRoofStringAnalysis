@@ -104,6 +104,43 @@
   }
 }
 
+/* Chart placeholder (`SkeletonChart`): bars rise and fall from the baseline, a sheen sweeps across. */
+@keyframes chart-skel-bar {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+@keyframes chart-skel-sheen {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+.chart-skel-bar {
+  transform-origin: bottom;
+  animation: chart-skel-bar 1.6s ease-in-out infinite both;
+}
+.chart-skel-sheen {
+  animation: chart-skel-sheen 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-skel-bar,
+  .chart-skel-sheen {
+    animation: none;
+  }
+  .chart-skel-sheen {
+    display: none;
+  }
+}
+
 /* ==========================================================================
    Base
    ========================================================================== */

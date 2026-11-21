@@ -7,7 +7,7 @@ import { api } from "../../api/client";
 import type { PwaMeterCheck, PwaMeterSiteDays, PwaMeterSiteSummary, PwaMeterWindow, PwaOutageEvent } from "../../api/client";
 import { PanelChart } from "../../components/PanelChart";
 import type { PanelChartSpec } from "../../components/PanelChart";
-import { SERIES } from "../../components/chartTheme";
+import { SERIES, STATUS } from "../../components/chartTheme";
 import { DAY_MS, ratioPanel, statusBands } from "./chart";
 import { SkeletonChart, fmt, fmtInt } from "../../components/ui";
 import { plantPath } from "../../context/routes";
@@ -46,6 +46,10 @@ const siteSpec = (d: PwaMeterSiteDays, median: number | null): PanelChartSpec | 
           { key: "inv", name: translate("Inverter (report)"), color: SERIES.dc, type: "line", width: 1, opacity: 0.8, y: d.days.map((r) => r.inverter_kwh), format: (v) => `${fmt(v, 0)} kWh` },
           { key: "con", name: translate("Contract (modelled)"), color: SERIES.reference, type: "line", dash: "dash", y: d.days.map((r) => r.contract_kwh), format: (v) => `${fmt(v, 0)} kWh` },
           { key: "pv", name: translate("PVsyst P50 (modelled)"), color: SERIES.reference, type: "line", dash: "dot", y: d.days.map((r) => r.pvsyst_kwh), format: (v) => `${fmt(v, 0)} kWh` },
+          // the report's remark says curtailed (หรี่): a low day there is zero export, not a fault
+          ...(d.days.some((r) => r.curtailment_note)
+            ? [{ key: "curt", name: translate("Curtailment note (report)"), color: STATUS.warn, type: "points" as const, symbol: "diamond" as const, size: 6, y: d.days.map((r) => (r.curtailment_note ? r.meter_kwh : null)), format: (v: number) => `${fmt(v, 0)} kWh` }]
+            : []),
         ],
       },
       ratioPanel(translate("Meter ÷ inverter (%)"), translate("Meter ÷ inverter"), ratio, median != null ? { y: median, label: translate("Site median {v} %", { v: fmt(median, 2) }) } : null),

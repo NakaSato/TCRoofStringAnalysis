@@ -1,5 +1,5 @@
 /**
- * Operations → Engineering O&M (`/center`, everyone, scoped to the user's plants): one page for a
+ * Operations → Energy & Billing (`/energy-billing`, was Engineering O&M at `/center`, everyone, scoped to the user's plants): one page for a
  * period, from two stored sources that are shown side by side and never added together:
  *
  * - **Billing** (PWA meter report imported from the Excel workbooks, `/pwa/meter/*`, phases 1–2,
@@ -27,11 +27,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "../api/client";
-import type { PwaMeterCriteria, PwaMeterSiteSummary, PwaMeterWindow } from "../api/client";
+import type { PwaMeterCoverage, PwaMeterCriteria, PwaMeterSiteSummary, PwaMeterWindow } from "../api/client";
 import { isAdmin } from "../auth/access";
 import { useAppContext } from "../context/AppContext";
 import { PanelChart } from "../components/PanelChart";
-import { SkeletonRows, fmt, fmtInt } from "../components/ui";
+import { SkeletonRows, Suspended, fmt, fmtInt } from "../components/ui";
+import { TablePager, pageBounds } from "../components/TablePager";
 import { pick, pickDay, useUrlState } from "@/lib/useUrlState";
 import type { UrlPatch } from "@/lib/useUrlState";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -63,17 +64,46 @@ import {
 import { SiteDialog } from "./pwaMeter/SiteDialog";
 import { ImportDialog } from "./pwaMeter/ImportDialog";
 import { useCenter } from "./center/useCenter";
-import { ENTERED, RANGES, RANGE_LABEL, VIEWS, monthWindow, prevMonth, rangeStart, thb, thbShort, windowMonth } from "./center/format";
+import { RANGES, RANGE_LABEL, VIEWS, monthWindow, prevMonth, rangeStart, thb, thbShort, windowMonth } from "./center/format";
 import type { Range, View } from "./center/format";
 import { IssuesTable, PlantSortKeys, PlantsTable, plantSortValue } from "./center/tables";
-import { fleetDailySpec } from "./center/chartSpecs";
-import { HEAT_LEGEND, Legend, YieldHeatmap } from "./center/charts";
-import { BILLED_HINT, BillSortKeys, BillingTable, billSortValue, billedMonthSpec, fmtMonth, monthTotals } from "./center/billing";
+import { PHASE_COLOR, contractBands, fleetDailySpec } from "./center/chartSpecs";
+import { HEAT_LEGEND, Legend, WeatherBoxPlot, YieldHeatmap, weatherBoxes } from "./center/charts";
+import { BILLED_HINT, BillSortKeys, BillingTable, billSortValue, billedMonthSpec, billedRegionSpec, fmtMonth, monthTotals, regionTotals } from "./center/billing";
 import { FINANCE_HINT, FinanceSortKeys, FinanceTable, SPEND_GROUPS, financeModel, financeMonthSpec, financeSortValue } from "./center/finance";
-import { GROWATT_HINT, VsGrowattSortKeys, VsGrowattTable, vsGrowattDaySpec, vsGrowattDays, vsGrowattSortValue } from "./center/vsGrowatt";
+import { GROWATT_HINT, VsGrowattSortKeys, VsGrowattTable, vsGrowattDaySpec, vsGrowattDays, vsGrowattSiteSpec, vsGrowattSortValue } from "./center/vsGrowatt";
 import { useI18n } from "../i18n";
 
 const ALL = "all";
+/** rows per page of the lists card */
+const LIST_PAGE = 50;
+/** Meter vs Growatt tile bar: a fixed scale around 100 %, the normal range from the criteria file
+ * shaded, and a tick at the ratio (green inside the range, amber outside). */
+const RatioBandMeter: React.FC<{ ratio: number | null; band: { low: number; high: number } | null }> = ({ ratio, band }) => {
+  const { t } = useI18n();
+  if (!band) return <Meter />;
+  const min = band.low - 3;
+  const max = band.high + 1.5;
+  const at = (v: number) => (100 * (Math.max(min, Math.min(max, v)) - min)) / (max - min);
+  const inside = ratio != null && ratio >= band.low && ratio <= band.high;
+  const range = `${fmt(band.low, 1)}–${fmt(band.high, 1)} %`;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <Meter
+          segments={[
+            { pct: at(band.low), className: "bg-transparent" },
+            { pct: at(band.high) - at(band.low), className: ratio == null ? "bg-white/[0.12]" : inside ? "bg-emerald-400/40" : "bg-amber-400/30" },
+          ]}
+          mark={ratio == null ? null : at(ratio)}
+          title={t("Normal {range} (criteria file); scale {min}–{max} %", { range, min: fmt(min, 1), max: fmt(max, 1) })}
+        />
+      </div>
+      <span className="num shrink-0 text-[10px] text-muted-foreground">{t("Normal {range}", { range })}</span>
+    </div>
+  );
+};
+
 const METER_VIEWS: readonly View[] = ["billing", "finance", "sites", "outages", "meter", "growatt"];
 /** default sort key and direction per view (the issues list keeps the backend's order) */
 const DEFAULT_SORT: Record<Exclude<View, "issues">, readonly [string, boolean]> = {
@@ -102,15 +132,20 @@ const sum = <T,>(rows: T[], get: (r: T) => number | null): number | null => {
 };
 
 /** A titled group of tiles: says which source its figures come from. */
-const Group: React.FC<{ title: string; source: string; badge?: React.ReactNode; cols: string; children: React.ReactNode }> = ({ title, source, badge, cols, children }) => (
+/** No title: an empty header row on xl only, so the tiles line up with the group beside it. */
+const Group: React.FC<{ title?: string; source?: string; badge?: React.ReactNode; cols: string; children: React.ReactNode }> = ({ title, source, badge, cols, children }) => (
   <section className="flex flex-col gap-2">
-    <div className="flex h-7 items-center gap-2">
-      <h2 className="shrink-0 text-sm font-semibold">{title}</h2>
-      <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={source}>
-        {source}
-      </span>
-      {badge && <span className="ml-auto shrink-0">{badge}</span>}
-    </div>
+    {title ? (
+      <div className="flex h-7 items-center gap-2">
+        <h2 className="shrink-0 text-sm font-semibold">{title}</h2>
+        <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={source}>
+          {source}
+        </span>
+        {badge && <span className="ml-auto shrink-0">{badge}</span>}
+      </div>
+    ) : (
+      <div className="hidden h-7 xl:block" aria-hidden />
+    )}
     <div className={`grid grid-cols-2 gap-3 ${cols}`}>{children}</div>
   </section>
 );
@@ -167,8 +202,9 @@ export const OmCenterPage: React.FC = () => {
   const to = pickDay(url.get("to"));
   const custom = from != null || to != null;
   const pickedMonth = windowMonth(from, to); // a custom window that is exactly one calendar month
-  const range: Range = pick(url.get("range"), RANGES, "mtd");
-  const view: View = pick(url.get("view"), VIEWS, "issues");
+  // billing is the primary data: the page opens on the latest report month and the billing list
+  const range: Range = pick(url.get("range"), RANGES, "report");
+  const view: View = pick(url.get("view"), VIEWS, "billing");
   const query = url.get("q") ?? "";
   const phase = pick(url.get("phase"), PHASES, ALL);
   const show: Show = pick(url.get("show"), SHOW, "all");
@@ -177,12 +213,22 @@ export const OmCenterPage: React.FC = () => {
   const sortKey = view === "issues" ? "" : pick(url.get("sort"), SORT_KEYS[view], DEFAULT_SORT[view][0] as never);
   const desc = view === "issues" ? false : url.get("desc") == null ? DEFAULT_SORT[view][1] : url.get("desc") === "1";
 
-  // one window for both sources; a preset counts back from today
-  const start = custom ? from : rangeStart(range);
-  const end = custom ? to : null;
+  // the report's days (undefined = not answered yet): "Latest report month" = its last full month
+  const [coverage, setCoverage] = useState<PwaMeterCoverage | null | undefined>(undefined);
+  const loadCoverage = useCallback(() => api.getPwaMeterCoverage().then(setCoverage, () => setCoverage(null)), []);
+  useEffect(() => {
+    void loadCoverage();
+  }, [loadCoverage]);
+  const reportMonth = coverage?.report_month ?? null;
+  const reportWin = reportMonth ? monthWindow(reportMonth) : null;
+  // one window for both sources; a preset counts back from today; no report yet = this month
+  const byReport = !custom && range === "report";
+  const start = custom ? from : byReport ? (reportWin?.from ?? (coverage === undefined ? null : rangeStart("mtd"))) : rangeStart(range as Exclude<Range, "report">);
+  const end = custom ? to : byReport ? (reportWin?.to ?? null) : null;
+  const windowReady = !(byReport && coverage === undefined);
   const win: PwaMeterWindow = useMemo(() => ({ start, end }), [start, end]);
-  const center = useCenter(start, end, false); // shadow-mode rules are never counted on this page
-  const pwa = usePwaMeter(win);
+  const center = useCenter(start, end, false, windowReady); // shadow-mode rules are never counted on this page
+  const pwa = usePwaMeter(win, windowReady);
   const c = center.data;
   const loading = center.loading || pwa.loading;
   // a re-read (period change, Refresh) with figures already on screen: suspend them until both sources answer
@@ -199,6 +245,11 @@ export const OmCenterPage: React.FC = () => {
   }, []);
   const longDays = criteria?.outage_event.long_event_days ?? null;
   const fastDays = criteria?.outage_event.fixed_fast_days ?? null;
+  // Meter vs Growatt normal range, from the criteria file (null until it answers: no colour, no band)
+  const vsgCrit = criteria?.meter_vs_growatt;
+  const vsgBand = vsgCrit ? { low: 100 * vsgCrit.flags.ratio_low_median, high: 100 * vsgCrit.high_day_ratio } : null;
+  // meter ÷ contract watch / red lines, from the criteria file (none until it answers)
+  const bands = useMemo(() => contractBands(criteria), [criteria]);
 
   // a tile that opens a list scrolls to it (`#lists`)
   const listsRef = useRef<HTMLDivElement>(null);
@@ -257,7 +308,8 @@ export const OmCenterPage: React.FC = () => {
   const shortKwh = sum(billSites, (r) => r.shortfall_kwh);
   const belowContract = billSites.filter((r) => (r.shortfall_kwh ?? 0) > 0).length;
   const missingDays = billSites.reduce((s, r) => s + r.missing_days, 0);
-  const billSpec = useMemo(() => billedMonthSpec(months), [months]);
+  const billSpec = useMemo(() => billedMonthSpec(months, bands), [months, bands]);
+  const regionSpec = useMemo(() => billedRegionSpec(regionTotals(billSites), bands), [billSites, bands]);
   // ---- finance: the billing against the O&M spend entered in the Site log (same plants, same months)
   const fin = useMemo(() => financeModel(billRowsAll, billSites, c?.spend_by_month ?? []), [billRowsAll, billSites, c]);
   const finSpec = useMemo(() => financeMonthSpec(fin.months), [fin]);
@@ -268,7 +320,15 @@ export const OmCenterPage: React.FC = () => {
   const daily = pwa.data?.daily ?? null;
   const phaseNo = phase === ALL ? null : Number(phase);
   const vsgSpec = useMemo(() => (vsg ? vsGrowattDaySpec(vsGrowattDays(vsg.days, phaseNo)) : null), [vsg, phaseNo]);
-  const fleetSpec = useMemo(() => (daily ? fleetDailySpec(daily, phaseNo) : null), [daily, phaseNo]);
+  const [bandLow, bandHigh] = [vsgBand?.low ?? null, vsgBand?.high ?? null];
+  const vsgSiteSpec = useMemo(
+    () => (vsg ? vsGrowattSiteSpec(vsgSites, bandLow != null && bandHigh != null ? { low: bandLow, high: bandHigh } : null) : null),
+    [vsg, vsgSites, bandLow, bandHigh]
+  );
+  const fleetSpec = useMemo(() => (daily ? fleetDailySpec(daily, phaseNo, bands) : null), [daily, phaseNo, bands]);
+  // weather impact: the visible sites of the phase, producing days only
+  const boxes = useMemo(() => (daily ? weatherBoxes(daily, new Set(inPhase.map((r) => r.site_id))) : []), [daily, inPhase]);
+  const boxPhases = [...new Set(boxes.map((b) => b.phase))].sort();
   // heatmap rows: lowest measured yield first (sites without one last)
   const heatOrder = useMemo(() => byKey(inPhase, (r) => r.yield_kwh_kwp, false).map((r) => r.site_id), [inPhase]);
   const pwaLoading = pwa.loading && !pwa.data;
@@ -311,8 +371,20 @@ export const OmCenterPage: React.FC = () => {
   const anyFilter = query.trim() !== "" || (meterView && phase !== ALL) || (view === "sites" && show !== "all") || (view === "billing" && billMonth !== ALL);
   const cnt = (ready: unknown, v: number) => (ready ? fmtInt(v) : "—"); // not read yet ≠ none
 
+  // ---- paging: the open list shows LIST_PAGE rows at a time (CSV still exports every row); back to
+  // page 1 when the list, its filters, sort or the period change
+  const [page, setPage] = useState(0);
+  const listBodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => setPage(0), [view, query, phase, show, billMonth, sortKey, desc, start, end]);
+  const { pageNo } = pageBounds(rowsShown, LIST_PAGE, page);
+  const paged = <T,>(rows: T[]): T[] => rows.slice(pageNo * LIST_PAGE, (pageNo + 1) * LIST_PAGE);
+  const goPage = (p: number) => {
+    setPage(p);
+    listBodyRef.current?.scrollTo({ top: 0 });
+  };
+
   const switchView = (v: string) =>
-    setUrl({ view: v === "issues" ? null : v, sort: null, desc: null, show: v === "sites" && show !== "all" ? show : null, month: v === "billing" && billMonth !== ALL ? billMonth : null });
+    setUrl({ view: v === "billing" ? null : v, sort: null, desc: null, show: v === "sites" && show !== "all" ? show : null, month: v === "billing" && billMonth !== ALL ? billMonth : null });
   const onSort = (k: string) => {
     if (view === "issues") return;
     // a new column starts worst-first, except names and dates; yield and the meter ratio start lowest
@@ -332,8 +404,8 @@ export const OmCenterPage: React.FC = () => {
     else if (view === "plants")
       downloadCsv(
         `om-center-plants-${tag}.csv`,
-        ["plant_id", "name", "capacity_kwp", "energy_kwh", "active_issues", "availability_pct", "epi_median_modelled", "pr_temp_corrected_median_pct", "pwa_site_id", "meter_vs_contract_pct_modelled", "days_since_cleaning", "next_visit", "om_spend_thb_entered"],
-        plantRows.map((r) => [r.plant_id, r.name, r.capacity_kwp, r.energy_kwh, r.active_issues, r.availability_pct, r.epi_median, r.pr_temp_corrected_median_pct, siteByPlant.get(r.plant_id)?.site_id ?? null, siteByPlant.get(r.plant_id)?.vs_contract_pct ?? null, r.days_since_cleaning, r.next_visit, r.spend_thb])
+        ["plant_id", "name", "capacity_kwp", "pwa_billed_mwh_meter", "growatt_energy_kwh", "active_issues", "availability_pct", "epi_median_modelled", "pr_temp_corrected_median_pct", "pwa_site_id", "meter_vs_contract_pct_modelled", "days_since_cleaning", "next_visit", "om_spend_thb_entered"],
+        plantRows.map((r) => [r.plant_id, r.name, r.capacity_kwp, siteByPlant.get(r.plant_id)?.meter_mwh ?? null, r.energy_kwh, r.active_issues, r.availability_pct, r.epi_median, r.pr_temp_corrected_median_pct, siteByPlant.get(r.plant_id)?.site_id ?? null, siteByPlant.get(r.plant_id)?.vs_contract_pct ?? null, r.days_since_cleaning, r.next_visit, r.spend_thb])
       );
     else if (view === "billing")
       downloadCsv(
@@ -383,7 +455,7 @@ export const OmCenterPage: React.FC = () => {
     view === "issues" && c && !query.trim()
       ? t("The decision rules have nothing open on these plants.")
       : meterView && pwa.data && !sites.length
-        ? admin ? t("Import the report (Import report), or widen the period: the report is imported monthly.") : t("None of your plants is in the report for this period.")
+        ? admin ? t("Import the report (Import Billing), or widen the period: the report is imported monthly.") : t("None of your plants is in the report for this period.")
         : null;
   const footnote = {
     issues: t("Active issues of the decision rules on the stored data: safety first, then tier. Next visit = the plant's next planned task in the Calendar."),
@@ -401,7 +473,7 @@ export const OmCenterPage: React.FC = () => {
       {/* ---- header: title, period, actions */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-lg font-semibold">{t("Engineering O&M")}</h1>
+          <h1 className="text-lg font-semibold">{t("Energy & Billing")}</h1>
           {c && <Badge variant="neutral">{c.scope === "fleet" ? t("Fleet · {n} plants", { n: fmtInt(c.plant_count) }) : t("Your plants · {n}", { n: fmtInt(c.plant_count) })}</Badge>}
           {pwa.data && (
             <Badge variant={dataEnd ? "neutral" : "warn"} title={t("The PWA meter report is imported monthly; nothing after this day is in the app yet")}>
@@ -414,17 +486,17 @@ export const OmCenterPage: React.FC = () => {
             value={pickedMonth ? "month" : custom ? "custom" : range}
             onValueChange={(v) => {
               if (v === "custom") return;
-              if (v === "month") setUrl({ ...monthWindow(pickedMonth ?? prevMonth()), range: null });
-              else setUrl({ range: v === "mtd" ? null : v, from: null, to: null });
+              if (v === "month") setUrl({ ...monthWindow(pickedMonth ?? reportMonth ?? prevMonth()), range: null });
+              else setUrl({ range: v === "report" ? null : v, from: null, to: null });
             }}
           >
-            <SelectTrigger size="sm" className="w-40" aria-label={t("Period")}>
+            <SelectTrigger size="sm" className="w-auto min-w-40" aria-label={t("Period")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {RANGES.map((r) => (
                 <SelectItem key={r} value={r}>
-                  {t(RANGE_LABEL[r])}
+                  {r === "report" && reportMonth ? `${t(RANGE_LABEL[r])} · ${fmtMonth(reportMonth, true)}` : t(RANGE_LABEL[r])}
                 </SelectItem>
               ))}
               <SelectSeparator />
@@ -450,14 +522,10 @@ export const OmCenterPage: React.FC = () => {
           </Button>
           {admin && (
             <Button size="sm" onClick={() => setImporting(true)}>
-              {t("Import report")}
+              {t("Import Billing")}
             </Button>
           )}
         </div>
-      </div>
-
-      <div className={cn("loading-bar -mt-3 transition-opacity", refreshing ? "opacity-100" : "opacity-0")} role="progressbar" aria-hidden={!refreshing} aria-label={t("Loading the period…")}>
-        {refreshing && <span />}
       </div>
 
       {center.error && (
@@ -473,16 +541,7 @@ export const OmCenterPage: React.FC = () => {
         </Alert>
       )}
       {/* ---- figures, suspended (dimmed, not clickable) while a new period loads */}
-      <div className="relative flex flex-col gap-5" aria-busy={refreshing}>
-        {refreshing && (
-          <div className="pointer-events-none sticky top-3 z-20 -mb-5 flex h-0 justify-center">
-            <Badge variant="neutral" className="h-7 gap-2 bg-ink-900/90 px-3 shadow-lg backdrop-blur animate-in fade-in-0 zoom-in-95">
-              <Spinner data-icon="inline-start" className="size-3" />
-              {t("Loading the period…")}
-            </Badge>
-          </div>
-        )}
-        <div className={cn("flex flex-col gap-5 transition-[opacity,filter] duration-200", refreshing && "pointer-events-none select-none opacity-50 saturate-50")} inert={refreshing || undefined}>
+      <Suspended busy={refreshing} label={t("Loading the period…")} contentClassName="flex flex-col gap-5">
           {/* ---- figures: billing first, then engineering (meter report, inverters) and the team's work; sources are never added together */}
           <div className="grid gap-x-5 gap-y-5 xl:grid-cols-2">
             <Group
@@ -535,36 +594,6 @@ export const OmCenterPage: React.FC = () => {
               />
             </Group>
 
-            <Group title={t("Finance")} source={t("Billing (measured × book price) vs Site log costs (entered)")} cols="sm:grid-cols-4">
-              <StatTile
-                label={t("O&M spend")}
-                value={thbShort(fin.spend.thb)}
-                href={listHref({ view: "finance" })}
-                linkLabel={t("Open the finance by site")}
-                footer={
-                  <span title={`${t("Site log costs of the report sites' Growatt plants, in the report's months.")} ${t(ENTERED)}`}>
-                    {!finReady ? "—" : fin.spend.events ? t("{n} of {total} events have a cost", { n: fmtInt(fin.spend.priced), total: fmtInt(fin.spend.events) }) : t("No Site log events")}
-                  </span>
-                }
-              />
-              <StatTile
-                label={t("Spend ÷ billed")}
-                value={fin.ratio_pct == null ? "—" : fmt(fin.ratio_pct, 2)}
-                unit="%"
-                footer={<span title={t(FINANCE_HINT)}>{t("{n} sites with a cost", { n: finReady ? fmtInt(fin.sites_with_spend) : "—" })}</span>}
-              />
-              <StatTile
-                label={t("O&M ฿ / MWh")}
-                value={fin.per_mwh == null ? "—" : fmt(fin.per_mwh, 0)}
-                footer={<span title={t(FINANCE_HINT)}>{price != null ? t("Book price ฿{v} / MWh", { v: fmt(price * 1000, 0) }) : t("Per billed MWh")}</span>}
-              />
-              <StatTile
-                label={t("Billed − spend")}
-                value={thbShort(fin.net_thb)}
-                footer={<span title={t("Billed value minus the entered O&M spend; — when no cost is entered")}>{t("After entered O&M costs")}</span>}
-              />
-            </Group>
-
             <Group title={t("Engineering · meter report")} source={t("PWA meter report and its criteria file")} cols="sm:grid-cols-4">
               <StatTile
                 label={t("O&M to act")}
@@ -604,16 +633,29 @@ export const OmCenterPage: React.FC = () => {
                 footer={<span title={t("Sites with a meter vs inverter flag")}>{t("Meter ÷ inverter, productive days")}</span>}
               />
               <StatTile
-                label={t("Meter ÷ Growatt")}
+                label={t("Meter vs Growatt")}
                 value={vsgRatio == null ? "—" : fmt(vsgRatio, 2)}
                 unit="%"
-                tone={vsgRatio == null ? undefined : vsgRatio < 97 || vsgRatio > 100.5 ? "text-amber-300" : undefined}
+                tone={vsgRatio == null || !vsgBand ? undefined : vsgRatio < vsgBand.low || vsgRatio > vsgBand.high ? "text-amber-300" : "text-emerald-300"}
                 href={listHref({ view: "growatt" })}
                 linkLabel={t("Open meter vs Growatt")}
+                meter={<RatioBandMeter ratio={vsgRatio} band={vsgBand} />}
                 footer={
-                  <span title={`${t(GROWATT_HINT)}. ${t("{n} of {total} sites compared", { n: cnt(vsg, vsgCompared), total: cnt(vsg, vsgSites.length) })}`}>
-                    {t("{n} sites flagged", { n: cnt(vsg, vsgFlagged) })}
-                  </span>
+                  <>
+                    {vsgRatio != null && (
+                      <span title={t(GROWATT_HINT)}>
+                        {Math.abs(vsgRatio - 100) < 0.005
+                          ? t("Same as Growatt")
+                          : t(vsgRatio < 100 ? "{n} % below Growatt" : "{n} % above Growatt", { n: fmt(Math.abs(vsgRatio - 100), 2) })}
+                      </span>
+                    )}
+                    <span
+                      className={vsgFlagged ? "text-amber-300" : undefined}
+                      title={t("{n} of {total} sites compared", { n: cnt(vsg, vsgCompared), total: cnt(vsg, vsgSites.length) })}
+                    >
+                      {t("{n} sites flagged", { n: cnt(vsg, vsgFlagged) })}
+                    </span>
+                  </>
                 }
               />
             </Group>
@@ -623,15 +665,20 @@ export const OmCenterPage: React.FC = () => {
                 label={t("Active issues")}
                 value={cnt(m, m?.active_issues ?? 0)}
                 tone={m?.active_issues ? "text-amber-300" : undefined}
-                href={listHref({ view: null })}
+                href={listHref({ view: "issues" })}
                 linkLabel={t("Open the issues to fix first")}
                 footer={(m?.safety_issues ?? 0) > 0 ? <span className="text-red-300">{t("{n} safety", { n: fmtInt(m?.safety_issues) })}</span> : <span>{t("Decision rules, live only")}</span>}
               />
               <StatTile
                 label={t("Produced")}
-                value={m?.produced_kwh == null ? "—" : fmt(m.produced_kwh / 1000, 1)}
+                tag={t("meter")}
+                value={billedKwh == null ? "—" : fmt(billedKwh / 1000, 1)}
                 unit="MWh"
-                footer={<span title={t("Measured: each inverter's day energy, summed over the period")}>{t("Measured, inverters")}</span>}
+                footer={
+                  <span title={t("Value: billed meter energy of the PWA report sites (measured, the primary figure). Footer: each inverter's day energy summed over every plant in scope (Growatt, measured). Different meters and plant sets: shown side by side, never added.")}>
+                    {t("Growatt inverters {v} MWh", { v: m?.produced_kwh == null ? "—" : fmt(m.produced_kwh / 1000, 1) })}
+                  </span>
+                }
               />
               <StatTile
                 label={t("Availability")}
@@ -643,18 +690,18 @@ export const OmCenterPage: React.FC = () => {
               />
             </Group>
 
-            <Group title={t("Work")} source={t("Entered by the team")} cols="sm:grid-cols-2">
+            <Group cols="sm:grid-cols-2">
               <StatTile
                 label={t("O&M spend")}
                 value={m?.spend_thb == null ? "—" : thb(m.spend_thb)}
-                footer={<span title={t(ENTERED)}>{!m ? "—" : m.spend_events ? t("{n} of {total} Site log events have a cost", { n: fmtInt(m.spend_events_priced), total: fmtInt(m.spend_events) }) : t("No Site log events")}</span>}
+                footer={<span>{!m ? "—" : m.spend_events ? t("{n} of {total} Site log events have a cost", { n: fmtInt(m.spend_events_priced), total: fmtInt(m.spend_events) }) : t("No Site log events")}</span>}
               />
               <StatTile
                 label={t("Committed")}
                 value={m?.committed_thb == null ? "—" : thb(m.committed_thb)}
                 href="/calendar"
                 linkLabel={t("Open the Calendar")}
-                footer={<span title={t(ENTERED)}>{!m ? "—" : m.committed_tasks ? t("{n} of {total} open tasks have a cost", { n: fmtInt(m.committed_tasks_priced), total: fmtInt(m.committed_tasks) }) : t("No open tasks")}</span>}
+                footer={<span>{!m ? "—" : m.committed_tasks ? t("{n} of {total} open tasks have a cost", { n: fmtInt(m.committed_tasks_priced), total: fmtInt(m.committed_tasks) }) : t("No open tasks")}</span>}
               />
             </Group>
           </div>
@@ -685,25 +732,40 @@ export const OmCenterPage: React.FC = () => {
             </ChartCard>
           </div>
 
-          {/* ---- charts: where to look, per source */}
+          {/* ---- billing by region, and what the weather does to the sites' yield */}
+          <div className="grid gap-4 xl:grid-cols-2">
+            <ChartCard
+              title={t("Billed vs contract by region")}
+              source={t("PWA meter")}
+              badge={t("Contract modelled")}
+              badgeTitle={t("Measured meter kWh; the contract's energy is modelled")}
+              loading={pwaLoading}
+              empty={!regionSpec ? noReport : null}
+              note={t("Bars = billed meter energy of the period per PWA region (a segment per phase); diamonds = the contract's energy (modelled). Bottom: billed ÷ contract on the days with a contract figure, with the criteria file's watch (amber) and red lines.")}
+            >
+              <PanelChart spec={regionSpec} height={330} />
+            </ChartCard>
+            <ChartCard
+              title={t("Weather impact: specific yield by weather")}
+              source={t("PWA meter")}
+              badge={t("Measured")}
+              badgeTitle={t("Meter kWh ÷ kWp per report day; the weather is the word the site wrote in the report")}
+              loading={pwaLoading}
+              empty={!boxes.length ? t("No producing report day with a weather word in this period") : null}
+              note={t("One box per weather and phase over the sites' producing days (the phase above applies): the box is the middle half, the white line the median, the whiskers P5–P95. Outage days, days with a missing reading or no weather word, and days the report marks as curtailed are left out.")}
+            >
+              {boxPhases.length > 1 && <Legend items={boxPhases.map((ph) => ({ label: t("Phase {n}", { n: ph }), color: PHASE_COLOR[ph] }))} />}
+              <WeatherBoxPlot boxes={boxes} height={boxPhases.length > 1 ? 296 : 330} />
+            </ChartCard>
+          </div>
+
+          {/* ---- charts: the meter report first, then the meter against Growatt */}
           <div className="grid gap-4 xl:grid-cols-2">
             {admin && (
               <ChartCard title={t("Fleet by day: daily specific yield of the fleet (kWh/kWp)")} source={t("PWA meter")} badge={t("Contract modelled")} badgeTitle={t("Measured meter kWh; the contract's energy is modelled")} className="xl:col-span-2" loading={pwaLoading} empty={!fleetSpec ? noReport : null}>
                 <PanelChart spec={fleetSpec} height={372} />
               </ChartCard>
             )}
-            <ChartCard
-              title={t("Meter vs Growatt by day")}
-              source={t("PWA meter · Growatt plant/energy")}
-              badge={t("Measured")}
-              badgeTitle={t(GROWATT_HINT)}
-              className="xl:col-span-2"
-              loading={pwaLoading}
-              empty={!vsgSpec ? t("No day with both a meter reading and a Growatt day energy in this period") : null}
-              note={t("Summed per day over the sites with both readings (the phase above applies). Bottom: meter ÷ Growatt; a day outside 90–104 % is drawn on the edge in red.")}
-            >
-              <PanelChart spec={vsgSpec} height={330} legendPosition="bottom" />
-            </ChartCard>
             <ChartCard
               title={t("Daily heatmap: site × day (kWh/kWp)")}
               source={t("PWA meter")}
@@ -733,6 +795,32 @@ export const OmCenterPage: React.FC = () => {
               </div>
               {daily && <YieldHeatmap daily={daily} order={heatOrder} onOpen={openSite} />}
             </ChartCard>
+            {/* meter vs Growatt: by day (2/3) and the sites' medians (1/3) side by side on wide screens */}
+            <div className="grid gap-4 xl:col-span-2 xl:grid-cols-3">
+              <ChartCard
+                title={t("Meter vs Growatt by day")}
+                source={t("PWA meter · Growatt plant/energy")}
+                badge={t("Measured")}
+                badgeTitle={t(GROWATT_HINT)}
+                className="xl:col-span-2"
+                loading={pwaLoading}
+                empty={!vsgSpec ? t("No day with both a meter reading and a Growatt day energy in this period") : null}
+                note={t("Summed per day over the sites with both readings (the phase above applies); an empty day had no site to compare. Middle: meter ÷ Growatt on an axis fitted to the period; a day outside 90–104 % is drawn on the edge in red. Bottom: how many sites were compared, so a step in the energy is sites joining or leaving.")}
+              >
+                <PanelChart spec={vsgSpec} height={400} legendPosition="bottom" legendToggle />
+              </ChartCard>
+              <ChartCard
+                title={t("Sites by meter ÷ Growatt")}
+                source={t("Median of each site's days")}
+                badge={t("Measured")}
+                badgeTitle={t(GROWATT_HINT)}
+                loading={pwaLoading}
+                empty={!vsgSiteSpec ? t("No site with both a meter reading and a Growatt day energy in this period") : null}
+                note={t("How many sites have their median daily meter ÷ Growatt in each half-point step (the phase above applies). The normal range comes from the criteria file; hover a bar for its sites, or open the Meter vs Growatt list below.")}
+              >
+                <PanelChart spec={vsgSiteSpec} height={400} legendPosition="bottom" />
+              </ChartCard>
+            </div>
           </div>
 
           {/* ---- the lists */}
@@ -740,12 +828,6 @@ export const OmCenterPage: React.FC = () => {
             <div className="flex flex-wrap items-center justify-between gap-x-3 border-b px-4 pt-2 sm:px-5">
               <Tabs value={view} onValueChange={switchView}>
                 <TabsList variant="line" className="border-0 p-0">
-                  <TabsTrigger value="issues" className="px-3 py-2.5 text-sm">
-                    {t("Fix first")} <span className="num text-muted-foreground">{cnt(c, c?.issues.total ?? 0)}</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="plants" className="px-3 py-2.5 text-sm">
-                    {t("Plants")} <span className="num text-muted-foreground">{cnt(c, c?.plants.length ?? 0)}</span>
-                  </TabsTrigger>
                   <TabsTrigger value="billing" className="px-3 py-2.5 text-sm">
                     {t("Billing by month")} <span className="num text-muted-foreground">{cnt(bill, billRowsAll.length)}</span>
                   </TabsTrigger>
@@ -763,6 +845,12 @@ export const OmCenterPage: React.FC = () => {
                   </TabsTrigger>
                   <TabsTrigger value="growatt" className="px-3 py-2.5 text-sm">
                     {t("Meter vs Growatt")} <span className="num text-muted-foreground">{cnt(vsg, vsgFlagged)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="issues" className="px-3 py-2.5 text-sm">
+                    {t("Fix first")} <span className="num text-muted-foreground">{cnt(c, c?.issues.total ?? 0)}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="plants" className="px-3 py-2.5 text-sm">
+                    {t("Plants")} <span className="num text-muted-foreground">{cnt(c, c?.plants.length ?? 0)}</span>
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -819,7 +907,7 @@ export const OmCenterPage: React.FC = () => {
               <p className="border-b px-4 py-2 text-[11px] text-muted-foreground sm:px-5">{t("Phase totals are for admins: they include plants you are not assigned.")}</p>
             )}
 
-            <CardContent className="max-h-[70vh] overflow-auto px-0">
+            <CardContent ref={listBodyRef} className="max-h-[70vh] overflow-auto px-0">
               {rowsShown === 0 ? (
                 viewLoading ? (
                   <SkeletonRows rows={8} className="p-4" />
@@ -832,32 +920,35 @@ export const OmCenterPage: React.FC = () => {
                   </Empty>
                 )
               ) : view === "issues" ? (
-                <IssuesTable rows={issueRows} />
+                <IssuesTable rows={paged(issueRows)} />
               ) : view === "plants" ? (
-                <PlantsTable rows={plantRows} sort={pick(sortKey, PlantSortKeys, "issues")} desc={desc} onSort={onSort} sites={siteByPlant} onOpenSite={openSite} />
+                <PlantsTable rows={paged(plantRows)} sort={pick(sortKey, PlantSortKeys, "issues")} desc={desc} onSort={onSort} sites={siteByPlant} onOpenSite={openSite} />
               ) : view === "billing" ? (
-                <BillingTable rows={billRows} sort={pick(sortKey, BillSortKeys, "month")} desc={desc} onSort={onSort} onOpen={openSite} />
+                <BillingTable rows={paged(billRows)} sort={pick(sortKey, BillSortKeys, "month")} desc={desc} onSort={onSort} onOpen={openSite} />
               ) : view === "finance" ? (
-                <FinanceTable rows={financeRows} sort={pick(sortKey, FinanceSortKeys, "spend")} desc={desc} onSort={onSort} onOpen={openSite} />
+                <FinanceTable rows={paged(financeRows)} sort={pick(sortKey, FinanceSortKeys, "spend")} desc={desc} onSort={onSort} onOpen={openSite} />
               ) : view === "sites" ? (
-                <SitesTable rows={siteRows} sort={pick(sortKey, SiteSortKeys, "yield")} desc={desc} onSort={onSort} onOpen={openSite} />
+                <SitesTable rows={paged(siteRows)} sort={pick(sortKey, SiteSortKeys, "yield")} desc={desc} onSort={onSort} onOpen={openSite} />
               ) : view === "outages" ? (
-                <OutagesTable rows={outageRows} sort={pick(sortKey, OutageSortKeys, "days")} desc={desc} onSort={onSort} onOpen={openSite} longDays={longDays ?? Infinity} />
+                <OutagesTable rows={paged(outageRows)} sort={pick(sortKey, OutageSortKeys, "days")} desc={desc} onSort={onSort} onOpen={openSite} longDays={longDays ?? Infinity} />
               ) : view === "growatt" ? (
-                <VsGrowattTable rows={vsgRows} sort={pick(sortKey, VsGrowattSortKeys, "median")} desc={desc} onSort={onSort} onOpen={openSite} />
+                <VsGrowattTable rows={paged(vsgRows)} sort={pick(sortKey, VsGrowattSortKeys, "median")} desc={desc} onSort={onSort} onOpen={openSite} />
               ) : (
-                <MeterCheckTable rows={checkRows} sort={pick(sortKey, CheckSortKeys, "low")} desc={desc} onSort={onSort} onOpen={openSite} />
+                <MeterCheckTable rows={paged(checkRows)} sort={pick(sortKey, CheckSortKeys, "low")} desc={desc} onSort={onSort} onOpen={openSite} />
               )}
             </CardContent>
+            {rowsShown > 0 && <TablePager className="border-t px-4 py-2.5 sm:px-5" rows={rowsShown} pageSize={LIST_PAGE} pageNo={pageNo} onPage={goPage} />}
             <CardContent className="border-t py-2.5 text-[11px] text-muted-foreground">
               {view === "issues" && c && c.issues.total > c.issues.top.length ? `${t("The {n} most urgent of {total}.", { n: c.issues.top.length, total: fmtInt(c.issues.total) })} ` : ""}
               {footnote}
             </CardContent>
           </Card>
-        </div>
-      </div>
+      </Suspended>
 
-      <ImportDialog open={importing} onClose={() => setImporting(false)} onImported={() => void pwa.reload()} />
+      <ImportDialog open={importing} onClose={() => setImporting(false)} onImported={() => {
+          void loadCoverage();
+          void pwa.reload();
+        }} />
       <SiteDialog
         siteId={siteId}
         window={win}

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { OmCenter } from "../../api/client";
 
-export function useCenter(start: string | null, end: string | null, includeShadow: boolean) {
+/** `enabled` false = the window is not known yet: nothing is read, `loading` stays true */
+export function useCenter(start: string | null, end: string | null, includeShadow: boolean, enabled = true) {
   const [data, setData] = useState<OmCenter | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,8 +28,8 @@ export function useCenter(start: string | null, end: string | null, includeShado
   }, [start, end, includeShadow]);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (enabled) void reload();
+  }, [reload, enabled]);
 
   return { data, loading, error, reload };
 }

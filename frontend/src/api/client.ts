@@ -56,7 +56,7 @@ import type {
 } from "./types/calendar";
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
 import type { OmCenter } from "./types/center";
-import type { PwaBilling, PwaImportResult, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
+import type { PwaBilling, PwaImportResult, PwaMeterCoverage, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantBaseline, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
@@ -548,6 +548,7 @@ export const api = {
   },
   // ---- PWA daily meter report (Cewe meter kWh per site and day, phases 1–2; DB only, read-only)
   getPwaMeterCriteria: () => apiFetch<PwaMeterCriteria>("/pwa/meter/criteria"),
+  getPwaMeterCoverage: () => apiFetch<PwaMeterCoverage>("/pwa/meter/coverage"),
   getPwaMeterSites: () => apiFetch<PwaMeterSite[]>("/pwa/meter/sites"),
   getPwaMeterSiteDays: (siteId: string, w: PwaMeterWindow = {}) =>
     apiFetch<PwaMeterSiteDays>(`/pwa/meter/sites/${encodeURIComponent(siteId)}/days${pwaWindow(w)}`),
@@ -557,6 +558,8 @@ export const api = {
   getPwaMeterOutages: (w: PwaMeterWindow = {}) => apiFetch<PwaOutageEvent[]>(`/pwa/meter/outages${pwaWindow(w)}`),
   /** the plant's report days with Growatt's day energy beside the meter; 404 = the plant is not in the report */
   getPwaMeterPlant: (plantId: number, w: PwaMeterWindow = {}) => apiFetch<PwaPlantDays>(`/pwa/meter/plants/${plantId}${pwaWindow(w)}`),
+  getPwaMeterPlantBaseline: (plantId: number, start: string, end: string) =>
+    apiFetch<PwaPlantBaseline>(`/pwa/meter/plants/${plantId}/baseline${pwaWindow({ start, end })}`),
   /** admin: daily report workbooks → preview (commit false) or store (commit true); `days` = {"file::sheet": "YYYY-MM-DD" | "skip"} */
   importPwaReport: (files: File[], commit: boolean, days: Record<string, string>) => {
     const form = new FormData();

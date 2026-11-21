@@ -13,7 +13,7 @@ The PWA daily report is the billing record: the meter kWh each site sends to PEA
 | Import (upsert, all-or-nothing) and summaries | `app/services/pwa_meter.py` |
 | Criteria: every threshold and formula | `app/services/pwa_meter_criteria.json` |
 | Read API `/pwa/meter/*` | `app/api/routes/pwa_meter.py` |
-| Daily report Excel import (preview, then all-or-nothing) | `app/services/pwa_meter_report.py` (parse), `pwa_meter.import_report` (match, compare, store); `POST /pwa/meter/import`, PWA Meter → Import report |
+| Daily report Excel import (preview, then all-or-nothing) | `app/services/pwa_meter_report.py` (parse), `pwa_meter.import_report` (match, compare, store); `POST /pwa/meter/import`, PWA Meter → Import Billing |
 | Monthly expected energy `pwa_meter_expected` (+ `pwa_meter_sites.meter_no`) | `app/services/pwa_meter_model.py`, migration `6f2a3b4c5d7e` |
 | Tests | `tests/test_pwa_meter.py` |
 | Clean CSVs (gitignored) | `data/imports/pwa_meter/pwa_meter_sites.csv`, `pwa_meter_days.csv` |
@@ -32,6 +32,7 @@ PYTHONPATH=backend uv run python -m app.services.pwa_meter import \
 PYTHONPATH=backend uv run python -m app.services.pwa_meter summary --start 2026-01-01
 ```
 
+- `--days` is optional: `import --sites …` alone loads only the site list (then `expected --model …`), onto which the daily report workbooks (§2.3) are imported. The report import never creates sites: a report row carries neither the site id (`P1-<contract no.>`, e.g. มาบประชัน = ลำดับ 1 = P1-04) nor the model rows, so with no sites loaded its preview says so.
 - Idempotent: rows are keyed on (`site_id`, `day`); a longer report adds days and corrects changed ones.
 - One bad row refuses the whole file, naming the row: unknown site, a date not YYYY-MM-DD, a negative or non-numeric reading, an unknown weather, a duplicated site-day, or a `status` that does not match the readings.
 - Monthly: the daily reports are parsed into these two CSVs outside the app (the parser handles the reports' sheet naming, which changes every month). Then run the import. On the VM, run it inside the worker container.
@@ -67,7 +68,7 @@ Excluded: phase 1 sheets of May 2025 (commissioning tests).
 
 ### 2.3 Daily report workbooks (Excel, from the sites)
 
-The daily reports can be imported as sent, without the CSV step: PWA Meter → **Import report** (admin), or
+The daily reports can be imported as sent, without the CSV step: PWA Meter → **Import Billing** (admin), or
 `python -m app.services.pwa_meter report FILE… [--commit] [--day "FILE::SHEET=YYYY-MM-DD|skip"]`.
 
 - Two layouts: phase 1 = one day per workbook (sheet `สรุปหน่วยรายวัน`, title "…ประจำวันที่ 11 พฤศจิกายน 2569"); phase 2 = one growing workbook with a sheet per day (names `711`, `017`, `19`, `7.11`, `18.11`, …). The table is found by its header text `หน่วยจากมิเตอร์`, never by sheet name or column, so the changing sheet names no longer matter.
@@ -174,3 +175,9 @@ Checked on the full import (2026-01-01 → 11-18): phase 1 106.1 % of contract, 
 `GET /pwa/meter/billing?start=&end=&phase=` (`pwa_meter.billing`, rules in the criteria file `billing`): per site and calendar month the billed meter kWh at the book price, the contract's kWh (modelled) and the shortfall (contract − meter on the days with a contract figure; negative = above contract), split into outage, under-performance and meter gap (recoverable by O&M) and curtailment (PM: PWA's own load); the rest is "not explained" (weather against the model, model error, overlap of meter gap and under-performance on a low-meter day). Each month's causes come from `summary()` / `meter_check()` over that month alone, so a site's months add up to its period total in this view, not to the period summary. Losses come from the summary in MWh with 2 decimals, so the month causes have 10 kWh resolution. `sites` ranks the sites by recoverable ฿ and names the main recoverable cause, its owner and the action (`cause_owner` / `cause_action`). Whole report (8 Jan – 18 Nov 2026, admin): 52,486 MWh billed (฿145.1 M at the book price), net 271 MWh short of the contract, ฿7.15 M recoverable (est.), mostly under-performance.
 
 Import of `billing/Phase 1.xlsx`, `Phase 2.xlsx`, `example.xlsx` (21 Nov 2026): no new day. Phase 1 has every day 4–31 May twice (`0405` and `04.05`, …) with different readings; the database holds the dotted sheets for 4–27 May and the undotted `2805`–`3105`, the other copies match no stored day. `Sheet18` / `Sheet` (phase 1) and `Sheet` (phase 2) have no date; `example.xlsx` is phase 1's `18.11`. Skipping those, all 40,369 matched days are unchanged.
+
+## Cleaned workbooks and analysis table (`billing/clean/`, gitignored, 21 Nov 2026)
+
+- `backend/scripts/clean_pwa_report_workbooks.py`: copies of `Phase 1.xlsx` / `Phase 2.xlsx` with one visible sheet per day named `DD.MM.YYYY`, in date order (302 / 330 sheets). Dropped: `Sheet18`, `Sheet` (no date) and, for 4–31 May (phase 1), the copy whose readings are not the ones stored in `pwa_meter_days`. Only the workbook index is edited (cells, formats and drawings byte for byte); `<name> (clean)_log.csv` lists each original sheet. The import reads a `DD.MM.YYYY` name as that exact day (`pwa_meter_report.sheet_full_day`); importing the clean copies = all 40,369 matched days unchanged.
+- `backend/scripts/build_pwa_meter_analysis.py`: `pwa_meter_analysis.xlsx` / `.csv`, one row per site and day from the contract start with only the columns used for calculation and decisions: keys (site_id, Growatt plant id, kWp), measured meter / inverter kWh read by the import's rules (identical to the database on all 40,369 rows), day status, weather class, curtailment note, the Growatt pull's status / API error, the **modelled** proposal estimate and contract kWh, and derived yield and ratios (Excel formulas). Dropped: comp_pid, ลำดับ, peak sun hours, the diff / %Diff columns (recomputed), b_id / b_name.
+- The proposal estimate (หน่วยประมาณการจากเล่มข้อเสนอ) is the proposal's annual kWh ÷ 365: phase 1 cells are formulas `=950424/365`, phase 2 typed daily numbers (`=AB*4` on 8–11 Nov 2025 only, before the contract start). Constant per site except P2-1084 (480,920 → 442,376 kWh/yr from 23 Apr 2026) and P2-1105 (181,423 → 253,025 from 28 Mar 2026); P2-1126 is 0 on 6–8 Apr 2026 (left empty). It is a flat daily figure, not the contract's monthly shape: the app's `contract_kwh` runs 0.84× (Nov) to 1.11× (Apr) of it.

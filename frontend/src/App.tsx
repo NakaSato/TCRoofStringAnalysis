@@ -80,14 +80,20 @@ const LegacyPlantRedirect: React.FC<{ page: PlantPage }> = ({ page }) => {
   return <Navigate to={last != null ? plantPath(last, page) : "/"} replace />;
 };
 
-/** The PWA Meter page is now part of the Engineering O&M (`/center`): old links land on its meter
- * sites list and keep the site they opened (`?site=`) and the phase. */
+/** Energy & Billing (`/energy-billing`, was Engineering O&M at `/center`). */
+const ENERGY_BILLING = "/energy-billing";
+
+/** The PWA Meter page is now part of Energy & Billing: old links land on its meter sites list and
+ * keep the site they opened (`?site=`) and the phase. */
 const PwaMeterRedirect: React.FC = () => {
   const old = new URLSearchParams(useLocation().search);
   const next = new URLSearchParams({ view: "sites" });
   for (const k of ["site", "phase", "q"]) if (old.get(k)) next.set(k, old.get(k)!);
-  return <Navigate to={{ pathname: "/center", search: `?${next}` }} replace />;
+  return <Navigate to={{ pathname: ENERGY_BILLING, search: `?${next}` }} replace />;
 };
+
+/** Old `/center` links keep their whole query (period, view, site, sort …). */
+const CenterRedirect: React.FC = () => <Navigate to={{ pathname: ENERGY_BILLING, search: useLocation().search }} replace />;
 
 /** Every page needs a signed-in user: splash while the stored token is checked, else the login page. */
 const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -121,7 +127,8 @@ export const App: React.FC = () => {
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="tools" element={<ToolsPage />} />
             <Route path="claims" element={<ClaimsPage />} />
-            <Route path="center" element={<OmCenterPage />} />
+            <Route path="energy-billing" element={<OmCenterPage />} />
+            <Route path="center" element={<CenterRedirect />} />
             <Route path="center/*" element={<PwaMeterRedirect />} />
             <Route path="pwa-meter" element={<PwaMeterRedirect />} />
             <Route path="sensors" element={<SensorsPage />} />

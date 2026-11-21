@@ -65,6 +65,21 @@ export const fmtDay = (s: string | null | undefined): string => {
 
 export const dayMs = (s: string): number => parseDay(s).getTime();
 
+/** "21 Nov" (Thai short month in Thai): chart ticks */
+export const fmtDayShort = (s: string): string => parseDay(s).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
+
+/** Every calendar day from `first` to `last` (YYYY-MM-DD), both included */
+export const daysBetween = (first: string, last: string): string[] => {
+  const out: string[] = [];
+  const d = parseDay(first);
+  const end = parseDay(last).getTime();
+  for (let i = 0; d.getTime() <= end && i < 400; i++) {
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+};
+
 /** CSV with a BOM, so Excel reads the Thai issue words and notes */
 export function downloadCsv(name: string, head: string[], rows: unknown[][]) {
   const esc = (v: unknown) => (v == null ? "" : `"${String(v).replace(/"/g, '""')}"`);

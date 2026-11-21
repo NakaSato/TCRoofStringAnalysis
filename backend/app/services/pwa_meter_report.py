@@ -132,6 +132,17 @@ def title_day(text: str) -> Optional[date]:
         return None
 
 
+def sheet_full_day(name: str) -> Optional[date]:
+    """The day of a sheet named with its year, `DD.MM.YYYY` (the cleaned workbooks, billing/clean/)."""
+    m = re.match(r"^\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*$", name)
+    if not m:
+        return None
+    try:
+        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    except ValueError:
+        return None
+
+
 def sheet_day_months(name: str) -> List[Tuple[int, int]]:
     """Every (day, month) a sheet name can mean. The phase 2 workbook writes `18.11`, `7.11`, `711`
     (7 Nov), `1011` (10 Nov), `017` (1 Jul) and `19` (1 Sep): digits only are read both as d + mm and dd + m, and
@@ -250,6 +261,8 @@ def parse_workbook(data: bytes, file: str, today: date) -> List[ReportSheet]:
         parsed = _parse_sheet(file, ws.title, [tuple(r) for r in ws.iter_rows(values_only=True)])
         if parsed is None:
             continue
+        if parsed.day is None and sheet_full_day(ws.title):
+            parsed.day, parsed.day_source = sheet_full_day(ws.title), "sheet name"
         if parsed.day is None:
             guesses = []
             for d, mo in sheet_day_months(ws.title):

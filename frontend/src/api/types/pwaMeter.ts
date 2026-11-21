@@ -108,6 +108,8 @@ export interface PwaMeterPhaseDay {
   /** metered energy ÷ kWp of the sites with a reading */
   yield_kwh_kwp: number | null;
   vs_contract_pct: number | null;
+  /** sites whose report remark says the system was curtailed (หรี่) that day */
+  curtailment_sites: number;
 }
 
 export interface PwaMeterSiteDaily {
@@ -121,6 +123,10 @@ export interface PwaMeterSiteDaily {
   yield_kwh_kwp: Array<number | null>;
   /** null = the site has no row for the day */
   status: Array<PwaDayStatus | null>;
+  /** the report's weather word for the day; null = none given or no row */
+  weather: Array<PwaWeather | null>;
+  /** the report's remark says curtailed (หรี่); null = no row */
+  curtailment: Array<boolean | null>;
 }
 
 export interface PwaMeterDaily {
@@ -230,6 +236,11 @@ export interface PwaMeterWindow {
 export interface PwaMeterCriteria {
   outage_event: { long_event_days: number; fixed_fast_days: number };
   tariff: { book_price_thb_per_kwh: number };
+  /** Meter vs Growatt: a site is flagged when its median ratio is under `flags.ratio_low_median`;
+   * a day reads high above `high_day_ratio` (both as fractions, e.g. 0.97 / 1.005) */
+  meter_vs_growatt?: { high_day_ratio: number; flags: { ratio_low_median: number } };
+  /** meter ÷ contract reference lines (fractions): below `good_min` = watch, below `watch_min` = red */
+  performance?: { vs_contract_bands?: { good_min: number; watch_min: number } };
   [key: string]: unknown;
 }
 
@@ -261,6 +272,19 @@ export interface PwaPlantDays {
     median_meter_vs_growatt_pct: number | null;
     meter_vs_growatt_pct: number | null;
   };
+  labels: Record<string, string>;
+}
+
+/** `/pwa/meter/plants/{id}/baseline`: the Energy & Billing contract baseline per day (modelled).
+ * `source` = "report" (the figure billed against on a report day), "model" (the month's expected
+ * row), null = none. Totals are null unless every day has a figure. */
+export interface PwaPlantBaseline {
+  site: PwaMeterSite;
+  window: { start: string; end: string };
+  days: Array<{ day: string; contract_kwh: number | null; pvsyst_kwh: number | null; source: "report" | "model" | null }>;
+  contract_kwh: number | null;
+  pvsyst_kwh: number | null;
+  missing_days: number;
   labels: Record<string, string>;
 }
 
@@ -366,4 +390,12 @@ export interface PwaBilling {
   cause_owner: Record<PwaBillingCause, string>;
   cause_action: Record<PwaBillingCause, string>;
   labels: Record<string, string>;
+}
+
+/** `/pwa/meter/coverage`: the report days the user can see; `report_month` = the last month the report
+ * covers to its end (else the month of the last day), the month Engineering O&M opens on */
+export interface PwaMeterCoverage {
+  first_day: string | null;
+  last_day: string | null;
+  report_month: string | null;
 }

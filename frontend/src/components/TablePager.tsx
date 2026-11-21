@@ -1,4 +1,4 @@
-/** Footer pager for a client-side paged table: "1–25 of 104" and shadcn `Pagination` (Active Alarm, Strings). */
+/** Footer pager for a client-side paged table: "1–25 of 104" and shadcn `Pagination` (see "Long tables" in frontend/CLAUDE.md for where). */
 import React from "react";
 import { cn } from "@/lib/utils";
 import {

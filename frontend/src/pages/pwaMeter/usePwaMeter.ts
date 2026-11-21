@@ -13,7 +13,8 @@ export interface PwaMeterData {
   vsGrowatt: PwaVsGrowatt;
 }
 
-export function usePwaMeter(w: PwaMeterWindow) {
+/** `enabled` false = the window is not known yet: nothing is read, `loading` stays true */
+export function usePwaMeter(w: PwaMeterWindow, enabled = true) {
   const [data, setData] = useState<PwaMeterData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +47,8 @@ export function usePwaMeter(w: PwaMeterWindow) {
   }, [start, end]);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (enabled) void reload();
+  }, [reload, enabled]);
 
   return { data, loading, error, reload };
 }

@@ -17,10 +17,9 @@
  */
 import React, { useMemo, useState } from "react";
 import * as d3 from "d3";
-import { fmt } from "./ui";
+import { SkeletonChart, fmt } from "./ui";
 import { C, TICK_FONT, TipRow, Tooltip, textWidth, useWidth } from "./chartKit";
 import type { TipState } from "./chartKit";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { currentLanguage, useI18n } from "../i18n";
 
@@ -34,7 +33,8 @@ export interface ChartSeries {
   y: Array<number | null>;
   /** The series' own x values (default: the chart's `x`). */
   x?: XValue[];
-  /** Bar bottoms for floating bars (a waterfall); default 0. */
+  /** Bar bottoms for floating bars (a waterfall); default 0. A line with `area` fills from here
+   *  up to `y` instead of down to 0 (a band), and only where both are set. */
   y0?: Array<number | null>;
   dash?: "dash" | "dot";
   width?: number;
@@ -74,7 +74,8 @@ export interface ChartPanel {
   stacked?: boolean;
   yMin?: number | null;
   yMax?: number | null;
-  /** Include 0 in an automatic y range (default true). */
+  /** Include 0 in an automatic y range (default true). With `false` an area fills down to the
+   * panel's bottom edge; bars always include 0. */
   zero?: boolean;
   tickSuffix?: string;
   /** Fixed y tick values (default: automatic). */
@@ -282,7 +283,8 @@ export const PanelChart: React.FC<{
         s.y0?.forEach((v) => v != null && Number.isFinite(v) && vals.push(v));
       }
       p.refLines?.forEach((r) => vals.push(r.y));
-      const hasBars = p.series.some((s) => s.type === "bar" || s.area);
+      // an area fills to 0 unless the panel opts out of 0 (`zero: false`); bars always need it
+      const hasBars = p.series.some((s) => s.type === "bar" || (s.area && p.zero !== false));
       let lo = d3.min(vals) ?? 0;
       let hi = d3.max(vals) ?? 1;
       if (p.zero !== false || hasBars) lo = Math.min(0, lo);
@@ -290,7 +292,9 @@ export const PanelChart: React.FC<{
       if (p.yMax != null) hi = p.yMax;
       if (hi === lo) hi = lo + 1;
       const pad = (hi - lo) * 0.06;
-      return [p.yMin != null ? lo : lo < 0 || p.zero === false ? lo - pad : lo, p.yMax != null ? hi : hi + pad] as [number, number];
+      // `zero: false` pads below the lowest value, but never below 0 when nothing drawn is negative
+      const padLo = lo < 0 ? lo - pad : p.zero === false ? Math.max(0, lo - pad) : lo;
+      return [p.yMin != null ? lo : padLo, p.yMax != null ? hi : hi + pad] as [number, number];
     });
 
     /* ---- left margin from the widest y tick ---- */
@@ -372,7 +376,7 @@ export const PanelChart: React.FC<{
   if (!spec || (!hasData && !spec.frame)) {
     return (
       <div ref={ref} style={{ height }} className="flex w-full items-center justify-center text-xs text-slate-500">
-        {spec ? emptyLabel : <Skeleton className="h-full w-full" aria-label={t("Loading chart…")} />}
+        {spec ? emptyLabel : <SkeletonChart height="100%" />}
       </div>
     );
   }
@@ -700,10 +704,38 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
     return out;
   };
 
+  /** a band series (line + area + y0): [x, y top, y bottom] runs where both values are set */
+  const bandSegments = (s: ChartSeries): Array<Array<[number, number, number]>> => {
+    const xs = seriesX(s);
+    const out: Array<Array<[number, number, number]>> = [];
+    let cur: Array<[number, number, number]> = [];
+    let prevX: number | null = null;
+    xs.forEach((xv, idx) => {
+      const v = s.y[idx];
+      const b = s.y0?.[idx];
+      const n = xNum(xv);
+      const ok = v != null && Number.isFinite(v) && b != null && Number.isFinite(b);
+      if (!ok || (prevX != null && n - prevX > gapLimit)) {
+        if (cur.length) out.push(cur);
+        cur = [];
+      }
+      if (ok) cur.push([xPos(xv), y(v), y(b)]);
+      prevX = n;
+    });
+    if (cur.length) out.push(cur);
+    return out;
+  };
+
   // smooth only along a continuous x; between categories a straight segment claims nothing in between
   const curve = xb ? d3.curveLinear : d3.curveMonotoneX;
   const line = d3.line().curve(curve);
   const area = d3.area().curve(curve);
+  const band = d3
+    .area<[number, number, number]>()
+    .x((d) => d[0])
+    .y0((d) => d[2])
+    .y1((d) => d[1])
+    .curve(curve);
 
   return (
     <g>
@@ -754,9 +786,13 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
         .filter((s) => s.type === "line")
         .map((s) => (
           <g key={s.key} pointerEvents="none">
+            {s.area && s.y0 &&
+              bandSegments(s).map((seg, k) => (
+                <path key={`b${k}`} d={band(seg) ?? ""} fill={s.color} fillOpacity={0.28} />
+              ))}
             {segments(s).map((seg, k) => (
               <g key={k}>
-                {s.area && (
+                {s.area && !s.y0 && (
                   <path d={area.y0(base).y1((d) => d[1])(seg) ?? ""} fill={s.color} fillOpacity={0.12} />
                 )}
                 <path
@@ -833,13 +869,28 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
       {panel.refLines?.map((r) => (
         <g key={r.label} transform={`translate(0,${y(r.y)})`} pointerEvents="none">
           <line x2={iw} stroke={r.color ?? C.ref} strokeOpacity={0.8} strokeWidth={1.5} strokeDasharray="6 4" />
-          <text x={iw - 4} y={-5} textAnchor="end" fill={C.text} fontSize={11} fontWeight={600} className="num" paintOrder="stroke" stroke="#0a101c" strokeWidth={3}>
-            {r.label}
-          </text>
+          {refLabelShown(panel.refLines!, y).has(r.label) && (
+            <text x={iw - 4} y={-5} textAnchor="end" fill={C.text} fontSize={11} fontWeight={600} className="num" paintOrder="stroke" stroke="#0a101c" strokeWidth={3}>
+              {r.label}
+            </text>
+          )}
         </g>
       ))}
     </g>
   );
+};
+
+/** labels of the reference lines that fit: from the top down, a label closer than a line of text to
+ * the one above it is left out (the line stays), so lines a few pixels apart don't print over each other */
+const refLabelShown = (lines: RefLine[], y: (v: number) => number): Set<string> => {
+  const shown = new Set<string>();
+  let last = -Infinity;
+  for (const r of [...lines].sort((a, b) => y(a.y) - y(b.y))) {
+    if (y(r.y) - last < 13) continue;
+    shown.add(r.label);
+    last = y(r.y);
+  }
+  return shown;
 };
 
 const XAxis: React.FC<{ layout: Layout; spec: PanelChartSpec }> = ({ layout, spec }) => {

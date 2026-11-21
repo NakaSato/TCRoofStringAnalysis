@@ -220,6 +220,10 @@ def test_daily_gives_phase_days_to_admins_and_site_days_in_scope(api):
     assert out["meter_mwh"] == 0.69 and out["yield_kwh_kwp"] == 2.3  # P1-01 is down and still counts with 0 kWh
     assert [s["site_id"] for s in d["sites"]] == ["P1-01", "P1-02", "P1-03"]
     assert d["sites"][0]["yield_kwh_kwp"] == [4.0, 0.0] and d["sites"][0]["status"] == ["ok", "outage"]
+    # the report's weather and curtailment remark per day; no weather given = null, never a guess
+    assert d["sites"][0]["weather"] == ["cloudy", "rain"] and d["sites"][0]["curtailment"] == [False, False]
+    assert d["sites"][1]["curtailment"] == [True, True] and d["sites"][2]["weather"] == [None, None]
+    assert ok["curtailment_sites"] == 1 and out["curtailment_sites"] == 1
     e = client.get("/pwa/meter/daily?start=2026-03-10&end=2026-03-11", headers=eng).json()
     assert e["phases"] == [] and [s["site_id"] for s in e["sites"]] == ["P1-01"]
     assert client.get("/pwa/meter/daily?start=2027-01-01", headers=admin).json() == {"days": [], "phases": [], "sites": [], "labels": {"contract_mwh": "modelled"}}
@@ -378,6 +382,10 @@ def test_report_dates_from_title_and_sheet_names():
     assert days[:6] == [("3006", date(2026, 6, 30)), ("017", date(2026, 7, 1)), ("097", date(2026, 7, 9)), ("107", date(2026, 7, 10)),
                         ("3112", date(2026, 12, 31)), ("0101", date(2027, 1, 1))]
     assert days[6] == ("Sheet", None) and sheets[6].errors
+    # the cleaned workbooks (billing/clean/) name each sheet with its year: read as written, no sequence
+    sheets = parse_workbook(_p2_book(("07.11.2025", "07.11.2026", "31.02.2026")), "p2.xlsx", date(2027, 2, 1))
+    assert [s.day for s in sheets[:2]] == [date(2025, 11, 7), date(2026, 11, 7)] and not sheets[1].errors
+    assert sheets[2].day is None and sheets[2].errors
 
 
 def test_report_sheet_out_of_order_keeps_its_year_and_is_flagged():
@@ -614,6 +622,31 @@ def test_csv_missing_column_is_refused_before_reading(api, tmp_path):
         assert db.get(PwaMeterSite, "P1-09") is None
 
 
+def test_csv_sites_alone_load_the_site_list(api, tmp_path):
+    """The sites CSV can be loaded without a days file, so the daily reports can be imported onto it."""
+    f, *_ = api
+    sites = tmp_path / "sites.csv"
+    sites.write_text("site_id,phase,name,region,kwp\nP1-09,1,New site,เขต 1,50\n", encoding="utf-8")
+    with f() as db:
+        n = db.query(PwaMeterDay).count()
+        assert svc.import_csv(db, sites) == {"sites_added": 1, "sites_updated": 0, "days_added": 0, "days_updated": 0}
+        assert db.get(PwaMeterSite, "P1-09").kwp == 50 and db.query(PwaMeterDay).count() == n
+
+
+def test_report_import_without_sites_says_to_load_the_site_list(api):
+    """With the site list empty, the report can't create sites (it has no site id or model rows): the
+    preview says the site list is missing instead of only 'match no site'."""
+    f, *_ = api
+    with f() as db:
+        db.query(PwaMeterDay).delete()
+        db.query(PwaMeterSite).delete()
+        db.commit()
+        out = svc.import_report(db, [("p1.xlsx", _p1_book())], TODAY)
+        assert not out["ok"] and out["totals"]["unmatched"] == 2
+        assert "no report sites are loaded" in out["sheets"][0]["errors"][0]
+        assert db.query(PwaMeterSite).count() == 0
+
+
 def test_committed_report_import_is_audited(api, caplog):
     """PM-R19: a committed import logs who, what changed and the day range to app.audit; a preview does not."""
     import logging
@@ -649,3 +682,34 @@ def test_report_rounding_follows_criteria(monkeypatch):
     crit["report_import"]["round_kwh"] = 1
     monkeypatch.setattr(svc, "criteria", lambda: crit)
     assert _number(410.4567, "x", errs) == 410.5 and not errs
+
+
+def test_coverage_opens_on_the_last_full_report_month(api):
+    _, client, admin, eng = api
+    # report days 2026-03-01 .. 2026-04-09: April is not complete, so the page opens on March
+    assert client.get("/pwa/meter/coverage", headers=admin).json() == {"first_day": "2026-03-01", "last_day": "2026-04-09", "report_month": "2026-03"}
+    assert client.get("/pwa/meter/coverage", headers=eng).json()["report_month"] == "2026-03"
+    assert client.get("/pwa/meter/coverage").status_code == 401
+
+
+def test_plant_baseline_from_report_days_then_expected_months(api):
+    """Plant Overview's Production card: the Energy & Billing contract baseline per day (modelled)."""
+    f, client, admin, eng = api
+    # report days run 2026-03-01 … 04-09 (contract 380, PVsyst 400); April has an expected month too
+    _expected(f, "P1-01", date(2026, 4, 1), 390.0, 410.0)
+    r = client.get(f"/pwa/meter/plants/{P1}/baseline?start=2026-04-08&end=2026-04-11", headers=eng)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["site"]["site_id"] == "P1-01" and body["labels"]["contract_kwh"] == "modelled"
+    by = {d["day"]: d for d in body["days"]}
+    assert by["2026-04-09"] == {"day": "2026-04-09", "contract_kwh": 380.0, "pvsyst_kwh": 400.0, "source": "report"}  # billed against
+    assert by["2026-04-10"] == {"day": "2026-04-10", "contract_kwh": 390.0, "pvsyst_kwh": 410.0, "source": "model"}  # no report day yet
+    assert body["contract_kwh"] == 380 * 2 + 390 * 2 and body["missing_days"] == 0
+    # May has neither: null, never a guess, and no total
+    m = client.get(f"/pwa/meter/plants/{P1}/baseline?start=2026-04-30&end=2026-05-01", headers=eng).json()
+    assert m["days"][1] == {"day": "2026-05-01", "contract_kwh": None, "pvsyst_kwh": None, "source": None}
+    assert m["contract_kwh"] is None and m["missing_days"] == 1
+    assert client.get(f"/pwa/meter/plants/{P2}/baseline?start=2026-04-01&end=2026-04-01", headers=eng).status_code == 404  # not assigned
+    assert client.get("/pwa/meter/plants/9999/baseline?start=2026-04-01&end=2026-04-01", headers=admin).status_code == 404  # no site
+    assert client.get(f"/pwa/meter/plants/{P1}/baseline?start=2026-04-02&end=2026-04-01", headers=admin).status_code == 422
+    assert client.get(f"/pwa/meter/plants/{P1}/baseline?start=2025-01-01&end=2026-04-01", headers=admin).status_code == 422  # > 366 days

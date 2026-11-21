@@ -76,3 +76,4 @@ data/imports/
 # PWA meter billing workbooks (real report data; billing/example.xlsx is committed)
 billing/Phase 1.xlsx
 billing/Phase 2.xlsx
+billing/clean/
