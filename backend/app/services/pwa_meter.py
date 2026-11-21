@@ -353,6 +353,44 @@ def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             "phases": phases, "sites": [r for r in rows if r["site_id"] in visible], "labels": _labels()}
 
 
+def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None) -> Dict[str, Any]:
+    """The report days of [start, end]: each phase's metered and contract energy and specific yield per day
+    (admins only, like the phase totals), and each visible site's yield and status per day (site × day chart)."""
+    df = _frame(db, start, end)
+    if df.empty:
+        return {"days": [], "phases": [], "sites": [], "labels": {"contract_mwh": "modelled"}}
+    days = sorted(df.day.dt.date.unique())
+    idx = {d: i for i, d in enumerate(days)}
+    phases: List[Dict[str, Any]] = []
+    if allowed is None:  # fleet totals stay with admins: they include plants an engineer may not see
+        for (ph, day), g in df.groupby(["phase", "day"]):
+            read = g[g.meter.notna()]
+            has_con = bool(g.con.notna().any())
+            phases.append({
+                "phase": int(ph), "day": day.date().isoformat(), "sites": int(len(read)),
+                "meter_mwh": _f(read.meter.sum() / 1000, 2) if len(read) else None,
+                "contract_mwh": _f(g.con.sum() / 1000, 2) if has_con else None,
+                # metered energy ÷ kWp of the sites that have a reading on the day
+                "yield_kwh_kwp": _f(_div(read.meter.sum(), read.kwp.sum()), 3) if len(read) else None,
+                "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), g.con.sum()), 1) if has_con and g.con.sum() else None,
+            })
+    by_site = {sid: g for sid, g in df.groupby("site_id")}
+    sites: List[Dict[str, Any]] = []
+    for s in _visible_sites(db, allowed):
+        g = by_site.get(s.site_id)
+        if g is None:
+            continue
+        y: List[Optional[float]] = [None] * len(days)
+        st: List[Optional[str]] = [None] * len(days)
+        for day, meter, status in zip(g.day, g.meter, g.status):
+            i = idx[day.date()]
+            y[i] = None if pd.isna(meter) or not s.kwp else round(float(meter) / s.kwp, 2)
+            st[i] = status
+        sites.append({"site_id": s.site_id, "phase": s.phase, "name": s.name, "region": s.region, "kwp": s.kwp,
+                      "growatt_plant_id": s.growatt_plant_id, "yield_kwh_kwp": y, "status": st})
+    return {"days": [d.isoformat() for d in days], "phases": phases, "sites": sites, "labels": {"contract_mwh": "modelled"}}
+
+
 def _labels() -> Dict[str, str]:
     return {"contract_mwh": "modelled", "pvsyst_mwh": "modelled", "curtailment_loss_mwh": "estimated", "outage_loss_mwh": "estimated",
             "under_loss_mwh": "estimated", "loss_thb": "estimated", "lost_mwh": "estimated", "gap_mwh": "estimated", "gap_thb": "estimated"}

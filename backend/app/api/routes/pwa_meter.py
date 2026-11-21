@@ -71,6 +71,18 @@ def summary(
     return svc.summary(db, allowed_plant_ids(db, user), start, end, phase)
 
 
+@router.get("/daily")
+def daily(
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Per report day: phase energy, contract and specific yield (admins), and each visible site's yield and status."""
+    _window(start, end)
+    return svc.daily(db, allowed_plant_ids(db, user), start, end)
+
+
 @router.get("/outages")
 def outages(
     start: Optional[date] = Query(None),

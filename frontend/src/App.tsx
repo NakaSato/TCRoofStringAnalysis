@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useParams, useLocation } from "react-router-dom";
 import { SearchX } from "lucide-react";
 import { AppProvider, DataScope, useAppContext } from "./context/AppContext";
 import { getLastPlantId, plantPath } from "./context/routes";
@@ -35,7 +35,7 @@ const RuleReviewPage = page(() => import("./pages/RuleReviewPage"), "RuleReviewP
 const CalendarPage = page(() => import("./pages/CalendarPage"), "CalendarPage");
 const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
 const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
-const PwaMeterPage = page(() => import("./pages/PwaMeterPage"), "PwaMeterPage");
+const OmCenterPage = page(() => import("./pages/OmCenterPage"), "OmCenterPage");
 
 /** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
 const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -79,6 +79,15 @@ const LegacyPlantRedirect: React.FC<{ page: PlantPage }> = ({ page }) => {
   return <Navigate to={last != null ? plantPath(last, page) : "/"} replace />;
 };
 
+/** The PWA Meter page is now part of the O&M Dashboard (`/center`): old links land on its meter
+ * sites list and keep the site they opened (`?site=`) and the phase. */
+const PwaMeterRedirect: React.FC = () => {
+  const old = new URLSearchParams(useLocation().search);
+  const next = new URLSearchParams({ view: "sites" });
+  for (const k of ["site", "phase", "q"]) if (old.get(k)) next.set(k, old.get(k)!);
+  return <Navigate to={{ pathname: "/center", search: `?${next}` }} replace />;
+};
+
 /** Every page needs a signed-in user: splash while the stored token is checked, else the login page. */
 const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, authChecked } = useAppContext();
@@ -109,7 +118,9 @@ export const App: React.FC = () => {
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="tools" element={<ToolsPage />} />
             <Route path="claims" element={<ClaimsPage />} />
-            <Route path="pwa-meter" element={<PwaMeterPage />} />
+            <Route path="center" element={<OmCenterPage />} />
+            <Route path="center/*" element={<PwaMeterRedirect />} />
+            <Route path="pwa-meter" element={<PwaMeterRedirect />} />
             <Route path="rules" element={<AdminOnly><RuleReviewPage /></AdminOnly>} />
             <Route path="sensors" element={<SensorsPage />} />
             <Route path="settings" element={<PlantSettingsPage />} />

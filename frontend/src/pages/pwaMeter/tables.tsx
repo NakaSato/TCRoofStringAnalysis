@@ -17,7 +17,7 @@ export type OutageSort = (typeof OutageSortKeys)[number];
 export const CheckSortKeys = ["gap", "median", "name", "low"] as const;
 export type CheckSort = (typeof CheckSortKeys)[number];
 
-function SortHead<K extends string>({
+export function SortHead<K extends string>({
   k,
   label,
   sort,

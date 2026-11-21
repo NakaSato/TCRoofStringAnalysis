@@ -3,7 +3,6 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Ruler,
   FileWarning,
-  ReceiptText,
   Settings,
   Bell,
   Menu,
@@ -24,6 +23,7 @@ import {
   Map as MapIcon,
   Sparkles,
   Scale,
+  Banknote,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
@@ -59,10 +59,10 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "Operations",
     items: [
+      { to: "/center", label: "O&M Dashboard", icon: Banknote },
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
       { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },
-      { to: "/pwa-meter", label: "PWA Meter", icon: ReceiptText },
       { to: "/tools", label: "Measuring Tools", icon: Ruler, description: "Drones, meters & testers: who has them, calibration & due dates" },
     ],
   },

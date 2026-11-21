@@ -1,8 +1,12 @@
-/** PWA Meter → Import report (admin): upload the daily report workbooks, check the preview (day of
- * each sheet and where it came from, matched / unmatched rows, new / changed days, problems), set a
- * missing day or skip a sheet, then import. Nothing is stored until Import; the backend refuses it
- * while any included sheet has a problem. Every check re-sends the files (the backend keeps nothing). */
-import React, { useMemo, useState } from "react";
+/** O&M Dashboard → Import daily report (admin): three steps in one dialog.
+ *  1. Files: drop or pick the daily report workbooks; choosing them runs the check at once.
+ *  2. Check: totals, a status line (ready / problems / check again), and the sheets that need a
+ *     look (problems first) with their day, rows and changes; set a missing day or skip a sheet.
+ *  3. Imported: what was stored.
+ * Nothing is stored until Import; the backend refuses it while any included sheet has a problem.
+ * Every check re-sends the files (the backend keeps nothing). */
+import React, { useMemo, useRef, useState } from "react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, MinusCircle, Upload, X, XCircle } from "lucide-react";
 import { api } from "../../api/client";
 import type { PwaImportResult, PwaImportSheet } from "../../api/client";
 import { fmtInt } from "../../components/ui";
@@ -17,9 +21,159 @@ import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtDay, isDay } from "./format";
 
+const ACCEPT = /\.(xlsx|xlsm)$/i;
 const needsLook = (s: PwaImportSheet) => s.errors.length > 0 || s.warnings.length > 0 || s.new > 0 || s.changed > 0;
 /** problems first, then notes, then the rest in workbook order */
 const rank = (s: PwaImportSheet) => (s.errors.length ? 0 : s.warnings.length ? 1 : 2);
+const fileKey = (f: File) => `${f.name}:${f.size}:${f.lastModified}`;
+const fmtSize = (b: number) => (b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`);
+const plural = (n: number, one: string, many = `${one}s`) => `${fmtInt(n)} ${n === 1 ? one : many}`;
+
+// ---- step indicator
+const STEPS = ["Files", "Check", "Imported"] as const;
+const Steps: React.FC<{ at: number }> = ({ at }) => (
+  <ol className="flex items-center gap-2 text-[11px]" aria-label="Import steps">
+    {STEPS.map((label, i) => (
+      <li key={label} className="flex items-center gap-2" aria-current={i === at ? "step" : undefined}>
+        {i > 0 && <span className={cn("h-px w-6", i <= at ? "bg-solar-400/60" : "bg-white/10")} />}
+        <span
+          className={cn(
+            "flex size-5 items-center justify-center rounded-full border text-[10px] font-bold",
+            i < at ? "border-solar-400/50 bg-solar-500/20 text-solar-300" : i === at ? "border-solar-400 text-solar-300" : "border-white/15 text-muted-foreground"
+          )}
+        >
+          {i < at ? <Check className="size-3" /> : i + 1}
+        </span>
+        <span className={cn(i === at ? "font-semibold text-foreground" : "text-muted-foreground")}>{label}</span>
+      </li>
+    ))}
+  </ol>
+);
+
+// ---- step 1: the drop zone and the chosen files
+const DropZone: React.FC<{ files: File[]; disabled: boolean; onAdd: (f: File[]) => void; onRemove: (f: File) => void }> = ({ files, disabled, onAdd, onRemove }) => {
+  const input = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  const [rejected, setRejected] = useState<string[]>([]);
+  const take = (list: FileList | null) => {
+    const all = Array.from(list ?? []);
+    setRejected(all.filter((f) => !ACCEPT.test(f.name)).map((f) => f.name));
+    const ok = all.filter((f) => ACCEPT.test(f.name));
+    if (ok.length) onAdd(ok);
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => input.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          if (!disabled) take(e.dataTransfer.files);
+        }}
+        className={cn(
+          "flex w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 text-center transition-colors disabled:opacity-50",
+          files.length ? "py-3" : "py-8",
+          over ? "border-solar-400 bg-solar-500/10" : "border-white/15 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]"
+        )}
+      >
+        <Upload className={cn("size-5", over ? "text-solar-300" : "text-muted-foreground")} />
+        <span className="text-xs font-medium text-foreground">{files.length ? "Add more workbooks" : "Drop the daily report workbooks here, or click to choose"}</span>
+        {!files.length && <span className="text-[11px] text-muted-foreground">.xlsx / .xlsm · phase 1: one day per file · phase 2: one sheet per day</span>}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept=".xlsx,.xlsm"
+        multiple
+        hidden
+        onChange={(e) => {
+          take(e.target.files);
+          e.target.value = "";
+        }}
+        aria-label="Report workbooks"
+      />
+      {rejected.length > 0 && <p className="text-[11px] text-amber-300">Not a workbook, left out: {rejected.join(", ")}</p>}
+      {files.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {files.map((f) => (
+            <li key={fileKey(f)} className="flex max-w-full items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] py-1 pr-1 pl-2 text-[11px]">
+              <FileSpreadsheet className="size-3.5 shrink-0 text-emerald-300" />
+              <span className="truncate" title={f.name}>
+                {f.name}
+              </span>
+              <span className="num shrink-0 text-muted-foreground">{fmtSize(f.size)}</span>
+              <Button variant="ghost" size="icon-xs" disabled={disabled} onClick={() => onRemove(f)} aria-label={`Remove ${f.name}`}>
+                <X />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
+// ---- step 2: totals
+const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: string }> = ({ label, value, sub, tone }) => (
+  <div className="rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2">
+    <div className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">{label}</div>
+    <div className={cn("num mt-0.5 text-lg leading-tight font-bold", tone)}>{value}</div>
+    {sub != null && <div className="mt-0.5 truncate text-[10px] text-muted-foreground">{sub}</div>}
+  </div>
+);
+
+const Totals: React.FC<{ r: PwaImportResult }> = ({ r }) => {
+  const t = r.totals;
+  const pct = t.rows ? (100 * t.matched) / t.rows : null;
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <Stat
+        label="Rows matched"
+        value={
+          <>
+            {fmtInt(t.matched)}
+            <span className="text-xs font-medium text-muted-foreground"> / {fmtInt(t.rows)}</span>
+          </>
+        }
+        sub={
+          pct == null ? undefined : (
+            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-white/10" title={`${pct.toFixed(1)} % matched a site`}>
+              <span className={cn("block h-full", t.unmatched ? "bg-amber-400" : "bg-emerald-400")} style={{ width: `${pct}%` }} />
+            </span>
+          )
+        }
+        tone={t.unmatched ? "text-amber-300" : undefined}
+      />
+      <Stat label="New days" value={fmtInt(t.new)} tone={t.new ? "text-emerald-300" : "text-muted-foreground"} sub="not stored yet" />
+      <Stat label="Changed" value={fmtInt(t.changed)} tone={t.changed ? "text-sky-300" : "text-muted-foreground"} sub="stored, will be updated" />
+      <Stat label="Unchanged" value={fmtInt(t.unchanged)} tone="text-muted-foreground" sub={t.before_start ? `${fmtInt(t.before_start)} before contract start` : "already stored"} />
+      <Stat
+        label="Days"
+        value={<span className="text-sm">{r.days.first ? (r.days.first === r.days.last ? fmtDay(r.days.first) : `${fmtDay(r.days.first)} –`) : "—"}</span>}
+        sub={r.days.first && r.days.first !== r.days.last ? fmtDay(r.days.last) : plural(r.sheets.length, "sheet")}
+      />
+    </div>
+  );
+};
+
+// ---- step 2: one sheet
+const SheetIcon: React.FC<{ s: PwaImportSheet; skip: boolean }> = ({ s, skip }) =>
+  skip ? (
+    <MinusCircle className="size-4 text-muted-foreground" aria-label="Skipped" />
+  ) : s.errors.length ? (
+    <XCircle className="size-4 text-red-400" aria-label="Problem" />
+  ) : s.warnings.length ? (
+    <AlertTriangle className="size-4 text-amber-400" aria-label="Note" />
+  ) : (
+    <CheckCircle2 className="size-4 text-emerald-400" aria-label="OK" />
+  );
 
 const SheetRow: React.FC<{
   s: PwaImportSheet;
@@ -28,45 +182,62 @@ const SheetRow: React.FC<{
   onDay: (v: string) => void;
   onSkip: (v: boolean) => void;
 }> = ({ s, day, skip, onDay, onSkip }) => {
-  const [open, setOpen] = useState(false);
-  const problems = s.errors.length + s.warnings.length;
+  const details = s.errors.length + s.warnings.length + s.unmatched.length;
+  const [open, setOpen] = useState(s.errors.length > 0);
+  const missingDay = !day && !skip;
   return (
     <>
-      <TableRow className={cn(skip && "opacity-50")}>
-        <TableCell className="max-w-[220px]">
-          <span className="block truncate" title={s.file}>
+      <TableRow className={cn(skip && "opacity-50", s.errors.length > 0 && !skip && "bg-red-500/[0.04]")}>
+        <TableCell className="w-8 pr-0">
+          <SheetIcon s={s} skip={skip} />
+        </TableCell>
+        <TableCell className="max-w-[240px]">
+          <span className="block truncate font-medium" title={s.sheet ?? s.file}>
             {s.sheet ?? s.file}
           </span>
-          {s.sheet && <span className="block truncate text-[11px] text-muted-foreground">{s.file}</span>}
+          {s.sheet && (
+            <span className="block truncate text-[11px] text-muted-foreground" title={s.file}>
+              {s.file}
+            </span>
+          )}
         </TableCell>
         <TableCell className="whitespace-nowrap">
           <Input
             type="date"
-            className="h-7 w-36 [color-scheme:dark]"
+            className={cn("h-7 w-36 [color-scheme:dark]", missingDay && "border-red-400/60")}
             value={day}
             disabled={skip || !s.sheet}
             onChange={(e) => onDay(e.target.value)}
             aria-label={`Day of ${s.sheet}`}
           />
-          <span className="mt-0.5 block text-[10px] text-muted-foreground">{s.day_source ? `from ${s.day_source}` : "no date found"}</span>
+          <span className={cn("mt-0.5 block text-[10px]", missingDay ? "text-red-300" : "text-muted-foreground")}>{s.day_source ? `from ${s.day_source}` : "no date found: set it"}</span>
         </TableCell>
-        <TableCell className="num text-right">
-          {s.matched}/{s.rows}
+        <TableCell className="num text-right whitespace-nowrap">
+          <span className={cn(s.matched < s.rows && "text-amber-300")}>{fmtInt(s.matched)}</span>
+          <span className="text-muted-foreground">/{fmtInt(s.rows)}</span>
         </TableCell>
-        <TableCell className="num text-right">{s.new || "—"}</TableCell>
-        <TableCell className="num text-right">{s.changed || "—"}</TableCell>
-        <TableCell className="num text-right text-muted-foreground">{s.unchanged || "—"}</TableCell>
-        <TableCell className="num text-right text-muted-foreground" title="Rows of days before the phase's contract start: not stored">
-          {s.before_start || "—"}
+        <TableCell>
+          <div className="flex flex-wrap gap-1">
+            {s.new > 0 && <Badge variant="ok">+{fmtInt(s.new)} new</Badge>}
+            {s.changed > 0 && <Badge variant="info">{fmtInt(s.changed)} changed</Badge>}
+            {s.unchanged > 0 && <Badge variant="neutral">{fmtInt(s.unchanged)} same</Badge>}
+            {s.before_start > 0 && (
+              <Badge variant="neutral" title="Rows of days before the phase's contract start: not stored">
+                {fmtInt(s.before_start)} pre-start
+              </Badge>
+            )}
+            {!s.new && !s.changed && !s.unchanged && !s.before_start && <span className="text-muted-foreground">—</span>}
+          </div>
         </TableCell>
-        <TableCell className="max-w-[260px]">
-          {problems === 0 ? (
+        <TableCell>
+          {details === 0 ? (
             <span className="text-muted-foreground">—</span>
           ) : (
-            <button type="button" className="text-left" onClick={() => setOpen((o) => !o)}>
-              {s.errors.length > 0 && <Badge variant="crit">{s.errors.length} problem{s.errors.length > 1 ? "s" : ""}</Badge>}{" "}
-              {s.warnings.length > 0 && <Badge variant="warn">{s.warnings.length} note{s.warnings.length > 1 ? "s" : ""}</Badge>}
-              <span className="ml-1 text-[11px] text-muted-foreground">{open ? "hide" : "show"}</span>
+            <button type="button" className="flex items-center gap-1 text-left" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+              {s.errors.length > 0 && <Badge variant="crit">{plural(s.errors.length, "problem")}</Badge>}
+              {s.warnings.length > 0 && <Badge variant="warn">{plural(s.warnings.length, "note")}</Badge>}
+              {s.unmatched.length > 0 && !s.errors.length && !s.warnings.length && <Badge variant="warn">{fmtInt(s.unmatched.length)} unmatched</Badge>}
+              <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
             </button>
           )}
         </TableCell>
@@ -74,28 +245,34 @@ const SheetRow: React.FC<{
           <Checkbox checked={skip} onCheckedChange={(v) => onSkip(v === true)} aria-label={`Skip ${s.sheet}`} disabled={!s.sheet} />
         </TableCell>
       </TableRow>
-      {open && problems > 0 && (
-        <TableRow>
-          <TableCell colSpan={9} className="bg-muted/40 text-[11px]">
-            <ul className="flex flex-col gap-0.5">
+      {open && details > 0 && (
+        <TableRow className="hover:bg-transparent">
+          <TableCell />
+          <TableCell colSpan={6} className="pt-0 pb-3">
+            <ul className="flex flex-col gap-1 rounded-md border border-white/[0.07] bg-black/20 p-2.5 text-[11px]">
               {s.errors.map((e) => (
-                <li key={e} className="text-red-300">
+                <li key={e} className="flex gap-1.5 text-red-300">
+                  <XCircle className="mt-px size-3 shrink-0" />
                   {e}
                 </li>
               ))}
               {s.warnings.map((w) => (
-                <li key={w} className="text-amber-300">
+                <li key={w} className="flex gap-1.5 text-amber-300">
+                  <AlertTriangle className="mt-px size-3 shrink-0" />
                   {w}
                 </li>
               ))}
+              {s.unmatched.length > 0 && (
+                <li className="mt-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Rows that match no site ({fmtInt(s.unmatched.length)})</li>
+              )}
               {s.unmatched.slice(0, 20).map((u) => (
                 <li key={u.row} className="text-muted-foreground">
-                  Row {u.row}: {u.name}
+                  <span className="num text-foreground/80">Row {u.row}</span> · {u.name}
                   {u.comp_id != null ? ` (comp_id ${u.comp_id})` : ""}
                   {u.meter_no ? ` · meter ${u.meter_no}` : ""} — {u.reason}
                 </li>
               ))}
-              {s.unmatched.length > 20 && <li className="text-muted-foreground">… {s.unmatched.length - 20} more</li>}
+              {s.unmatched.length > 20 && <li className="text-muted-foreground">… {fmtInt(s.unmatched.length - 20)} more</li>}
             </ul>
           </TableCell>
         </TableRow>
@@ -104,13 +281,14 @@ const SheetRow: React.FC<{
   );
 };
 
+// ---- the dialog
 export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImported: () => void }> = ({ open, onClose, onImported }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [result, setResult] = useState<PwaImportResult | null>(null);
   const [days, setDays] = useState<Record<string, string>>({});
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState<"check" | "import" | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ commit: boolean; text: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
 
   const reset = () => {
@@ -127,19 +305,42 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
     onClose();
   };
 
-  const run = async (commit: boolean) => {
+  const run = async (commit: boolean, list: File[] = files, overrides: Record<string, string> = days) => {
+    if (!list.length) return;
     setBusy(commit ? "import" : "check");
     setError(null);
     try {
-      const r = await api.importPwaReport(files, commit, days);
+      const r = await api.importPwaReport(list, commit, overrides);
       setResult(r);
       setStale(false);
       if (r.committed) onImported();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError({ commit, text: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(null);
     }
+  };
+
+  /** a new file set: keep the overrides of files still there, then check at once */
+  const changeFiles = (next: File[]) => {
+    const names = new Set(next.map((f) => f.name));
+    const kept = Object.fromEntries(Object.entries(days).filter(([k]) => names.has(k.split("::")[0])));
+    setFiles(next);
+    setDays(kept);
+    setStale(false);
+    if (next.length) void run(false, next, kept);
+    else {
+      setResult(null);
+      setError(null);
+    }
+  };
+  const addFiles = (add: File[]) => {
+    const have = new Set(files.map(fileKey));
+    // a file of the same name replaces the earlier one (the backend keys sheets by file name)
+    const fresh = add.filter((f) => !have.has(fileKey(f)));
+    if (!fresh.length) return;
+    const freshNames = new Set(fresh.map((f) => f.name));
+    changeFiles([...files.filter((f) => !freshNames.has(f.name)), ...fresh]);
   };
 
   const setOverride = (key: string, v: string | null) => {
@@ -153,154 +354,207 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
   };
 
   const sheets = useMemo(() => result?.sheets ?? [], [result]);
+  const attention = useMemo(() => sheets.filter(needsLook), [sheets]);
   const shown = useMemo(
-    () => (showAll ? sheets : sheets.filter(needsLook)).map((s, i) => ({ s, i })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).map((x) => x.s),
-    [sheets, showAll]
+    () => (showAll || !attention.length ? sheets : attention).map((s, i) => ({ s, i })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).map((x) => x.s),
+    [sheets, attention, showAll]
   );
+  const problemSheets = sheets.filter((s) => s.errors.length && days[s.key] !== "skip").length;
+  const committed = !!result?.committed;
+  const step = committed ? 2 : result ? 1 : 0;
   const t = result?.totals;
+  const toStore = t ? t.new + t.changed : 0;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-        <DialogHeader>
-          <DialogTitle>Import daily report</DialogTitle>
+      <DialogContent className="flex max-h-[90vh] flex-col gap-4 sm:max-w-5xl">
+        <DialogHeader className="gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
+            <DialogTitle>Import daily report</DialogTitle>
+            <Steps at={step} />
+          </div>
           <DialogDescription>
-            The PWA daily report workbooks (.xlsx) as the sites send them: phase 1 (one day per file) or phase 2 (a sheet per day). Nothing is stored
-            until you press Import; a day already stored is updated.
+            The PWA daily report workbooks as the sites send them. Nothing is stored until you press Import; a day already stored is updated.
           </DialogDescription>
         </DialogHeader>
 
-        {!result?.committed && (
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              type="file"
-              accept=".xlsx,.xlsm"
-              multiple
-              className="h-9 max-w-md"
-              onChange={(e) => {
-                setFiles(Array.from(e.target.files ?? []));
-                setResult(null);
-                setDays({});
-                setStale(false);
-              }}
-              aria-label="Report workbooks"
-            />
-            <Button variant="outline" size="sm" disabled={!files.length || busy != null} onClick={() => void run(false)}>
-              {busy === "check" && <Spinner data-icon="inline-start" className="size-3" />}
-              {result ? "Check again" : "Preview"}
-            </Button>
-            {files.length > 0 && <span className="text-xs text-muted-foreground">{files.map((f) => f.name).join(", ")}</span>}
-          </div>
-        )}
+        <div className="-mx-5 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5">
+          {!committed && <DropZone files={files} disabled={busy != null} onAdd={addFiles} onRemove={(f) => changeFiles(files.filter((x) => x !== f))} />}
 
-        {error && (
-          <Alert variant="destructive">
-            <AlertTitle>Import failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {result?.committed && t && (
-          <Alert>
-            <AlertTitle>Imported</AlertTitle>
-            <AlertDescription>
-              {fmtInt(t.new)} new and {fmtInt(t.changed)} changed days stored ({fmtDay(result.days.first)} – {fmtDay(result.days.last)});{" "}
-              {fmtInt(t.unchanged)} unchanged. The page shows them now.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {result && !result.committed && t && (
-          <>
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
-              <span>
-                <span className="num font-semibold">{fmtInt(t.matched)}</span> of {fmtInt(t.rows)} rows matched a site
-              </span>
-              <span>
-                <span className="num font-semibold">{fmtInt(t.new)}</span> new days
-              </span>
-              <span>
-                <span className="num font-semibold">{fmtInt(t.changed)}</span> changed
-              </span>
-              <span className="text-muted-foreground">{fmtInt(t.unchanged)} unchanged</span>
-              {t.before_start > 0 && <span className="text-muted-foreground">{fmtInt(t.before_start)} before contract start (not stored)</span>}
-              {result.days.first && (
-                <span className="text-muted-foreground">
-                  {fmtDay(result.days.first)} – {fmtDay(result.days.last)}
-                </span>
-              )}
-            </div>
-            {result.months_without_expected.length > 0 && (
-              <Alert>
-                <AlertTitle>No expected energy for {result.months_without_expected.join(", ")}</AlertTitle>
-                <AlertDescription>
-                  Those days get no contract / PVsyst figure (shown as —, left out of the contract and PVsyst ratios). Build the months from the model
-                  workbook: <code>python -m app.services.pwa_meter expected --model …</code>
-                </AlertDescription>
-              </Alert>
-            )}
-            {!result.ok && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  Some sheets have problems. Set their day, or tick Skip, then Check again. Rows that match no site must be fixed in the report or
-                  the site list.
-                </AlertDescription>
-              </Alert>
-            )}
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {shown.length} of {sheets.length} sheets shown{!showAll && sheets.length > shown.length ? " (those with problems or changes)" : ""}
-              </span>
-              {sheets.length > shown.length || showAll ? (
-                <Button variant="ghost" size="xs" onClick={() => setShowAll((v) => !v)}>
-                  {showAll ? "Show fewer" : `Show all ${sheets.length}`}
-                </Button>
-              ) : null}
-            </div>
-            <Table containerClassName="table-wrap max-h-[45vh]">
-              <TableHeader className="sticky top-0 z-10 bg-popover">
-                <TableRow>
-                  <TableHead>Sheet</TableHead>
-                  <TableHead>Day</TableHead>
-                  <TableHead className="text-right">Matched</TableHead>
-                  <TableHead className="text-right">New</TableHead>
-                  <TableHead className="text-right">Changed</TableHead>
-                  <TableHead className="text-right">Same</TableHead>
-                  <TableHead className="text-right">Pre-start</TableHead>
-                  <TableHead>Problems</TableHead>
-                  <TableHead className="text-center">Skip</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {shown.map((s) => (
-                  <SheetRow
-                    key={s.key}
-                    s={s}
-                    day={days[s.key] && isDay(days[s.key]) ? days[s.key] : (s.day ?? "")}
-                    skip={days[s.key] === "skip"}
-                    onDay={(v) => setOverride(s.key, isDay(v) && v !== s.day ? v : null)}
-                    onSkip={(v) => setOverride(s.key, v ? "skip" : null)}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </>
-        )}
-
-        <DialogFooter>
-          <Button variant="ghost" onClick={close} disabled={busy != null}>
-            {result?.committed ? "Close" : "Cancel"}
-          </Button>
-          {result && !result.committed && (
-            <Button
-              onClick={() => void run(true)}
-              disabled={busy != null || stale || !result.ok || result.totals.new + result.totals.changed === 0}
-              title={stale ? "Check again first: you changed a day or a skip" : !result.ok ? "Fix the problems first" : undefined}
-            >
-              {busy === "import" && <Spinner data-icon="inline-start" className="size-3" />}
-              {stale ? "Check again first" : `Import ${fmtInt(result.totals.new + result.totals.changed)} days`}
-            </Button>
+          {error && (
+            <Alert variant="destructive">
+              <AlertTitle>{error.commit ? "Import failed" : "Check failed"}</AlertTitle>
+              <AlertDescription>{error.text}</AlertDescription>
+            </Alert>
           )}
+
+          {busy === "check" && !result && (
+            <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
+              <Spinner className="size-4" /> Reading {plural(files.length, "workbook")}…
+            </div>
+          )}
+
+          {committed && t && (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10">
+                <CheckCircle2 className="size-6 text-emerald-300" />
+              </span>
+              <div>
+                <div className="text-sm font-semibold">{plural(t.new + t.changed, "day")} stored</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {fmtInt(t.new)} new · {fmtInt(t.changed)} updated · {fmtInt(t.unchanged)} unchanged
+                  {result.days.first && (
+                    <>
+                      {" "}
+                      · {fmtDay(result.days.first)}
+                      {result.days.last !== result.days.first ? ` – ${fmtDay(result.days.last)}` : ""}
+                    </>
+                  )}
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">The page shows them now.</div>
+              </div>
+            </div>
+          )}
+
+          {result && !committed && t && (
+            <div className={cn("flex flex-col gap-3 transition-opacity", busy === "check" && "pointer-events-none opacity-60")}>
+              <Totals r={result} />
+
+              {stale ? (
+                <Alert>
+                  <AlertTriangle className="text-amber-300!" />
+                  <AlertTitle>You changed a day or a skip</AlertTitle>
+                  <AlertDescription>Check again to see what the import would store with your changes.</AlertDescription>
+                </Alert>
+              ) : !result.ok ? (
+                <Alert variant="destructive">
+                  <XCircle />
+                  <AlertTitle>{plural(problemSheets || 1, "sheet")} with problems</AlertTitle>
+                  <AlertDescription>
+                    Set the sheet's day, or tick Skip, then check again. Rows that match no site must be fixed in the report or the site list.
+                  </AlertDescription>
+                </Alert>
+              ) : toStore > 0 ? (
+                <Alert>
+                  <CheckCircle2 className="text-emerald-300!" />
+                  <AlertTitle>Ready to import {plural(toStore, "day")}</AlertTitle>
+                  <AlertDescription>
+                    {fmtInt(t.new)} new and {fmtInt(t.changed)} changed site-days from {plural(sheets.filter((s) => days[s.key] !== "skip").length, "sheet")}.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert>
+                  <CheckCircle2 className="text-muted-foreground!" />
+                  <AlertTitle>Nothing new</AlertTitle>
+                  <AlertDescription>Every day in these workbooks is already stored with the same figures.</AlertDescription>
+                </Alert>
+              )}
+
+              {result.months_without_expected.length > 0 && (
+                <Alert>
+                  <AlertTriangle className="text-amber-300!" />
+                  <AlertTitle>No expected energy for {result.months_without_expected.join(", ")}</AlertTitle>
+                  <AlertDescription>
+                    Those days get no contract / PVsyst figure (shown as —, left out of the contract and PVsyst ratios). Build the months from the model
+                    workbook: <code>python -m app.services.pwa_meter expected --model …</code>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-lg border border-white/[0.07] bg-ink-900/80 p-0.5" role="tablist" aria-label="Sheets shown">
+                  {[
+                    { all: false, label: "Needs a look", n: attention.length },
+                    { all: true, label: "All sheets", n: sheets.length },
+                  ].map((o) => {
+                    const on = o.all ? showAll || !attention.length : !showAll && attention.length > 0;
+                    return (
+                      <button
+                        key={o.label}
+                        type="button"
+                        role="tab"
+                        aria-selected={on}
+                        disabled={!o.all && !attention.length}
+                        onClick={() => setShowAll(o.all)}
+                        className={cn(
+                          "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40",
+                          on ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {o.label} <span className="num ml-0.5 text-muted-foreground">{o.n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="text-[11px] text-muted-foreground">Problems first · "needs a look" = problems, notes, new or changed days</span>
+              </div>
+
+              <Table containerClassName="table-wrap max-h-[45vh]">
+                <TableHeader className="sticky top-0 z-10 bg-ink-900">
+                  <TableRow>
+                    <TableHead className="w-8 pr-0">
+                      <span className="sr-only">Status</span>
+                    </TableHead>
+                    <TableHead>Sheet</TableHead>
+                    <TableHead>Day</TableHead>
+                    <TableHead className="text-right">Matched</TableHead>
+                    <TableHead>Site-days</TableHead>
+                    <TableHead>Issues</TableHead>
+                    <TableHead className="text-center">Skip</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {shown.map((s) => (
+                    <SheetRow
+                      key={s.key}
+                      s={s}
+                      day={days[s.key] && isDay(days[s.key]) ? days[s.key] : (s.day ?? "")}
+                      skip={days[s.key] === "skip"}
+                      onDay={(v) => setOverride(s.key, isDay(v) && v !== s.day ? v : null)}
+                      onSkip={(v) => setOverride(s.key, v ? "skip" : null)}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="items-center sm:justify-between">
+          <span className="text-[11px] text-muted-foreground">
+            {committed ? "" : busy === "check" ? "Checking…" : files.length ? `${plural(files.length, "workbook")} · checked by the server, nothing stored yet` : "No files chosen"}
+          </span>
+          <div className="flex gap-2">
+            {committed ? (
+              <>
+                <Button variant="ghost" onClick={reset}>
+                  Import more
+                </Button>
+                <Button onClick={close}>Done</Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" onClick={close} disabled={busy != null}>
+                  Cancel
+                </Button>
+                {result && stale ? (
+                  <Button onClick={() => void run(false)} disabled={busy != null}>
+                    {busy === "check" && <Spinner data-icon="inline-start" className="size-3" />}
+                    Check again
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => void run(true)}
+                    disabled={busy != null || !result || !result.ok || toStore === 0}
+                    title={!result ? "Choose the workbooks first" : !result.ok ? "Fix the problems first" : toStore === 0 ? "Nothing new to store" : undefined}
+                  >
+                    {busy === "import" && <Spinner data-icon="inline-start" className="size-3" />}
+                    {toStore > 0 ? `Import ${plural(toStore, "day")}` : "Import"}
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

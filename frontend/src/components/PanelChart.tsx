@@ -68,6 +68,9 @@ export interface ChartPanel {
   series: ChartSeries[];
   /** Share of the plot height (default 1). */
   weight?: number;
+  /** Category charts: the bar series share one bar per category instead of standing side by side.
+   * The caller stacks them: each series' `y` is its top and `y0` its bottom. */
+  stacked?: boolean;
   yMin?: number | null;
   yMax?: number | null;
   /** Include 0 in an automatic y range (default true). */
@@ -649,7 +652,13 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
   const f = tickFmt(panel);
   const base = y(Math.max(y.domain()[0], Math.min(0, y.domain()[1])));
   const bars = panel.series.filter((s) => s.type === "bar");
-  const inner = xb ? d3.scaleBand<string>().domain(bars.map((s) => s.key)).range([0, xb.bandwidth()]).padding(bars.length > 1 ? 0.08 : 0) : null;
+  const inner = xb
+    ? d3
+        .scaleBand<string>()
+        .domain(panel.stacked ? ["all"] : bars.map((s) => s.key))
+        .range([0, xb.bandwidth()])
+        .padding(bars.length > 1 && !panel.stacked ? 0.08 : 0)
+    : null;
 
   /** split a line into segments at nulls and (time charts) at record gaps */
   const segments = (s: ChartSeries): Array<Array<[number, number]>> => {
@@ -697,7 +706,7 @@ const PanelBody: React.FC<{ g: Layout["geo"][number]; layout: Layout; spec: Pane
             const v = s.y[idx];
             if (v == null) return null;
             const b0 = s.y0?.[idx] ?? 0;
-            const x0 = (xb(String(xv)) ?? 0) + (inner!(s.key) ?? 0);
+            const x0 = (xb(String(xv)) ?? 0) + (inner!(panel.stacked ? "all" : s.key) ?? 0);
             const w = inner!.bandwidth();
             const yTop = y(Math.max(v, b0));
             const yBot = y(Math.min(v, b0));

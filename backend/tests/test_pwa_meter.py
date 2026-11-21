@@ -164,6 +164,24 @@ def test_engineer_sees_only_assigned_sites(api):
     assert client.get("/pwa/meter/sites").status_code == 401
 
 
+def test_daily_gives_phase_days_to_admins_and_site_days_in_scope(api):
+    _, client, admin, eng = api
+    d = client.get("/pwa/meter/daily?start=2026-03-10&end=2026-03-11", headers=admin).json()
+    assert d["days"] == ["2026-03-10", "2026-03-11"] and d["labels"]["contract_mwh"] == "modelled"
+    ok, out = d["phases"]
+    # 10 Mar: 400 + 300 + 390 kWh over 300 kWp, contract 3 × 380
+    assert (ok["phase"], ok["day"], ok["sites"], ok["meter_mwh"], ok["contract_mwh"]) == (1, "2026-03-10", 3, 1.09, 1.14)
+    assert ok["yield_kwh_kwp"] == pytest.approx(3.633) and ok["vs_contract_pct"] == 95.6
+    assert out["meter_mwh"] == 0.69 and out["yield_kwh_kwp"] == 2.3  # P1-01 is down and still counts with 0 kWh
+    assert [s["site_id"] for s in d["sites"]] == ["P1-01", "P1-02", "P1-03"]
+    assert d["sites"][0]["yield_kwh_kwp"] == [4.0, 0.0] and d["sites"][0]["status"] == ["ok", "outage"]
+    e = client.get("/pwa/meter/daily?start=2026-03-10&end=2026-03-11", headers=eng).json()
+    assert e["phases"] == [] and [s["site_id"] for s in e["sites"]] == ["P1-01"]
+    assert client.get("/pwa/meter/daily?start=2027-01-01", headers=admin).json() == {"days": [], "phases": [], "sites": [], "labels": {"contract_mwh": "modelled"}}
+    assert client.get("/pwa/meter/daily?start=2026-04-01&end=2026-03-01", headers=admin).status_code == 422
+    assert client.get("/pwa/meter/daily").status_code == 401
+
+
 def test_plant_days_compare_meter_with_growatt(api):
     f, client, admin, eng = api
     with f() as db:

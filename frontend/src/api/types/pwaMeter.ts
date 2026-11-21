@@ -96,6 +96,41 @@ export interface PwaMeterSummary {
   labels: Record<string, string>;
 }
 
+/** `/pwa/meter/daily`: the report days of a window, for the fleet lines and the site × day chart */
+export interface PwaMeterPhaseDay {
+  phase: number;
+  day: string;
+  /** sites with a meter reading on the day */
+  sites: number;
+  meter_mwh: number | null;
+  /** modelled */
+  contract_mwh: number | null;
+  /** metered energy ÷ kWp of the sites with a reading */
+  yield_kwh_kwp: number | null;
+  vs_contract_pct: number | null;
+}
+
+export interface PwaMeterSiteDaily {
+  site_id: string;
+  phase: number;
+  name: string;
+  region: string | null;
+  kwp: number;
+  growatt_plant_id: number | null;
+  /** one value per entry of `days`; null = no reading */
+  yield_kwh_kwp: Array<number | null>;
+  /** null = the site has no row for the day */
+  status: Array<PwaDayStatus | null>;
+}
+
+export interface PwaMeterDaily {
+  days: string[];
+  /** per phase and day; empty for engineers (fleet totals) */
+  phases: PwaMeterPhaseDay[];
+  sites: PwaMeterSiteDaily[];
+  labels: Record<string, string>;
+}
+
 export interface PwaOutageEvent {
   site_id: string;
   phase: number;
@@ -134,6 +169,7 @@ export interface PwaMeterWindow {
 /** the criteria file (pwa_meter_criteria.json); only the parts the UI reads are typed */
 export interface PwaMeterCriteria {
   outage_event: { long_event_days: number; fixed_fast_days: number };
+  tariff: { book_price_thb_per_kwh: number };
   [key: string]: unknown;
 }
 

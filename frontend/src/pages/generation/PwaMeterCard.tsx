@@ -103,8 +103,8 @@ export const PwaMeterCard: React.FC<{ plantId: number }> = ({ plantId }) => {
           </CardDescription>
         </div>
         {data && (
-          <Link to={`/pwa-meter?site=${encodeURIComponent(data.site.site_id)}`} className="text-xs text-solar-400 hover:underline">
-            {data.site.site_id} in PWA Meter →
+          <Link to={`/center?view=sites&site=${encodeURIComponent(data.site.site_id)}`} className="text-xs text-solar-400 hover:underline">
+            {data.site.site_id} in O&M Dashboard →
           </Link>
         )}
       </CardHeader>

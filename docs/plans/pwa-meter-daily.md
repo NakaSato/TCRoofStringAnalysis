@@ -1,6 +1,6 @@
 # Plan: PWA daily meter report in the app
 
-Status: **Built 2026-11-21: tables, CSV import, read API, criteria file, tests, PWA Meter page (`/pwa-meter`), daily report Excel import, monthly expected energy from the model.** · Owner: Chanthawat
+Status: **Built 2026-11-21: tables, CSV import, read API, criteria file, tests, the meter lists and tiles of the O&M Dashboard (`/center`, one page since 2026-11-21; `/pwa-meter` redirects there), daily report Excel import, monthly expected energy from the model.** · Owner: Chanthawat
 Data: phases 1–2 daily reports (Cewe meters), 131 sites, 8 Jan – 18 Nov 2026 (phase 1 from 17 Jan), 40,412 site-days.
 
 The PWA daily report is the billing record: the meter kWh each site sends to PEA every day. The Growatt data in the app is inverter-side and kept 90 days. This module stores the meter days indefinitely and computes, from one criteria file, the same engineering and finance figures as the phases 1–2 Engineering & Finance dashboard, so the team can query them from the app.

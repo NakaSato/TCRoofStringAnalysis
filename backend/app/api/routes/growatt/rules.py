@@ -117,6 +117,27 @@ def list_issues(
     return {**out, "meta": {"source": "db", "estimated": ["lost_kwh_est", "thb_per_day_est", "lost_kwh_total_est", "thb_total_est"]}}
 
 
+@router.get("/center")
+def om_center(
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    include_shadow: bool = Query(False, description="admin only: also count issues of rules still in shadow mode"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """O&M Dashboard (docs/plans/om-center-dashboard.md): loss by cause, the issues to fix first and
+    one row per plant over `start` … `end` (default: the month to date), for the plants the user
+    may see. DB only. Lost kWh and baht are estimates with each kWh counted once; costs are entered."""
+    from app.services import om_center
+
+    try:
+        s, e = om_center.window(start, end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    allowed = allowed_plant_ids(db, user)
+    return om_center.overview(db, allowed, s, e, include_shadow=include_shadow and allowed is None)
+
+
 def _issue_for(db: Session, user: User, issue_id: int) -> Any:
     from app.db.models import GrowattIssue
 

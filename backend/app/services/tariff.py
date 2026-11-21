@@ -184,3 +184,49 @@ def config_doc(db: Session) -> Tuple[str, Dict[str, Any]]:
     t = get_tariff(db)
     t.pop("updated_at", None)
     return (f"config/{TARIFF_KEY}", t)
+
+
+# --------------------------------------------------------------------------- PWA contract price
+
+
+def pwa_plant_rates(db: Session) -> Dict[str, Dict[str, Any]]:
+    """`plant_rates` entries for the Growatt plants of the PWA meter report sites: the contract's
+    book price from the criteria file (docs/plans/om-center-dashboard.md §6). Without them a PWA
+    plant's lost kWh is priced at the TOU tariff, about 1.5 times what the contract pays."""
+    from app.db.models import PwaMeterSite
+    from app.services import pwa_meter
+
+    price = float(pwa_meter.criteria()["tariff"]["book_price_thb_per_kwh"])
+    ids = sorted({int(p) for p in db.scalars(select(PwaMeterSite.growatt_plant_id)) if p is not None})
+    return {str(p): {"thb_per_kwh": price, "basis": "PWA contract"} for p in ids}
+
+
+def fill_pwa_plant_rates(db: Session, username: Optional[str], apply: bool = False) -> Dict[str, Any]:
+    """Add the PWA book price for PWA plants that have no rate yet; a rate already entered is
+    kept. Applies from the next `rules_*` run; baht already stored on issues keep their price."""
+    cur = get_tariff(db)
+    rates: Dict[str, Any] = dict(cur.get("plant_rates") or {})
+    new = {k: v for k, v in pwa_plant_rates(db).items() if k not in rates}
+    if apply and new:
+        put_tariff(db, {**{k: cur[k] for k in DEFAULT_TARIFF}, "plant_rates": {**rates, **new}}, username)
+    return {"added": len(new), "kept": len(rates), "applied": bool(apply and new), "plants": sorted(int(k) for k in new)}
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    import argparse
+    import json
+
+    from app.db.session import get_session_factory
+
+    ap = argparse.ArgumentParser(description="Tariff tools")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("pwa-rates", help="price PWA plants at the contract's book price (dry run unless --apply)")
+    p.add_argument("--apply", action="store_true")
+    args = ap.parse_args(argv)
+    with get_session_factory()() as db:
+        print(json.dumps(fill_pwa_plant_rates(db, "cli", apply=args.apply), ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
