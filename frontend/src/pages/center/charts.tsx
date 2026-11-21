@@ -1,28 +1,18 @@
 /**
  * Engineering O&M charts PanelChart cannot draw (its tooltip follows x only):
- * - StrategyMatrix: one dot per meter-report site, estimated loss against its share of PVsyst
- * - YieldHeatmap: site × report day, coloured by specific yield, outage and missing readings marked
- * Both open the site's days on click. Loss is estimated, PVsyst modelled; the cards say so.
+ * - YieldHeatmap: site × report day, coloured by specific yield, outage and missing readings marked;
+ *   a row opens the site's days on click.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import type { PwaDayStatus, PwaMeterDaily, PwaMeterSiteSummary } from "../../api/client";
+import type { PwaDayStatus, PwaMeterDaily } from "../../api/client";
 import { C, TICK_FONT, TipRow, Tooltip, textWidth, useWidth } from "../../components/chartKit";
 import type { TipState } from "../../components/chartKit";
-import { CATEGORICAL, STATUS } from "../../components/chartTheme";
+import { STATUS } from "../../components/chartTheme";
 import { fmt } from "../../components/ui";
 import { DAY_STATUS } from "../pwaMeter/format";
-import { fmtDay, thb } from "./format";
+import { fmtDay } from "./format";
 import { dateLocale, useI18n } from "../../i18n";
-
-/** who is to act on a site's issues: curtailment is a PM matter, the rest O&M */
-export const OWNERS = [
-  { key: "O&M", label: "O&M to act", color: CATEGORICAL[1] },
-  { key: "PM", label: "PM (curtailment)", color: CATEGORICAL[4] },
-  { key: "PM + O&M", label: "PM + O&M", color: CATEGORICAL[2] },
-  { key: "", label: "No issue flagged", color: STATUS.none },
-] as const;
-const ownerColor = (o: string | null) => OWNERS.find((x) => x.key === (o ?? ""))?.color ?? STATUS.none;
 
 export const Legend: React.FC<{ items: ReadonlyArray<{ label: string; color: string }>; note?: string }> = ({ items, note }) => {
   const { t } = useI18n();
@@ -36,126 +26,6 @@ export const Legend: React.FC<{ items: ReadonlyArray<{ label: string; color: str
     ))}
     {note && <span>{note}</span>}
   </div>
-  );
-};
-
-/* -------------------------------------------------------------------------- */
-/* Strategy matrix                                                            */
-/* -------------------------------------------------------------------------- */
-export const StrategyMatrix: React.FC<{ sites: PwaMeterSiteSummary[]; onOpen: (siteId: string) => void; height?: number }> = ({ sites, onOpen, height = 340 }) => {
-  const { t } = useI18n();
-  const [ref, width] = useWidth<HTMLDivElement>();
-  const [tip, setTip] = useState<TipState | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
-
-  const pts = useMemo(() => sites.filter((s) => s.loss_thb != null && s.vs_pvsyst_pct != null), [sites]);
-  const g = useMemo(() => {
-    if (width <= 0 || !pts.length) return null;
-    const yLo = Math.min(0, d3.min(pts, (s) => s.vs_pvsyst_pct as number) ?? 0);
-    const yHi = Math.max(100, d3.max(pts, (s) => s.vs_pvsyst_pct as number) ?? 100);
-    const y0 = d3.scaleLinear().domain([yLo, yHi]).nice();
-    const yTicks = y0.ticks(5);
-    const m = { t: 12, r: 16, b: 40, l: Math.max(40, (d3.max(yTicks, (t) => textWidth(`${t} %`)) ?? 30) + 12) };
-    const iw = Math.max(40, width - m.l - m.r);
-    const ih = height - m.t - m.b;
-    // square-root x: most sites lose little, a few lose a lot
-    const x = d3.scaleSqrt().domain([0, (d3.max(pts, (s) => s.loss_thb as number) || 1) * 1.05]).range([0, iw]);
-    const y = y0.range([ih, 0]);
-    const r = d3.scaleSqrt().domain([0, d3.max(pts, (s) => s.kwp ?? 0) || 1]).range([3, 11]);
-    const xTicks = x.ticks(Math.max(3, Math.floor(iw / 90))).filter((t, i, a) => i === 0 || x(t) - x(a[i - 1]) > 44);
-    return { m, iw, ih, x, y, r, xTicks, yTicks };
-  }, [pts, width, height]);
-
-  const nearest = (e: React.MouseEvent) => {
-    if (!g) return null;
-    const box = ref.current!.getBoundingClientRect();
-    const px = e.clientX - box.left - g.m.l;
-    const py = e.clientY - box.top - g.m.t;
-    let best: PwaMeterSiteSummary | null = null;
-    let bd = 22;
-    for (const s of pts) {
-      const d = Math.hypot(g.x(s.loss_thb as number) - px, g.y(s.vs_pvsyst_pct as number) - py);
-      if (d < bd) (bd = d), (best = s);
-    }
-    return { best, x: e.clientX - box.left, y: e.clientY - box.top };
-  };
-  const onMove = (e: React.MouseEvent) => {
-    const n = nearest(e);
-    if (!n?.best) return (setTip(null), setHover(null));
-    const s = n.best;
-    setHover(s.site_id);
-    setTip({
-      x: n.x,
-      y: n.y,
-      content: (
-        <>
-          <div className="mb-1 font-semibold text-white">{s.name}</div>
-          <div className="mb-1 text-xs text-slate-400">
-            {t("Phase {n}", { n: s.phase })}
-            {s.region ? ` · ${s.region}` : ""} · {fmt(s.kwp, 0)} kWp
-          </div>
-          <TipRow label={t("Loss (est.)")} value={thb(s.loss_thb)} />
-          <TipRow label={t("vs PVsyst (mod.)")} value={`${fmt(s.vs_pvsyst_pct, 1)} %`} />
-          <TipRow label={t("vs contract (mod.)")} value={s.vs_contract_pct == null ? "—" : `${fmt(s.vs_contract_pct, 1)} %`} />
-          <TipRow color={ownerColor(s.owner)} label={t("Owner")} value={s.owner ?? "—"} />
-          {s.issues.length > 0 && <div className="mt-1 text-xs text-slate-300">{s.issues.join(" · ")}</div>}
-        </>
-      ),
-    });
-  };
-
-  return (
-    <div
-      ref={ref}
-      className={`relative w-full ${hover ? "cursor-pointer" : ""}`}
-      style={{ height }}
-      onMouseMove={onMove}
-      onMouseLeave={() => (setTip(null), setHover(null))}
-      onClick={(e) => {
-        const n = nearest(e);
-        if (n?.best) onOpen(n.best.site_id);
-      }}
-    >
-      {g && (
-        <svg width={width} height={height} className="block" role="img" aria-label={t("Meter report sites: estimated loss in baht against energy as a share of PVsyst")}>
-          <g transform={`translate(${g.m.l},${g.m.t})`}>
-            {g.yTicks.map((t) => (
-              <g key={t} transform={`translate(0,${g.y(t)})`}>
-                <line x2={g.iw} stroke={t === 100 ? C.axis : C.grid} strokeDasharray={t === 100 ? "4 3" : undefined} />
-                <text x={-8} dy="0.32em" textAnchor="end" fontSize={TICK_FONT} fill={C.muted}>
-                  {t} %
-                </text>
-              </g>
-            ))}
-            {g.xTicks.map((t) => (
-              <g key={t} transform={`translate(${g.x(t)},${g.ih})`}>
-                <line y2={5} stroke={C.axis} />
-                <text y={18} textAnchor="middle" fontSize={TICK_FONT} fill={C.muted}>
-                  {t >= 1000 ? `฿${d3.format("~s")(t)}` : `฿${t}`}
-                </text>
-              </g>
-            ))}
-            <line y1={g.ih} y2={g.ih} x2={g.iw} stroke={C.axis} />
-            <text x={g.iw} y={g.ih + 34} textAnchor="end" fontSize={11} fill={C.muted}>
-              {t("Estimated loss in the period (฿, square-root scale)")}
-            </text>
-            {pts.map((s) => (
-              <circle
-                key={s.site_id}
-                cx={g.x(s.loss_thb as number)}
-                cy={g.y(s.vs_pvsyst_pct as number)}
-                r={g.r(s.kwp ?? 0)}
-                fill={ownerColor(s.owner)}
-                fillOpacity={hover == null || hover === s.site_id ? 0.8 : 0.35}
-                stroke={hover === s.site_id ? "#ffffff" : "#0a101c"}
-                strokeWidth={hover === s.site_id ? 1.5 : 1}
-              />
-            ))}
-          </g>
-        </svg>
-      )}
-      <Tooltip tip={tip} width={width} />
-    </div>
   );
 };
 

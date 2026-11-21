@@ -226,13 +226,17 @@ def overview(
 
     # ---- work: money spent in the window, last cleaning, next planned visit, committed cost
     spend: Dict[int, List[float]] = defaultdict(lambda: [0.0, 0, 0])  # thb, events, events with a cost
-    q = scoped(select(SiteEvent.plant_id, SiteEvent.cost_thb), SiteEvent.plant_id).where(SiteEvent.day >= start, SiteEvent.day <= end)
-    for pid, cost in db.execute(q):
-        s = spend[int(pid)]
-        s[1] += 1
-        if cost is not None:
-            s[0] += float(cost)
-            s[2] += 1
+    # the same per plant, calendar month and event type (finance view: billing vs O&M spend); entered only
+    spend_month: Dict[Tuple[int, str, str], List[float]] = defaultdict(lambda: [0.0, 0, 0])
+    q = scoped(select(SiteEvent.plant_id, SiteEvent.cost_thb, SiteEvent.day, SiteEvent.event_type), SiteEvent.plant_id).where(
+        SiteEvent.day >= start, SiteEvent.day <= end
+    )
+    for pid, cost, day, etype in db.execute(q):
+        for s in (spend[int(pid)], spend_month[(int(pid), day.strftime("%Y-%m"), etype or "other")]):
+            s[1] += 1
+            if cost is not None:
+                s[0] += float(cost)
+                s[2] += 1
     q = scoped(select(SiteEvent.plant_id, func.max(SiteEvent.day)), SiteEvent.plant_id).where(
         SiteEvent.event_type == "cleaning", SiteEvent.day <= today
     )
@@ -333,6 +337,14 @@ def overview(
         },
         "issues": {"total": len(top), "top": top_out},
         "plants": rows,
+        "spend_by_month": [
+            {
+                "plant_id": pid, "month": mo, "event_type": et,
+                "spend_thb": _r(v[0]) if v[2] else None, "events": int(v[1]), "events_priced": int(v[2]),
+            }
+            for (pid, mo, et), v in sorted(spend_month.items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2]))
+            if pid in plants
+        ],
         "shadow_hidden": shadow_hidden,
         "include_shadow": include_shadow,
         "meta": {

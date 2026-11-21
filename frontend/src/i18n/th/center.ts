@@ -502,4 +502,61 @@ export const TH_CENTER: Record<string, string> = {
   "Nothing new to store": "ไม่มีข้อมูลใหม่ให้บันทึก",
   "Import {days}": "นำเข้า {days}",
   Import: "นำเข้า",
+  // Engineering O&M without estimated losses (2026-11-21)
+  "Decision rules, live only": "Decision rules เฉพาะกฎที่ใช้งานจริง",
+  "Stored Growatt data · decision rules": "ข้อมูล Growatt ที่บันทึกไว้ · decision rules",
+  "PWA meter report and its criteria file": "รายงานมิเตอร์ PWA และไฟล์เกณฑ์",
+  "Sites with a meter vs inverter flag": "สถานีที่มีธงมิเตอร์เทียบอินเวอร์เตอร์",
+  "Meter ÷ inverter, productive days": "มิเตอร์ ÷ อินเวอร์เตอร์ วันที่ผลิตไฟ",
+  "Active issues of the decision rules on the stored data: safety first, then tier. Next visit = the plant's next planned task in the Calendar.":
+    "ปัญหาที่เปิดอยู่ของ decision rules จากข้อมูลที่บันทึกไว้: เรียงความปลอดภัยก่อน แล้วตามระดับ เข้าหน้างานครั้งถัดไป = งานที่วางแผนไว้ครั้งถัดไปของโรงไฟฟ้าใน Calendar",
+  "Inverter side, stored data. EPI and PR′ are modelled medians of the period. Meter vs contract comes from the PWA meter report and opens the site's days.":
+    "ฝั่งอินเวอร์เตอร์ ข้อมูลที่บันทึกไว้ EPI และ PR′ เป็นค่ามัธยฐานแบบจำลองของช่วง มิเตอร์เทียบสัญญามาจากรายงานมิเตอร์ PWA คลิกเพื่อดูรายวันของสถานี",
+  "Billing, one row per site and calendar month (the period's first and last month may be partial). Billed = Cewe meter kWh at the book price; red − = days without a reading since the site's first report day. Shortfall = contract (modelled) − billed. A row opens the site's days.":
+    "การเรียกเก็บ 1 แถวต่อสถานีต่อเดือน (เดือนแรกและเดือนสุดท้ายของช่วงอาจไม่เต็มเดือน) เรียกเก็บ = kWh มิเตอร์ Cewe ตามราคาในสัญญา; − สีแดง = วันที่ไม่มีค่าอ่านนับตั้งแต่วันแรกที่สถานีมีในรายงาน ส่วนที่ขาด = สัญญา (แบบจำลอง) − เรียกเก็บ คลิกแถวเพื่อดูรายวันของสถานี",
+  "PWA meter report. Contract and PVsyst are modelled. Lowest yield first. A site's row opens its days.":
+    "รายงานมิเตอร์ PWA สัญญาและ PVsyst เป็นแบบจำลอง เรียงผลผลิตต่ำสุดก่อน คลิกแถวเพื่อดูรายวันของสถานี",
+  "Meter ÷ inverter per site, judged on productive days.": "มิเตอร์ ÷ อินเวอร์เตอร์ ต่อสถานี ประเมินในวันที่ผลิตไฟ",
+  "Phase totals are for admins: they include plants you are not assigned.": "ยอดรวมรายเฟสสำหรับผู้ดูแลระบบเท่านั้น เพราะรวมโรงไฟฟ้าโซลาร์ที่ไม่ได้มอบหมายให้คุณ",
+  "One row per site, lowest yield first · hover for the value, click a row to open the site":
+    "1 แถว = 1 สถานี เรียงผลผลิตต่ำสุดก่อน · ชี้เพื่อดูค่า คลิกแถวเพื่อเปิดหน้ารายสถานี",
+  // Engineering O&M → Finance (billing vs Site log spend)
+  Finance: "การเงิน",
+  Events: "เหตุการณ์",
+  "Repair & replacement": "ซ่อมและเปลี่ยนอุปกรณ์",
+  "Inspection & service": "ตรวจสอบและบำรุงรักษา",
+  "Billing (measured × book price) vs Site log costs (entered)": "การเรียกเก็บ (ค่าวัด × ราคาในสัญญา) เทียบค่าใช้จ่ายใน Site log (บันทึกเอง)",
+  "Billed = Cewe meter kWh × the contract's book price (measured). O&M spend = Site log costs (entered). No estimates.":
+    "เรียกเก็บ = kWh มิเตอร์ Cewe × ราคาในสัญญา (ค่าวัด) ค่าใช้จ่าย O&M = ค่าใช้จ่ายใน Site log (บันทึกเอง) ไม่มีค่าประมาณ",
+  "Open the finance by site": "เปิดการเงินรายสถานี",
+  "Site log costs of the report sites' Growatt plants, in the report's months.": "ค่าใช้จ่ายใน Site log ของโรงไฟฟ้า Growatt ของสถานีในรายงาน ในเดือนที่รายงานครอบคลุม",
+  "{n} of {total} events have a cost": "{n} จาก {total} เหตุการณ์มีค่าใช้จ่าย",
+  "{n} of {total} have a cost": "{n} จาก {total} มีค่าใช้จ่าย",
+  "Spend ÷ billed": "ค่าใช้จ่าย ÷ เรียกเก็บ",
+  "{n} sites with a cost": "{n} สถานีมีค่าใช้จ่าย",
+  "O&M ฿ / MWh": "O&M ฿ / MWh",
+  "Book price ฿{v} / MWh": "ราคาในสัญญา ฿{v} / MWh",
+  "Per billed MWh": "ต่อ MWh ที่เรียกเก็บ",
+  "Billed − spend": "เรียกเก็บ − ค่าใช้จ่าย",
+  "Billed − spend ฿": "เรียกเก็บ − ค่าใช้จ่าย ฿",
+  "Billed value minus the entered O&M spend; — when no cost is entered": "มูลค่าที่เรียกเก็บหักค่าใช้จ่าย O&M ที่บันทึกไว้; — เมื่อไม่มีการบันทึกค่าใช้จ่าย",
+  "After entered O&M costs": "หลังหักค่าใช้จ่าย O&M ที่บันทึกไว้",
+  "Billing vs O&M spend by month": "การเรียกเก็บเทียบค่าใช้จ่าย O&M รายเดือน",
+  "PWA meter · Site log": "มิเตอร์ PWA · Site log",
+  "Measured · entered": "ค่าวัด · บันทึกเอง",
+  "Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend ÷ billed. Months without a priced event have no spend bar.":
+    "บน: มูลค่าที่เรียกเก็บรายเดือน กลาง: ค่าใช้จ่าย O&M ที่บันทึกใน Site log ของโรงไฟฟ้าของสถานีในรายงาน แยกตามประเภทงาน ล่าง: ค่าใช้จ่าย ÷ เรียกเก็บ เดือนที่ไม่มีเหตุการณ์ที่มีค่าใช้จ่ายจะไม่มีแท่งค่าใช้จ่าย",
+  "Billed value (฿, meter × book price)": "มูลค่าที่เรียกเก็บ (฿, มิเตอร์ × ราคาในสัญญา)",
+  "O&M spend (฿, entered)": "ค่าใช้จ่าย O&M (฿, บันทึกเอง)",
+  "O&M spend ÷ billed (%)": "ค่าใช้จ่าย O&M ÷ เรียกเก็บ (%)",
+  "No cost entered": "ไม่ได้บันทึกค่าใช้จ่าย",
+  "Site log events": "เหตุการณ์ใน Site log",
+  "O&M spend ฿": "ค่าใช้จ่าย O&M ฿",
+  "Site log costs of the site's Growatt plant in the report's months.": "ค่าใช้จ่ายใน Site log ของโรงไฟฟ้า Growatt ของสถานี ในเดือนที่รายงานครอบคลุม",
+  "Site log events with a cost / all events": "เหตุการณ์ใน Site log ที่มีค่าใช้จ่าย / ทั้งหมด",
+  "O&M spend ÷ billed value": "ค่าใช้จ่าย O&M ÷ มูลค่าที่เรียกเก็บ",
+  "O&M spend ÷ the contract kWp": "ค่าใช้จ่าย O&M ÷ kWp ตามสัญญา",
+  "Finance, per report site over the report's months: billed value (Cewe meter kWh × book price, measured) against the Site log costs of the site's Growatt plant (entered; events without a cost are counted, not priced). Nothing estimated. A row opens the site's days.":
+    "การเงิน ต่อสถานีในรายงาน ตลอดเดือนที่รายงานครอบคลุม: มูลค่าที่เรียกเก็บ (kWh มิเตอร์ Cewe × ราคาในสัญญา, ค่าวัด) เทียบค่าใช้จ่ายใน Site log ของโรงไฟฟ้า Growatt ของสถานี (บันทึกเอง; เหตุการณ์ที่ไม่มีค่าใช้จ่ายนับจำนวนแต่ไม่คิดเงิน) ไม่มีค่าประมาณ คลิกแถวเพื่อดูรายวันของสถานี",
+  "Outside the report (other plants or months): {thb} in {n} events.": "นอกรายงาน (โรงไฟฟ้าหรือเดือนอื่น): {thb} ใน {n} เหตุการณ์",
 };

@@ -186,3 +186,16 @@ def test_pwa_plant_rates_fill_keeps_entered_rates(api):
         rates = tariff.get_tariff(db)["plant_rates"]
         assert rates[str(P1)]["thb_per_kwh"] == 3.5 and rates[str(P2)] == {"thb_per_kwh": 2.7647, "basis": "PWA contract"}
         assert tariff.pricer(db).thb(P2, 10.0, 10.0) == pytest.approx(27.647)
+
+
+def test_spend_by_month_entered_only_and_scoped(api):
+    _, client, admin, eng = api
+    body = client.get("/growatt/center?start=2026-10-01&end=2026-11-20", headers=admin).json()
+    rows = {(r["plant_id"], r["month"], r["event_type"]): r for r in body["spend_by_month"]}
+    assert rows[(P1, "2026-10", "repair")] == {"plant_id": P1, "month": "2026-10", "event_type": "repair", "spend_thb": 999, "events": 1, "events_priced": 1}
+    assert rows[(P1, "2026-11", "cleaning")]["spend_thb"] == 3000
+    # an event without a cost is counted, never priced as 0
+    assert rows[(P1, "2026-11", "repair")]["spend_thb"] is None and rows[(P1, "2026-11", "repair")]["events"] == 1
+    assert [r["month"] for r in body["spend_by_month"]] == sorted(r["month"] for r in body["spend_by_month"])
+    mine = client.get("/growatt/center?start=2026-10-01&end=2026-11-20", headers=eng).json()
+    assert {r["plant_id"] for r in mine["spend_by_month"]} == {P1}

@@ -14,7 +14,7 @@ import { plantPath } from "../../context/routes";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DAY_STATUS, EST, MODELLED, WEATHER, dayMs, fmtDay, issueTone } from "./format";
+import { DAY_STATUS, MODELLED, WEATHER, dayMs, fmtDay, issueTone } from "./format";
 import { translate, useI18n } from "../../i18n";
 
 const siteSpec = (d: PwaMeterSiteDays, median: number | null): PanelChartSpec | null => {
@@ -122,8 +122,6 @@ export const SiteDialog: React.FC<{
             <Fact label={t("vs contract (mod.)")} title={t(MODELLED)} value={row?.vs_contract_pct == null ? "—" : `${fmt(row.vs_contract_pct, 1)} %`} />
             <Fact label={t("vs PVsyst (mod.)")} title={t(MODELLED)} value={row?.vs_pvsyst_pct == null ? "—" : `${fmt(row.vs_pvsyst_pct, 1)} %`} />
             <Fact label={t("Availability")} value={row?.availability_pct == null ? "—" : `${fmt(row.availability_pct, 2)} %`} />
-            <Fact label={t("Loss (est.)")} title={t(EST)} value={`฿${fmtInt(row?.loss_thb)}`} />
-            <Fact label={t("Meter gap (est.)")} title={t(EST)} value={check?.gap_mwh == null ? "—" : `${fmt(check.gap_mwh, 2)} MWh`} />
             {site.growatt_plant_id != null && (
               <Link to={plantPath(site.growatt_plant_id, "generation")} className="ml-auto text-xs text-solar-400 hover:underline">
                 {t("Growatt plant {name} →", { name: site.growatt_name ?? site.growatt_plant_id })}
@@ -169,9 +167,6 @@ export const SiteDialog: React.FC<{
                   </span>
                   <span className="num">{t("{n} d", { n: o.days })}</span>
                   <span>{o.cause}</span>
-                  <span className="num text-muted-foreground" title={t(EST)}>
-                    {t("{v} MWh lost (est.)", { v: fmt(o.lost_mwh, 2) })}
-                  </span>
                 </li>
               ))}
             </ul>

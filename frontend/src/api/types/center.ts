@@ -51,6 +51,16 @@ export interface OmCenterPlant {
   spend_thb: number | null;
 }
 
+export interface OmCenterSpendMonth {
+  plant_id: number;
+  /** YYYY-MM */
+  month: string;
+  event_type: string;
+  spend_thb: number | null;
+  events: number;
+  events_priced: number;
+}
+
 export interface OmCenter {
   window: { start: string; end: string; days: number; today: string };
   scope: "fleet" | "assigned";
@@ -63,6 +73,9 @@ export interface OmCenter {
   };
   issues: { total: number; top: OmCenterIssue[] };
   plants: OmCenterPlant[];
+  /** Site log costs per plant, calendar month and event type in the window (entered; `spend_thb`
+   * null = none of those events has a cost, never 0) */
+  spend_by_month: OmCenterSpendMonth[];
   /** admins: active issues of rules still in shadow mode that are not counted; null = not applicable */
   shadow_hidden: number | null;
   include_shadow: boolean;

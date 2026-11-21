@@ -1,5 +1,6 @@
 /** Engineering O&M tables: the issues to fix first and one row per plant. Rows come sorted from the
- * page; these only render. Missing values show "—"; estimated columns say so in the header. */
+ * page; these only render. Missing values show "—"; modelled columns say so in the header. No
+ * estimated lost kWh / ฿: the page shows stored measurements, the report and entered costs only. */
 import React from "react";
 import { Link } from "react-router-dom";
 import type { OmCenterIssue, OmCenterPlant, PwaMeterSiteSummary } from "../../api/client";
@@ -8,13 +9,8 @@ import { fmt, fmtInt } from "../../components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHead } from "../pwaMeter/tables";
-import { EST, ENTERED, fmtDay, thb } from "./format";
+import { ENTERED, fmtDay, thb } from "./format";
 import { useI18n } from "../../i18n";
-
-const Est: React.FC = () => {
-  const { t } = useI18n();
-  return <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{t("est.")}</span>;
-};
 
 const tierVariant = (i: OmCenterIssue) => (i.safety || i.tier === "P1" ? "crit" : i.tier === "P2" ? "warn" : "neutral");
 
@@ -36,21 +32,9 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
         <TableHead>{t("Issue")}</TableHead>
         <TableHead>{t("Plant")}</TableHead>
         <TableHead>{t("Where")}</TableHead>
-        <TableHead className="text-right" title={`${t(EST)} ${t("Mean of the last 3 days the issue fired.")}`}>
-          {t("฿ / day")}
-          <Est />
-        </TableHead>
-        <TableHead className="text-right" title={t(EST)}>
-          {t("฿ so far")}
-          <Est />
-        </TableHead>
         <TableHead className="text-right">{t("Age")}</TableHead>
         <TableHead>{t("Acknowledged")}</TableHead>
         <TableHead>{t("Next visit")}</TableHead>
-        <TableHead className="text-right" title={t("฿ / day × days until the plant's next planned visit (Calendar). An estimate.")}>
-          {t("Cost of waiting")}
-          <Est />
-        </TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -79,8 +63,6 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
             {i.device_sn ? (i.inverter_name ?? i.device_sn) : t("Plant")}
             {i.string_no != null ? ` · ${t("String {n}", { n: i.string_no })}` : ""}
           </TableCell>
-          <TableCell className="num text-right">{thb(i.thb_per_day_est)}</TableCell>
-          <TableCell className="num text-right">{thb(i.thb_total_est)}</TableCell>
           <TableCell className="num whitespace-nowrap text-right">{t("{n} d", { n: i.age_days })}</TableCell>
           <TableCell className="whitespace-nowrap text-muted-foreground">{i.ack_by ?? "—"}</TableCell>
           <TableCell className="num whitespace-nowrap">
@@ -93,7 +75,6 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
               <span className="text-amber-300">{t("None planned")}</span>
             )}
           </TableCell>
-          <TableCell className="num text-right">{thb(i.cost_of_waiting_thb_est)}</TableCell>
         </TableRow>
       ))}
     </TableBody>
@@ -101,16 +82,13 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
   );
 };
 
-export const PlantSortKeys = ["lost", "name", "share", "perday", "issues", "epi", "pr", "avail", "contract", "clean", "visit", "spend"] as const;
+export const PlantSortKeys = ["issues", "name", "epi", "pr", "avail", "contract", "clean", "visit", "spend"] as const;
 export type PlantSort = (typeof PlantSortKeys)[number];
 
 export const plantSortValue = (r: OmCenterPlant, k: PlantSort, sites?: Map<number, PwaMeterSiteSummary>): number | string | null =>
   ({
     contract: sites?.get(r.plant_id)?.vs_contract_pct ?? null,
-    lost: r.lost_thb_est,
     name: r.name,
-    share: r.loss_share_pct,
-    perday: r.thb_per_day_est,
     issues: r.active_issues,
     epi: r.epi_median,
     pr: r.pr_temp_corrected_median_pct,
@@ -140,9 +118,6 @@ export const PlantsTable: React.FC<{
       <TableHeader>
         <TableRow>
           <SortHead k="name" label={t("Plant")} {...h} />
-          <SortHead k="lost" label={<>{t("฿ lost")}<Est /></>} className="text-right" title={t(EST)} {...h} />
-          <SortHead k="share" label={<>{t("Loss share")}<Est /></>} className="text-right" title={t("Lost kWh ÷ (produced + lost kWh) in the period")} {...h} />
-          <SortHead k="perday" label={<>{t("฿ / day now")}<Est /></>} className="text-right" title={t("Active issues, mean of the last 3 days each fired")} {...h} />
           <SortHead k="issues" label={t("Issues")} className="text-right" {...h} />
           <SortHead k="avail" label={t("Availability")} className="text-right" title={t("Inverter minutes not in fault / off / standby ÷ daylight minutes with data")} {...h} />
           <SortHead k="epi" label="EPI" className="text-right" title={t("Median of the period: measured ÷ modelled energy (modelled). Days with a suspect sensor left out.")} {...h} />
@@ -165,9 +140,6 @@ export const PlantsTable: React.FC<{
                 {r.energy_kwh != null ? `${fmt(r.energy_kwh, 0)} kWh` : t("no energy stored")}
               </span>
             </TableCell>
-            <TableCell className="num text-right">{thb(r.lost_thb_est)}</TableCell>
-            <TableCell className="num text-right">{r.loss_share_pct == null ? "—" : `${fmt(r.loss_share_pct, 1)} %`}</TableCell>
-            <TableCell className="num text-right">{thb(r.thb_per_day_est)}</TableCell>
             <TableCell className="num text-right">{r.active_issues ? fmtInt(r.active_issues) : "—"}</TableCell>
             <TableCell className={`num text-right ${availTone(r.availability_pct)}`}>{r.availability_pct == null ? "—" : `${fmt(r.availability_pct, 1)} %`}</TableCell>
             <TableCell className="num text-right">{fmt(r.epi_median, 2)}</TableCell>

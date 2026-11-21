@@ -2,21 +2,24 @@
  * Operations → Engineering O&M (`/center`, everyone, scoped to the user's plants): one page for a
  * period, from two stored sources that are shown side by side and never added together:
  *
- * - **Billing** (PWA meter report, `/pwa/meter/*`, phases 1–2, imported monthly): billed meter
- *   energy per month at the contract's book price against the contract (modelled), and the
- *   shortfall split into engineering causes (`/pwa/meter/billing`): outage, under-performance and
- *   meter gap are recoverable by O&M, curtailment is PM's. Then the report's engineering lists:
- *   estimated losses, outage events and the meter vs inverter check. Admins import the workbooks here.
- * - **Inverter side** (`/growatt/center`): what the decision rules say is being lost, in ฿ at the
- *   tariff, by cause, the issues to fix first and one row per plant.
+ * - **Billing** (PWA meter report imported from the Excel workbooks, `/pwa/meter/*`, phases 1–2,
+ *   imported monthly): billed meter energy per month at the contract's book price against the
+ *   contract (modelled), then the report's lists: sites, outage events and the meter vs inverter
+ *   check. Admins import the workbooks here.
+ * - **Finance** (`center/finance.tsx`): that billing against the O&M spend entered in the Site log
+ *   (`spend_by_month` of `/growatt/center`), per month and per report site: spend ÷ billed, ฿ / kWp,
+ *   ฿ / MWh, billed − spend. Measured × book price against entered costs, nothing estimated.
+ * - **Inverter side** (`/growatt/center`, the stored Growatt dataset): produced energy, availability,
+ *   the decision rules' active issues and one row per plant.
  *
- * One period for both (the report lags, so its badge says how far it reaches). DB only, nothing
- * polls. Lost kWh / ฿ are estimates, contract / PVsyst / EPI / PR′ modelled, costs entered.
- * Engineers see their plants, no phase totals and no issues of rules in shadow mode.
+ * Only stored data and the imported report: no estimated lost kWh / ฿ (no forecast of what the plants
+ * should have made), contract / PVsyst / EPI / PR′ labelled modelled, costs entered. One period for
+ * both (the report lags, so its badge says how far it reaches). DB only, nothing polls. Engineers
+ * see their plants, no phase totals; issues of rules in shadow mode are never counted here.
  * Pieces in `pages/center/` and `pages/pwaMeter/`; docs/plans/om-center-dashboard.md.
  *
- * URL: `range` (mtd | 7d | 30d | 90d | ytd), `from`, `to` (YYYY-MM-DD, custom), `shadow`,
- * `view` (issues | plants | recover | billing | sites | outages | meter), `q`, `phase`, `show`
+ * URL: `range` (mtd | 7d | 30d | 90d | ytd), `from`, `to` (YYYY-MM-DD, custom),
+ * `view` (issues | plants | billing | finance | sites | outages | meter), `q`, `phase`, `show`
  * (sites view), `month` (billing view, YYYY-MM), `sort`, `desc`, `site` (site detail open).
  * `/pwa-meter` redirects here.
  */
@@ -58,49 +61,35 @@ import {
 import { SiteDialog } from "./pwaMeter/SiteDialog";
 import { ImportDialog } from "./pwaMeter/ImportDialog";
 import { useCenter } from "./center/useCenter";
-import { ENTERED, EST, FAMILY_COLOR, RANGES, RANGE_LABEL, VIEWS, fmtDay, lossSpec, rangeStart, thb, thbShort } from "./center/format";
+import { ENTERED, RANGES, RANGE_LABEL, VIEWS, rangeStart, thb, thbShort } from "./center/format";
 import type { Range, View } from "./center/format";
 import { IssuesTable, PlantSortKeys, PlantsTable, plantSortValue } from "./center/tables";
-import { fleetDailySpec, regionSpec, topPlantsSpec } from "./center/chartSpecs";
-import { HEAT_LEGEND, Legend, OWNERS, StrategyMatrix, YieldHeatmap } from "./center/charts";
-import {
-  BILL_CAUSES,
-  BILL_EST,
-  BILLED_HINT,
-  BillSortKeys,
-  BillingTable,
-  RecoverSortKeys,
-  RecoverTable,
-  billSortValue,
-  billedMonthSpec,
-  fmtMonth,
-  monthTotals,
-  recoverSortValue,
-  shortfallMonthSpec,
-} from "./center/billing";
+import { fleetDailySpec } from "./center/chartSpecs";
+import { HEAT_LEGEND, Legend, YieldHeatmap } from "./center/charts";
+import { BILLED_HINT, BillSortKeys, BillingTable, billSortValue, billedMonthSpec, fmtMonth, monthTotals } from "./center/billing";
+import { FINANCE_HINT, FinanceSortKeys, FinanceTable, SPEND_GROUPS, financeModel, financeMonthSpec, financeSortValue } from "./center/finance";
 import { useI18n } from "../i18n";
 
 const ALL = "all";
-const METER_VIEWS: readonly View[] = ["recover", "billing", "sites", "outages", "meter"];
+const METER_VIEWS: readonly View[] = ["billing", "finance", "sites", "outages", "meter"];
 /** default sort key and direction per view (the issues list keeps the backend's order) */
 const DEFAULT_SORT: Record<Exclude<View, "issues">, readonly [string, boolean]> = {
-  plants: ["lost", true],
-  recover: ["rank", false],
+  plants: ["issues", true],
   billing: ["month", true],
-  sites: ["rank", false],
+  finance: ["spend", true],
+  sites: ["yield", false],
   outages: ["days", true],
-  meter: ["gap", true],
+  meter: ["low", true],
 };
 const SORT_KEYS: Record<Exclude<View, "issues">, readonly string[]> = {
   plants: PlantSortKeys,
-  recover: RecoverSortKeys,
   billing: BillSortKeys,
+  finance: FinanceSortKeys,
   sites: SiteSortKeys,
   outages: OutageSortKeys,
   meter: CheckSortKeys,
 };
 const SHOW_LABEL: Record<Show, string> = { all: "All sites", issues: "With issues", om: "O&M to act", pm: "PM (curtailment)" };
-const PWA_EST = "Estimated from the PWA meter report and its criteria file, priced at the contract's book price";
 
 const sum = <T,>(rows: T[], get: (r: T) => number | null): number | null => {
   const vals = rows.map(get).filter((v): v is number => v != null);
@@ -173,7 +162,6 @@ export const OmCenterPage: React.FC = () => {
   const to = pickDay(url.get("to"));
   const custom = from != null || to != null;
   const range: Range = pick(url.get("range"), RANGES, "mtd");
-  const shadow = admin && url.get("shadow") === "1";
   const view: View = pick(url.get("view"), VIEWS, "issues");
   const query = url.get("q") ?? "";
   const phase = pick(url.get("phase"), PHASES, ALL);
@@ -187,7 +175,7 @@ export const OmCenterPage: React.FC = () => {
   const start = custom ? from : rangeStart(range);
   const end = custom ? to : null;
   const win: PwaMeterWindow = useMemo(() => ({ start, end }), [start, end]);
-  const center = useCenter(start, end, shadow);
+  const center = useCenter(start, end, false); // shadow-mode rules are never counted on this page
   const pwa = usePwaMeter(win);
   const c = center.data;
   const loading = center.loading || pwa.loading;
@@ -222,10 +210,6 @@ export const OmCenterPage: React.FC = () => {
 
   // ---- inverter side
   const m = c?.money;
-  const spec = useMemo(() => (c ? lossSpec(c) : null), [c]);
-  const totals = c?.loss_by_cause.totals ?? [];
-  const totalThb = totals.reduce((s, x) => s + (x.thb_est ?? 0), 0);
-  const famLabel = (k: string) => c?.loss_by_cause.families.find((f) => f.key === k)?.label ?? k;
 
   // ---- PWA meter report
   const sites = useMemo(() => pwa.data?.summary.sites ?? [], [pwa.data]);
@@ -237,18 +221,10 @@ export const OmCenterPage: React.FC = () => {
   }, [sites]);
   const dataEnd = pwa.data?.summary.window.end ?? null;
   const meterMwh = sum(inPhase, (r) => r.meter_mwh);
-  const lossThb = sum(inPhase, (r) => r.loss_thb);
-  const split = [
-    { key: "curtail", label: t("Curtailment"), note: t("PM matter, not an O&M KPI"), mwh: sum(inPhase, (r) => r.curtailment_loss_mwh), color: "bg-sky-400" },
-    { key: "outage", label: t("Outage"), note: t("Meter and inverter both < 1 kWh"), mwh: sum(inPhase, (r) => r.outage_loss_mwh), color: "bg-red-400" },
-    { key: "under", label: t("Under-performance"), note: t("Below 95 % of the phase's free-running sites"), mwh: sum(inPhase, (r) => r.under_loss_mwh), color: "bg-amber-400" },
-  ];
-  const splitMax = Math.max(0, ...split.map((s) => s.mwh ?? 0));
   const omSites = inPhase.filter((r) => r.owner?.includes("O&M")).length;
   const issueSites = inPhase.filter((r) => r.issues.length).length;
   const pmSites = inPhase.filter((r) => r.owner?.includes("PM")).length;
   const flaggedChecks = (pwa.data?.checks ?? []).filter((r) => (phase === ALL || r.phase === Number(phase)) && r.flags.length);
-  const gapMwh = sum((pwa.data?.checks ?? []).filter((r) => phase === ALL || r.phase === Number(phase)), (r) => r.gap_mwh);
   const phases = (pwa.data?.summary.phases ?? []).filter((p) => phase === ALL || p.phase === Number(phase));
 
   // ---- billing: the meter report by calendar month, and the causes of its shortfall
@@ -263,23 +239,21 @@ export const OmCenterPage: React.FC = () => {
   const billedOnContract = sum(billSites, (r) => (r.contract_kwh == null ? null : r.contract_kwh - (r.shortfall_kwh ?? 0)));
   const vsContract = contractKwh && billedOnContract != null ? (100 * billedOnContract) / contractKwh : null;
   const shortKwh = sum(billSites, (r) => r.shortfall_kwh);
-  const recoverThb = sum(billSites, (r) => r.recoverable_thb);
-  const recoverKwh = sum(billSites, (r) => r.recoverable_kwh);
-  const recoverSites = billSites.filter((r) => (r.recoverable_thb ?? 0) > 0).length;
   const belowContract = billSites.filter((r) => (r.shortfall_kwh ?? 0) > 0).length;
   const missingDays = billSites.reduce((s, r) => s + r.missing_days, 0);
-  const causeKwhTotal = BILL_CAUSES.map((c) => ({ ...c, kwh: sum(billSites, (r) => r[`${c.key}_kwh`]) }));
   const billSpec = useMemo(() => billedMonthSpec(months), [months]);
-  const shortSpec = useMemo(() => shortfallMonthSpec(months), [months]);
+  // ---- finance: the billing against the O&M spend entered in the Site log (same plants, same months)
+  const fin = useMemo(() => financeModel(billRowsAll, billSites, c?.spend_by_month ?? []), [billRowsAll, billSites, c]);
+  const finSpec = useMemo(() => financeMonthSpec(fin.months), [fin]);
+  const finReady = !!bill && !!c;
   const price = bill?.price_thb_per_kwh ?? criteria?.tariff.book_price_thb_per_kwh ?? null;
 
   // ---- charts
   const daily = pwa.data?.daily ?? null;
   const phaseNo = phase === ALL ? null : Number(phase);
   const fleetSpec = useMemo(() => (daily ? fleetDailySpec(daily, phaseNo) : null), [daily, phaseNo]);
-  const regSpec = useMemo(() => regionSpec(inPhase), [inPhase]);
-  const plantSpec = useMemo(() => (c ? topPlantsSpec(c.plants) : null), [c]);
-  const heatOrder = useMemo(() => inPhase.map((r) => r.site_id), [inPhase]);
+  // heatmap rows: lowest measured yield first (sites without one last)
+  const heatOrder = useMemo(() => byKey(inPhase, (r) => r.yield_kwh_kwp, false).map((r) => r.site_id), [inPhase]);
   const pwaLoading = pwa.loading && !pwa.data;
   const noReport = t("No meter report days in this period");
 
@@ -292,29 +266,29 @@ export const OmCenterPage: React.FC = () => {
   );
   const issueRows = useMemo(() => (c?.issues.top ?? []).filter((i) => has(`${i.plant_name ?? ""} ${i.inverter_name ?? ""} ${i.device_sn ?? ""} ${i.name} ${i.rule}`)), [c, has]);
   const plantRows = useMemo(
-    () => byKey((c?.plants ?? []).filter((r) => has(`${r.name} ${r.plant_id}`)), (r) => plantSortValue(r, pick(sortKey, PlantSortKeys, "lost"), siteByPlant), desc),
+    () => byKey((c?.plants ?? []).filter((r) => has(`${r.name} ${r.plant_id}`)), (r) => plantSortValue(r, pick(sortKey, PlantSortKeys, "issues"), siteByPlant), desc),
     [c, has, sortKey, desc, siteByPlant]
   );
   const siteRows = useMemo(() => {
     const rows = sites.filter(
       (r) => matchSite(r) && (show === "all" || (show === "issues" && r.issues.length > 0) || (show === "om" && !!r.owner?.includes("O&M")) || (show === "pm" && !!r.owner?.includes("PM")))
     );
-    return byKey(rows, (r) => siteSortValue(r, pick(sortKey, SiteSortKeys, "rank")), desc);
+    return byKey(rows, (r) => siteSortValue(r, pick(sortKey, SiteSortKeys, "yield")), desc);
   }, [sites, matchSite, show, sortKey, desc]);
   const outageAll = useMemo(() => (pwa.data?.outages ?? []).filter((r) => phase === ALL || r.phase === Number(phase)), [pwa.data, phase]);
   const outageRows = useMemo(() => byKey((pwa.data?.outages ?? []).filter(matchSite), (r) => outageSortValue(r, pick(sortKey, OutageSortKeys, "days")), desc), [pwa.data, matchSite, sortKey, desc]);
-  const checkRows = useMemo(() => byKey((pwa.data?.checks ?? []).filter(matchSite), (r) => checkSortValue(r, pick(sortKey, CheckSortKeys, "gap")), desc), [pwa.data, matchSite, sortKey, desc]);
+  const checkRows = useMemo(() => byKey((pwa.data?.checks ?? []).filter(matchSite), (r) => checkSortValue(r, pick(sortKey, CheckSortKeys, "low")), desc), [pwa.data, matchSite, sortKey, desc]);
   const billRows = useMemo(
     () => byKey(billRowsAll.filter((r) => (billMonth === ALL || r.month === billMonth) && matchSite(r)), (r) => billSortValue(r, pick(sortKey, BillSortKeys, "month")), desc),
     [billRowsAll, billMonth, matchSite, sortKey, desc]
   );
-  const recoverRows = useMemo(() => byKey(billSites.filter(matchSite), (r) => recoverSortValue(r, pick(sortKey, RecoverSortKeys, "rank")), desc), [billSites, matchSite, sortKey, desc]);
+  const financeRows = useMemo(() => byKey(fin.sites.filter(matchSite), (r) => financeSortValue(r, pick(sortKey, FinanceSortKeys, "spend")), desc), [fin, matchSite, sortKey, desc]);
   const mttr = outageAll.length ? outageAll.reduce((s, e) => s + e.days, 0) / outageAll.length : null;
   const longCount = longDays != null ? outageAll.filter((e) => e.days >= longDays).length : null;
   const fastPct = fastDays != null && outageAll.length ? (100 * outageAll.filter((e) => e.days <= fastDays).length) / outageAll.length : null;
 
   const meterView = METER_VIEWS.includes(view);
-  const rowsShown = { issues: issueRows.length, plants: plantRows.length, recover: recoverRows.length, billing: billRows.length, sites: siteRows.length, outages: outageRows.length, meter: checkRows.length }[view];
+  const rowsShown = { issues: issueRows.length, plants: plantRows.length, billing: billRows.length, finance: financeRows.length, sites: siteRows.length, outages: outageRows.length, meter: checkRows.length }[view];
   const viewLoading = meterView ? pwa.loading && !pwa.data : center.loading && !c;
   const anyFilter = query.trim() !== "" || (meterView && phase !== ALL) || (view === "sites" && show !== "all") || (view === "billing" && billMonth !== ALL);
   const cnt = (ready: unknown, v: number) => (ready ? fmtInt(v) : "—"); // not read yet ≠ none
@@ -323,8 +297,8 @@ export const OmCenterPage: React.FC = () => {
     setUrl({ view: v === "issues" ? null : v, sort: null, desc: null, show: v === "sites" && show !== "all" ? show : null, month: v === "billing" && billMonth !== ALL ? billMonth : null });
   const onSort = (k: string) => {
     if (view === "issues") return;
-    // a new column starts worst-first, except names, rank and dates
-    const nextDesc = k === sortKey ? !desc : !["name", "rank", "start", "visit"].includes(k);
+    // a new column starts worst-first, except names and dates; yield and the meter ratio start lowest
+    const nextDesc = k === sortKey ? !desc : !["name", "start", "visit", "yield", "median"].includes(k);
     setUrl({ sort: k === DEFAULT_SORT[view][0] ? null : k, desc: nextDesc ? "1" : "0" });
   };
   const openSite = (id: string) => setUrl({ site: id });
@@ -334,44 +308,44 @@ export const OmCenterPage: React.FC = () => {
     if (view === "issues")
       downloadCsv(
         `om-center-issues-${tag}.csv`,
-        ["id", "tier", "safety", "rule", "issue", "plant_id", "plant", "inverter", "device_sn", "string_no", "thb_per_day_est", "thb_total_est", "lost_kwh_per_day_est", "age_days", "status", "ack_by", "next_visit", "cost_of_waiting_thb_est", "shadow"],
-        issueRows.map((i) => [i.id, i.tier, i.safety ? 1 : 0, i.rule, i.name, i.plant_id, i.plant_name, i.inverter_name, i.device_sn, i.string_no, i.thb_per_day_est, i.thb_total_est, i.lost_kwh_est, i.age_days, i.status, i.ack_by, i.next_visit, i.cost_of_waiting_thb_est, i.shadow ? 1 : 0])
+        ["id", "tier", "safety", "rule", "issue", "plant_id", "plant", "inverter", "device_sn", "string_no", "age_days", "status", "ack_by", "next_visit"],
+        issueRows.map((i) => [i.id, i.tier, i.safety ? 1 : 0, i.rule, i.name, i.plant_id, i.plant_name, i.inverter_name, i.device_sn, i.string_no, i.age_days, i.status, i.ack_by, i.next_visit])
       );
     else if (view === "plants")
       downloadCsv(
         `om-center-plants-${tag}.csv`,
-        ["plant_id", "name", "capacity_kwp", "energy_kwh", "lost_kwh_est", "lost_thb_est", "loss_share_pct_est", "thb_per_day_now_est", "active_issues", "availability_pct", "epi_median_modelled", "pr_temp_corrected_median_pct", "pwa_site_id", "meter_vs_contract_pct_modelled", "days_since_cleaning", "next_visit", "om_spend_thb_entered"],
-        plantRows.map((r) => [r.plant_id, r.name, r.capacity_kwp, r.energy_kwh, r.lost_kwh_est, r.lost_thb_est, r.loss_share_pct, r.thb_per_day_est, r.active_issues, r.availability_pct, r.epi_median, r.pr_temp_corrected_median_pct, siteByPlant.get(r.plant_id)?.site_id ?? null, siteByPlant.get(r.plant_id)?.vs_contract_pct ?? null, r.days_since_cleaning, r.next_visit, r.spend_thb])
-      );
-    else if (view === "recover")
-      downloadCsv(
-        `engineering-om-recoverable-${tag}.csv`,
-        ["rank", "site_id", "phase", "name", "region", "kwp", "growatt_plant_id", "months", "meter_days", "missing_days", "outage_days", "billed_kwh", "billed_thb_book_price", "contract_kwh_modelled", "vs_contract_pct_modelled", "shortfall_kwh_modelled", "outage_kwh_est", "under_kwh_est", "meter_gap_kwh_est", "curtailment_kwh_est", "unexplained_kwh_est", "recoverable_kwh_est", "recoverable_thb_est", "action_cause", "owner", "action"],
-        recoverRows.map((r) => [r.rank, r.site_id, r.phase, r.name, r.region, r.kwp, r.growatt_plant_id, r.months, r.meter_days, r.missing_days, r.outage_days, r.billed_kwh, r.billed_thb, r.contract_kwh, r.vs_contract_pct, r.shortfall_kwh, r.outage_kwh, r.under_kwh, r.meter_gap_kwh, r.curtailment_kwh, r.unexplained_kwh, r.recoverable_kwh, r.recoverable_thb, r.action_cause, r.owner, r.action])
+        ["plant_id", "name", "capacity_kwp", "energy_kwh", "active_issues", "availability_pct", "epi_median_modelled", "pr_temp_corrected_median_pct", "pwa_site_id", "meter_vs_contract_pct_modelled", "days_since_cleaning", "next_visit", "om_spend_thb_entered"],
+        plantRows.map((r) => [r.plant_id, r.name, r.capacity_kwp, r.energy_kwh, r.active_issues, r.availability_pct, r.epi_median, r.pr_temp_corrected_median_pct, siteByPlant.get(r.plant_id)?.site_id ?? null, siteByPlant.get(r.plant_id)?.vs_contract_pct ?? null, r.days_since_cleaning, r.next_visit, r.spend_thb])
       );
     else if (view === "billing")
       downloadCsv(
         `engineering-om-billing-${billMonth === ALL ? tag : billMonth}.csv`,
-        ["month", "site_id", "phase", "name", "region", "kwp", "growatt_plant_id", "start", "end", "report_days", "meter_days", "missing_days", "outage_days", "curtailment_note_days", "billed_kwh", "billed_thb_book_price", "contract_kwh_modelled", "vs_contract_pct_modelled", "shortfall_kwh_modelled", "shortfall_thb_modelled", "outage_kwh_est", "under_kwh_est", "meter_gap_kwh_est", "curtailment_kwh_est", "unexplained_kwh_est", "recoverable_kwh_est", "recoverable_thb_est"],
-        billRows.map((r) => [r.month, r.site_id, r.phase, r.name, r.region, r.kwp, r.growatt_plant_id, r.start, r.end, r.days, r.meter_days, r.missing_days, r.outage_days, r.curtailment_note_days, r.billed_kwh, r.billed_thb, r.contract_kwh, r.vs_contract_pct, r.shortfall_kwh, r.shortfall_thb, r.outage_kwh, r.under_kwh, r.meter_gap_kwh, r.curtailment_kwh, r.unexplained_kwh, r.recoverable_kwh, r.recoverable_thb])
+        ["month", "site_id", "phase", "name", "region", "kwp", "growatt_plant_id", "start", "end", "report_days", "meter_days", "missing_days", "outage_days", "curtailment_note_days", "billed_kwh", "billed_thb_book_price", "contract_kwh_modelled", "vs_contract_pct_modelled", "shortfall_kwh_modelled", "shortfall_thb_modelled"],
+        billRows.map((r) => [r.month, r.site_id, r.phase, r.name, r.region, r.kwp, r.growatt_plant_id, r.start, r.end, r.days, r.meter_days, r.missing_days, r.outage_days, r.curtailment_note_days, r.billed_kwh, r.billed_thb, r.contract_kwh, r.vs_contract_pct, r.shortfall_kwh, r.shortfall_thb])
+      );
+    else if (view === "finance")
+      downloadCsv(
+        `engineering-om-finance-${tag}.csv`,
+        ["site_id", "phase", "name", "region", "kwp", "growatt_plant_id", "billed_kwh", "billed_thb_book_price", "vs_contract_pct_modelled", "om_spend_thb_entered", ...SPEND_GROUPS.map((g) => `spend_${g.key}_thb_entered`), "site_log_events", "site_log_events_priced", "spend_vs_billed_pct", "spend_thb_per_kwp", "billed_minus_spend_thb"],
+        financeRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.kwp, r.growatt_plant_id, r.billed_kwh, r.billed_thb, r.vs_contract_pct, r.spend.thb, ...SPEND_GROUPS.map((g) => (r.spend.thb == null ? null : r.spend.by[g.key])), r.spend.events, r.spend.priced, r.ratio_pct, r.per_kwp, r.net_thb])
       );
     else if (view === "sites")
       downloadCsv(
         `pwa-meter-sites-${tag}.csv`,
-        ["rank", "site_id", "phase", "name", "region", "kwp", "growatt_plant_id", "days", "meter_mwh", "contract_mwh_modelled", "pvsyst_mwh_modelled", "vs_contract_pct", "vs_pvsyst_pct", "yield_kwh_kwp", "availability_pct", "data_availability_pct", "outage_days", "data_gap_days", "curtailment_note_days", "curtailed", "curtailment_loss_mwh_est", "outage_loss_mwh_est", "under_loss_mwh_est", "loss_thb_est", "issues", "owner"],
-        siteRows.map((r) => [r.rank, r.site_id, r.phase, r.name, r.region, r.kwp, r.growatt_plant_id, r.days, r.meter_mwh, r.contract_mwh, r.pvsyst_mwh, r.vs_contract_pct, r.vs_pvsyst_pct, r.yield_kwh_kwp, r.availability_pct, r.data_availability_pct, r.outage_days, r.data_gap_days, r.curtailment_note_days, r.curtailed ? 1 : 0, r.curtailment_loss_mwh, r.outage_loss_mwh, r.under_loss_mwh, r.loss_thb, r.issues.join(" | "), r.owner])
+        ["site_id", "phase", "name", "region", "kwp", "growatt_plant_id", "days", "meter_mwh", "contract_mwh_modelled", "pvsyst_mwh_modelled", "vs_contract_pct", "vs_pvsyst_pct", "yield_kwh_kwp", "availability_pct", "data_availability_pct", "outage_days", "data_gap_days", "curtailment_note_days", "curtailed", "issues", "owner"],
+        siteRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.kwp, r.growatt_plant_id, r.days, r.meter_mwh, r.contract_mwh, r.pvsyst_mwh, r.vs_contract_pct, r.vs_pvsyst_pct, r.yield_kwh_kwp, r.availability_pct, r.data_availability_pct, r.outage_days, r.data_gap_days, r.curtailment_note_days, r.curtailed ? 1 : 0, r.issues.join(" | "), r.owner])
       );
     else if (view === "outages")
       downloadCsv(
         `pwa-meter-outages-${tag}.csv`,
-        ["site_id", "phase", "name", "region", "start", "end", "days", "cause", "lost_mwh_est", "lost_thb_est", "note"],
-        outageRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.start, r.end, r.days, r.cause, r.lost_mwh, r.lost_thb, r.note])
+        ["site_id", "phase", "name", "region", "start", "end", "days", "cause", "note"],
+        outageRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.start, r.end, r.days, r.cause, r.note])
       );
     else
       downloadCsv(
         `pwa-meter-check-${tag}.csv`,
-        ["site_id", "phase", "name", "region", "median_ratio_pct", "p05_ratio_pct", "low_days", "high_days", "inverter_missing_days", "meter_missing_days", "gap_mwh_est", "gap_thb_est", "flags"],
-        checkRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.median_ratio_pct, r.p05_ratio_pct, r.low_days, r.high_days, r.inverter_missing_days, r.meter_missing_days, r.gap_mwh, r.gap_thb, r.flags.join(" | ")])
+        ["site_id", "phase", "name", "region", "median_ratio_pct", "p05_ratio_pct", "low_days", "high_days", "inverter_missing_days", "meter_missing_days", "flags"],
+        checkRows.map((r) => [r.site_id, r.phase, r.name, r.region, r.median_ratio_pct, r.p05_ratio_pct, r.low_days, r.high_days, r.inverter_missing_days, r.meter_missing_days, r.flags.join(" | ")])
       );
   };
 
@@ -383,18 +357,18 @@ export const OmCenterPage: React.FC = () => {
         : !pwa.data ? t("Report unavailable") : !sites.length ? t("No meter report days in this period") : view === "outages" ? t("No outage events") : view === "billing" ? t("No matching site-months") : t("No matching sites");
   const emptyText =
     view === "issues" && c && !query.trim()
-      ? admin && (c.shadow_hidden ?? 0) > 0 ? t("Every active issue is from a rule in shadow mode.") : t("The decision rules have nothing open on these plants.")
+      ? t("The decision rules have nothing open on these plants.")
       : meterView && pwa.data && !sites.length
         ? admin ? t("Import the report (Import report), or widen the period: the report is imported monthly.") : t("None of your plants is in the report for this period.")
         : null;
   const footnote = {
-    issues: t("Active issues: safety first, then tier, then ฿ / day (mean of the last 3 days each fired). Cost of waiting = ฿ / day × days until the plant's next planned visit. All ฿ are estimates."),
-    plants: t("Inverter side. ฿ lost counts each kWh once across overlapping rules. EPI and PR′ are modelled medians of the period. Meter vs contract comes from the PWA meter report and opens the site's days."),
-    recover: t("Billing, per site over the period. Shortfall = contract (modelled) − billed. Recoverable = outage + under-performance + meter gap (estimated, each month judged on its own), at the book price{price}. Curtailment is PM's. \"Not explained\" = weather against the model, model error, or losses the criteria do not see. A row opens the site's days.", { price: price != null ? ` ฿${fmt(price, 4)} / kWh` : "" }),
-    billing: t("Billing, one row per site and calendar month (the period's first and last month may be partial). Billed = Cewe meter kWh at the book price; red − = days without a reading since the site's first report day. Causes are estimated per month. A row opens the site's days."),
-    sites: t("PWA meter report. Losses and ฿ are estimated; contract and PVsyst are modelled. Rank = estimated loss ฿. A site's row opens its days."),
+    issues: t("Active issues of the decision rules on the stored data: safety first, then tier. Next visit = the plant's next planned task in the Calendar."),
+    plants: t("Inverter side, stored data. EPI and PR′ are modelled medians of the period. Meter vs contract comes from the PWA meter report and opens the site's days."),
+    billing: t("Billing, one row per site and calendar month (the period's first and last month may be partial). Billed = Cewe meter kWh at the book price; red − = days without a reading since the site's first report day. Shortfall = contract (modelled) − billed. A row opens the site's days."),
+    finance: `${t("Finance, per report site over the report's months: billed value (Cewe meter kWh × book price, measured) against the Site log costs of the site's Growatt plant (entered; events without a cost are counted, not priced). Nothing estimated. A row opens the site's days.")}${fin.outside.events ? ` ${t("Outside the report (other plants or months): {thb} in {n} events.", { thb: thb(fin.outside.thb), n: fmtInt(fin.outside.events) })}` : ""}`,
+    sites: t("PWA meter report. Contract and PVsyst are modelled. Lowest yield first. A site's row opens its days."),
     outages: `${t("Consecutive outage days of a site (meter and inverter both < 1 kWh). Cause = first keyword group in the notes.")}${longDays != null ? ` ${t("Red = {n} days or more.", { n: longDays })}` : ""}`,
-    meter: t("Meter ÷ inverter per site, judged on productive days. The gap is the energy the meter may have missed (estimated)."),
+    meter: t("Meter ÷ inverter per site, judged on productive days."),
   }[view];
 
   return (
@@ -431,11 +405,6 @@ export const OmCenterPage: React.FC = () => {
           </Select>
           <Input type="date" aria-label={t("From")} className="h-8 w-36 [color-scheme:dark]" value={start ?? ""} max={to ?? c?.window.today} onChange={(e) => setUrl({ from: pickDay(e.target.value), to: to ?? c?.window.end ?? null, range: null })} />
           <Input type="date" aria-label={t("To")} className="h-8 w-36 [color-scheme:dark]" value={to ?? c?.window.end ?? ""} min={start ?? undefined} max={c?.window.today} onChange={(e) => setUrl({ to: pickDay(e.target.value), from: start, range: null })} />
-          {admin && (
-            <Button variant={shadow ? "accent" : "outline"} size="sm" aria-pressed={shadow} title={t("Also count issues of rules still in shadow mode (not calibrated yet, hidden from engineers)")} onClick={() => setUrl({ shadow: !shadow })}>
-              {shadow ? t("Shadow rules on") : t("Shadow rules off")}
-            </Button>
-          )}
           <Button variant="outline" size="sm" onClick={reload} disabled={loading}>
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
             {loading ? t("Refreshing…") : t("Refresh")}
@@ -460,21 +429,12 @@ export const OmCenterPage: React.FC = () => {
           <AlertDescription>{pwa.error}</AlertDescription>
         </Alert>
       )}
-      {c && admin && c.meta.tariff_source === "default" && (
-        <Alert>
-          <AlertTitle>{t("Inverter-side baht use the default tariff")}</AlertTitle>
-          <AlertDescription>
-            {t("No tariff has been saved yet (Settings → Price per kWh), so the inverter-side ฿ are priced at the built-in default rates.")}
-          </AlertDescription>
-        </Alert>
-      )}
-
       {/* ---- figures: billing first, then engineering (meter report, inverters) and the team's work; sources are never added together */}
       <div className="grid gap-x-5 gap-y-5 xl:grid-cols-2">
         <Group
           title={t("Billing")}
           source={t("PWA meter report · ฿ at the contract's book price")}
-          cols="sm:grid-cols-4"
+          cols="sm:grid-cols-3"
           badge={
             <Select value={phase} onValueChange={(v) => setUrl({ phase: v === ALL ? null : v })}>
               <SelectTrigger size="sm" className="h-6 w-28 text-[11px]" aria-label={t("Phase")}>
@@ -519,31 +479,39 @@ export const OmCenterPage: React.FC = () => {
               </span>
             }
           />
+        </Group>
+
+        <Group title={t("Finance")} source={t("Billing (measured × book price) vs Site log costs (entered)")} cols="sm:grid-cols-4">
           <StatTile
-            label={t("Recoverable")}
-            tag={t("est.")}
-            value={thbShort(recoverThb)}
-            tone={recoverThb ? "text-amber-300" : undefined}
-            href={listHref({ view: "recover" })}
-            linkLabel={t("Open the sites with the most to recover")}
+            label={t("O&M spend")}
+            value={thbShort(fin.spend.thb)}
+            href={listHref({ view: "finance" })}
+            linkLabel={t("Open the finance by site")}
             footer={
-              <span title={`${t("{thb}: outage + under-performance + meter gap, at the book price.", { thb: thb(recoverThb) })} ${t(BILL_EST)}`}>
-                {recoverKwh == null ? "—" : `${fmt(recoverKwh / 1000, 1)} MWh`} · {t("{n} sites", { n: cnt(bill, recoverSites) })}
+              <span title={`${t("Site log costs of the report sites' Growatt plants, in the report's months.")} ${t(ENTERED)}`}>
+                {!finReady ? "—" : fin.spend.events ? t("{n} of {total} events have a cost", { n: fmtInt(fin.spend.priced), total: fmtInt(fin.spend.events) }) : t("No Site log events")}
               </span>
             }
           />
+          <StatTile
+            label={t("Spend ÷ billed")}
+            value={fin.ratio_pct == null ? "—" : fmt(fin.ratio_pct, 2)}
+            unit="%"
+            footer={<span title={t(FINANCE_HINT)}>{t("{n} sites with a cost", { n: finReady ? fmtInt(fin.sites_with_spend) : "—" })}</span>}
+          />
+          <StatTile
+            label={t("O&M ฿ / MWh")}
+            value={fin.per_mwh == null ? "—" : fmt(fin.per_mwh, 0)}
+            footer={<span title={t(FINANCE_HINT)}>{price != null ? t("Book price ฿{v} / MWh", { v: fmt(price * 1000, 0) }) : t("Per billed MWh")}</span>}
+          />
+          <StatTile
+            label={t("Billed − spend")}
+            value={thbShort(fin.net_thb)}
+            footer={<span title={t("Billed value minus the entered O&M spend; — when no cost is entered")}>{t("After entered O&M costs")}</span>}
+          />
         </Group>
 
-        <Group title={t("Engineering · meter report")} source={t("Report criteria · ฿ at the book price")} cols="sm:grid-cols-4">
-          <StatTile
-            label={t("Estimated loss")}
-            tag={t("est.")}
-            value={thbShort(lossThb)}
-            tone={lossThb ? "text-red-300" : undefined}
-            href={listHref({ view: "sites" })}
-            linkLabel={t("Open the meter sites, largest loss first")}
-            footer={<span title={`${thb(lossThb)}. ${t(PWA_EST)}`}>{t("Curtailment, outage, under-performance")}</span>}
-          />
+        <Group title={t("Engineering · meter report")} source={t("PWA meter report and its criteria file")} cols="sm:grid-cols-3">
           <StatTile
             label={t("O&M to act")}
             value={cnt(pwa.data, omSites)}
@@ -579,34 +547,18 @@ export const OmCenterPage: React.FC = () => {
             tone={flaggedChecks.length ? "text-amber-300" : undefined}
             href={listHref({ view: "meter" })}
             linkLabel={t("Open the meter check")}
-            footer={<span title={t("Sites with a meter vs inverter flag; the gap is energy the meter may have missed (estimated)")}>{gapMwh == null ? "—" : t("{v} MWh gap est.", { v: fmt(gapMwh, 1) })}</span>}
+            footer={<span title={t("Sites with a meter vs inverter flag")}>{t("Meter ÷ inverter, productive days")}</span>}
           />
         </Group>
 
-        <Group title={t("Engineering · inverters")} source={t("Decision rules · ฿ at the tariff")} cols="sm:grid-cols-4">
+        <Group title={t("Engineering · inverters")} source={t("Stored Growatt data · decision rules")} cols="sm:grid-cols-3">
           <StatTile
-            label={t("Losing now")}
-            tag={t("est.")}
-            value={m?.losing_now_thb_per_day_est == null ? "—" : thb(m.losing_now_thb_per_day_est)}
-            unit={t("/ day")}
-            tone={m?.losing_now_thb_per_day_est ? "text-red-300" : undefined}
+            label={t("Active issues")}
+            value={cnt(m, m?.active_issues ?? 0)}
+            tone={m?.active_issues ? "text-amber-300" : undefined}
             href={listHref({ view: null })}
             linkLabel={t("Open the issues to fix first")}
-            footer={
-              <>
-                <span title={t(EST)}>{t("{n} active issues", { n: cnt(m, m?.active_issues ?? 0) })}</span>
-                {(m?.safety_issues ?? 0) > 0 && <span className="text-red-300">{t("{n} safety", { n: fmtInt(m?.safety_issues) })}</span>}
-              </>
-            }
-          />
-          <StatTile
-            label={t("Lost in period")}
-            tag={t("est.")}
-            value={m?.lost_thb_est == null ? "—" : thb(m.lost_thb_est)}
-            meter={m?.loss_share_pct != null ? <Meter segments={[{ pct: m.loss_share_pct, className: "bg-red-400" }]} title={t("{v} % of produced + lost kWh", { v: fmt(m.loss_share_pct, 2) })} /> : undefined}
-            href={listHref({ view: "plants" })}
-            linkLabel={t("Open the plants, most lost first")}
-            footer={<span title={t(EST)}>{!m ? "—" : m.lost_kwh_est == null ? t("No priced loss") : `${fmt(m.lost_kwh_est, 0)} kWh${m.loss_share_pct != null ? ` · ${t("{v} % of energy", { v: fmt(m.loss_share_pct, 1) })}` : ""}`}</span>}
+            footer={(m?.safety_issues ?? 0) > 0 ? <span className="text-red-300">{t("{n} safety", { n: fmtInt(m?.safety_issues) })}</span> : <span>{t("Decision rules, live only")}</span>}
           />
           <StatTile
             label={t("Produced")}
@@ -640,7 +592,7 @@ export const OmCenterPage: React.FC = () => {
         </Group>
       </div>
 
-      {/* ---- billing by month: what was billed, and why it fell short of the contract */}
+      {/* ---- billing by month: what was billed against the contract, and against the O&M spend */}
       <div className="grid gap-4 xl:grid-cols-2">
         <ChartCard
           title={t("Billed vs contract by month")}
@@ -654,137 +606,23 @@ export const OmCenterPage: React.FC = () => {
           <PanelChart spec={billSpec} height={330} />
         </ChartCard>
         <ChartCard
-          title={t("Shortfall by cause")}
-          source={t("PWA meter")}
-          badge={t("Estimated")}
-          badgeTitle={t(BILL_EST)}
-          loading={pwaLoading}
-          empty={!shortSpec ? noReport : null}
-          note={t("Line = contract − billed energy (below 0 = above contract). Bars = what the engineering causes explain, each month judged on its own. Outage, under-performance and meter gap are recoverable by O&M; curtailment is PM's.")}
+          title={t("Billing vs O&M spend by month")}
+          source={t("PWA meter · Site log")}
+          badge={t("Measured · entered")}
+          badgeTitle={t(FINANCE_HINT)}
+          loading={pwaLoading || (center.loading && !c)}
+          empty={!finSpec ? noReport : null}
+          note={t("Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend ÷ billed. Months without a priced event have no spend bar.")}
         >
-          <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs">
-            {causeKwhTotal.map((c) => (
-              <span key={c.key} className="flex items-center gap-1.5" title={t(c.hint)}>
-                <span className="inline-block size-2.5 rounded-sm" style={{ background: c.color }} />
-                <span className="text-muted-foreground">{t(c.label)}</span>
-                <span className="num font-medium">{c.kwh == null ? "—" : `${fmt(c.kwh / 1000, 1)} MWh`}</span>
-                {price != null && c.kwh != null && <span className="num text-muted-foreground">{thb(c.kwh * price)}</span>}
-              </span>
-            ))}
-          </div>
-          <PanelChart spec={shortSpec} height={300} />
+          <PanelChart spec={finSpec} height={330} legendPosition="bottom" />
         </ChartCard>
-      </div>
-
-      {/* ---- where the loss is, per source */}
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex flex-wrap items-center gap-2">
-              {t("Loss by cause")}
-              <span className="text-[11px] font-normal text-muted-foreground">{t("Inverter side")}</span>
-              <Badge variant="neutral" title={t(EST)}>
-                {t("Estimated")}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {spec ? (
-              <>
-                <PanelChart spec={spec} height={250} />
-                <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs">
-                  {totals.map((x) => (
-                    <span key={x.family} className="flex items-center gap-1.5">
-                      <span className="inline-block size-2.5 rounded-sm" style={{ background: FAMILY_COLOR[x.family] }} />
-                      <span className="text-muted-foreground">{famLabel(x.family)}</span>
-                      <span className="num font-medium">{thb(x.thb_est)}</span>
-                      <span className="num text-muted-foreground">
-                        {fmt(x.kwh_est, 0)} kWh{totalThb > 0 ? ` · ${fmt(((x.thb_est ?? 0) / totalThb) * 100, 0)} %` : ""}
-                      </span>
-                    </span>
-                  ))}
-                </div>
-              </>
-            ) : center.loading && !c ? (
-              <SkeletonRows rows={5} />
-            ) : (
-              <Empty className="py-10">
-                <EmptyHeader>
-                  <EmptyTitle>{t("No priced loss in this period")}</EmptyTitle>
-                  <EmptyDescription>
-                    {t("No issue with an estimated loss fired on these plants between {from} and {to}.", { from: fmtDay(c?.window.start), to: fmtDay(c?.window.end) })}
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex flex-wrap items-center gap-2">
-              {t("Loss by cause: lost energy by cause (MWh, report period)")}
-              <span className="text-[11px] font-normal text-muted-foreground">{t("PWA meter")}</span>
-              <Badge variant="neutral" title={t(PWA_EST)}>
-                {t("Estimated")}
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            {pwa.loading && !pwa.data ? (
-              <SkeletonRows rows={3} />
-            ) : splitMax > 0 ? (
-              <>
-                {split.map((s) => (
-                  <div key={s.key} className="flex flex-col gap-1">
-                    <div className="flex items-baseline justify-between gap-2 text-xs">
-                      <span>{s.label}</span>
-                      <span className="num font-medium">{s.mwh == null ? "—" : `${fmt(s.mwh, 1)} MWh`}</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
-                      <div className={`h-full rounded-full ${s.color}`} style={{ width: `${s.mwh ? Math.max(1, (s.mwh / splitMax) * 100) : 0}%` }} />
-                    </div>
-                    <span className="text-[11px] text-muted-foreground">{s.note}</span>
-                  </div>
-                ))}
-                <p className="border-t pt-3 text-xs text-muted-foreground">
-                  {t("Total")} <span className="num font-medium text-foreground">{thb(lossThb)}</span> {t("at the contract's book price")}
-                  {criteria ? ` (฿${fmt(criteria.tariff.book_price_thb_per_kwh, 4)} / kWh)` : ""}. {t("Not comparable with the inverter-side baht, which use the tariff.")}
-                </p>
-              </>
-            ) : (
-              <Empty className="py-10">
-                <EmptyHeader>
-                  <EmptyTitle>{pwa.data && sites.length ? t("No estimated loss") : t("No meter report days in this period")}</EmptyTitle>
-                  {pwa.data && !sites.length && <EmptyDescription>{dataEnd ? t("The report is imported monthly.") : t("The report is imported monthly; try a longer period.")}</EmptyDescription>}
-                </EmptyHeader>
-              </Empty>
-            )}
-          </CardContent>
-        </Card>
       </div>
 
       {/* ---- charts: where to look, per source */}
       <div className="grid gap-4 xl:grid-cols-2">
-        <ChartCard
-          title={t("Strategy matrix: loss value × performance")}
-          source={t("PWA meter")}
-          badge={t("Estimated")}
-          badgeTitle={t(PWA_EST)}
-          loading={pwaLoading}
-          empty={!inPhase.length ? noReport : null}
-          note={t("One dot per site: lower right loses the most and produces the least against PVsyst (modelled). Dot size follows kWp. Click a dot for the site's days.")}
-        >
-          <Legend items={OWNERS} />
-          <StrategyMatrix sites={inPhase} onOpen={openSite} />
-        </ChartCard>
-        {admin ? (
-          <ChartCard title={t("Fleet by day: daily specific yield of the fleet (kWh/kWp)")} source={t("PWA meter")} badge={t("Contract modelled")} badgeTitle={t("Measured meter kWh; the contract's energy is modelled")} loading={pwaLoading} empty={!fleetSpec ? noReport : null}>
+        {admin && (
+          <ChartCard title={t("Fleet by day: daily specific yield of the fleet (kWh/kWp)")} source={t("PWA meter")} badge={t("Contract modelled")} badgeTitle={t("Measured meter kWh; the contract's energy is modelled")} className="xl:col-span-2" loading={pwaLoading} empty={!fleetSpec ? noReport : null}>
             <PanelChart spec={fleetSpec} height={372} />
-          </ChartCard>
-        ) : (
-          <ChartCard title={t("Loss by region")} source={t("PWA meter")} badge={t("Estimated")} badgeTitle={t(PWA_EST)} loading={pwaLoading} empty={!inPhase.length ? noReport : !regSpec ? t("No estimated loss") : null}>
-            <PanelChart spec={regSpec} height={300} />
           </ChartCard>
         )}
         <ChartCard
@@ -795,7 +633,7 @@ export const OmCenterPage: React.FC = () => {
           className="xl:col-span-2"
           loading={pwaLoading}
           empty={!daily || !daily.days.length || !heatOrder.length ? noReport : null}
-          note={t("One row per site, largest loss first · hover for the value, click a row to open the site")}
+          note={t("One row per site, lowest yield first · hover for the value, click a row to open the site")}
         >
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <label className="flex items-center gap-2 text-xs font-semibold">
@@ -816,22 +654,6 @@ export const OmCenterPage: React.FC = () => {
           </div>
           {daily && <YieldHeatmap daily={daily} order={heatOrder} onOpen={openSite} />}
         </ChartCard>
-        {admin && (
-          <ChartCard title={t("Loss by region")} source={t("PWA meter")} badge={t("Estimated")} badgeTitle={t(PWA_EST)} loading={pwaLoading} empty={!inPhase.length ? noReport : !regSpec ? t("No estimated loss") : null}>
-            <PanelChart spec={regSpec} height={300} />
-          </ChartCard>
-        )}
-        <ChartCard
-          title={t("Plants losing the most")}
-          source={t("Inverter side")}
-          badge={t("Estimated")}
-          badgeTitle={t(EST)}
-          className={admin ? undefined : "xl:col-span-2"}
-          loading={center.loading && !c}
-          empty={!plantSpec ? t("No priced loss in this period") : null}
-        >
-          <PanelChart spec={plantSpec} height={300} />
-        </ChartCard>
       </div>
 
       {/* ---- the lists */}
@@ -845,11 +667,11 @@ export const OmCenterPage: React.FC = () => {
               <TabsTrigger value="plants" className="px-3 py-2.5 text-sm">
                 {t("Plants")} <span className="num text-muted-foreground">{cnt(c, c?.plants.length ?? 0)}</span>
               </TabsTrigger>
-              <TabsTrigger value="recover" className="px-3 py-2.5 text-sm">
-                {t("Recoverable ฿")} <span className="num text-muted-foreground">{cnt(bill, recoverSites)}</span>
-              </TabsTrigger>
               <TabsTrigger value="billing" className="px-3 py-2.5 text-sm">
                 {t("Billing by month")} <span className="num text-muted-foreground">{cnt(bill, billRowsAll.length)}</span>
+              </TabsTrigger>
+              <TabsTrigger value="finance" className="px-3 py-2.5 text-sm">
+                {t("Finance")} <span className="num text-muted-foreground">{finReady ? fmtInt(fin.sites_with_spend) : "—"}</span>
               </TabsTrigger>
               <TabsTrigger value="sites" className="px-3 py-2.5 text-sm">
                 {t("Meter sites")} <span className="num text-muted-foreground">{cnt(pwa.data, inPhase.length)}</span>
@@ -912,7 +734,7 @@ export const OmCenterPage: React.FC = () => {
           </div>
         )}
         {meterView && !admin && pwa.data && sites.length > 0 && (
-          <p className="border-b px-4 py-2 text-[11px] text-muted-foreground sm:px-5">{t("Phase totals are for admins: they include plants you are not assigned. Losses still compare each site with every site of its phase.")}</p>
+          <p className="border-b px-4 py-2 text-[11px] text-muted-foreground sm:px-5">{t("Phase totals are for admins: they include plants you are not assigned.")}</p>
         )}
 
         <CardContent className="max-h-[70vh] overflow-auto px-0">
@@ -930,17 +752,17 @@ export const OmCenterPage: React.FC = () => {
           ) : view === "issues" ? (
             <IssuesTable rows={issueRows} />
           ) : view === "plants" ? (
-            <PlantsTable rows={plantRows} sort={pick(sortKey, PlantSortKeys, "lost")} desc={desc} onSort={onSort} sites={siteByPlant} onOpenSite={openSite} />
-          ) : view === "recover" ? (
-            <RecoverTable rows={recoverRows} sort={pick(sortKey, RecoverSortKeys, "rank")} desc={desc} onSort={onSort} onOpen={openSite} />
+            <PlantsTable rows={plantRows} sort={pick(sortKey, PlantSortKeys, "issues")} desc={desc} onSort={onSort} sites={siteByPlant} onOpenSite={openSite} />
           ) : view === "billing" ? (
             <BillingTable rows={billRows} sort={pick(sortKey, BillSortKeys, "month")} desc={desc} onSort={onSort} onOpen={openSite} />
+          ) : view === "finance" ? (
+            <FinanceTable rows={financeRows} sort={pick(sortKey, FinanceSortKeys, "spend")} desc={desc} onSort={onSort} onOpen={openSite} />
           ) : view === "sites" ? (
-            <SitesTable rows={siteRows} sort={pick(sortKey, SiteSortKeys, "rank")} desc={desc} onSort={onSort} onOpen={openSite} />
+            <SitesTable rows={siteRows} sort={pick(sortKey, SiteSortKeys, "yield")} desc={desc} onSort={onSort} onOpen={openSite} />
           ) : view === "outages" ? (
             <OutagesTable rows={outageRows} sort={pick(sortKey, OutageSortKeys, "days")} desc={desc} onSort={onSort} onOpen={openSite} longDays={longDays ?? Infinity} />
           ) : (
-            <MeterCheckTable rows={checkRows} sort={pick(sortKey, CheckSortKeys, "gap")} desc={desc} onSort={onSort} onOpen={openSite} />
+            <MeterCheckTable rows={checkRows} sort={pick(sortKey, CheckSortKeys, "low")} desc={desc} onSort={onSort} onOpen={openSite} />
           )}
         </CardContent>
         <CardContent className="border-t py-2.5 text-[11px] text-muted-foreground">
