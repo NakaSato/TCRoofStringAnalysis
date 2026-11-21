@@ -42,9 +42,9 @@ EXT_IP_NAME="tcroof-db-ext"
 MACHINE_TYPE="${MACHINE_TYPE:-e2-standard-2}"  # 2 vCPU / 8 GB (Postgres page cache for charts + history)
 DISK_TYPE="${DISK_TYPE:-pd-balanced}"
 API_MIN_INSTANCES="${API_MIN_INSTANCES:-1}"    # 1 = no cold start (idle instance ≈ ฿447/month)
-# Monthly budget in the billing account's currency (override with BUDGET_AMOUNT, e.g. 3000 or 3000THB).
+# Monthly budget in the billing account's currency (override with BUDGET_AMOUNT, e.g. 1000 or 1000THB).
 BUDGET_NAME="tcroof-monthly"
-budget_amount_for() { case "$1" in THB) echo 3000 ;; USD) echo 88 ;; *) echo "" ;; esac; }
+budget_amount_for() { case "$1" in THB) echo 1000 ;; USD) echo 29 ;; *) echo "" ;; esac; }
 COST_CAP_PCT="${COST_CAP_PCT:-96}"             # cost guard disables billing here (billing data lags ~1 day)
 COSTGUARD_DRY_RUN="${COSTGUARD_DRY_RUN:-false}"
 BUDGET_TOPIC="tcroof-budget"

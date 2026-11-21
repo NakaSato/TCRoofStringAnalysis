@@ -1,6 +1,6 @@
 ---
 name: gcp
-description: 'Check and operate TC Roof Solar''s production on GCP (project tcroof-string-analysis): status and cost vs deploy/gcp.config, the ฿3,000 budget and cost guard, deploys (backend, frontend, upsize, monitoring, costguard), backups and cleanup. Use for "check GCP", "GCP cost", "deploy", "is the cost guard working", snapshots, or changing the budget / sizing.'
+description: 'Check and operate TC Roof Solar''s production on GCP (project tcroof-string-analysis): status and cost vs deploy/gcp.config, the ฿1,000 budget and cost guard, deploys (backend, frontend, upsize, monitoring, costguard), backups and cleanup. Use for "check GCP", "GCP cost", "deploy", "is the cost guard working", snapshots, or changing the budget / sizing.'
 ---
 
 # GCP operations: TC Roof Solar
@@ -47,7 +47,7 @@ After any deploy, run `status.sh` again and confirm `/api/health` and `/api/heal
 3. Check: `status.sh` shows no `MISMATCH`.
 4. Commit on a branch, PR, merge (the user merges to `main` and deletes the branch).
 
-Keep planned monthly spend at least ~฿150 below the trip point (`BUDGET × COST_CAP_PCT`). Billing data arrives about a day late, so a plan that equals the budget gets cut off near the end of the month. Current plan: budget ฿3,000, trip ฿2,880, planned ≈ ฿2,566 (Cloud Run min 0).
+Keep planned monthly spend at least ~฿150 below the trip point (`BUDGET × COST_CAP_PCT`). Billing data arrives about a day late, so a plan that equals the budget gets cut off near the end of the month. Current plan: budget ฿1,000, trip ฿960, planned ≈ ฿2,566 (Cloud Run min 0). The plan is over the trip point on purpose (user decision 2026-11-21): expect the guard to disable billing partway through each month.
 
 ## 4. Backups and cleanup
 
