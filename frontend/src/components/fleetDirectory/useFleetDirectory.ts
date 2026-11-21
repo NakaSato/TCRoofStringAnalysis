@@ -10,6 +10,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
+import type { UserProfile } from "../../api/client";
+import { useAuth } from "../../context/AuthContext";
 import type { GrowattInverterSnapshot, GrowattLive, GrowattLivePlantsToday } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
 import { useLivePoll } from "../../context/useLivePoll";
@@ -31,6 +33,29 @@ export const useFleetDirectory = () => {
     growattLiveStatus,
   } = useAppContext();
   const alarmLog = useAlarmLog(plantToday()).view?.result ?? null;
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  // active engineers and their assigned plants, for the Engineer filter (admin only: /users)
+  const [engineers, setEngineers] = useState<UserProfile[]>([]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    api
+      .listUsers()
+      .then((us) => {
+        if (cancelled) return;
+        setEngineers(
+          us
+            .filter((u) => u.role === "engineer" && u.is_active)
+            .sort((a, b) => (a.full_name || a.username || "").localeCompare(b.full_name || b.username || ""))
+        );
+      })
+      .catch(() => undefined); // the filter then lists no engineers
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
 
   // today's energy per plant, realtime (backend memory only; never stored)
   const [liveToday, setLiveToday] = useState<GrowattLive<GrowattLivePlantsToday> | null>(null);
@@ -106,6 +131,8 @@ export const useFleetDirectory = () => {
   const [phaseFilter, setPhaseFilter] = useState<"ALL" | "NONE" | number>("ALL");
   const [deviceSnFilter, setDeviceSnFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "Normal" | "Faulty" | "Disconnected">("ALL");
+  /** "ALL", "NONE" (no active engineer assigned) or an engineer's user id */
+  const [engineerFilter, setEngineerFilter] = useState<"ALL" | "NONE" | number>("ALL");
   const [expandedFilters, setExpandedFilters] = useState(false);
 
   // Applied filters (updated when clicking Search, or live on input)
@@ -273,6 +300,9 @@ export const useFleetDirectory = () => {
     const nameQ = plantNameFilter.trim().toLowerCase();
     const regionQ = regionFilter.trim().toLowerCase();
     const snQ = deviceSnFilter.trim().toLowerCase();
+    const engineerPlants =
+      typeof engineerFilter === "number" ? new Set(engineers.find((u) => u.id === engineerFilter)?.plant_ids ?? []) : null;
+    const assignedPlants = engineerFilter === "NONE" ? new Set(engineers.flatMap((u) => u.plant_ids ?? [])) : null;
 
     const list = unifiedPlants.filter((p) => {
       if (nameQ && !p.name.toLowerCase().includes(nameQ) && !String(p.id).includes(nameQ)) {
@@ -293,6 +323,12 @@ export const useFleetDirectory = () => {
       if (statusFilter !== "ALL" && p.statusLabel !== statusFilter) {
         return false;
       }
+      if (engineerPlants && !engineerPlants.has(p.id)) {
+        return false;
+      }
+      if (assignedPlants && assignedPlants.has(p.id)) {
+        return false;
+      }
       return true;
     });
 
@@ -308,7 +344,7 @@ export const useFleetDirectory = () => {
         ? String(av).localeCompare(String(bv))
         : String(bv).localeCompare(String(av));
     });
-  }, [unifiedPlants, plantNameFilter, regionFilter, deviceTypeFilter, phaseFilter, deviceSnFilter, statusFilter, sortField, sortAsc]);
+  }, [unifiedPlants, plantNameFilter, regionFilter, deviceTypeFilter, phaseFilter, deviceSnFilter, statusFilter, engineerFilter, engineers, sortField, sortAsc]);
 
   // Phases present in the registry (one Growatt account each), with plant counts
   const phaseOptions = useMemo(() => {
@@ -349,6 +385,7 @@ export const useFleetDirectory = () => {
     setPhaseFilter("ALL");
     setDeviceSnFilter("");
     setStatusFilter("ALL");
+    setEngineerFilter("ALL");
     setCurrentPage(1);
   };
 
@@ -388,6 +425,10 @@ export const useFleetDirectory = () => {
     setDeviceSnFilter,
     statusFilter,
     setStatusFilter,
+    isAdmin,
+    engineers,
+    engineerFilter,
+    setEngineerFilter,
     expandedFilters,
     setExpandedFilters,
     sortField,

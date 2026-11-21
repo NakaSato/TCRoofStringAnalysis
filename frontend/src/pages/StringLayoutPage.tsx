@@ -1,34 +1,25 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  Cpu,
-  Grid3x3,
-  RotateCcw,
-  Save,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cpu, Grid3x3, Search } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
 import type { FleetModuleOut, GrowattStringLayout, GrowattStringLayoutEntry } from "../api/client";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
-import { EmptyState, LoadingState, fmt } from "../components/ui";
+import { EmptyState, LoadingState, Meter, fmt } from "../components/ui";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { useI18n } from "../i18n";
+import { SaveBar } from "./settings/shared";
+import { InverterSld, SldLegend, type Draft } from "./stringLayout/TopologyDiagram";
 
-/** `wp` blank = the fleet module's rating (global setting), so a fleet change applies everywhere. */
-type Draft = { modules: string; wp: string; azimuth: string; tilt: string };
 const EMPTY_DRAFT: Draft = { modules: "", wp: "", azimuth: "", tilt: "" };
 const FILTERS = ["all", "incomplete", "mismatch"] as const;
-type Filter = (typeof FILTERS)[number];
 const keyOf = (sn: string, no: number) => `${sn}|${no}`;
 const toInt = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : null);
 const toNum = (v: string) => (v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
-const strLabel = (no: number) => `STR-${String(no).padStart(2, "0")}`;
 
 const draftFrom = (l: GrowattStringLayout) => {
   const d: Record<string, Draft> = {};
@@ -44,9 +35,11 @@ const draftFrom = (l: GrowattStringLayout) => {
 };
 
 /**
- * Plant view tab: as-built modules per string (and module Wp) for the selected Growatt plant.
- * Growatt does not report module counts; once every active string of an inverter has one, the
- * backend compares strings per module / per kWp so a short string is not flagged as a fault.
+ * Plant view tab: as-built modules per string (and module Wp, azimuth, tilt) for the selected
+ * Growatt plant. Growatt does not report module counts; once every active string of an inverter has
+ * one, the backend compares strings per module / per kWp so a short string is not flagged as a fault.
+ * Layout: summary figures, the inverter list (URL `filter`, `q`, `inv`) and the selected inverter's
+ * single-line diagram, where each string is edited; Save appears only with unsaved changes.
  */
 export const StringLayoutPage: React.FC = () => {
   const { selectedGrowattPlantId, user, refreshAll } = useAppContext();
@@ -61,11 +54,11 @@ export const StringLayoutPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "crit"; text: string } | null>(null);
-  // filter in the URL (?filter=); switching plant drops it
+  // page choices in the URL; switching plant drops them
   const [url, setUrl] = useUrlState();
   const filter = pick(url.get("filter"), FILTERS, "all");
-  const setFilter = (f: Filter) => setUrl({ filter: f === "all" ? null : f });
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const q = url.get("q") ?? "";
+  const invParam = url.get("inv");
 
   useEffect(() => {
     api.getFleetModule().then(setFleetModule).catch(() => {});
@@ -74,7 +67,6 @@ export const StringLayoutPage: React.FC = () => {
   useEffect(() => {
     setMsg(null);
     setLayout(null);
-    setCollapsed(new Set());
     if (selectedGrowattPlantId == null) return;
     setLoading(true);
     api
@@ -106,13 +98,16 @@ export const StringLayoutPage: React.FC = () => {
   // per-inverter view model
   const invs = useMemo(
     () =>
-      (layout?.inverters ?? []).map((inv) => {
+      // in name order, numbers compared as numbers (INVERTER 2 before INVERTER 10)
+      [...(layout?.inverters ?? [])]
+        .sort((a, b) => (a.alias || a.device_sn).localeCompare(b.alias || b.device_sn, undefined, { numeric: true }))
+        .map((inv, idx) => {
         const rows = inv.strings.map((s) => {
           const k = keyOf(inv.device_sn, s.string_no);
           const d = draft[k] ?? EMPTY_DRAFT;
           const m = toInt(d.modules);
           const wp = toNum(d.wp) ?? fleetWp;
-          return { s, k, d, m, kwp: m != null && wp != null ? (m * wp) / 1000 : null, invalid: d.modules.trim() !== "" && m == null };
+          return { s, k, d, m, kwp: m != null && wp != null ? (m * wp) / 1000 : null, invalid: d.modules.trim() !== "" && m == null, dirty: isDirty(k) };
         });
         // strings in parallel on one MPPT share its voltage, so unequal lengths there lose energy
         const mismatch = new Set(
@@ -124,6 +119,7 @@ export const StringLayoutPage: React.FC = () => {
         for (const r of rows) mppts.set(r.s.mppt_no, [...(mppts.get(r.s.mppt_no) ?? []), r]);
         const active = rows.filter((r) => r.s.active);
         return {
+          no: idx + 1,
           inv,
           rows,
           mppts: [...mppts.entries()].sort((a, b) => a[0] - b[0]),
@@ -131,29 +127,42 @@ export const StringLayoutPage: React.FC = () => {
           filled: rows.filter((r) => r.m != null).length,
           complete: active.length > 0 && active.every((r) => r.m != null),
           kwp: rows.reduce((t, r) => t + (r.kwp ?? 0), 0),
-          dirty: rows.filter((r) => isDirty(r.k)).length,
+          dirty: rows.filter((r) => r.dirty).length,
         };
       }),
     [layout, draft, baseline, fleetWp]
   );
 
   const totals = useMemo(() => {
-    const strings = invs.reduce((t, i) => t + i.rows.length, 0);
-    const filled = invs.reduce((t, i) => t + i.filled, 0);
+    const allComplete = invs.length > 0 && invs.every((i) => i.complete);
+    const acKnown = invs.length > 0 && invs.every((i) => i.inv.rated_power_w != null);
+    const ac = invs.reduce((t, i) => t + (i.inv.rated_power_w ?? 0) / 1000, 0);
+    const kwp = invs.reduce((t, i) => t + i.kwp, 0);
     return {
-      strings,
-      filled,
+      strings: invs.reduce((t, i) => t + i.rows.length, 0),
+      filled: invs.reduce((t, i) => t + i.filled, 0),
       complete: invs.filter((i) => i.complete).length,
-      kwp: invs.reduce((t, i) => t + i.kwp, 0),
+      kwp,
+      ac: acKnown ? ac : null,
+      // a plant DC/AC only when every inverter is complete and every rating is known
+      ratio: allComplete && acKnown && ac > 0 ? kwp / ac : null,
       mismatchInv: invs.filter((i) => i.mismatch.size > 0).length,
       dirty: invs.reduce((t, i) => t + i.dirty, 0),
       invalid: invs.reduce((t, i) => t + i.rows.filter((r) => r.invalid).length, 0),
     };
   }, [invs]);
 
-  const shown = invs.filter((i) =>
-    filter === "incomplete" ? !i.complete : filter === "mismatch" ? i.mismatch.size > 0 : true
+  const qn = q.trim().toLowerCase();
+  const shown = invs.filter(
+    (i) =>
+      (filter === "incomplete" ? !i.complete : filter === "mismatch" ? i.mismatch.size > 0 : true) &&
+      (!qn ||
+        i.inv.device_sn.toLowerCase().includes(qn) ||
+        (i.inv.alias ?? "").toLowerCase().includes(qn) ||
+        (i.inv.device_model ?? i.inv.model).toLowerCase().includes(qn))
   );
+  // the URL's inverter, else the first one listed
+  const selected = invs.find((i) => i.inv.device_sn === invParam) ?? shown[0] ?? invs[0] ?? null;
 
   // warn before leaving the page with unsaved edits
   useEffect(() => {
@@ -205,14 +214,6 @@ export const StringLayoutPage: React.FC = () => {
     }
   };
 
-  const toggle = (sn: string) =>
-    setCollapsed((c) => {
-      const n = new Set(c);
-      if (n.has(sn)) n.delete(sn);
-      else n.add(sn);
-      return n;
-    });
-
   if (selectedGrowattPlantId == null) {
     return (
       <div className="space-y-6">
@@ -223,7 +224,7 @@ export const StringLayoutPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <SelectedPlantBanner />
 
       {loading || (!layout && !msg) ? (
@@ -239,217 +240,169 @@ export const StringLayoutPage: React.FC = () => {
             </div>
           )}
 
-          {/* Sticky action bar: filters, save */}
-          <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.08] bg-ink-900/95 px-4 py-2.5 text-xs shadow-lg backdrop-blur">
-            <div className="flex rounded-lg border border-white/[0.08] p-0.5">
-              {(
-                [
-                  ["all", t("All ({n})", { n: invs.length })],
-                  ["incomplete", t("Incomplete ({n})", { n: invs.length - totals.complete })],
-                  ["mismatch", t("MPPT mismatch ({n})", { n: totals.mismatchInv })],
-                ] as [Filter, string][]
-              ).map(([f, label]) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setFilter(f)}
-                  className={`rounded-md px-2.5 py-1 font-semibold transition ${
-                    filter === f ? "bg-sky-500/20 text-sky-200" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          {invs.length === 0 ? (
+            <EmptyState icon={Cpu} title={t("This plant has no inverters in the registry")} />
+          ) : (
+            <>
+              {/* summary */}
+              <Card className="gap-0 py-0">
+                <div className="grid grid-cols-2 divide-white/[0.06] lg:grid-cols-4 lg:divide-x">
+                  <Figure
+                    label={t("Strings with modules")}
+                    value={`${totals.filled} / ${totals.strings}`}
+                    meter={{ value: totals.filled, max: totals.strings, tone: totals.filled === totals.strings ? "ok" : "warn" }}
+                  />
+                  <Figure
+                    label={t("Inverters complete")}
+                    value={`${totals.complete} / ${invs.length}`}
+                    meter={{ value: totals.complete, max: invs.length, tone: totals.complete === invs.length ? "ok" : "warn" }}
+                    hint={t("Compared per module once every active string has a count")}
+                  />
+                  <Figure
+                    label={t("DC entered")}
+                    value={totals.kwp > 0 ? `${fmt(totals.kwp, 1)} kWp` : "—"}
+                    sub={`AC ${totals.ac != null ? `${fmt(totals.ac, 0)} kW` : "—"} · DC/AC ${totals.ratio != null ? fmt(totals.ratio, 2) : "—"}`}
+                    hint={t("DC/AC ratio: entered DC kWp ÷ rated AC power; shown once every active string has a module count")}
+                  />
+                  <Figure
+                    label={t("MPPT mismatch")}
+                    value={String(totals.mismatchInv)}
+                    tone={totals.mismatchInv > 0 ? "warn" : undefined}
+                    sub={t("inverters with unequal strings on one MPPT")}
+                  />
+                </div>
+              </Card>
 
-            <div className="ml-auto flex items-center gap-2">
-              {totals.invalid > 0 && (
-                <span className="text-red-300">{t(totals.invalid > 1 ? "{n} invalid values" : "{n} invalid value", { n: totals.invalid })}</span>
-              )}
-              {totals.dirty > 0 ? (
-                <span className="text-amber-300">
-                  {t(totals.dirty > 1 ? "{n} unsaved changes" : "{n} unsaved change", { n: totals.dirty })}
-                </span>
-              ) : (
-                <span className="text-slate-500">{t("All changes saved")}</span>
-              )}
-              {canEdit ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDraft(baseline)}
-                    disabled={!totals.dirty || saving}
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" /> {t("Discard")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="default"
-                    size="sm"
-                    onClick={save}
-                    disabled={!totals.dirty || saving || totals.invalid > 0}
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    {saving ? t("Saving…") : t("Save layout")}
-                  </Button>
-                </>
-              ) : (
-                <span className="text-slate-500">{t("Read only")}</span>
-              )}
-            </div>
-          </div>
-
-          {invs.length === 0 && <EmptyState icon={Cpu} title={t("This plant has no inverters in the registry")} />}
-          {invs.length > 0 && shown.length === 0 && (
-            <EmptyState icon={CheckCircle2} title={t("Nothing to show")} description={t("No inverter matches this filter.")} />
-          )}
-
-          {/* Inverter cards, strings laid out by MPPT */}
-          <div className="space-y-4">
-            {shown.map(({ inv, rows, mppts, mismatch, filled, complete, kwp, dirty }) => {
-              const open = !collapsed.has(inv.device_sn);
-              return (
-                <Card key={inv.device_sn} className="gap-0 overflow-hidden py-0">
-                  <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/[0.06] px-4 py-3 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => toggle(inv.device_sn)}
-                      className="flex items-center gap-2 text-left"
-                      aria-expanded={open}
-                    >
-                      <ChevronDown className={`h-4 w-4 text-slate-500 transition ${open ? "" : "-rotate-90"}`} />
-                      <span className="num text-sm font-bold text-white">{inv.device_sn}</span>
-                      <span className="num text-slate-500">{inv.model}</span>
-                    </button>
-                    <Badge variant={complete ? "ok" : "warn"}>
-                      {complete ? t("Compared per module") : t("Raw comparison")}
-                    </Badge>
-                    {mismatch.size > 0 && (
-                      <Badge variant="warn">
-                        <AlertTriangle className="h-3 w-3" /> {t("MPPT {list} unequal", { list: [...mismatch].join(", ") })}
-                      </Badge>
-                    )}
-                    {dirty > 0 && <span className="text-amber-300">{t("{n} unsaved", { n: dirty })}</span>}
-                    <div className="ml-auto flex items-center gap-4">
-                      <span className="num text-slate-400">
-                        {t("{n}/{total} set", { n: filled, total: rows.length })}
-                      </span>
-                      <span className="num font-semibold text-solar-300">{kwp > 0 ? `${fmt(kwp, 2)} kWp` : "— kWp"}</span>
+              <div className="grid items-start gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
+                {/* inverter list */}
+                <Card className="gap-0 py-0 lg:sticky lg:top-2">
+                  <Tabs value={filter} onValueChange={(v) => setUrl({ filter: v === "all" ? null : v })}>
+                    <TabsList variant="line" className="w-full border-0 border-b border-white/[0.06] p-0 px-2">
+                      <TabsTrigger value="all" className="px-2 py-2.5 text-xs">
+                        {t("All ({n})", { n: invs.length })}
+                      </TabsTrigger>
+                      <TabsTrigger value="incomplete" className="px-2 py-2.5 text-xs">
+                        {t("Incomplete ({n})", { n: invs.length - totals.complete })}
+                      </TabsTrigger>
+                      <TabsTrigger value="mismatch" className="px-2 py-2.5 text-xs">
+                        {t("Mismatch ({n})", { n: totals.mismatchInv })}
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  {invs.length > 4 && (
+                    <div className="relative border-b border-white/[0.06] p-2">
+                      <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+                      <Input
+                        value={q}
+                        onChange={(e) => setUrl({ q: e.target.value })}
+                        placeholder={t("Search name, SN, model")}
+                        aria-label={t("Search name, SN, model")}
+                        className="h-7 pl-7 text-[11px]"
+                      />
                     </div>
-                  </header>
-
-                  {open &&
-                    (rows.length === 0 ? (
-                      <p className="px-4 py-4 text-xs text-slate-500">{t("No string inputs seen in the last 7 days.")}</p>
+                  )}
+                  <div className="max-h-[70vh] overflow-y-auto p-1.5">
+                    {shown.length === 0 ? (
+                      <p className="px-2 py-6 text-center text-[11px] text-slate-500">{t("No inverter matches this filter.")}</p>
                     ) : (
-                      <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {mppts.map(([mppt, slots]) => (
-                          <div
-                            key={mppt}
-                            className={`rounded-lg border p-2.5 ${
-                              mismatch.has(mppt) ? "border-amber-400/40 bg-amber-400/[0.03]" : "border-white/[0.06]"
-                            }`}
+                      shown.map((i) => {
+                        const active = selected?.inv.device_sn === i.inv.device_sn;
+                        return (
+                          <button
+                            key={i.inv.device_sn}
+                            type="button"
+                            onClick={() => setUrl({ inv: i.inv.device_sn })}
+                            aria-current={active}
+                            className={cn(
+                              "flex w-full flex-col gap-1 rounded-md px-2.5 py-2 text-left text-[11px] transition",
+                              active ? "bg-sky-500/10 ring-1 ring-sky-400/40" : "hover:bg-white/[0.04]"
+                            )}
                           >
-                            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              <span className="num">MPPT {mppt}</span>
-                              {mismatch.has(mppt) && (
-                                <span
-                                  className="flex items-center gap-1 normal-case text-amber-300"
-                                  title={t("Strings on one MPPT share its voltage, so the longer string runs off its maximum power point.")}
-                                >
-                                  <AlertTriangle className="h-3 w-3" /> {t("unequal")}
-                                </span>
-                              )}
-                            </div>
-                            <div className="space-y-2">
-                              {slots.map(({ s, k, d, kwp: skwp, invalid }) => {
-                                const changed = isDirty(k);
-                                return (
-                                  <div
-                                    key={k}
-                                    className={`rounded-md border px-2.5 py-2 ${
-                                      invalid
-                                        ? "border-red-500/50 bg-red-500/[0.05]"
-                                        : changed
-                                        ? "border-sky-400/40 bg-sky-500/[0.06]"
-                                        : "border-white/[0.05] bg-ink-950/40"
-                                    } ${s.active ? "" : "opacity-60"}`}
-                                  >
-                                    <div className="mb-1.5 flex items-center justify-between">
-                                      <span className="num text-xs font-bold text-solar-300">{strLabel(s.string_no)}</span>
-                                      <span className="num text-[11px] text-slate-500">
-                                        {s.active ? (skwp != null ? `${fmt(skwp, 2)} kWp` : t("not set")) : t("no current (7 d)")}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <label className="flex flex-1 items-center gap-1.5">
-                                        <Input
-                                          className="num h-7 w-full min-w-0 px-2 text-[11px]"
-                                          inputMode="numeric"
-                                          placeholder="—"
-                                          aria-label={t("{sn} {str} modules", { sn: inv.device_sn, str: strLabel(s.string_no) })}
-                                          value={d.modules}
-                                          disabled={!canEdit}
-                                          onChange={(e) => set(k, "modules", e.target.value)}
-                                        />
-                                        <span className="text-[11px] text-slate-500">{t("mod")}</span>
-                                      </label>
-                                      <span className="text-slate-500">×</span>
-                                      <label className="flex flex-1 items-center gap-1.5">
-                                        <Input
-                                          className="num h-7 w-full min-w-0 px-2 text-[11px]"
-                                          inputMode="decimal"
-                                          aria-label={t("{sn} {str} module Wp", { sn: inv.device_sn, str: strLabel(s.string_no) })}
-                                          placeholder={fleetWp != null ? String(fleetWp) : "Wp"}
-                                          value={d.wp}
-                                          disabled={!canEdit}
-                                          onChange={(e) => set(k, "wp", e.target.value)}
-                                        />
-                                        <span className="text-[11px] text-slate-500">Wp</span>
-                                      </label>
-                                    </div>
-                                    <div className="mt-1.5 flex items-center gap-2">
-                                      <label className="flex flex-1 items-center gap-1.5" title={t("Array azimuth in degrees (0–360°), used to group same-orientation peers")}>
-                                        <Input
-                                          className="num h-6 w-full min-w-0 px-2 text-[11px]"
-                                          inputMode="decimal"
-                                          placeholder={t("Az°")}
-                                          aria-label={t("{sn} {str} azimuth degrees", { sn: inv.device_sn, str: strLabel(s.string_no) })}
-                                          value={d.azimuth}
-                                          disabled={!canEdit}
-                                          onChange={(e) => set(k, "azimuth", e.target.value)}
-                                        />
-                                        <span className="text-[10px] text-slate-500">{t("az°")}</span>
-                                      </label>
-                                      <label className="flex flex-1 items-center gap-1.5" title={t("Array tilt in degrees (0–90°), used to group same-tilt peers")}>
-                                        <Input
-                                          className="num h-6 w-full min-w-0 px-2 text-[11px]"
-                                          inputMode="decimal"
-                                          placeholder={t("Tilt°")}
-                                          aria-label={t("{sn} {str} tilt degrees", { sn: inv.device_sn, str: strLabel(s.string_no) })}
-                                          value={d.tilt}
-                                          disabled={!canEdit}
-                                          onChange={(e) => set(k, "tilt", e.target.value)}
-                                        />
-                                        <span className="text-[10px] text-slate-500">{t("tilt°")}</span>
-                                      </label>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
+                            <span className="flex items-center gap-2">
+                              <span className={cn("h-2 w-2 shrink-0 rounded-full", i.complete ? "bg-emerald-400" : "bg-amber-400")} />
+                              <span className="min-w-0 flex-1 truncate font-semibold text-white">
+                                {i.inv.alias || t("Inverter No.{no}", { no: String(i.no).padStart(2, "0") })}
+                              </span>
+                              {i.mismatch.size > 0 && <AlertTriangle className="h-3 w-3 shrink-0 text-amber-300" />}
+                              {i.dirty > 0 && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" title={t("{n} unsaved", { n: i.dirty })} />}
+                            </span>
+                            <span className="num flex justify-between gap-2 pl-4 text-slate-400">
+                              <span className="truncate">{i.inv.device_sn}</span>
+                              <span>{t("{n}/{total} set", { n: i.filled, total: i.rows.length })}</span>
+                              <span className="text-solar-300">{i.kwp > 0 ? `${fmt(i.kwp, 1)} kWp` : "— kWp"}</span>
+                            </span>
+                            <span className="block pl-4">
+                              <Meter value={i.filled} max={i.rows.length || 1} tone={i.complete ? "ok" : "warn"} className="h-1" />
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </Card>
-              );
-            })}
-          </div>
+
+                {/* selected inverter */}
+                {selected && (
+                  <Card className="gap-0 py-0">
+                    <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/[0.06] px-4 py-3">
+                      <span className="text-sm font-bold text-white">{t("Single-line diagram")}</span>
+                      <span className="num text-xs text-slate-400">
+                        {t("{n} strings on {m} MPPT", { n: selected.rows.length, m: selected.mppts.length })}
+                      </span>
+                      {!canEdit && <Badge variant="neutral">{t("Read only")}</Badge>}
+                      <div className="ml-auto">
+                        <SldLegend canEdit={canEdit} />
+                      </div>
+                    </header>
+                    <div className="p-4">
+                      <InverterSld
+                        ti={selected}
+                        no={selected.no}
+                        canEdit={canEdit}
+                        fleetWp={fleetWp}
+                        onChange={set}
+                      />
+                    </div>
+                  </Card>
+                )}
+              </div>
+
+              {canEdit && (
+                <SaveBar
+                  dirty={totals.dirty > 0}
+                  saving={saving}
+                  onSave={save}
+                  onReset={() => setDraft(baseline)}
+                  label={t("Save layout")}
+                  canSave={totals.invalid === 0}
+                  note={
+                    totals.invalid > 0
+                      ? t(totals.invalid > 1 ? "{n} invalid values" : "{n} invalid value", { n: totals.invalid })
+                      : t(totals.dirty > 1 ? "{n} strings changed" : "{n} string changed", { n: totals.dirty })
+                  }
+                />
+              )}
+            </>
+          )}
         </>
       )}
     </div>
   );
 };
+
+/** One summary figure: label, value, an optional meter and one secondary line. */
+const Figure: React.FC<{
+  label: string;
+  value: string;
+  sub?: string;
+  hint?: string;
+  tone?: "warn";
+  meter?: { value: number; max: number; tone: "ok" | "warn" };
+}> = ({ label, value, sub, hint, tone, meter }) => (
+  <div className="space-y-1 px-4 py-3" title={hint}>
+    <div className="text-[11px] font-medium text-slate-400">{label}</div>
+    <div className={cn("num text-lg font-bold", tone === "warn" ? "text-amber-300" : "text-white")}>{value}</div>
+    {meter && <Meter value={meter.value} max={meter.max || 1} tone={meter.tone} className="h-1" />}
+    {sub && <div className="num text-[11px] text-slate-500">{sub}</div>}
+  </div>
+);

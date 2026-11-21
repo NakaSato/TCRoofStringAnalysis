@@ -14,6 +14,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.services.fleet_settings import get_fleet_module
+from app.services.inverter_models import model_spec
 from app.db.models import (
     GrowattInverter,
     GrowattStringLayout,
@@ -128,6 +129,12 @@ def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
             {
                 "device_sn": inv.device_sn,
                 "model": inv.model or "",
+                # as Growatt reports them (queryDeviceInfoParam / device list); null = not synced yet
+                "device_model": inv.device_model,
+                "alias": inv.alias,
+                "rated_power_w": inv.rated_power_w if inv.rated_power_w is not None else inv.nominal_power_w,
+                # manufacturer datasheet of the model (static catalog); null = model not in the catalog
+                "datasheet": model_spec(inv.device_model),
                 "strings": [
                     {
                         "string_no": n,

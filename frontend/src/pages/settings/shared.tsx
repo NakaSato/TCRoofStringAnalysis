@@ -54,14 +54,16 @@ export const NoticeLine: React.FC<{ notice: Notice }> = ({ notice }) =>
   notice ? <div className={`callout-${notice.tone} text-xs`} role={notice.tone === "crit" ? "alert" : "status"}>{notice.text}</div> : null;
 
 /** Sticky bar at the bottom of an editable section: shown while there are unsaved changes. */
-export const SaveBar: React.FC<{ dirty: boolean; saving: boolean; onSave: () => void; onReset: () => void; note?: string; label?: string }> = ({
-  dirty,
-  saving,
-  onSave,
-  onReset,
-  note,
-  label,
-}) => {
+export const SaveBar: React.FC<{
+  dirty: boolean;
+  saving: boolean;
+  onSave: () => void;
+  onReset: () => void;
+  note?: string;
+  label?: string;
+  /** false = Save disabled (e.g. invalid values); the note says why */
+  canSave?: boolean;
+}> = ({ dirty, saving, onSave, onReset, note, label, canSave = true }) => {
   const { t } = useI18n();
   if (!dirty && !saving) return null;
   return (
@@ -75,7 +77,7 @@ export const SaveBar: React.FC<{ dirty: boolean; saving: boolean; onSave: () => 
           <Undo2 data-icon="inline-start" />
           {t("Discard")}
         </Button>
-        <Button type="button" size="sm" variant="default" onClick={onSave} disabled={saving}>
+        <Button type="button" size="sm" variant="default" onClick={onSave} disabled={saving || !canSave}>
           {saving ? <Spinner className="size-3" data-icon="inline-start" /> : <Save data-icon="inline-start" />}
           {saving ? t("Saving…") : label ?? t("Save")}
         </Button>

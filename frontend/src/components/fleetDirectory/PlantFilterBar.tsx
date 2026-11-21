@@ -1,16 +1,14 @@
-/** Plant directory filter toolbar (name, region, device type, phase, plant ID, status) with Sync / Add Plant. */
+/** Plant directory filter toolbar (name, device type, phase, engineer (admins), status). */
 import React from "react";
-import { Link } from "react-router-dom";
-import { RefreshCw, ChevronDown, ChevronUp, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { useI18n } from "../../i18n";
 
 export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
-  const { loadingCloud, cloudNotice, plantNameFilter, setPlantNameFilter, regionFilter, setRegionFilter, deviceTypeFilter, setDeviceTypeFilter, phaseFilter, setPhaseFilter, deviceSnFilter, setDeviceSnFilter, statusFilter, setStatusFilter, expandedFilters, setExpandedFilters, setCurrentPage, fetchCloudPlants, phaseOptions, handleResetFilters } = d;
+  const { cloudNotice, plantNameFilter, setPlantNameFilter, deviceTypeFilter, setDeviceTypeFilter, phaseFilter, setPhaseFilter, statusFilter, setStatusFilter, isAdmin, engineers, engineerFilter, setEngineerFilter, expandedFilters, setExpandedFilters, setCurrentPage, fetchCloudPlants, phaseOptions, handleResetFilters } = d;
   const { t } = useI18n();
   return (
     <div className="border-b border-white/[0.07] bg-ink-900/70 px-4 py-3.5">
@@ -29,23 +27,6 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                 setCurrentPage(1);
               }}
               placeholder={t("Plant name")}
-              className="h-7 w-28 px-2 text-[11px]"
-            />
-          </div>
-
-          {/* Country/Region */}
-          <div className="flex items-center gap-1.5">
-            <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-              {t("Country/Region")}
-            </label>
-            <Input
-              type="text"
-              value={regionFilter}
-              onChange={(e) => {
-                setRegionFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              placeholder={t("Country/Region")}
               className="h-7 w-28 px-2 text-[11px]"
             />
           </div>
@@ -102,22 +83,34 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             </Select>
           </div>
 
-          {/* Device SN */}
-          <div className="flex items-center gap-1.5">
-            <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
-              {t("Plant ID")}
-            </label>
-            <Input
-              type="text"
-              value={deviceSnFilter}
-              onChange={(e) => {
-                setDeviceSnFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              placeholder={t("Plant ID")}
-              className="h-7 w-24 px-2 text-[11px]"
-            />
-          </div>
+          {/* Engineer (admins only: engineers see only their own plants) */}
+          {isAdmin && (
+            <div className="flex items-center gap-1.5">
+              <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
+                {t("Engineer")}
+              </label>
+              <Select
+                value={String(engineerFilter)}
+                onValueChange={(v) => {
+                  setEngineerFilter(v === "ALL" || v === "NONE" ? v : Number(v));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger size="sm" className="w-36 text-[11px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">{t("All engineers")}</SelectItem>
+                  {engineers.map((u) => (
+                    <SelectItem key={u.id} value={String(u.id)}>
+                      {u.full_name || u.username} ({u.plant_ids?.length ?? 0})
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="NONE">{t("No engineer assigned")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Expand toggle */}
           <button
@@ -148,28 +141,6 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           >
             {t("Reset")}
           </Button>
-        </div>
-
-        {/* Right actions: Sync Cloud + Add Plant */}
-        <div className="flex items-center gap-1.5">
-          <Button
-            type="button"
-            onClick={() => fetchCloudPlants(true)}
-            disabled={loadingCloud}
-            variant="ghost"
-            size="sm"
-            title={t("Refresh Growatt Cloud Plants")}
-          >
-            {loadingCloud ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
-            {t("Sync")}
-          </Button>
-          <Link
-            to="/settings"
-            className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-sky-500"
-          >
-            <Plus className="h-3 w-3" />
-            {t("Add Plant")}
-          </Link>
         </div>
       </div>
 

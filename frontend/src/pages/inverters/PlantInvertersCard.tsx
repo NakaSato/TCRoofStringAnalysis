@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { dayLabel } from "@/lib/day";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   GroupLabel,
@@ -147,11 +147,6 @@ export const PlantInvertersCard: React.FC<PlantInvertersCardProps> = ({
             {inverters.length}
           </Badge>
         </CardTitle>
-        <CardDescription>
-          {untilText
-            ? t("Status and “Now” from each inverter's newest live record · day figures from stored 5-min history of {day}, up to {until}", { day: dayText, until: untilText })
-            : t("Status and “Now” from each inverter's newest live record · day figures from stored 5-min history of {day}", { day: dayText })}
-        </CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">

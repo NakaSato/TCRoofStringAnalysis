@@ -301,8 +301,6 @@ export const TH_PLANT: Record<string, string> = {
   "Waiting / Offline / Fault now": "รอ / ออฟไลน์ / ผิดปกติ ขณะนี้",
   "Below {n} % of avg": "ต่ำกว่า {n} % ของค่าเฉลี่ย",
   "With string issues": "มีปัญหาสตริง",
-  "Status and “Now” from each inverter's newest live record · day figures from stored 5-min history of {day}, up to {until}": "สถานะและ “ขณะนี้” จากค่าสดล่าสุดของแต่ละอินเวอร์เตอร์ · ค่าของวันจากประวัติราย 5 นาทีที่บันทึกของ {day} ถึง {until}",
-  "Status and “Now” from each inverter's newest live record · day figures from stored 5-min history of {day}": "สถานะและ “ขณะนี้” จากค่าสดล่าสุดของแต่ละอินเวอร์เตอร์ · ค่าของวันจากประวัติราย 5 นาทีที่บันทึกของ {day}",
   "Stored history ends {day} at {until}": "ประวัติที่บันทึกสิ้นสุด {day} เวลา {until}",
   "Stored history ends {day}": "ประวัติที่บันทึกสิ้นสุด {day}",
   "Live records are from {day}. Day figures, charts and string results below are from the stored day until the worker stores newer records.": "ค่าสดเป็นของ {day} ค่าของวัน กราฟ และผลสตริงด้านล่างมาจากวันที่บันทึก จนกว่า worker จะบันทึกข้อมูลใหม่กว่า",

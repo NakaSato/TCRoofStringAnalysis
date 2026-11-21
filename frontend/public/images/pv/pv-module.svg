@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 632" width="380" height="632" role="img" aria-label="PV module, 60 monocrystalline cells (illustration)">
+  <title>PV module, 6 × 10 monocrystalline cells (illustration, not to scale)</title>
+  <defs>
+    <linearGradient id="si" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#363c86"/>
+      <stop offset="0.5" stop-color="#2c3175"/>
+      <stop offset="1" stop-color="#262a66"/>
+    </linearGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c9ced4"/>
+      <stop offset="0.5" stop-color="#e4e7ea"/>
+      <stop offset="1" stop-color="#bfc4ca"/>
+    </linearGradient>
+    <pattern id="fingers" width="4.75" height="61" patternUnits="userSpaceOnUse">
+      <line x1="2.4" y1="0" x2="2.4" y2="61" stroke="#8d93d6" stroke-opacity="0.38" stroke-width="0.9"/>
+    </pattern>
+    <g id="cell">
+      <path d="M7 0 H51 L58 7 V52 L51 59 H7 L0 52 V7 Z" fill="url(#si)"/>
+      <path d="M7 0 H51 L58 7 V52 L51 59 H7 L0 52 V7 Z" fill="url(#fingers)"/>
+      <line x1="2" y1="1.2" x2="56" y2="1.2" stroke="#9aa0e0" stroke-opacity="0.35" stroke-width="0.8"/>
+    </g>
+  </defs>
+  <!-- aluminium frame and white backsheet -->
+  <rect x="1.5" y="1.5" width="377" height="629" rx="3" fill="url(#frame)" stroke="#a9aeb5" stroke-width="3"/>
+  <rect x="7" y="8" width="366" height="618" fill="#eef0f3"/>
+  <!-- 6 × 10 cells; the white diamonds are the backsheet between the cut corners -->
+    <use href="#cell" x="11" y="12"/>
+    <use href="#cell" x="71" y="12"/>
+    <use href="#cell" x="131" y="12"/>
+    <use href="#cell" x="191" y="12"/>
+    <use href="#cell" x="251" y="12"/>
+    <use href="#cell" x="311" y="12"/>
+    <use href="#cell" x="11" y="73"/>
+    <use href="#cell" x="71" y="73"/>
+    <use href="#cell" x="131" y="73"/>
+    <use href="#cell" x="191" y="73"/>
+    <use href="#cell" x="251" y="73"/>
+    <use href="#cell" x="311" y="73"/>
+    <use href="#cell" x="11" y="134"/>
+    <use href="#cell" x="71" y="134"/>
+    <use href="#cell" x="131" y="134"/>
+    <use href="#cell" x="191" y="134"/>
+    <use href="#cell" x="251" y="134"/>
+    <use href="#cell" x="311" y="134"/>
+    <use href="#cell" x="11" y="195"/>
+    <use href="#cell" x="71" y="195"/>
+    <use href="#cell" x="131" y="195"/>
+    <use href="#cell" x="191" y="195"/>
+    <use href="#cell" x="251" y="195"/>
+    <use href="#cell" x="311" y="195"/>
+    <use href="#cell" x="11" y="256"/>
+    <use href="#cell" x="71" y="256"/>
+    <use href="#cell" x="131" y="256"/>
+    <use href="#cell" x="191" y="256"/>
+    <use href="#cell" x="251" y="256"/>
+    <use href="#cell" x="311" y="256"/>
+    <use href="#cell" x="11" y="317"/>
+    <use href="#cell" x="71" y="317"/>
+    <use href="#cell" x="131" y="317"/>
+    <use href="#cell" x="191" y="317"/>
+    <use href="#cell" x="251" y="317"/>
+    <use href="#cell" x="311" y="317"/>
+    <use href="#cell" x="11" y="378"/>
+    <use href="#cell" x="71" y="378"/>
+    <use href="#cell" x="131" y="378"/>
+    <use href="#cell" x="191" y="378"/>
+    <use href="#cell" x="251" y="378"/>
+    <use href="#cell" x="311" y="378"/>
+    <use href="#cell" x="11" y="439"/>
+    <use href="#cell" x="71" y="439"/>
+    <use href="#cell" x="131" y="439"/>
+    <use href="#cell" x="191" y="439"/>
+    <use href="#cell" x="251" y="439"/>
+    <use href="#cell" x="311" y="439"/>
+    <use href="#cell" x="11" y="500"/>
+    <use href="#cell" x="71" y="500"/>
+    <use href="#cell" x="131" y="500"/>
+    <use href="#cell" x="191" y="500"/>
+    <use href="#cell" x="251" y="500"/>
+    <use href="#cell" x="311" y="500"/>
+    <use href="#cell" x="11" y="561"/>
+    <use href="#cell" x="71" y="561"/>
+    <use href="#cell" x="131" y="561"/>
+    <use href="#cell" x="191" y="561"/>
+    <use href="#cell" x="251" y="561"/>
+    <use href="#cell" x="311" y="561"/>
+  <!-- frame lip -->
+  <rect x="7" y="8" width="366" height="618" fill="none" stroke="#b5bac0" stroke-width="1"/>
+</svg>

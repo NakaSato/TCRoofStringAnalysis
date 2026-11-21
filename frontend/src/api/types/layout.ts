@@ -53,6 +53,30 @@ export interface FleetModuleOut extends FleetModule {
   published?: PublishResult;
 }
 
+/** Datasheet values of an inverter model, as printed by the manufacturer (static; a value the datasheet lacks is absent). */
+export interface InverterDatasheet {
+  manufacturer: string;
+  model: string;
+  series?: string;
+  datasheet_url?: string;
+  max_dc_voltage_v?: number;
+  start_voltage_v?: number;
+  nominal_dc_voltage_v?: number;
+  mppt_voltage_min_v?: number;
+  mppt_voltage_max_v?: number;
+  mppt_count?: number;
+  strings_per_mppt?: number;
+  max_input_current_per_mppt_a?: number;
+  max_short_circuit_current_per_mppt_a?: number;
+  rated_power_w?: number;
+  max_apparent_power_va?: number;
+  max_output_current_a?: number;
+  max_efficiency_pct?: number;
+  euro_efficiency_pct?: number;
+  mppt_efficiency_pct?: number;
+  [key: string]: unknown;
+}
+
 export interface GrowattStringLayout {
   plant_id: number;
   plant_name: string;
@@ -61,6 +85,13 @@ export interface GrowattStringLayout {
   inverters: Array<{
     device_sn: string;
     model: string;
+    /** Growatt's model name, e.g. "MAX 125KTL3-X LV"; null = not synced yet */
+    device_model?: string | null;
+    alias?: string | null;
+    /** rated AC power as Growatt reports it; null = unknown */
+    rated_power_w?: number | null;
+    /** manufacturer datasheet of `device_model` (backend `inverter_models`); null = model not in the catalog */
+    datasheet?: InverterDatasheet | null;
     strings: Array<{
       string_no: number;
       mppt_no: number;
