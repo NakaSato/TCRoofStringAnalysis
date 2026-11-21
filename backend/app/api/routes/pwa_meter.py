@@ -1,6 +1,7 @@
 """PWA daily meter report (DB only, docs/plans/pwa-meter-daily.md).
 
-Read-only: data comes in through the CLI import (`python -m app.services.pwa_meter import`).
+Data comes in through the CLI (`python -m app.services.pwa_meter import` / `report` / `expected`)
+or the admin-only `POST /import` of the daily report workbooks (preview, then all or nothing).
 Scoped like the Growatt routes: an engineer sees the report sites of assigned Growatt plants
 (another site answers 404) and no fleet totals.
 """
