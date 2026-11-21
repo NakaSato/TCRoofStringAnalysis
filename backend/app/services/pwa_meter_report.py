@@ -74,6 +74,13 @@ def _clean(v: Any) -> str:
     return re.sub(r"\s+", " ", str(v)).strip() if v is not None else ""
 
 
+def _round_kwh() -> int:
+    """kWh decimals kept from the report (criteria `report_import.round_kwh`)."""
+    from app.services.pwa_meter import criteria
+
+    return int(criteria()["report_import"]["round_kwh"])
+
+
 def _number(v: Any, where: str, errors: List[str]) -> Optional[float]:
     if v is None:
         return None
@@ -96,7 +103,7 @@ def _number(v: Any, where: str, errors: List[str]) -> Optional[float]:
     if x < 0:
         errors.append(f"{where}: {x} is negative")
         return None
-    return round(x, 2)
+    return round(x, _round_kwh())
 
 
 def title_day(text: str) -> Optional[date]:

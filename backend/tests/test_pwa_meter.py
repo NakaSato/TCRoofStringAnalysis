@@ -500,3 +500,15 @@ def test_expected_check_against_stored_days(api):
         out = model.check_against_days(db)
     # P1-01 has 31 days in March; the other 89 site-days have no expected month
     assert out == {"days_compared": 31, "days_without_expected": 89, "max_diff_kwh_day": {"contract": 1.0, "pvsyst": 0.0}}
+
+
+def test_report_rounding_follows_criteria(monkeypatch):
+    """PM-R5 / PM-G4: the kWh decimals come from `report_import.round_kwh`, not the code."""
+    from app.services.pwa_meter_report import _number
+
+    errs: list = []
+    assert _number("1,234.5678", "x", errs) == 1234.57 and not errs
+    crit = copy.deepcopy(svc.criteria())
+    crit["report_import"]["round_kwh"] = 1
+    monkeypatch.setattr(svc, "criteria", lambda: crit)
+    assert _number(410.4567, "x", errs) == 410.5 and not errs

@@ -223,7 +223,8 @@ Every route needs a signed-in user. `start` / `end` are ISO dates; `end < start`
 8. **To confirm with the contract:** the 0.993 contract degradation per year (PM-E3, PM-E4). It is not stated in the model workbook.
 9. **To confirm with the auditor:** the TFRS 16 remeasurement (`tfrs16`: remeasure when actual ÷ contract is off by more than 5 %; liability × that ratio; the model assumes 90 %). No route computes it yet.
 10. **Not used yet:** `kpi_targets_fy2570` and `alerts_proposed` are in the criteria file only. Nothing in the app reads them.
-11. **Registry kWp mismatches to fix in Growatt:** บ้านด่าน, พนมทวน, นิเวศรัตน์, แม่สาย, สันทราย (plan §2.1).
+11. ~~**Rounding hard-coded in the parser.**~~ Fixed 2026-11-21: `pwa_meter_report._number` rounds to `report_import.round_kwh` (PM-R5, PM-G4) instead of a literal 2; `backend/CLAUDE.md` no longer calls the module read-only.
+12. **Registry kWp mismatches to fix in Growatt:** บ้านด่าน, พนมทวน, นิเวศรัตน์, แม่สาย, สันทราย (plan §2.1).
 
 ## 12. Code map
 
