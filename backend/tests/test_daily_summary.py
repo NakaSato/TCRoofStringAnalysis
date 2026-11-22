@@ -167,3 +167,40 @@ def test_registry_plant_doc_carries_its_drive_links_only_when_it_has_them(db):
         "site_photos": {"url": "https://drive.google.com/drive/folders/D1", "title": "1 Site / Picture", "revision": None},
     }  # who set a link stays in SQL
     assert {k: v for k, v in doc.items() if k != "documents"} == before
+
+
+def test_inverter_doc_carries_the_string_topology_only_when_entered(db):
+    from app.db.models import GrowattInverter, GrowattStringLayout, GrowattStringRemoved
+
+    before = dict(ds.build_inverter_docs(db, PLANT))
+    assert not {"strings", "removed_strings", "inputs", "device_model"} & set(before[f"inverters/{SN_A}"])
+
+    db.get(GrowattInverter, SN_A).device_model = "MAX 125KTL3-X LV"
+    db.get(GrowattInverter, SN_B).device_model = "SOME UNKNOWN MODEL"
+    db.add_all(
+        [
+            GrowattStringLayout(device_sn=SN_A, string_no=1, modules=18, module_wp=None, azimuth_deg=90.0, tilt_deg=10.0),
+            GrowattStringLayout(device_sn=SN_A, string_no=4, modules=16, module_wp=550.0),
+            GrowattStringRemoved(device_sn=SN_A, string_no=3),
+            GrowattStringLayout(device_sn=SN_B, string_no=2, modules=20, module_wp=None),
+        ]
+    )
+    db.commit()
+    docs = dict(ds.build_inverter_docs(db, PLANT))
+
+    a = docs[f"inverters/{SN_A}"]
+    assert a["strings"] == [
+        {"string_no": 1, "modules": 18, "module_wp": None, "mppt": 1, "azimuth_deg": 90.0, "tilt_deg": 10.0},
+        {"string_no": 4, "modules": 16, "module_wp": 550.0, "mppt": 2},
+    ]
+    assert a["removed_strings"] == [3]
+    assert a["device_model"] == "MAX 125KTL3-X LV"
+    assert a["inputs"]["strings_per_mppt"] == 2 and a["inputs"]["mppt_count"] > 0
+
+    # a model not in the catalog: no MPPT is guessed
+    b = docs[f"inverters/{SN_B}"]
+    assert b["strings"] == [{"string_no": 2, "modules": 20, "module_wp": None}]
+    assert "inputs" not in b and "removed_strings" not in b
+
+    # an inverter without a layout is unchanged
+    assert docs["inverters/INVC"] == before["inverters/INVC"]

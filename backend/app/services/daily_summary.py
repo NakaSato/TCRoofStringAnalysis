@@ -7,7 +7,7 @@ history are never written (raw history stays in SQL). Layout::
     daily/{YYYY-MM-DD}/plants/{plantId}    plant KPIs, hourly curve, top anomalies
     daily/{YYYY-MM-DD}/inverters/{sn}      inverter KPIs + per-string map
     plants/{plantId}, inverters/{sn}       registry (static fields only; inverters carry the
-                                           as-built string layout once one is entered)
+                                           as-built string topology once one is entered)
     config/fleet_module                    global settings (PV module used across the fleet)
 
 About 43 + 215 + 1 ≈ 260 writes per day. Documents whose content is unchanged since the last
@@ -43,10 +43,19 @@ from sqlalchemy.orm import Session
 
 from app.config import DATA_DIR, settings
 from app.logging_db import setup_logging
-from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PlantDocument, PublishedDoc, PublishWriteCount
+from app.db.models import (
+    GrowattInverter,
+    GrowattPlant,
+    GrowattStringLayout,
+    GrowattStringRemoved,
+    PlantDocument,
+    PublishedDoc,
+    PublishWriteCount,
+)
 from app.services import check_slots, google_weather
 from app.services.fleet_settings import config_docs
 from app.services.growatt_overview import build_plant_overview, plant_rated_ac_w, plausible_capacity_kwp
+from app.services.inverter_models import model_spec
 
 log = logging.getLogger("daily_summary")
 
@@ -236,23 +245,39 @@ def build_day_docs(db: Session, day: date, now: Optional[datetime] = None, freez
 def build_inverter_docs(db: Session, plant_id: Optional[int] = None) -> List[Doc]:
     """`inverters/{sn}` registry docs (all, or one plant's).
 
-    `strings` is the as-built layout: [{string_no, modules, module_wp}], `module_wp` null = the
-    fleet module (`config/fleet_module`). The key is left out while an inverter has no layout,
-    so adding the field rewrote only inverters that have one. Likewise `not_installed: true`
-    only on an inverter an admin marked not installed (listed in Growatt, not on site).
+    The as-built string topology (what the String Layout page draws), only on inverters that have
+    a layout or a removed input, so inverters without one are not rewritten:
+
+    - `strings`: [{string_no, modules, module_wp, mppt?, azimuth_deg?, tilt_deg?}]. `module_wp`
+      null = the fleet module (`config/fleet_module`). `mppt` = ⌈string_no / strings per MPPT⌉,
+      only where the model's datasheet gives its inputs; azimuth / tilt only where entered.
+    - `removed_strings`: inputs removed from the layout (left out while none).
+    - `device_model` (Growatt's name) and `inputs` {mppt_count, strings_per_mppt} from the
+      datasheet (left out for a model not in the catalog: nothing is guessed).
+
+    Likewise `not_installed: true` only on an inverter an admin marked not installed (listed in
+    Growatt, not on site).
     """
     q = select(GrowattInverter).order_by(GrowattInverter.device_sn)
     if plant_id is not None:
         q = q.where(GrowattInverter.plant_id == plant_id)
     invs = list(db.scalars(q))
-    layout: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    if invs:
+    sns = [i.device_sn for i in invs]
+    layout: Dict[str, List[GrowattStringLayout]] = defaultdict(list)
+    removed: Dict[str, List[int]] = defaultdict(list)
+    if sns:
         for r in db.scalars(
             select(GrowattStringLayout)
-            .where(GrowattStringLayout.device_sn.in_([i.device_sn for i in invs]))
+            .where(GrowattStringLayout.device_sn.in_(sns))
             .order_by(GrowattStringLayout.device_sn, GrowattStringLayout.string_no)
         ):
-            layout[r.device_sn].append({"string_no": r.string_no, "modules": r.modules, "module_wp": r.module_wp})
+            layout[r.device_sn].append(r)
+        for sn, no in db.execute(
+            select(GrowattStringRemoved.device_sn, GrowattStringRemoved.string_no)
+            .where(GrowattStringRemoved.device_sn.in_(sns))
+            .order_by(GrowattStringRemoved.device_sn, GrowattStringRemoved.string_no)
+        ):
+            removed[sn].append(int(no))
     docs: List[Doc] = []
     for inv in invs:
         doc: Dict[str, Any] = {
@@ -263,8 +288,28 @@ def build_inverter_docs(db: Session, plant_id: Optional[int] = None) -> List[Doc
             "datalogger_sn": inv.datalogger_sn,
             "device_types": inv.device_types.split(",") if inv.device_types else [],
         }
-        if layout.get(inv.device_sn):
-            doc["strings"] = layout[inv.device_sn]
+        rows, gone = layout.get(inv.device_sn, []), removed.get(inv.device_sn, [])
+        if rows or gone:
+            spec = model_spec(inv.device_model) or {}
+            mppts, per_mppt = spec.get("mppt_count"), spec.get("strings_per_mppt")
+            strings = []
+            for r in rows:
+                s: Dict[str, Any] = {"string_no": r.string_no, "modules": r.modules, "module_wp": r.module_wp}
+                if per_mppt:
+                    s["mppt"] = -(-r.string_no // per_mppt)
+                if r.azimuth_deg is not None:
+                    s["azimuth_deg"] = r.azimuth_deg
+                if r.tilt_deg is not None:
+                    s["tilt_deg"] = r.tilt_deg
+                strings.append(s)
+            if strings:
+                doc["strings"] = strings
+            if gone:
+                doc["removed_strings"] = gone
+            if inv.device_model:
+                doc["device_model"] = inv.device_model
+            if mppts and per_mppt:
+                doc["inputs"] = {"mppt_count": mppts, "strings_per_mppt": per_mppt}
         if inv.not_installed_at is not None:
             doc["not_installed"] = True
         docs.append((f"inverters/{inv.device_sn}", doc))
