@@ -126,8 +126,9 @@ class Settings(BaseSettings):
     # Keep the whole `max_data` record of every inverter reading (`growatt_inverter_raw`, every
     # field as Growatt reports it), not only the columns the app computes from. About 4 kB per
     # record uncompressed: 629 inverters ≈ 0.7 GB/day before Postgres compression, so it has its
-    # own, shorter retention. false = store only the computed columns, as before.
-    history_store_raw: bool = True
+    # own, shorter retention. Off since 2026-11-22 (about half the DB, read only by the All
+    # fields CSV): true = keep them again.
+    history_store_raw: bool = False
     history_raw_retention_days: int = 7
     # Google Maps Platform Weather API (modelled weather per plant; backend only, never sent to
     # the browser). 10,000 free calls/month, then $0.15 per 1,000. Plants within one grid cell

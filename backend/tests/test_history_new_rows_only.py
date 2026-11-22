@@ -75,7 +75,10 @@ class _Acct:
         return self._page(lambda ts, v: {"timeText": _t(ts), "activePower": v})
 
 
-def test_incremental_writes_only_records_from_the_cut_off(tmp_path):
+def test_incremental_writes_only_records_from_the_cut_off(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "history_store_raw", True)  # raw copies are off by default
     db = _db(tmp_path)
     acct = _Acct()
     inv = growatt_sync.sync_incremental(db, acct, TODAY, pause_s=0, phase=1)  # type: ignore[arg-type]

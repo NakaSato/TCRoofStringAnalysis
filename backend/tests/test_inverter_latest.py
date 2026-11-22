@@ -50,7 +50,10 @@ def _sync(db, acct, **kw):
     return growatt_sync.sync_latest_records(db, acct, TODAY, phase=1, pause_s=0, **kw)  # type: ignore[arg-type]
 
 
-def test_newest_record_is_stored_under_its_own_time_and_history_marker_is_untouched(tmp_path):
+def test_newest_record_is_stored_under_its_own_time_and_history_marker_is_untouched(tmp_path, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "history_store_raw", True)  # raw copies are off by default
     db = _db(tmp_path)
     stored = datetime(2026, 11, 15, 11, 30)
     db.get(GrowattInverter, "A000").history_synced_until = stored
