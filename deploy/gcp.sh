@@ -52,7 +52,8 @@ GUARD="tcroof-cost-guard"
 DISK_GB="${DISK_GB:-100}"              # must hold HISTORY_RETENTION_DAYS of readings
 RETENTION_DAYS="${RETENTION_DAYS:-90}"
 STORE_RAW="${STORE_RAW:-true}"          # keep whole max_data records (growatt_inverter_raw)
-RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-30}"
+STRING_RETENTION_DAYS="${STRING_RETENTION_DAYS:-30}"   # per-string 5-min readings
+RAW_RETENTION_DAYS="${RAW_RETENTION_DAYS:-7}"
 HISTORY_INTERVAL_MIN="${HISTORY_INTERVAL_MIN:-10}"   # history interval on the worker
 ENV_INTERVAL_MIN="${ENV_INTERVAL_MIN:-0}"   # env_history interval on the worker; 0 = off
 LATEST_INTERVAL_MIN="${LATEST_INTERVAL_MIN:-0}"   # inverter_latest interval on the worker; 0 = off
@@ -441,6 +442,7 @@ HISTORY_RETENTION_DAYS=${RETENTION_DAYS}
 GROWATT_BLOCKED_PLANT_IDS=${BLOCKED_PLANT_IDS}
 HISTORY_STORE_RAW=${STORE_RAW}
 HISTORY_RAW_RETENTION_DAYS=${RAW_RETENTION_DAYS}
+HISTORY_STRING_RETENTION_DAYS=${STRING_RETENTION_DAYS}
 PUSH_ALARM_LEVELS=${PUSH_ALARM_LEVELS}
 $(tr ' ' '\n' <<<"$pg")
 $([ -z "$(google_weather_secret)" ] || echo "GOOGLE_WEATHER_API_KEY=$(secret_get tcroof-google-weather-key)")

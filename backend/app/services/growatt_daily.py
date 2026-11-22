@@ -879,8 +879,13 @@ def compute_day(db: Session, day: date, plant_ids: Optional[Sequence[int]] = Non
 
 
 def stored_days(db: Session) -> Tuple[Optional[date], Optional[date]]:
-    """First and last day with stored inverter readings."""
+    """First and last day with stored inverter readings. The first day is no earlier than the
+    oldest per-string reading: those are kept a shorter time (HISTORY_STRING_RETENTION_DAYS),
+    and recomputing an older day would replace its stored string daily rows with none."""
     lo, hi = db.execute(select(func.min(R.timestamp), func.max(R.timestamp))).one()
+    lo_str = db.scalar(select(func.min(S.timestamp)))
+    if lo is not None and lo_str is not None:
+        lo = max(lo, lo_str)
     return (lo.date() if lo else None, hi.date() if hi else None)
 
 

@@ -118,12 +118,17 @@ class Settings(BaseSettings):
     # Raw 1–5 min Growatt readings older than this are deleted daily (`retention` job). Daily
     # summaries in Firestore are kept. ~0.35–0.5 MB per inverter-day: 629 inverters x 90 days ≈ 30–45 GB.
     history_retention_days: int = 90
+    # Per-string 5-min readings (`growatt_string_readings`, one row per string per record: the
+    # largest computed table) are kept this many days (capped at history_retention_days). The
+    # daily string rows (`growatt_string_daily`) and everything computed from them stay for
+    # history_retention_days; only the 5-min string curves of older days are gone.
+    history_string_retention_days: int = 30
     # Keep the whole `max_data` record of every inverter reading (`growatt_inverter_raw`, every
     # field as Growatt reports it), not only the columns the app computes from. About 4 kB per
     # record uncompressed: 629 inverters ≈ 0.7 GB/day before Postgres compression, so it has its
     # own, shorter retention. false = store only the computed columns, as before.
     history_store_raw: bool = True
-    history_raw_retention_days: int = 30
+    history_raw_retention_days: int = 7
     # Google Maps Platform Weather API (modelled weather per plant; backend only, never sent to
     # the browser). 10,000 free calls/month, then $0.15 per 1,000. Plants within one grid cell
     # share a lookup. Every call (worker + API) is counted per billing day (US/Pacific) in SQL;

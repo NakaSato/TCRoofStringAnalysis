@@ -23,7 +23,9 @@ Schedule (plant-local time, Asia/Bangkok):
                                snapshot at hh:00 − CHECK_OFFSET_MIN, check_slots.py); also fills
                                those checks into the PWA Report sheet (when PWA_SHEET_ID is set)
                        19:30   publish today after sunset
-    retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90)
+    retention          03:00   delete raw readings older than HISTORY_RETENTION_DAYS (90), string
+                               readings older than HISTORY_STRING_RETENTION_DAYS (30), whole
+                               max_data records older than HISTORY_RAW_RETENTION_DAYS (7)
     google_weather     18:15   Google Maps Weather: today's 06–17 h hourly (13 h lookback), one call per
                                plant cell; then re-publishes yesterday's daily docs
     alarms             every WORKER_ALARMS_TICK_MIN (10) min, WORKER_ALARMS_START_H..END_H (05–20),

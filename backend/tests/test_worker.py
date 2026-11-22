@@ -374,6 +374,34 @@ def test_prune_history_deletes_only_readings_older_than_keep_days(factory):
         assert prune_history(db, today, 90)["inverter_rows"] == 0  # idempotent
 
 
+def test_prune_history_keeps_string_readings_a_shorter_time(factory):
+    from app.db.models import GrowattInverterReading, GrowattStringReading
+    from app.services import growatt_daily
+    from app.services.growatt_sync import prune_history
+
+    today = date(2026, 11, 12)
+    with factory() as db:
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.flush()
+        db.add(GrowattInverter(device_sn="I", plant_id=1))
+        db.flush()
+        for ts in (datetime(2026, 9, 1, 12), datetime(2026, 10, 12, 23, 59), datetime(2026, 10, 13, 0, 0), datetime(2026, 11, 12, 9)):
+            db.add(GrowattInverterReading(device_sn="I", timestamp=ts, ppv_w=1.0))
+            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1, power_w=1))
+        db.commit()
+
+        t = prune_history(db, today, 90, 30)  # strings: cutoff 2026-10-13; inverters: 2026-08-14
+        left = sorted(db.scalars(select(GrowattInverterReading.timestamp)))
+        left_str = sorted(db.scalars(select(GrowattStringReading.timestamp)))
+        assert t["inverter_rows"] == 0 and t["string_rows"] == 2 and t["string_cutoff"] == "2026-10-13T00:00:00"
+        assert len(left) == 4
+        assert left_str == [datetime(2026, 10, 13, 0, 0), datetime(2026, 11, 12, 9)]
+        # a recompute must not start on a day whose string readings are gone
+        assert growatt_daily.stored_days(db) == (date(2026, 10, 13), date(2026, 11, 12))
+        assert prune_history(db, today, 90, 30)["string_rows"] == 0  # idempotent
+        assert prune_history(db, today, 90, 120)["string_cutoff"] == t["cutoff"]  # capped at keep_days
+
+
 def test_raw_records_are_stored_served_and_pruned(api, factory, monkeypatch):
     from app.config import settings
     from app.db.models import GrowattInverterRaw

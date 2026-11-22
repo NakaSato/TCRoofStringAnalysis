@@ -250,7 +250,7 @@ export const api = {
     apiFetch<GrowattInverterTimeseries>(
       `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/timeseries${day ? `?day=${day}` : ""}`
     ),
-  /** Every Growatt field of one inverter's stored records for a day (as reported; kept 30 days). */
+  /** Every Growatt field of one inverter's stored records for a day (as reported; kept HISTORY_RAW_RETENTION_DAYS, 7). */
   getGrowattInverterRaw: (plantId: number, deviceSn: string, day?: string) =>
     apiFetch<{
       meta: { plant_id: number; device_sn: string; day: string | null; source: string; records: number };

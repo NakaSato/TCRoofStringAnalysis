@@ -102,8 +102,8 @@ Rules for every layer:
 - `WORKER_HISTORY_INTERVAL_MIN` (10; production: `HISTORY_INTERVAL_MIN` in `deploy/gcp.config`)
 - `METER_HISTORY_ENABLED` (true): `history` / `backfill` also sync each plant's energy-meter records (`meter_data`) into `growatt_meter_readings`; false skips it
 - `WORKER_HISTORY_BATCH_SIZE` (0 = off): `history` reads today's records of this many inverters per call (`queryDevicesHistoricalData`), falling back to `max_data` per inverter; off by default (a call returns each inverter's whole day so far)
-- `HISTORY_RETENTION_DAYS` (90)
-- `HISTORY_STORE_RAW` (true), `HISTORY_RAW_RETENTION_DAYS` (30): `history` also keeps every field of each `max_data` record as Growatt reports it (`growatt_inverter_raw`, about 4 kB a record; `/growatt/plants/{id}/inverters/{sn}/raw`)
+- `HISTORY_RETENTION_DAYS` (90), `HISTORY_STRING_RETENTION_DAYS` (30): per-string 5-min readings (`growatt_string_readings`, the largest computed table) are kept the shorter time; daily string rows and everything computed from them stay 90 days
+- `HISTORY_STORE_RAW` (true), `HISTORY_RAW_RETENTION_DAYS` (7): `history` also keeps every field of each `max_data` record as Growatt reports it (`growatt_inverter_raw`, about 4 kB a record; `/growatt/plants/{id}/inverters/{sn}/raw`)
 - `WORKER_ALARMS_TICK_MIN` (10), `WORKER_ALARMS_HOT_MIN` / `_WARM_MIN` / `_COLD_MIN` (10 / 30 / 60), `WORKER_ALARMS_START_H` / `_END_H` (5 / 20): alarm log sync. Each tick reads only the inverters due by tier (hot = open alarm or fault status, warm = alarms today, cold = none); skipped 08/12/16:42–:51 for the PWA checks
 - `WORKER_ENV_INTERVAL_MIN` (10, 0 = off), `WORKER_ENV_START_H` / `_END_H` (5 / 20): `env_history`, weather-sensor history between `history` runs
 - `WORKER_LATEST_INTERVAL_MIN` (0 = off, at least 5), `WORKER_LATEST_START_H` / `_END_H` (5 / 20): `inverter_latest`, each inverter's newest record (`maxs_data`) into the history tables between `history` runs. It uses the same per-account `maxs_data` window as the fleet inverter snapshot

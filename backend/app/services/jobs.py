@@ -355,14 +355,15 @@ def job_publish_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
 
 def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Delete raw readings and alarm logs older than HISTORY_RETENTION_DAYS (daily summaries are
-    kept), and app logs older than LOG_RETENTION_DAYS or beyond LOG_MAX_ROWS."""
+    kept), per-string readings older than HISTORY_STRING_RETENTION_DAYS, whole max_data records
+    older than HISTORY_RAW_RETENTION_DAYS, and app logs older than LOG_RETENTION_DAYS or beyond LOG_MAX_ROWS."""
     from app.services.system_logs import prune_logs
     from app.services import google_weather
     from app.services.growatt_alarms import prune_alarms
     from app.services.growatt_energy import prune_plant_power
     from app.services.growatt_sync import prune_history, prune_raw
 
-    detail = prune_history(db, _today(), settings.history_retention_days)
+    detail = prune_history(db, _today(), settings.history_retention_days, settings.history_string_retention_days)
     detail["raw_rows"] = prune_raw(db, _today(), min(settings.history_raw_retention_days, settings.history_retention_days))
     detail["google_weather_rows"] = google_weather.prune(db, _today(), settings.history_retention_days)
     detail["alarm_rows"] = prune_alarms(db, _today(), settings.history_retention_days)
