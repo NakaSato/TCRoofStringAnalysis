@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from typing import Any, List, Optional
 
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, String, select
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -207,7 +208,17 @@ class GrowattStringReading(Base):
     mppt_no: Mapped[int] = mapped_column(Integer, nullable=False)
     voltage_v: Mapped[float] = mapped_column(Float, nullable=False)
     current_a: Mapped[float] = mapped_column(Float, nullable=False)
-    power_w: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # String power is V × I, so it is derived, not stored (the column was dropped Nov 2026;
+    # `session._DROPPED_COLUMNS`). In a query `S.power_w` is `voltage_v * current_a`.
+    @hybrid_property
+    def power_w(self) -> float:
+        return round(self.voltage_v * self.current_a, 1)
+
+    @power_w.inplace.expression
+    @classmethod
+    def _power_w_expression(cls):
+        return (cls.voltage_v * cls.current_a).label("power_w")
 
 
 class GrowattEnvSensor(Base):

@@ -205,7 +205,7 @@ PYTHONPATH=backend uv run python -m app.services.daily_summary --dry-run
 ## DB and migrations
 
 - `DATABASE_URL` defaults to SQLite at `data/solar_fullstack.db`; Docker uses `postgresql+psycopg`.
-- Startup (API and worker) calls `ensure_schema` (`db/session.py`): `create_all` plus `_ADDED_COLUMNS`, which adds new columns to existing tables, and `_DROPPED_INDEXES`, which drops retired indexes (`ix_growatt_str_ts`: string readings are read and pruned per inverter through the primary key, so the table has no timestamp index). New tables and listed columns appear without Alembic. Still add a hand-written migration under `alembic/versions/` (chain `down_revision`) for Postgres.
+- Startup (API and worker) calls `ensure_schema` (`db/session.py`): `create_all` plus `_ADDED_COLUMNS`, which adds new columns to existing tables, and `_DROPPED_INDEXES` / `_DROPPED_COLUMNS`, which drop retired ones (`ix_growatt_str_ts`: string readings are read and pruned per inverter through the primary key, so the table has no timestamp index; `growatt_string_readings.power_w`: V × I, now a hybrid property, so `S.power_w` in a query is `voltage_v * current_a`). New tables and listed columns appear without Alembic. Still add a hand-written migration under `alembic/versions/` (chain `down_revision`) for Postgres.
 
 ## Tests
 

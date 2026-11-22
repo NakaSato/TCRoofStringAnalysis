@@ -120,7 +120,7 @@ def test_newest_string_ts_per_inverter_and_input(tmp_path):
         db.add(GrowattPlant(plant_id=1, name="P"))
         db.add_all([GrowattInverter(device_sn=sn, plant_id=1) for sn in ("A", "B", "C")])
         db.flush()
-        row = lambda sn, h, no: S(device_sn=sn, timestamp=t(h), string_no=no, mppt_no=1, voltage_v=600, current_a=9, power_w=5400)
+        row = lambda sn, h, no: S(device_sn=sn, timestamp=t(h), string_no=no, mppt_no=1, voltage_v=600, current_a=9)
         db.add_all([row("A", 9, 1), row("A", 10, 2), row("B", 12, 1)])
         db.commit()
         assert newest_string_ts(db, ["A", "B", "C"]) == t(12)

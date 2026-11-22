@@ -29,7 +29,7 @@ def test_newest_ts_over_inverters(tmp_path):
             GrowattInverterReading(device_sn="B", timestamp=datetime(2026, 11, 13, 9, 5)),
             GrowattStringReading(
                 device_sn="A", timestamp=datetime(2026, 11, 12, 17, 0), string_no=1, mppt_no=1,
-                voltage_v=600.0, current_a=5.0, power_w=3000.0,
+                voltage_v=600.0, current_a=5.0,
             ),
         ]
     )

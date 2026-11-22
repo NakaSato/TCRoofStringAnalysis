@@ -79,7 +79,7 @@ def _seed_day(
                 if i is None:
                     continue
                 db.add(GrowattStringReading(device_sn=sn, timestamp=t, string_no=s, mppt_no=(s + 1) // 2,
-                                            voltage_v=V, current_a=i, power_w=V * i))
+                                            voltage_v=V, current_a=i))
         t += timedelta(minutes=5)
     db.commit()
 

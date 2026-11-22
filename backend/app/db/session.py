@@ -94,6 +94,12 @@ _ADDED_INDEXES = [
     ("growatt_inverter_readings", "ix_growatt_inv_ts", "CREATE INDEX IF NOT EXISTS ix_growatt_inv_ts ON growatt_inverter_readings (timestamp)"),
 ]
 
+# Columns no longer in the models, dropped from databases that still have them. String power
+# is V × I (a hybrid property now); the column was about a tenth of the string table.
+_DROPPED_COLUMNS = [
+    ("growatt_string_readings", "power_w"),
+]
+
 # Indexes no longer in the models, dropped from databases that still have them.
 _DROPPED_INDEXES = [
     ("growatt_string_readings", "ix_growatt_str_ts"),
@@ -101,7 +107,7 @@ _DROPPED_INDEXES = [
 
 
 def ensure_schema(bind) -> None:
-    """create_all + add columns and indexes introduced after the table first shipped, drop retired indexes."""
+    """create_all + add columns and indexes introduced after the table first shipped, drop retired indexes and columns."""
     Base.metadata.create_all(bind=bind)
     insp = inspect(bind)
     for table, column, ddl, index in _ADDED_COLUMNS:
@@ -119,6 +125,10 @@ def ensure_schema(bind) -> None:
         if table in tables and name in {i["name"] for i in insp.get_indexes(table)}:
             with bind.begin() as conn:
                 conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
+    for table, column in _DROPPED_COLUMNS:
+        if table in tables and column in {c["name"] for c in insp.get_columns(table)}:
+            with bind.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
 
 
 engine = build_engine()

@@ -362,7 +362,7 @@ def test_prune_history_deletes_only_readings_older_than_keep_days(factory):
         db.flush()
         for ts in (datetime(2026, 8, 1, 12), datetime(2026, 8, 13, 23, 59), datetime(2026, 8, 14, 0, 0), datetime(2026, 11, 12, 9)):
             db.add(GrowattInverterReading(device_sn="I", timestamp=ts, ppv_w=1.0))
-            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1, power_w=1))
+            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1))
         db.commit()
 
         t = prune_history(db, today, 90)  # cutoff 2026-08-14 00:00
@@ -387,7 +387,7 @@ def test_prune_history_keeps_string_readings_a_shorter_time(factory):
         db.flush()
         for ts in (datetime(2026, 9, 1, 12), datetime(2026, 10, 12, 23, 59), datetime(2026, 10, 13, 0, 0), datetime(2026, 11, 12, 9)):
             db.add(GrowattInverterReading(device_sn="I", timestamp=ts, ppv_w=1.0))
-            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1, power_w=1))
+            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1))
         db.commit()
 
         t = prune_history(db, today, 90, 30)  # strings: cutoff 2026-10-13; inverters: 2026-08-14
@@ -410,7 +410,7 @@ def test_unwired_string_inputs_are_not_stored(factory):
 
     def row(n, i, ts=day):
         return {"device_sn": "I", "timestamp": ts, "string_no": n, "mppt_no": (n + 1) // 2,
-                "voltage_v": 600.0, "current_a": i, "power_w": round(600.0 * i, 1)}
+                "voltage_v": 600.0, "current_a": i}
 
     with factory() as db:
         db.add(GrowattPlant(plant_id=1, name="P"))
@@ -431,6 +431,10 @@ def test_unwired_string_inputs_are_not_stored(factory):
         # in the same batch, so its 06:00 row at 0 A is kept.
         assert kept == [(1, 10), (3, 10), (4, 10), (5, 10), (6, 10), (8, 6), (8, 7)]
         assert inverters._wired_only(db, []) == []
+        # string power is derived (V × I), on a row and in SQL
+        stored = db.get(GrowattStringReading, ("I", datetime(2026, 11, 12, 8, 0), 6))
+        assert stored is not None and stored.power_w == 3000.0
+        assert db.scalar(select(func.max(GrowattStringReading.power_w))) == 3000.0
 
 
 def test_raw_records_are_stored_served_and_pruned(api, factory, monkeypatch):

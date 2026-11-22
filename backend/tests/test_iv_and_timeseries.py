@@ -683,7 +683,6 @@ def test_r4_voltage_limit_enforced_and_r6_pid_and_r10_epi_and_r11_ya_yf(tmp_path
                             mppt_no=(sno + 1) // 2,
                             voltage_v=v,
                             current_a=10.0,
-                            power_w=v * 10.0,
                         )
                     )
             db.commit()

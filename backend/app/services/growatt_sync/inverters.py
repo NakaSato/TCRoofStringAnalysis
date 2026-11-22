@@ -15,6 +15,11 @@ from app.db.models import GrowattInverter, GrowattInverterRaw, GrowattInverterRe
 from solar_core.growatt import GrowattAPIError, GrowattClient, parse_max_raw, parse_max_records
 from app.services.growatt_sync.common import RATE_LIMIT_CODE, _date_chunks, _inverters_query, _retry, _upsert, log
 
+def _stored(str_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """String rows as stored: `power_w` (V × I) is derived by the model, not a column."""
+    return [{k: v for k, v in r.items() if k != "power_w"} for r in str_rows]
+
+
 def _wired_only(db: Session, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Drop the string rows of inputs that are not wired. Wired is what the daily open-string
     check (`growatt_daily._wired`) counts as wired: a String Layout row, a daily row with at
@@ -84,7 +89,7 @@ def sync_inverter_history(
             str_rows = [r for r in str_rows if r["timestamp"] >= stop_before]
         str_rows = _wired_only(db, str_rows)
         _upsert(db, GrowattInverterReading, inv_rows)
-        _upsert(db, GrowattStringReading, str_rows)
+        _upsert(db, GrowattStringReading, _stored(str_rows))
         _store_raw(db, inverter.device_sn, records, stop_before)
         n_inv += len(inv_rows)
         n_str += len(str_rows)
@@ -208,7 +213,7 @@ def _store_today(
     inv_rows = [r for r in inv_rows if r["timestamp"] >= since]
     str_rows = _wired_only(db, [r for r in str_rows if r["timestamp"] >= since])
     _upsert(db, GrowattInverterReading, inv_rows)
-    _upsert(db, GrowattStringReading, str_rows)
+    _upsert(db, GrowattStringReading, _stored(str_rows))
     _store_raw(db, inv.device_sn, records, since)
     inv.history_synced_until = max(stored, max(times))
     db.commit()
@@ -279,7 +284,7 @@ def sync_latest_records(
                 _store_raw(db, sn, [rec])
             str_rows = _wired_only(db, str_rows)
             _upsert(db, GrowattInverterReading, inv_rows)
-            _upsert(db, GrowattStringReading, str_rows)
+            _upsert(db, GrowattStringReading, _stored(str_rows))
             db.commit()
         except Exception as exc:  # keep going with the next chunk; report at the end
             db.rollback()

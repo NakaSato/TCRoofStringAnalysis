@@ -44,8 +44,8 @@ def _seed_growatt(session) -> None:
                 eac_total_kwh=1000.0 + round(m / 10, 1), temperature_c=40.0, fac_hz=50.0,
             )
         )
-        session.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=1, mppt_no=1, voltage_v=600, current_a=5.0, power_w=3000))
-        session.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=2, mppt_no=1, voltage_v=600, current_a=5.0, power_w=3000))
+        session.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=1, mppt_no=1, voltage_v=600, current_a=5.0))
+        session.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=2, mppt_no=1, voltage_v=600, current_a=5.0))
     # INVB: 5-minute records over the same hour at 4 kW, no temperature / frequency reported
     for m in range(0, 60, 5):
         ts = day + timedelta(hours=10, minutes=m, seconds=20)
@@ -629,13 +629,13 @@ def test_overview_inactive_inputs_fill_mppt_slots_and_dead_strings_stay_critical
         s.flush()
         # yesterday: string 4 produced
         s.add(GrowattStringReading(device_sn=SN_A, timestamp=day - timedelta(hours=14), string_no=4, mppt_no=2,
-                                   voltage_v=600, current_a=5.0, power_w=3000))
+                                   voltage_v=600, current_a=5.0))
         for m in range(0, 60, 5):
             ts = day + timedelta(hours=10, minutes=m)
             s.add(GrowattInverterReading(device_sn=SN_A, timestamp=ts, pac_w=9000, ppv_w=9200, eac_today_kwh=1.0))
             for no, mppt, cur in ((1, 1, 5.0), (2, 1, 5.0), (3, 2, 0.0), (4, 2, 0.0), (5, 3, 5.0)):
                 s.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=no, mppt_no=mppt,
-                                           voltage_v=600, current_a=cur, power_w=600 * cur))
+                                           voltage_v=600, current_a=cur))
         s.commit()
 
     with Session() as s:
@@ -770,7 +770,7 @@ def test_string_detail_mpp_is_measured_or_null(tmp_path):
             ts = day + timedelta(hours=10, minutes=m)
             for no, volt, cur in ((1, 180.0, 2.0), (2, 600.0, 5.0), (3, 600.0, 0.0)):
                 s.add(GrowattStringReading(device_sn=SN_A, timestamp=ts, string_no=no, mppt_no=1 + (no - 1) // 2,
-                                           voltage_v=volt, current_a=cur, power_w=volt * cur))
+                                           voltage_v=volt, current_a=cur))
         s.commit()
 
         # Low but real readings are kept as measured (no 250 V / 0.5 A floor).

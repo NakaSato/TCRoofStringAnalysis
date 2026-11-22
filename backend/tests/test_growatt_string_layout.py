@@ -33,7 +33,7 @@ def _seed(session) -> None:
         session.add(GrowattInverterReading(device_sn=SN, timestamp=ts, pac_w=15000, ppv_w=15500, eac_today_kwh=m / 10))
         for no, mods in MODULES.items():
             v = V_PER_MODULE * mods
-            session.add(GrowattStringReading(device_sn=SN, timestamp=ts, string_no=no, mppt_no=no, voltage_v=v, current_a=I_A, power_w=v * I_A))
+            session.add(GrowattStringReading(device_sn=SN, timestamp=ts, string_no=no, mppt_no=no, voltage_v=v, current_a=I_A))
     # the demo engineer is assigned PLANT only (OTHER stays admin-only for them)
     eng = session.scalar(select(User).where(User.username == "engineer"))
     session.add(UserPlantAssignment(user_id=eng.id, plant_id=PLANT, assigned_by="admin"))
