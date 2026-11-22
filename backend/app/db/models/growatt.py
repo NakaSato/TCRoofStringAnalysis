@@ -191,7 +191,10 @@ class GrowattPlantPower(Base):
 
 
 class GrowattStringReading(Base):
-    """Per-string 5-minute record (`vString{n}` / `currentString{n}`), stored only while the inverter produces."""
+    """Per-string 5-minute record (`vString{n}` / `currentString{n}`), stored only while the inverter
+    produces (ppv > 0) and only for wired inputs (`growatt_sync.inverters._wired_only`, the daily
+    open-string check's definition): an input with no current now, no String Layout row, no daily
+    energy in 30 days and no current today is not stored."""
 
     __tablename__ = "growatt_string_readings"
     __table_args__ = (Index("ix_growatt_str_ts", "timestamp"),)

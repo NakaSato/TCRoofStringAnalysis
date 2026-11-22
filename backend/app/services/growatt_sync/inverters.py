@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import time
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +14,48 @@ from app.config import settings
 from app.db.models import GrowattInverter, GrowattInverterRaw, GrowattInverterReading, GrowattStringReading
 from solar_core.growatt import GrowattAPIError, GrowattClient, parse_max_raw, parse_max_records
 from app.services.growatt_sync.common import RATE_LIMIT_CODE, _date_chunks, _inverters_query, _retry, _upsert, log
+
+def _wired_only(db: Session, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Drop the string rows of inputs that are not wired. Wired is what the daily open-string
+    check (`growatt_daily._wired`) counts as wired: a String Layout row, a daily row with at
+    least WIRED_MIN_KWH in the last WIRED_LOOKBACK_DAYS, or current above INACTIVE_MAX_A today
+    (stored, or in `rows`). A row that carries any current is always kept.
+
+    An unwired input still reads its MPPT's voltage (≥ 200 V) at 0 A, so it used to be stored
+    every 5 minutes: a third of the string table (Nov 2026). A wired string at 0 A (open
+    string, blown fuse) is kept, since the daily check needs its rows. Three small primary-key
+    lookups per inverter, no cache, so a layout edit counts at once."""
+    if not rows:
+        return rows
+    from app.db.models import GrowattStringDaily as D, GrowattStringLayout as L
+    from app.services.growatt_common import INACTIVE_MAX_A
+    from app.services.growatt_daily import WIRED_LOOKBACK_DAYS, WIRED_MIN_KWH
+
+    S = GrowattStringReading
+    newest: Dict[str, datetime] = {}
+    known: Dict[str, Set[int]] = {}
+    for r in rows:
+        sn = r["device_sn"]
+        if newest.get(sn) is None or r["timestamp"] > newest[sn]:
+            newest[sn] = r["timestamp"]
+        if r["current_a"] > INACTIVE_MAX_A:
+            known.setdefault(sn, set()).add(r["string_no"])
+    for sn, ts in newest.items():
+        day = ts.date()
+        day0 = datetime.combine(day, datetime.min.time())
+        k = known.setdefault(sn, set())
+        k.update(db.scalars(select(L.string_no).where(L.device_sn == sn)))
+        k.update(db.scalars(
+            select(D.string_no).where(
+                D.device_sn == sn, D.day >= day - timedelta(days=WIRED_LOOKBACK_DAYS), D.day < day,
+                D.energy_kwh >= WIRED_MIN_KWH,
+            ).distinct()
+        ))
+        k.update(db.scalars(
+            select(S.string_no).where(S.device_sn == sn, S.timestamp >= day0, S.current_a > INACTIVE_MAX_A).distinct()
+        ))
+    return [r for r in rows if r["current_a"] > 0 or r["string_no"] in known[r["device_sn"]]]
+
 
 def sync_inverter_history(
     db: Session,
@@ -40,6 +82,7 @@ def sync_inverter_history(
         if stop_before is not None:
             inv_rows = [r for r in inv_rows if r["timestamp"] >= stop_before]
             str_rows = [r for r in str_rows if r["timestamp"] >= stop_before]
+        str_rows = _wired_only(db, str_rows)
         _upsert(db, GrowattInverterReading, inv_rows)
         _upsert(db, GrowattStringReading, str_rows)
         _store_raw(db, inverter.device_sn, records, stop_before)
@@ -163,7 +206,7 @@ def _store_today(
         return None
     since = stored - overlap
     inv_rows = [r for r in inv_rows if r["timestamp"] >= since]
-    str_rows = [r for r in str_rows if r["timestamp"] >= since]
+    str_rows = _wired_only(db, [r for r in str_rows if r["timestamp"] >= since])
     _upsert(db, GrowattInverterReading, inv_rows)
     _upsert(db, GrowattStringReading, str_rows)
     _store_raw(db, inv.device_sn, records, since)
@@ -234,6 +277,7 @@ def sync_latest_records(
                 inv_rows += a
                 str_rows += b
                 _store_raw(db, sn, [rec])
+            str_rows = _wired_only(db, str_rows)
             _upsert(db, GrowattInverterReading, inv_rows)
             _upsert(db, GrowattStringReading, str_rows)
             db.commit()

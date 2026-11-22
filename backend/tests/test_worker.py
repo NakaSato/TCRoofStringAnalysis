@@ -402,6 +402,37 @@ def test_prune_history_keeps_string_readings_a_shorter_time(factory):
         assert prune_history(db, today, 90, 120)["string_cutoff"] == t["cutoff"]  # capped at keep_days
 
 
+def test_unwired_string_inputs_are_not_stored(factory):
+    from app.db.models import GrowattStringDaily, GrowattStringLayout, GrowattStringReading
+    from app.services.growatt_sync import inverters
+
+    day = datetime(2026, 11, 12, 10, 0)
+
+    def row(n, i, ts=day):
+        return {"device_sn": "I", "timestamp": ts, "string_no": n, "mppt_no": (n + 1) // 2,
+                "voltage_v": 600.0, "current_a": i, "power_w": round(600.0 * i, 1)}
+
+    with factory() as db:
+        db.add(GrowattPlant(plant_id=1, name="P"))
+        db.flush()
+        db.add(GrowattInverter(device_sn="I", plant_id=1))
+        db.flush()
+        db.add(GrowattStringLayout(device_sn="I", string_no=4, modules=20))
+        # 3: a daily row with energy 10 days ago (a weak string, never above 0.15 A, counts too)
+        db.add(GrowattStringDaily(device_sn="I", string_no=3, day=date(2026, 11, 2), plant_id=1, energy_kwh=0.06))
+        # 6: carried current earlier today (stored); 7: only a daily row older than 30 days
+        db.add(GrowattStringReading(**row(6, 5.0, datetime(2026, 11, 12, 8, 0))))
+        db.add(GrowattStringDaily(device_sn="I", string_no=7, day=date(2026, 10, 1), plant_id=1, energy_kwh=5.0))
+        db.commit()
+        batch = [row(1, 8.1), row(2, 0.0), row(3, 0.0), row(4, 0.0), row(5, 0.02), row(6, 0.0), row(7, 0.0),
+                 row(8, 0.0, day.replace(hour=6)), row(8, 2.0, day.replace(hour=7))]
+        kept = sorted((r["string_no"], r["timestamp"].hour) for r in inverters._wired_only(db, batch))
+        # 2 and 7 read the MPPT voltage at 0 A and are not wired: dropped. 8 carries current later
+        # in the same batch, so its 06:00 row at 0 A is kept.
+        assert kept == [(1, 10), (3, 10), (4, 10), (5, 10), (6, 10), (8, 6), (8, 7)]
+        assert inverters._wired_only(db, []) == []
+
+
 def test_raw_records_are_stored_served_and_pruned(api, factory, monkeypatch):
     from app.config import settings
     from app.db.models import GrowattInverterRaw
