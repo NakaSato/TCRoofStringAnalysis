@@ -571,6 +571,63 @@ def for_plant(db: Session, plant_id: int) -> Optional[Dict[str, Any]]:
     }
 
 
+MAX_DEVICES_PER_SITE = 40
+
+
+def replace_devices(db: Session, plant_id: int, devices: Any) -> Optional[Dict[str, Any]]:
+    """Replace the devices of the plant's station with `devices` (the whole list, as edited in the app; all or
+    nothing). Same rules as the import: known kind, (kind, seq) once, values as written (trimmed, empty = null),
+    column lengths, ISO / d/m/Y dates. None when the plant has no station. A later workbook import replaces it
+    again (export first to keep the edits)."""
+    reg = db.scalar(select(SiteRegister).where(SiteRegister.plant_id == plant_id))
+    if reg is None:
+        return None
+    if not isinstance(devices, list):
+        raise RegisterError("devices must be a list")
+    if len(devices) > MAX_DEVICES_PER_SITE:
+        raise RegisterError(f"at most {MAX_DEVICES_PER_SITE} devices per station")
+    problems: List[str] = []
+    rows: List[Dict[str, Any]] = []
+    for i, d in enumerate(devices):
+        if not isinstance(d, dict) or d.get("kind") not in KINDS:
+            problems.append(f"device {i + 1}: unknown kind {d.get('kind') if isinstance(d, dict) else d!r}")
+            continue
+        seq = d.get("seq", 1)
+        if isinstance(seq, bool) or not isinstance(seq, int) or not 1 <= seq <= 99:
+            problems.append(f"device {i + 1}: number must be 1–99")
+            continue
+        unknown = set(d) - {"kind", "seq", *DEVICE_FIELDS}
+        if unknown:
+            problems.append(f"device {i + 1}: unknown fields {', '.join(sorted(unknown))}")
+        row: Dict[str, Any] = {"kind": d["kind"], "seq": seq}
+        for f in DEVICE_FIELDS:
+            v = _text(d.get(f))
+            if v is not None and f in DATE_FIELDS:
+                iso = _date(v)
+                if iso is None:
+                    problems.append(f"{d['kind']} {seq}: {f} is not a date ({v!r})")
+                v = iso
+            elif v is not None and f in _MAX_LEN and len(v) > _MAX_LEN[f]:
+                problems.append(f"{d['kind']} {seq}: {f} longer than {_MAX_LEN[f]} characters")
+            row[f] = v
+        rows.append(row)
+    keys = Counter((r["kind"], r["seq"]) for r in rows)
+    problems += [f"{k} {n} listed twice" for (k, n), c in keys.items() if c > 1]
+    if problems:
+        raise RegisterError("; ".join(problems[:20]) + (f" … ({len(problems)} problems)" if len(problems) > 20 else ""))
+
+    db.execute(delete(SiteDevice).where(SiteDevice.site_code == reg.site_code))
+    db.flush()
+    for r in rows:
+        dev = SiteDevice(site_code=reg.site_code, kind=r["kind"], seq=r["seq"])
+        for f in DEVICE_FIELDS:
+            v = r[f]
+            setattr(dev, f, date.fromisoformat(v) if f in DATE_FIELDS and v is not None else v)
+        db.add(dev)
+    db.commit()
+    return for_plant(db, plant_id)
+
+
 def list_all(db: Session, allowed: Optional[Set[int]]) -> List[Dict[str, Any]]:
     """One row per station (engineers: only their plants' stations), with device counts, the Growatt plant's
     name and the same `checks` as the plant view."""

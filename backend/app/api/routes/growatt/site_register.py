@@ -1,18 +1,20 @@
 """O&M site register (docs/plans/om-asset-network.md): station data and on-site devices per plant.
 
 DB only. A plant's register follows plant access (admin, or the engineer assigned the plant); the fleet list
-filters by `allowed_plant_ids`; the import is admin only. Network details stay out of the logs (counts only).
+filters by `allowed_plant_ids`; the import is admin only; a plant's devices are edited by whoever may write
+the plant (admin, or the assigned engineer). Network details stay out of the logs (counts only).
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read
+from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
 from app.db.models import User
 from app.db.session import get_db
 from app.services import site_register as svc
@@ -51,6 +53,26 @@ def export_site_register(db: Session = Depends(get_db), user: User = Depends(get
 def get_plant_site_register(plant_id: int, db: Session = Depends(get_db), _: User = Depends(require_plant_read)) -> Dict[str, Any]:
     """The plant's station, devices and checks; `register` null when the plant has no station."""
     return {"plant_id": plant_id, "register": svc.for_plant(db, plant_id), "meta": {"source": "db"}}
+
+
+class DevicesIn(BaseModel):
+    devices: List[Dict[str, Any]]
+
+
+@router.put("/plants/{plant_id}/site-register/devices")
+def put_plant_site_devices(
+    plant_id: int, body: DevicesIn, db: Session = Depends(get_db), user: User = Depends(require_plant_write)
+) -> Dict[str, Any]:
+    """Replace the station's devices with the edited list (admin, or the engineer assigned the plant); 404 when
+    the plant has no station. A later workbook import replaces the devices again."""
+    try:
+        reg = svc.replace_devices(db, plant_id, body.devices)
+    except svc.RegisterError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if reg is None:
+        raise HTTPException(status_code=404, detail="This plant has no station in the site register")
+    audit.info("site register devices of %s edited by %s: %d devices", reg["site"]["site_code"], user.username or user.email, len(reg["devices"]))
+    return {"plant_id": plant_id, "register": reg, "meta": {"source": "db"}}
 
 
 @router.post("/site-register/import")

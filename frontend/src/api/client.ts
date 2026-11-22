@@ -77,7 +77,7 @@ import type {
 } from "./types/visitRoute";
 import type { KbArticle, KbArticleBody, KbArticleList, KbArticlePatch, KbArticleQuery, KbDeleteResult, KbRevision, KbRevisionList } from "./types/kb";
 import type { KbDocCatalog, KbDocContext, KbDocCreateMeta, KbDocDetail, KbDocFileLink, KbDocHome, KbDocLinkInput, KbDocList, KbDocPatch, KbDocQuery, KbPlantDocuments, KbSearchResult } from "./types/kbDocs";
-import type { PlantSiteRegister, SiteRegisterImport, SiteRegisterRow } from "./types/siteRegister";
+import type { PlantSiteRegister, SiteDeviceIn, SiteRegisterImport, SiteRegisterRow } from "./types/siteRegister";
 import type { PwaBilling, PwaImportResult, PwaMeterCoverage, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantBaseline, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
@@ -238,6 +238,9 @@ export const api = {
     apiFetch<GrowattPlantOverview>(`/growatt/plants/${plantId}/overview${day ? `?day=${day}` : ""}`),
   /** the plant's O&M site register: station data, on-site devices and checks (DB only) */
   getPlantSiteRegister: (plantId: number) => apiFetch<PlantSiteRegister>(`/growatt/plants/${plantId}/site-register`),
+  /** admin or the assigned engineer: replace the station's devices with the edited list (all or nothing) */
+  putPlantSiteDevices: (plantId: number, devices: SiteDeviceIn[]) =>
+    apiFetch<PlantSiteRegister>(`/growatt/plants/${plantId}/site-register/devices`, { method: "PUT", body: JSON.stringify({ devices }) }),
   /** every station of the site register the user may see, with device counts and checks */
   listSiteRegister: () => apiFetch<{ sites: SiteRegisterRow[]; kinds: string[] }>("/growatt/site-register"),
   /** the register as .xlsx in the O&M workbook's layout (engineers: their plants' stations); imports again */

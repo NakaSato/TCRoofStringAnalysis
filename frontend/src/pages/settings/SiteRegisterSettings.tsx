@@ -11,7 +11,7 @@ import type { SiteRegisterImport, SiteRegisterRow } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
 import { isAdmin } from "../../auth/access";
 import { plantPath } from "../../context/routes";
-import { LoadingState, EmptyState, fmt } from "../../components/ui";
+import { LoadingState, EmptyState } from "../../components/ui";
 import { TablePager, pageBounds } from "../../components/TablePager";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -233,7 +233,7 @@ export const SiteRegisterSettings: React.FC = () => {
     return (rows ?? []).filter((r) => {
       if (filter === "review" && r.checks.length === 0) return false;
       if (filter === "unmatched" && r.plant_id != null) return false;
-      const hay = [r.site_code, r.name, r.plant_name, r.province, r.logger_sn, r.plant_id].join(" ").toLowerCase();
+      const hay = [r.site_code, r.name, r.plant_name, r.logger_sn, r.plant_id].join(" ").toLowerCase();
       return words.every((w) => hay.includes(w));
     });
   }, [rows, q, filter]);
@@ -270,7 +270,7 @@ export const SiteRegisterSettings: React.FC = () => {
               setQ(e.target.value);
               setPage(0);
             }}
-            placeholder={t("Code, station, province, SN…")}
+            placeholder={t("Code, station, SN…")}
             className="h-8 w-60 pl-8 text-xs"
           />
         </div>
@@ -307,9 +307,6 @@ export const SiteRegisterSettings: React.FC = () => {
                 <TableHead className="w-20">{t("Code")}</TableHead>
                 <TableHead>{t("Station")}</TableHead>
                 <TableHead>{t("Growatt plant")}</TableHead>
-                <TableHead>{t("Province")}</TableHead>
-                <TableHead className="text-right">kWp</TableHead>
-                <TableHead>{t("COD actual")}</TableHead>
                 <TableHead className="text-right">{t("Revenue meters")}</TableHead>
                 <TableHead>{t("Worth a look")}</TableHead>
               </TableRow>
@@ -336,9 +333,6 @@ export const SiteRegisterSettings: React.FC = () => {
                       <Badge variant="warn">{t("Not matched")}</Badge>
                     )}
                   </TableCell>
-                  <TableCell>{r.province ?? "—"}</TableCell>
-                  <TableCell className="num text-right">{r.kwp != null ? fmt(r.kwp, 2) : "—"}</TableCell>
-                  <TableCell className="num">{r.cod_actual ?? "—"}</TableCell>
                   <TableCell className="num text-right">{r.devices.revenue_meter ?? 0}</TableCell>
                   <TableCell className="max-w-72 whitespace-normal">
                     {r.checks.length === 0 ? (

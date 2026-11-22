@@ -141,12 +141,23 @@ The uploaded file is read in memory and not stored.
 
 ## 5. UI
 
-- **Plant page → Assets & Network card** (Overview, or a tab next to Documents):
-  - Site: code, project phase, province, kWp (Growatt kWp beside it when they differ), PEA meter / account, billing cut-off,
-    contract start, COD baseline / actual, export limit, DLP contractor, engineers / technicians.
-  - Network: one table of devices by kind, with brand / model, serial, IP, SIM, status, warranty, and a copy button on IPs
-    and serials. Revenue meters list every meter with CT setting / on site.
-  - Badges for what needs a look (logger serial ≠ Growatt's, CT mismatch, no SN).
+- **Plant Documents tab → Site register card** (`pages/siteRegister/SiteRegisterCard.tsx`, under Site files):
+  - Header: code and phase only (station name, province, import date and match rule removed 2026-11-22; the province is in
+    PWA site, the match rule in Settings → Site register). Checks as a "Worth a look" callout.
+  - No headline tiles (DC kWp, inverter total, export limit, COD actual removed 2026-11-22; still in the API).
+  - Three fact groups: PEA connection (meter / account no. with copy, billing cut-off, PEA zone; contract start and
+    connection status removed 2026-11-22, still in the API), PWA site (branch, zone, province), Project & team (COD baseline, DLP contractor, engineers, technicians).
+  - Devices on site: one tile per device (icon by kind, brand / model, status badge (green only for "ใช้งาน"), SN and IP with
+    copy, then whatever the row has: network, SIM, FW, address, CT setting · on site (amber when they differ), billing cut-off,
+    sales start, warranty; link status / notes in amber at the bottom). Revenue meters are numbered; other kinds only when a
+    site has more than one. Growatt's logger SN beside the heading.
+    Admins and the assigned engineer get a pencil on each device tile and **Add device** by the heading (`DeviceEditDialog`,
+    one device at a time): kind as icon buttons, number (a "Use n" button when taken), the fields in groups
+    (Device, Communication, Metering, Dates & warranty; fields a kind does not usually have stay under "More fields"
+    while empty), soft hints (IPv4, warranty end before start, CT differs), suggestions from the station's other devices;
+    closing with unsaved edits asks first; or remove it; saved as the station's whole list with that device
+    replaced / added / left out (`PUT /growatt/plants/{id}/site-register/devices`, all or nothing). A later workbook
+    import replaces it again, so export first to keep app edits (2026-11-22).
 - **Settings → Site register** (admin): every station with its plant match, filters (phase, province, unmatched, issues), the
   import dialog with its preview, and an XLSX export in the workbook's layout.
 - **Plant directory**: the province filter and the Location column use the register's province (Growatt `city` as

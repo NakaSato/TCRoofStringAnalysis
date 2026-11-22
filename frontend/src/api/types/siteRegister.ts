@@ -56,6 +56,9 @@ export interface SiteDevice {
   note: string | null;
 }
 
+/** One device as sent to `PUT …/site-register/devices` (empty text = null). */
+export type SiteDeviceIn = SiteDevice;
+
 export interface SiteRegisterCheck {
   key: "unmatched" | "kwp_differs" | "logger_sn_differs" | "meter_count_differs" | "ct_differs";
   text: string;

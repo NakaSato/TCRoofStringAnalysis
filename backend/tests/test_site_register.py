@@ -242,3 +242,35 @@ def test_export_round_trips_through_the_import(api):
     # engineers export their plants' stations only
     mine = sr.convert_workbook(c.get("/growatt/site-register/export", headers=eng).content)
     assert [s["site_code"] for s in mine["sites"]] == ["P1-001"]
+
+
+def test_edit_devices_replaces_the_station_list(api):
+    f, c, admin, eng = api
+    doc = json.dumps(sr.convert_workbook(_workbook())).encode()
+    assert c.post("/growatt/site-register/import?apply=true", files={"file": ("reg.json", doc, "application/json")}, headers=admin).json()["applied"]
+    url = f"/growatt/plants/{A}/site-register/devices"
+    devs = c.get(f"/growatt/plants/{A}/site-register", headers=eng).json()["register"]["devices"]
+    devs[0]["brand_model"] = "  Growatt ShineLan-X  "
+    devs[0]["warranty_end"] = "31/12/2027"
+    devs = [d for d in devs if d["kind"] != "router"] + [{"kind": "pqm", "seq": 1, "serial": "PQ-1", "note": ""}]
+
+    # the assigned engineer may edit; another plant answers 404
+    out = c.put(url, json={"devices": devs}, headers=eng)
+    assert out.status_code == 200, out.text
+    got = out.json()["register"]["devices"]
+    assert [d["kind"] for d in got] == ["datalogger", "revenue_meter", "revenue_meter", "pqm"]
+    assert got[0]["brand_model"] == "Growatt ShineLan-X" and got[0]["warranty_end"] == "2027-12-31"
+    assert got[-1]["serial"] == "PQ-1" and got[-1]["note"] is None
+    assert c.put(f"/growatt/plants/{B}/site-register/devices", json={"devices": []}, headers=eng).status_code == 404
+
+    # all or nothing: bad rows change nothing
+    for bad in (
+        [{"kind": "toaster", "seq": 1}],
+        [{"kind": "pqm", "seq": 1}, {"kind": "pqm", "seq": 1}],
+        [{"kind": "pqm", "seq": 0}],
+        [{"kind": "pqm", "seq": 1, "sim": "x" * 17}],
+        [{"kind": "pqm", "seq": 1, "sales_start": "soon"}],
+        [{"kind": "pqm", "seq": 1, "colour": "red"}],
+    ):
+        assert c.put(url, json={"devices": bad}, headers=admin).status_code == 422, bad
+    assert len(c.get(f"/growatt/plants/{A}/site-register", headers=admin).json()["register"]["devices"]) == 4
