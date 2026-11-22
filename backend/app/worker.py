@@ -48,6 +48,9 @@ Schedule (plant-local time, Asia/Bangkok):
     inverter_latest    every WORKER_LATEST_INTERVAL_MIN (0 = off, at least 5) min,
                                WORKER_LATEST_START_H..END_H (05–20): each inverter's newest record
                                (maxs_data, 50 per call) into the history tables between `history` runs
+    kb_ocr             every WORKER_KB_OCR_INTERVAL_MIN (30, 0 = off) min, and queued by each
+                               Knowledge Base upload with pages that have no text layer: tesseract
+                               OCR of those pages (KB_OCR_PAGES_PER_RUN at most; no Growatt calls)
 Runs queued from the API (`POST /growatt/sync/{job}`) start on the next tick (≤ 1 min).
 Daily jobs only fire within `GRACE` after their slot, so a worker started at noon does not
 publish a half day. Exception: `fleet` also runs at once when the inverter registry is empty
@@ -188,6 +191,7 @@ def default_schedule() -> List[Schedule]:
             if settings.worker_latest_interval_min > 0
             else []
         ),
+        *([Schedule("kb_ocr", every=timedelta(minutes=settings.worker_kb_ocr_interval_min))] if settings.worker_kb_ocr_interval_min > 0 else []),
     ]
 
 

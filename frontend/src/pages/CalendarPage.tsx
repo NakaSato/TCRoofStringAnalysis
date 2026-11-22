@@ -37,7 +37,8 @@ import { RoundDialog } from "./calendar/RoundDialog";
 import { DueView } from "./calendar/DueView";
 import type { TaskDialogTarget } from "./calendar/TaskDialog";
 import { MonthGrid, TaskList, WeekLanes } from "./calendar/views";
-import { STATUSES, STATUS_KEYS, TASK_TYPES, TYPE_KEYS, VIEWS, addDays, addMonths, monthLabel, personName, rangeFor, tasksCsv, weekLabel, weekStart } from "./calendar/format";
+import { STATUSES, STATUS_KEYS, TASK_TYPES, TYPE_KEYS, VIEWS, addDays, addMonths, covers, monthLabel, personName, rangeFor, tasksCsv, weekLabel, weekStart } from "./calendar/format";
+import { routeHref } from "./visitRoute/href";
 import type { View } from "./calendar/format";
 
 const ALL = "all";
@@ -139,6 +140,14 @@ export const CalendarPage: React.FC = () => {
     }
     void load();
   };
+  /** Visit Route for a day: the calendar's team / person filter, plus the plants of that day's open tasks shown */
+  const routeFor = (d: string) =>
+    routeHref({
+      day: d,
+      teamId,
+      userId,
+      plantIds: tasks.filter((x) => covers(x, d) && (x.status === "planned" || x.status === "in_progress")).map((x) => x.plant_id),
+    });
   const create = (d?: string) => setDialog({ task: null, day: d && d >= today ? d : today, plantId: plantId ?? null });
 
   const exportCsv = () => {
@@ -323,7 +332,7 @@ export const CalendarPage: React.FC = () => {
               onMove={move}
             />
           ) : view === "week" ? (
-            <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} teams={lanes?.teams ?? []} only={userId} me={me} onOpen={open} onCreate={create} onMove={move} />
+            <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} teams={lanes?.teams ?? []} only={userId} me={me} onOpen={open} onCreate={create} onMove={move} routeFor={routeFor} />
           ) : (
             <TaskList tasks={tasks} onOpen={open} resetKey={`${from}|${to}|${plantId ?? ""}|${type}|${status}|${userParam}|${teamId ?? ""}`} />
           )}

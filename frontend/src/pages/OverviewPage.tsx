@@ -294,8 +294,18 @@ export const OverviewPage: React.FC = () => {
 
   const target = k.target_pr_pct ?? null;
   const hasLocation = plant.latitude != null && plant.longitude != null;
-
-
+  // with a sensor: beside the Today chart; without: in the Site column under the Energy meter
+  const weatherCard = (className?: string) => (
+    <WeatherCard
+      key={`weather-${plantId}`}
+      plantId={plant.plant_id}
+      day={day ?? null}
+      storedUntil={ov.weather?.data_until ?? null}
+      liveWx={liveWx}
+      liveWxFailed={liveWxFailed}
+      className={className}
+    />
+  );
 
   // KPI strip: inverters online = in the live answer and not Waiting (status not 0); string health of the stored day
   const online = plantLive?.data ? recs.filter((r) => r.status !== 0).length : null;
@@ -386,7 +396,7 @@ export const OverviewPage: React.FC = () => {
         <StringHealthTile ov={ov} href={plantHref("strings")} />
       </div>
 
-      {/* columns stretch to the row: the production card grows (its chart takes the room) to the bottom of Site + Weather */}
+      {/* columns stretch to the row: the production card grows (its chart takes the room) to the bottom of Site + Energy meter (+ Weather without a sensor) */}
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="flex flex-col gap-4 xl:col-span-2">
           {/* Production: header (title, freshness, period) · headline figures · chart · secondary facts */}
@@ -491,7 +501,7 @@ export const OverviewPage: React.FC = () => {
             )}
           </Card>
         </div>
-        {/* Site + weather */}
+        {/* Site + energy meter (+ weather without a sensor) */}
         <div className="flex flex-col gap-4">
           <Card className="gap-3">
             <CardHeader>
@@ -527,19 +537,21 @@ export const OverviewPage: React.FC = () => {
 
           <LiveMeterCard key={`meter-${plantId}`} m={liveMeter} />
 
-          <WeatherCard
-            key={`weather-${plantId}`}
-            plantId={plant.plant_id}
-            day={day ?? null}
-            storedUntil={ov.weather?.data_until ?? null}
-            liveWx={liveWx}
-            liveWxFailed={liveWxFailed}
-          />
+          {/* no sensor: no Today chart, so the Weather card (Google rain) stays in this column */}
+          {!hasSensor && weatherCard()}
         </div>
       </div>
 
-      {/* Today's weather-sensor chart (the Sensors tab's "Today"), only when the plant has a sensor */}
-      {hasSensor && <SensorTodayCard key={`sensor-${plant.plant_id}`} ov={ov} href={plantHref("sensors")} />}
+      {/* Today's weather-sensor chart (the Sensors tab's "Today") with the Weather card to its right, only when the plant has a sensor */}
+      {hasSensor && (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <div className="flex min-w-0 flex-col xl:col-span-2 [&>*]:flex-1">
+            <SensorTodayCard key={`sensor-${plant.plant_id}`} ov={ov} href={plantHref("sensors")} />
+          </div>
+          {/* its own height, not stretched to the (much taller) chart beside it */}
+          {weatherCard("xl:self-start")}
+        </div>
+      )}
 
       {/* Fault log reported by Growatt (string diagnostics are on String Diagnostics) */}
       <GrowattAlarmLogPanel

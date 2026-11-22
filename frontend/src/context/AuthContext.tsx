@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, UserProfile, getStoredToken, getStoredUser, clearAuthSession, AUTH_EXPIRED_EVENT } from "../api/client";
 import { clearAlarmLogs } from "./alarmLogStore";
+import { clearKbContext } from "./kbContextStore";
 import { clearPlantCache } from "./plantCache";
 import { clearAssistantThreads } from "../components/assistant/useAssistantChat";
 import { releasePush } from "../lib/push";
@@ -47,6 +48,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const onExpired = () => {
       // the next user to sign in on this tab may see other plants
       clearAlarmLogs();
+      clearKbContext();
       clearPlantCache();
       clearAssistantThreads();
       void releasePush(false); // the session is gone: only this browser's subscription can be dropped
@@ -67,6 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearAuthSession();
     // the next user may see other plants
     clearAlarmLogs();
+    clearKbContext();
     clearPlantCache();
     clearAssistantThreads();
     setUser(null);

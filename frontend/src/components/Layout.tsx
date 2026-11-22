@@ -1,6 +1,7 @@
 import React, { Suspense, useState, useEffect, useMemo } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
+  BookOpen,
   Ruler,
   FileWarning,
   Settings,
@@ -22,6 +23,7 @@ import {
   Map as MapIcon,
   Sparkles,
   Banknote,
+  Route as RouteIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
@@ -61,8 +63,10 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { to: "/energy-billing", label: "Energy & Billing", icon: Banknote, description: "Billed meter energy, finance and the meter / inverter checks of one period" },
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
+      { to: "/route", label: "Visit Route", icon: RouteIcon, description: "Plan a day of site visits: best order, drive times, Google Maps" },
       { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },
       { to: "/tools", label: "Measuring Tools", icon: Ruler, description: "Drones, meters & testers: who has them, calibration & due dates" },
+      { to: "/kb", label: "Knowledge Base", icon: BookOpen, description: "O&M manuals: SOPs, troubleshooting, alarm codes, equipment & safety" },
     ],
   },
   {
@@ -100,6 +104,7 @@ const PLANT_NAV: Record<PlantPage, { label: string; description?: string }> = {
   string: { label: "String Analysis", description: "One string in depth: I-V / P-V, profile, mismatch by hour, daily energy" },
   "string-layout": { label: "String Layout", description: "Modules per string for each inverter" },
   maintenance: { label: "Maintenance", description: "Upcoming tasks and the site log (cleanings, repairs)" },
+  documents: { label: "Documents", description: "As-built drawings, manuals for its equipment, SOPs and reports" },
 };
 
 const useClock = () => {

@@ -828,3 +828,470 @@ class InstrumentDueBody(BaseModel):
     cost_thb: Optional[float] = Field(default=None, ge=0)
     url: Optional[str] = Field(default=None, max_length=1000)
     note: Optional[str] = Field(default=None, max_length=2000)
+
+
+# --------------------------------------------------------------------------- knowledge base (docs/plans/knowledge-base.md)
+
+KbCategoryName = Literal["sop", "troubleshooting", "alarm_code", "equipment", "safety", "other"]
+KB_BODY_MAX = 200_000
+KB_TAGS_MAX = 20
+
+
+def _kb_title(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    v = v.strip()
+    if not 1 <= len(v) <= 200:
+        raise ValueError("the title is 1–200 characters")
+    return v
+
+
+def _kb_tags(v: Optional[List[str]]) -> Optional[List[str]]:
+    """Trimmed, each 1–40 characters, de-duplicated case-insensitively (first spelling kept), ≤ 20."""
+    if v is None:
+        return None
+    out: List[str] = []
+    seen: set[str] = set()
+    for t in v:
+        t = t.strip()
+        if not 1 <= len(t) <= 40:
+            raise ValueError("a tag is 1–40 characters")
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    if len(out) > KB_TAGS_MAX:
+        raise ValueError(f"at most {KB_TAGS_MAX} tags")
+    return out
+
+
+def _kb_note(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    return v.strip() or None
+
+
+class KbArticleCreate(BaseModel):
+    """A new article (always a draft, revision 1)."""
+
+    title: str
+    category: KbCategoryName
+    tags: List[str] = Field(default_factory=list, max_length=200)
+    body_md: str = Field(default="", max_length=KB_BODY_MAX)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v: Optional[str]) -> Optional[str]:
+        return _kb_title(v)
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        return _kb_tags(v)
+
+    @field_validator("note")
+    @classmethod
+    def _note(cls, v: Optional[str]) -> Optional[str]:
+        return _kb_note(v)
+
+
+class KbArticlePatch(BaseModel):
+    """Change an article saved at `base_version` (409 when it is stale). Fields left out or null
+    stay unchanged; `note` is the change note of the new revision."""
+
+    base_version: int = Field(ge=1)
+    title: Optional[str] = None
+    category: Optional[KbCategoryName] = None
+    tags: Optional[List[str]] = Field(default=None, max_length=200)
+    body_md: Optional[str] = Field(default=None, max_length=KB_BODY_MAX)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v: Optional[str]) -> Optional[str]:
+        return _kb_title(v)
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        return _kb_tags(v)
+
+    @field_validator("note")
+    @classmethod
+    def _note(cls, v: Optional[str]) -> Optional[str]:
+        return _kb_note(v)
+
+
+class KbRestoreBody(BaseModel):
+    base_version: int = Field(ge=1)
+
+
+# Knowledge Base library: PDF documents (docs/plans/kb-documents.md)
+
+KbDocTypeName = Literal[
+    "manual", "datasheet", "sop", "work_instruction", "method_statement", "checklist",
+    "report", "drawing", "certificate", "technical_note", "other",
+]
+KbDisciplineName = Literal["OM", "ENG", "INV", "MOD", "ELE", "INS", "SAF", "GEN"]
+KbLanguageName = Literal["en", "th", "both"]
+
+
+class KbDocLinkBody(BaseModel):
+    """`fault_code` "<type>:<code>" (Error:203), `equipment` a model name, `plant` a plant id;
+    `page` = the page it concerns (optional)."""
+
+    target_type: Literal["fault_code", "equipment", "plant"]
+    target_id: str = Field(min_length=1, max_length=64)
+    page: Optional[int] = Field(default=None, ge=1, le=100_000)
+    label: Optional[str] = Field(default=None, max_length=120)
+
+
+class KbDocCreate(BaseModel):
+    """Metadata of an upload (the `meta` form field, JSON). `number` is used for admins only;
+    otherwise the next free `{TYPE}-{DISCIPLINE}-{SEQ:3}`."""
+
+    doc_type: KbDocTypeName
+    discipline: KbDisciplineName
+    title_en: str = Field(default="", max_length=200)
+    title_th: str = Field(default="", max_length=200)
+    language: KbLanguageName = "en"
+    tags: List[str] = Field(default_factory=list, max_length=200)
+    general: bool = True
+    number: Optional[str] = Field(default=None, max_length=40)
+    label: Optional[str] = Field(default=None, max_length=40)
+    change_note: Optional[str] = Field(default=None, max_length=500)
+    links: List[KbDocLinkBody] = Field(default_factory=list, max_length=200)
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        return _kb_tags(v)
+
+
+class KbDocPatch(BaseModel):
+    """Metadata changes; null / left out = unchanged."""
+
+    doc_type: Optional[KbDocTypeName] = None
+    discipline: Optional[KbDisciplineName] = None
+    title_en: Optional[str] = Field(default=None, max_length=200)
+    title_th: Optional[str] = Field(default=None, max_length=200)
+    language: Optional[KbLanguageName] = None
+    tags: Optional[List[str]] = Field(default=None, max_length=200)
+    general: Optional[bool] = None
+    number: Optional[str] = Field(default=None, max_length=40)
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        return _kb_tags(v)
+
+
+class KbDocLinks(BaseModel):
+    links: List[KbDocLinkBody] = Field(default_factory=list, max_length=200)
+
+
+class KbDocWithdraw(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class KbDocSupersede(BaseModel):
+    by_doc_id: Optional[int] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class KbDocPinBody(BaseModel):
+    pinned: bool
+
+
+# --------------------------------------------------------------------------- site visit route (docs/plans/site-visit-route.md)
+
+HHMM_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class RouteStartPlant(BaseModel):
+    """Start (and, for a round trip, end) at a plant the user may see."""
+
+    kind: Literal["plant"]
+    plant_id: int
+
+
+class RouteStartPoint(BaseModel):
+    """Start at a coordinate (team base, the phone's location)."""
+
+    kind: Literal["point"]
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    label: Optional[str] = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def _not_zero(self) -> "RouteStartPoint":
+        if self.lat == 0 and self.lon == 0:
+            raise ValueError("0,0 is not a location")
+        return self
+
+
+class RouteStartOffice(BaseModel):
+    """Start at a saved office (`/growatt/routes/offices`); unknown id = 404."""
+
+    kind: Literal["office"]
+    office_id: int
+
+
+class RouteWindow(BaseModel):
+    """Allowed arrival at the stop, plant-local "HH:MM"."""
+
+    open: str = Field(pattern=HHMM_PATTERN)
+    close: str = Field(pattern=HHMM_PATTERN)
+
+    @model_validator(mode="after")
+    def _order(self) -> "RouteWindow":
+        if self.close < self.open:
+            raise ValueError("window close is before open")
+        return self
+
+
+class RouteStopIn(BaseModel):
+    plant_id: int
+    service_min: float = Field(default=45, ge=0, le=720)  # time on site
+    window: Optional[RouteWindow] = None
+
+
+class RouteSolveRequest(BaseModel):
+    """`POST /growatt/routes/solve`. 1–25 unique plants (more: 422 "split the day")."""
+
+    start: Union[RouteStartPlant, RouteStartPoint, RouteStartOffice] = Field(discriminator="kind")
+    end_mode: Literal["return", "last"] = "return"
+    day: Optional[date] = None  # default today (Bangkok); used for sunset
+    leave_at: str = Field(default="08:00", pattern=HHMM_PATTERN)
+    latest_finish: str = Field(default="18:00", pattern=HHMM_PATTERN)
+    keep_order: bool = False
+    stops: List[RouteStopIn] = Field(min_length=1, max_length=200)
+
+    @field_validator("stops")
+    @classmethod
+    def _unique(cls, v: List[RouteStopIn]) -> List[RouteStopIn]:
+        ids = [s.plant_id for s in v]
+        if len(set(ids)) != len(ids):
+            raise ValueError("each plant may be a stop only once")
+        return v
+
+
+RouteLegSource = Literal["geoapify", "straight_line"]
+
+
+class RouteWindowOut(BaseModel):
+    open: str
+    close: str
+
+
+class RouteStopOut(BaseModel):
+    """One stop in visit order. Times are plant-local; `*_min` = minutes after midnight, and a
+    clock past midnight reads "HH:MM+1". Leg values are of the drive *to* this stop."""
+
+    seq: int
+    plant_id: int
+    name: str
+    lat: float
+    lon: float
+    service_min: float
+    window: Optional[RouteWindowOut] = None
+    eta: str
+    eta_min: float
+    wait_min: float  # waiting for the window to open
+    etd: str
+    etd_min: float
+    late_min: float  # arrival after the window closed (0 = on time or no window)
+    sunset: Optional[str] = None  # NOAA sunset at the plant (modelled), null if none that day
+    after_sunset: Optional[bool] = None  # the work on site ends after sunset
+    after_latest: bool  # the work on site ends after `latest_finish`
+    leg_km: Optional[float] = None
+    leg_min: Optional[float] = None
+    leg_source: RouteLegSource
+
+
+class RouteReturnLeg(BaseModel):
+    leg_km: Optional[float] = None
+    leg_min: Optional[float] = None
+    eta: Optional[str] = None
+    eta_min: Optional[float] = None
+    after_latest: bool
+    leg_source: RouteLegSource
+
+
+class RouteTotals(BaseModel):
+    stops: int
+    drive_km: Optional[float] = None
+    drive_min: Optional[float] = None
+    wait_min: Optional[float] = None
+    service_min: Optional[float] = None
+    late_min: Optional[float] = None
+    leave_at: str
+    finish: Optional[str] = None
+    finish_min: Optional[float] = None
+    after_latest: bool
+
+
+class RouteStartOut(BaseModel):
+    kind: Literal["plant", "point", "office"]
+    plant_id: Optional[int] = None
+    office_id: Optional[int] = None  # set when kind = "office"; `name` is then the office's name
+    name: str
+    lat: float
+    lon: float
+
+
+class RouteEstimate(BaseModel):
+    """How straight-line pairs were estimated (modelled)."""
+
+    road_factor: float
+    speed_kmh: float
+    basis: str
+
+
+class RouteGeometry(BaseModel):
+    """GeoJSON MultiLineString, one line ([lon, lat] points) per leg in visit order (return leg
+    last). Geoapify's road line when `geometry_source` is "geoapify", else straight segments."""
+
+    type: Literal["MultiLineString"]
+    coordinates: List[List[List[float]]]
+
+
+class RouteSolveResponse(BaseModel):
+    day: date
+    end_mode: Literal["return", "last"]
+    keep_order: bool
+    start: RouteStartOut
+    stops: List[RouteStopOut]
+    return_leg: Optional[RouteReturnLeg] = None  # null when end_mode = "last"
+    totals: RouteTotals
+    latest_finish: str
+    method: Literal["exact", "heuristic", "fixed", "trivial"]
+    source: RouteLegSource  # the matrix the order was solved on
+    fallback_reason: Optional[Literal["no_key", "error", "cooldown", "budget"]] = None
+    fallback_detail: Optional[str] = None
+    straight_line_pairs: int  # matrix pairs that are straight-line estimates
+    estimate: Optional[RouteEstimate] = None  # set when any leg or pair is a straight-line estimate
+    geometry: RouteGeometry
+    geometry_source: RouteLegSource
+    geometry_fallback_reason: Optional[Literal["no_key", "error", "cooldown", "budget"]] = None
+    credits_used: int  # Geoapify credits this request spent (0 = cached / not asked)
+    credits_today: int
+    credits_daily_cap: int
+    attribution: List[str]  # to show near the map whenever Geoapify data is used
+    google_maps_links: List[str]  # each ≤ 3 waypoints; each starts where the previous ended
+    labels: Dict[str, str]
+
+
+# --------------------------------------------------------------------------- site visit route: offices (start points)
+
+
+def _strip_text(v: Any) -> Any:
+    return v.strip() if isinstance(v, str) else v
+
+
+def _blank_to_none(v: Any) -> Any:
+    v = _strip_text(v)
+    return v or None
+
+
+class RouteOfficeIn(BaseModel):
+    """`POST /growatt/routes/offices` (admin). The first office is the default whatever
+    `is_default` says; `is_default: true` makes it the default and clears the others."""
+
+    name: str = Field(min_length=1, max_length=80)  # trimmed; unique case-insensitively (409)
+    address: Optional[str] = Field(default=None, max_length=200)  # trimmed; "" = none
+    lat: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    lon: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    is_default: bool = False
+
+    _name = field_validator("name", mode="before")(_strip_text)
+    _address = field_validator("address", mode="before")(_blank_to_none)
+
+    @model_validator(mode="after")
+    def _not_zero(self) -> "RouteOfficeIn":
+        if self.lat == 0 and self.lon == 0:
+            raise ValueError("0,0 is not a location")
+        return self
+
+
+class RouteOfficePatch(BaseModel):
+    """`PATCH /growatt/routes/offices/{id}` (admin): only the fields sent change. `address`
+    null / "" clears it; `name`, `lat`, `lon` can't be null. `is_default: true` moves the default
+    here; `false` on the default is refused (422: make another office the default instead)."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    address: Optional[str] = Field(default=None, max_length=200)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    lon: Optional[float] = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    is_default: Optional[bool] = None
+
+    _name = field_validator("name", mode="before")(_strip_text)
+    _address = field_validator("address", mode="before")(_blank_to_none)
+
+    @model_validator(mode="after")
+    def _no_nulls(self) -> "RouteOfficePatch":
+        for f in ("name", "lat", "lon", "is_default"):
+            if f in self.model_fields_set and getattr(self, f) is None:
+                raise ValueError(f"{f} can't be null")
+        return self
+
+
+class RouteOfficeOut(BaseModel):
+    id: int
+    name: str
+    address: Optional[str] = None
+    lat: float
+    lon: float
+    is_default: bool
+    created_by: Optional[int] = None  # user id
+    created_at: datetime
+    updated_at: datetime
+
+
+class RouteOfficeList(BaseModel):
+    """`GET /growatt/routes/offices`: default first, then by name."""
+
+    offices: List[RouteOfficeOut]
+
+
+# --------------------------------------------------------------------------- site visit route: stop candidates (phase 2)
+
+
+RouteReasonKind = Literal["task", "issue", "alarm", "claim", "cleaning_due", "pm_due"]
+
+
+class RouteCandidateReason(BaseModel):
+    """Why a plant is worth visiting. `label` is short English (the UI translates it)."""
+
+    kind: RouteReasonKind
+    label: str
+    detail: Optional[str] = None
+    priority: Optional[str] = None  # issue tier "P1" … "P4", else null
+    thb_per_day: Optional[float] = None  # estimated, issues only
+    task_id: Optional[int] = None
+    issue_id: Optional[int] = None
+    claim_id: Optional[int] = None
+    task_type: Optional[str] = None
+    since: Optional[str] = None  # YYYY-MM-DD
+
+
+class RouteCandidate(BaseModel):
+    plant_id: int
+    name: str
+    city: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    has_location: bool  # false: no coordinates, or Growatt's 0,0 "not set"
+    reasons: List[RouteCandidateReason]
+    default_service_min: float  # default time on site; edit per stop
+    service_basis: Literal["task_type", "cleaning_crew_days", "default"]
+    rank: int  # 1 = most worth visiting
+
+
+class RouteCandidatesResponse(BaseModel):
+    day: str
+    team_id: Optional[int] = None
+    user_id: Optional[int] = None
+    candidates: List[RouteCandidate]
+    counts: Dict[str, int]  # plants per reason kind
+    labels: Dict[str, str]

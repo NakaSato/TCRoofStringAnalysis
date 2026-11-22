@@ -45,7 +45,7 @@ _SKIP_PREFIXES = ("sqlalchemy", "app.logging_db")
 _QUIET_PREFIXES = ("urllib3", "httpx", "httpcore", "requests")
 
 _PATTERNS = [
-    (re.compile(r"([?&](?:key|token|access_token|api_key)=)[^&\s\"']+", re.I), r"\1" + MASK),
+    (re.compile(r"([?&](?:key|token|access_token|api_key|apikey)=)[^&\s\"']+", re.I), r"\1" + MASK),
     (re.compile(r"(Authorization:\s*Bearer\s+)\S+", re.I), r"\1" + MASK),
     (re.compile(r"(Bearer\s+)[A-Za-z0-9._-]{12,}"), r"\1" + MASK),
     (re.compile(r"(token[\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9._-]{12,}", re.I), r"\1" + MASK),
@@ -68,6 +68,7 @@ def _secret_values() -> List[str]:
         settings.report_api_key,
         settings.ai_api_key,
         settings.longdo_api_key,
+        settings.geoapify_api_key,
     ]
     for url in (settings.database_url, settings.redis_url):
         try:

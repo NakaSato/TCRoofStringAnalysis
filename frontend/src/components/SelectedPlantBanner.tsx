@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   TrendingUp,
   Wrench,
+  FolderOpen,
   Search,
   X,
   Rows3,
@@ -128,6 +129,7 @@ export const SelectedPlantBanner: React.FC = () => {
     { page: "strings", label: t("String Diagnostics & I-V / P-V Curves"), icon: Activity },
     { page: "string-layout", label: t("String Layout"), icon: Rows3 },
     { page: "maintenance", label: t("Maintenance"), icon: Wrench },
+    { page: "documents", label: t("Documents"), icon: FolderOpen },
   ];
   const navItems =
     selectedGrowattPlantId == null

@@ -37,6 +37,23 @@ const CalendarPage = page(() => import("./pages/CalendarPage"), "CalendarPage");
 const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
 const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
 const OmCenterPage = page(() => import("./pages/OmCenterPage"), "OmCenterPage");
+const KnowledgeBasePage = page(() => import("./pages/KnowledgeBasePage"), "KnowledgeBasePage");
+const KbArticlePage = page(() => import("./pages/kb/ArticlePage"), "KbArticlePage");
+const KbEditorPage = page(() => import("./pages/kb/EditorPage"), "KbEditorPage");
+const KbDocumentPage = page(() => import("./pages/kb/DocumentPage"), "KbDocumentPage");
+const KbDocViewerPage = page(() => import("./pages/kb/DocViewerPage"), "KbDocViewerPage");
+const KbSearchPage = page(() => import("./pages/kb/SearchPage"), "KbSearchPage");
+const PlantDocumentsPage = page(() => import("./pages/PlantDocumentsPage"), "PlantDocumentsPage");
+const VisitRoutePage = page(() => import("./pages/VisitRoutePage"), "VisitRoutePage");
+
+/** `/kb/doc/:docId/rev/:rev`: one revision, read only = the viewer on that revision. */
+const KbRevisionRedirect: React.FC = () => {
+  const { docId, rev } = useParams();
+  const { search } = useLocation();
+  const p = new URLSearchParams(search);
+  if (rev && /^\d+$/.test(rev)) p.set("rev", rev);
+  return <Navigate to={`/kb/doc/${docId}/view?${p.toString()}`} replace />;
+};
 
 /** Admin-only page (the backend answers 403 anyway): engineers are sent to the overview. */
 const AdminOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -128,8 +145,17 @@ export const App: React.FC = () => {
             <Route path="growatt" element={<GrowattFleetPage />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
             <Route path="calendar" element={<CalendarPage />} />
+            <Route path="route" element={<VisitRoutePage />} />
             <Route path="tools" element={<ToolsPage />} />
             <Route path="claims" element={<ClaimsPage />} />
+            <Route path="kb" element={<KnowledgeBasePage />} />
+            <Route path="kb/new" element={<KbEditorPage />} />
+            <Route path="kb/search" element={<KbSearchPage />} />
+            <Route path="kb/doc/:docId" element={<KbDocumentPage />} />
+            <Route path="kb/doc/:docId/view" element={<KbDocViewerPage />} />
+            <Route path="kb/doc/:docId/rev/:rev" element={<KbRevisionRedirect />} />
+            <Route path="kb/:slug" element={<KbArticlePage />} />
+            <Route path="kb/:slug/edit" element={<KbEditorPage />} />
             <Route path="energy-billing" element={<OmCenterPage />} />
             <Route path="center" element={<CenterRedirect />} />
             <Route path="center/*" element={<PwaMeterRedirect />} />
@@ -149,6 +175,7 @@ export const App: React.FC = () => {
               <Route path="string" element={<StringDetailPage />} />
               <Route path="string-layout" element={<StringLayoutPage />} />
               <Route path="maintenance" element={<PlantMaintenancePage />} />
+              <Route path="documents" element={<PlantDocumentsPage />} />
               <Route path="*" element={<Navigate to=".." relative="path" replace />} />
             </Route>
             {/* URLs from before the plant was in the URL */}

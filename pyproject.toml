@@ -19,6 +19,7 @@ dependencies = [
     "plotly>=7.1.0",
     "pydantic-settings>=2.16.2",
     "pyjwt>=2.15.1",
+    "pypdfium2>=5.15.2",
     "pytest>=9.2.0",
     "python-multipart>=0.0.33",
     "redis>=5.0",

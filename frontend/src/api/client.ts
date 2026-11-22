@@ -24,6 +24,9 @@ export type * from "./types/pwaMeter";
 export type * from "./types/center";
 export type * from "./types/tfrs16";
 export type * from "./types/pvsyst";
+export type * from "./types/kb";
+export type * from "./types/kbDocs";
+export type * from "./types/visitRoute";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, LiveStringOperating, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, PlantKpiDaily, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, PlantDocument, PlantDocumentKind, PlantDocumentRow, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
@@ -60,6 +63,19 @@ import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEv
 import type { OmCenter } from "./types/center";
 import type { Tfrs16Rollout, Tfrs16Schedule, Tfrs16Summary } from "./types/tfrs16";
 import type { PvsystDesign, PvsystVsMeter } from "./types/pvsyst";
+import type {
+  RouteCandidateQuery,
+  RouteCandidates,
+  RouteOffice,
+  RouteOfficeDeleted,
+  RouteOfficeIn,
+  RouteOfficeList,
+  RouteOfficePatch,
+  RouteSolveRequest,
+  RouteSolveResponse,
+} from "./types/visitRoute";
+import type { KbArticle, KbArticleBody, KbArticleList, KbArticlePatch, KbArticleQuery, KbDeleteResult, KbRevision, KbRevisionList } from "./types/kb";
+import type { KbDocCatalog, KbDocContext, KbDocCreateMeta, KbDocDetail, KbDocFileLink, KbDocHome, KbDocLinkInput, KbDocList, KbDocPatch, KbDocQuery, KbPlantDocuments, KbSearchResult } from "./types/kbDocs";
 import type { PwaBilling, PwaImportResult, PwaMeterCoverage, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantBaseline, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
@@ -92,7 +108,8 @@ export function clearAuthSession(): void {
 
 /** A non-2xx API answer; `status` lets callers tell "not found / not assigned" (404) from outages. */
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  /** `detail` of the error body as the API sent it (e.g. a 409's `{message, current}`); undefined when none */
+  constructor(message: string, readonly status: number, readonly detail?: unknown) {
     super(message);
     this.name = "ApiError";
   }
@@ -130,13 +147,15 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
   if (!res.ok) {
     let errDetail = `${res.status} ${res.statusText}`;
+    let detail: unknown;
     try {
       const body = await res.json();
+      detail = body.detail;
       if (body.detail) errDetail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
     } catch {
       // ignore
     }
-    throw new ApiError(errDetail, res.status);
+    throw new ApiError(errDetail, res.status, detail);
   }
 
   if (res.status === 204) {
@@ -617,6 +636,98 @@ export const api = {
   addClaimLink: (id: number, body: ClaimLinkBody) =>
     apiFetch<ClaimLink>(`/claims/${id}/links`, { method: "POST", body: JSON.stringify(body) }),
   deleteClaimLink: (id: number, linkId: number) => apiFetch<void>(`/claims/${id}/links/${linkId}`, { method: "DELETE" }),
+
+  // ---- knowledge base (O&M manuals as Markdown, with revisions; DB only). PATCH / restore with a
+  // stale base_version throw ApiError 409 whose `detail` is `{message, current}` (KbConflictDetail)
+  listKbArticles: (q: KbArticleQuery = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<KbArticleList>(`/kb/articles${qs ? `?${qs}` : ""}`);
+  },
+  getKbArticle: (slug: string) => apiFetch<KbArticle>(`/kb/articles/${encodeURIComponent(slug)}`),
+  createKbArticle: (body: KbArticleBody) => apiFetch<KbArticle>("/kb/articles", { method: "POST", body: JSON.stringify(body) }),
+  patchKbArticle: (id: number, body: KbArticlePatch) =>
+    apiFetch<KbArticle>(`/kb/articles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  publishKbArticle: (id: number) => apiFetch<KbArticle>(`/kb/articles/${id}/publish`, { method: "POST" }),
+  archiveKbArticle: (id: number) => apiFetch<KbArticle>(`/kb/articles/${id}/archive`, { method: "POST" }),
+  deleteKbArticle: (id: number) => apiFetch<KbDeleteResult>(`/kb/articles/${id}`, { method: "DELETE" }),
+  listKbRevisions: (id: number) => apiFetch<KbRevisionList>(`/kb/articles/${id}/revisions`),
+  getKbRevision: (id: number, revNo: number) => apiFetch<KbRevision>(`/kb/articles/${id}/revisions/${revNo}`),
+  restoreKbRevision: (id: number, revNo: number, baseVersion: number) =>
+    apiFetch<KbArticle>(`/kb/articles/${id}/restore/${revNo}`, { method: "POST", body: JSON.stringify({ base_version: baseVersion }) }),
+
+  // ---- knowledge base library: PDF documents (file never changed, text per page; DB + object
+  // storage). Uploads are multipart (`file` + `meta` JSON). `getKbDocFile` answers a short-lived
+  // signed link: `api` = an API path to prefix with API_BASE (no Authorization header needed)
+  listKbDocs: (q: KbDocQuery = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<KbDocList>(`/kb/docs${qs ? `?${qs}` : ""}`);
+  },
+  getKbDocHome: () => apiFetch<KbDocHome>("/kb/docs/home"),
+  getKbDocContext: () => apiFetch<KbDocContext>("/kb/docs/context"),
+  getKbDocCatalog: () => apiFetch<KbDocCatalog>("/kb/docs/catalog"),
+  getKbNextNumber: (type: string, discipline: string) =>
+    apiFetch<{ number: string }>(`/kb/docs/next-number?type=${encodeURIComponent(type)}&discipline=${encodeURIComponent(discipline)}`),
+  searchKb: (q: string, limit = 20) => apiFetch<KbSearchResult>(`/kb/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  getKbDoc: (id: number) => apiFetch<KbDocDetail>(`/kb/docs/${id}`),
+  getKbDocFile: (id: number, opts: { rev?: number | null; download?: boolean } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.rev != null) p.set("rev", String(opts.rev));
+    if (opts.download) p.set("download", "true");
+    const qs = p.toString();
+    return apiFetch<KbDocFileLink>(`/kb/docs/${id}/file${qs ? `?${qs}` : ""}`);
+  },
+  uploadKbDoc: (file: File, meta: KbDocCreateMeta) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("meta", JSON.stringify(meta));
+    return apiFetch<KbDocDetail>("/kb/docs", { method: "POST", body: form });
+  },
+  uploadKbDocRevision: (id: number, file: File, label: string, changeNote: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (label.trim()) form.append("label", label.trim());
+    if (changeNote.trim()) form.append("change_note", changeNote.trim());
+    return apiFetch<KbDocDetail>(`/kb/docs/${id}/revisions`, { method: "POST", body: form });
+  },
+  patchKbDoc: (id: number, body: KbDocPatch) => apiFetch<KbDocDetail>(`/kb/docs/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  putKbDocLinks: (id: number, links: KbDocLinkInput[]) =>
+    apiFetch<KbDocDetail>(`/kb/docs/${id}/links`, { method: "PUT", body: JSON.stringify({ links }) }),
+  pinKbDoc: (id: number, pinned: boolean) => apiFetch<{ pinned: boolean }>(`/kb/docs/${id}/pin`, { method: "PUT", body: JSON.stringify({ pinned }) }),
+  releaseKbDoc: (id: number) => apiFetch<KbDocDetail>(`/kb/docs/${id}/release`, { method: "POST" }),
+  withdrawKbDoc: (id: number, reason: string) =>
+    apiFetch<KbDocDetail>(`/kb/docs/${id}/withdraw`, { method: "POST", body: JSON.stringify({ reason }) }),
+  supersedeKbDoc: (id: number, byDocId: number | null, note: string) =>
+    apiFetch<KbDocDetail>(`/kb/docs/${id}/supersede`, { method: "POST", body: JSON.stringify({ by_doc_id: byDocId, note: note || null }) }),
+  ocrKbDocAgain: (id: number, revNo: number) =>
+    apiFetch<{ pages: number; text_status: string }>(`/kb/docs/${id}/revisions/${revNo}/ocr`, { method: "POST" }),
+  deleteKbDoc: (id: number) => apiFetch<{ result: "deleted" | "withdrawn" }>(`/kb/docs/${id}`, { method: "DELETE" }),
+  getPlantKbDocuments: (plantId: number) => apiFetch<KbPlantDocuments>(`/kb/plants/${plantId}/documents`),
+
+  // ---- site visit route (nothing stored; drive times are Geoapify road estimates or straight-line
+  // estimates, both modelled). `solveRoute` is rate limited per user (429); 422 = no location /
+  // split the day (`ApiError.detail`)
+  getRouteCandidates: (q: RouteCandidateQuery = {}) => {
+    const qs = new URLSearchParams();
+    if (q.day) qs.set("day", q.day);
+    if (q.team_id != null) qs.set("team_id", String(q.team_id));
+    if (q.user_id != null) qs.set("user_id", String(q.user_id));
+    const s = qs.toString();
+    return apiFetch<RouteCandidates>(`/growatt/routes/candidates${s ? `?${s}` : ""}`);
+  },
+  solveRoute: (body: RouteSolveRequest) =>
+    apiFetch<RouteSolveResponse>("/growatt/routes/solve", { method: "POST", body: JSON.stringify(body) }),
+  // saved offices a route can start from: everyone lists, admins write (403 otherwise; 404 / 409 / 422
+  // with the reason in `ApiError.detail`)
+  listRouteOffices: () => apiFetch<RouteOfficeList>("/growatt/routes/offices"),
+  createRouteOffice: (body: RouteOfficeIn) =>
+    apiFetch<RouteOffice>("/growatt/routes/offices", { method: "POST", body: JSON.stringify(body) }),
+  updateRouteOffice: (id: number, body: RouteOfficePatch) =>
+    apiFetch<RouteOffice>(`/growatt/routes/offices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteRouteOffice: (id: number) => apiFetch<RouteOfficeDeleted>(`/growatt/routes/offices/${id}`, { method: "DELETE" }),
 
   // File URLs (need the session token: download with downloadApiFile)
   sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,

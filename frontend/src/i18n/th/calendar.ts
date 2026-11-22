@@ -99,6 +99,8 @@ export const TH_CALENDAR: Record<string, string> = {
   Unassigned: "ยังไม่มอบหมาย",
   Who: "ผู้รับผิดชอบ",
   "Nothing planned this week.": "สัปดาห์นี้ยังไม่มีงานที่วางแผนไว้",
+  "Plan route": "วางแผนเส้นทาง",
+  "Plan route for {day}": "วางแผนเส้นทางวันที่ {day}",
   "{n} jobs": "{n} งาน",
   Task: "งาน",
   "No tasks.": "ไม่มีงาน",

@@ -290,6 +290,14 @@ def job_push_test(db: Session) -> Tuple[str, Dict[str, Any]]:
     return ("partial" if "error" in detail or detail.get("failed") else "ok"), detail
 
 
+def job_kb_ocr(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Knowledge Base: OCR of uploaded PDF pages without a text layer (tesseract, no Growatt
+    calls). Queued by each upload that has such pages, and every WORKER_KB_OCR_INTERVAL_MIN."""
+    from app.services.kb_docs import ocr_pending
+
+    return ocr_pending(db)
+
+
 def job_alarms_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Yesterday's alarm log once more after midnight: evening alarms and late closings."""
     return _alarms(db, _today() - timedelta(days=1))
@@ -505,6 +513,7 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "om_plans": job_om_plans,
     "om_reminders": job_om_reminders,
     "om_weekly": job_om_weekly,
+    "kb_ocr": job_kb_ocr,
 }
 
 

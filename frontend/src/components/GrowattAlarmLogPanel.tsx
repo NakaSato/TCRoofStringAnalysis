@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { translate, useI18n } from "../i18n";
+import { FaultManualLinks } from "./KbManualLinks";
 
 /** Growatt's own fault_type label → badge colour. */
 function alarmLevel(faultType: string | null): StatusLevel {
@@ -247,6 +248,7 @@ const AlarmEventRow: React.FC<{ e: AlarmEvent; showInverter: boolean; name?: str
           >
             {e.alarm_code ?? ""}
           </span>
+          <FaultManualLinks faultType={e.fault_type} code={e.alarm_code} className="shrink-0" />
         </div>
       </TableCell>
       {showInverter && (
@@ -490,6 +492,7 @@ const EventTimelineList: React.FC<{
                   >
                     {e.alarm_code ?? ""}
                   </span>
+                  <FaultManualLinks faultType={e.fault_type} code={e.alarm_code} className="shrink-0" />
                 </div>
                 <div className="num order-last col-span-2 truncate text-xs sm:order-none sm:col-span-1" title={e.device_sn}>
                   {href ? (

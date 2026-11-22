@@ -51,6 +51,8 @@ Monitoring Report/*.xlsx
 
 # Growatt endpoint probe replies (backend/scripts/probe_growatt_endpoints.py)
 data/growatt_probe/
+# Knowledge Base uploads in dev (KB_FILES_DIR; vendor manuals and plant drawings, never committed)
+data/kb_files/
 
 # frontend uses Bun (bun.lock) only
 frontend/package-lock.json

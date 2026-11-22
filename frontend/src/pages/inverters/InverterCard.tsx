@@ -6,6 +6,7 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, OctagonAlert, Power, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { fmt } from "../../components/ui";
+import { ModelManualLinks } from "../../components/KbManualLinks";
 import { cn } from "@/lib/utils";
 import { dayLabel } from "@/lib/day";
 import { translate, useI18n } from "@/i18n";
@@ -254,7 +255,10 @@ export const InverterCard: React.FC<{
             <div className="mt-2 grid gap-x-8 rounded-lg border border-white/[0.06] px-4 py-2 md:grid-cols-2">
               <div>
                 <Row label="Serial">{inv.device_sn}</Row>
-                <Row label="Model">{inv.device_model || inv.model || "—"}</Row>
+                <Row label="Model">
+                  {inv.device_model || inv.model || "—"}
+                  <ModelManualLinks model={inv.device_model || inv.model} className="ml-2" />
+                </Row>
                 <Row label="Rated AC">{fmt(inv.nominal_power_kw ?? inv.rated_power_kw, 0)} kW</Row>
                 <Row label="DC capacity">{fmt(inv.capacity_kwp, 2)} kWp</Row>
                 <Row label="Strings">{inv.string_count}</Row>

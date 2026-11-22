@@ -179,7 +179,8 @@ export const WeatherCard: React.FC<{
   storedUntil: string | null;
   liveWx: GrowattLive<GrowattLiveWeather> | null;
   liveWxFailed: boolean;
-}> = ({ plantId, day, storedUntil, liveWx, liveWxFailed }) => {
+  className?: string;
+}> = ({ plantId, day, storedUntil, liveWx, liveWxFailed, className }) => {
   const [sensors, setSensors] = useState<SensorRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
@@ -207,7 +208,7 @@ export const WeatherCard: React.FC<{
   const single = readings.length === 1;
 
   return (
-    <Card className="gap-4">
+    <Card className={cn("gap-4", className)}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {t("Weather")}

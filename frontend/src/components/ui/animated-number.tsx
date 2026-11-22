@@ -72,7 +72,8 @@ export function AnimatedNumber({
       >
         {text}
       </span>
-      <span className="sr-only">{target == null ? "—" : format(target, digits)}</span>
+      {/* not selectable, so copied text has the number once */}
+      <span className="sr-only select-none">{target == null ? "—" : format(target, digits)}</span>
     </span>
   );
 }

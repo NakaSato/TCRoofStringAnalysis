@@ -1,0 +1,82 @@
+/* The pdf.js text layer (selection, find highlights, screen readers), trimmed from pdfjs-dist
+ * web/pdf_viewer.css (Apache-2.0). The page wrapper sets --total-scale-factor to the zoom. */
+.kb-page .textLayer {
+  color-scheme: only light;
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+
+  :is(span, br) {
+    color: transparent;
+    position: absolute;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    user-select: text;
+  }
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    z-index: 1;
+    --font-height: 0;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    --scale-x: 1;
+    --rotate: 0deg;
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent {
+    display: contents;
+  }
+
+  span[role="img"] {
+    user-select: none;
+    cursor: default;
+  }
+
+  /* find / search-word hits */
+  .kb-hit {
+    margin: -1px;
+    padding: 1px;
+    border-radius: 3px;
+    background-color: rgb(250 204 21 / 0.45);
+  }
+  .kb-hit.kb-hit-current {
+    background-color: rgb(249 115 22 / 0.55);
+  }
+
+  ::selection {
+    background: rgb(0 0 255 / 0.25);
+    color: transparent;
+  }
+
+  br::selection {
+    background: transparent;
+  }
+
+  .endOfContent {
+    display: block;
+    position: absolute;
+    inset: 100% 0 0;
+    z-index: 0;
+    cursor: default;
+    user-select: none;
+  }
+
+  &.selecting .endOfContent {
+    top: 0;
+  }
+}

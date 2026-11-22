@@ -17,6 +17,8 @@ from app.api.routes import (
     claims,
     datasets,
     growatt,
+    kb,
+    kb_docs,
     maintenance,
     plants,
     push,
@@ -86,6 +88,12 @@ def create_app() -> FastAPI:
     api_router.include_router(claims.router, dependencies=[Depends(get_current_user)])
     # Measuring Tools: everyone views and checks out / in; add, edit, delete, calibrations admin only
     api_router.include_router(tools.router, dependencies=[Depends(get_current_user)])
+    # Knowledge Base: everyone reads (engineers: published + own drafts); publish / archive / delete admin only
+    api_router.include_router(kb.router, dependencies=[Depends(get_current_user)])
+    # Knowledge Base library (PDF documents): plant scope per document; release / withdraw admin only
+    api_router.include_router(kb_docs.router, dependencies=[Depends(get_current_user)])
+    # …except the file links it signs (HMAC, 1 h), which the PDF viewer opens without a token
+    api_router.include_router(kb_docs.files_router)
     # PWA daily meter report: read-only, scoped to the user's plants (import is the CLI)
     api_router.include_router(pwa_meter.router, dependencies=[Depends(get_current_user)])
     # PVsyst design data: read-only, stations scoped like the meter sites (import is the CLI)

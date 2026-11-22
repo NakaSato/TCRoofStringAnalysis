@@ -188,6 +188,36 @@ class Settings(BaseSettings):
     rainviewer_url: str = "https://api.rainviewer.com/public/weather-maps.json"
     rainviewer_ttl_s: int = 300  # snapshot list (10 min apart)
     rainviewer_timeout_s: float = 6.0
+    # Site visit route (docs/plans/site-visit-route.md): Geoapify (hosted, OpenStreetMap data) for
+    # the drive-time matrix (`routematrix`) and the route line (`routing`). Empty key = off:
+    # `/growatt/routes/solve` answers straight-line estimates, labelled `source: "straight_line"`.
+    # The key stays on the backend (never sent to the browser, masked in the logs). Matrix and
+    # route line are cached in memory only (24 h); nothing of a solve is stored.
+    geoapify_api_key: str = ""
+    geoapify_base_url: str = "https://api.geoapify.com/"
+    geoapify_timeout_s: float = 8.0  # one Geoapify call
+    geoapify_cooldown_s: float = 60.0  # after a failed call, straight-line only for this long
+    # Geoapify's free plan gives 3,000 credits a day (matrix = max(S,T) × min(S,T,10), routing =
+    # waypoints − 1, +1 per 500 km over 500 km) and does not block past it, so the backend keeps
+    # its own cap: credits are counted per Bangkok day in SQL (`external_api_call_counts`, api
+    # `geoapify`, the `calls` column holds credits); a solve that would pass it uses straight lines.
+    geoapify_daily_credits: int = 2800
+    route_solve_per_min: int = 10  # `/growatt/routes/solve` calls per user per minute (429 over it)
+    # Knowledge Base documents (docs/plans/kb-documents.md): uploaded PDFs (manuals, datasheets,
+    # drawings, SOPs) kept unchanged, with a SHA-256 checksum. `KB_ASSETS_BUCKET` set = a private
+    # GCS bucket (production; the API signs short GET URLs); empty = the local folder
+    # `KB_FILES_DIR` (dev). In prod an upload without a bucket is refused (Cloud Run's disk is not
+    # kept). Text per page is read at upload; pages without a text layer are OCR'd by the
+    # worker's `kb_ocr` job with tesseract (`KB_OCR_LANGS`, only the installed ones are used).
+    kb_assets_bucket: str = ""
+    kb_files_dir: str = ""  # empty = data/kb_files
+    kb_max_upload_mb: int = 30  # Cloud Run takes at most 32 MB per request
+    kb_file_url_ttl_s: int = 3600  # signed file links (GCS or the API's own) last this long
+    kb_ocr_langs: str = "tha+eng"
+    kb_ocr_dpi: int = 300
+    kb_ocr_pages_per_run: int = 150  # pages one `kb_ocr` run reads at most
+    kb_ocr_timeout_s: float = 120.0  # one page
+    worker_kb_ocr_interval_min: int = 30  # 0 = only when an upload queues it
     # AI Assistant (docs/plans/ai-assistant.md): Messages-API chat with read-only DB tools.
     # Qwen Cloud Model Studio (Singapore) through its Anthropic-compatible endpoint; an empty
     # base URL means Anthropic itself. Empty key = assistant off. Backend only (Secret Manager

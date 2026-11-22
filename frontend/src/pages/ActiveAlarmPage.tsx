@@ -27,6 +27,7 @@ import { TablePager, pageBounds } from "../components/TablePager";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
+import { FaultManualLinks } from "../components/KbManualLinks";
 import { translate, useI18n, type Lang } from "../i18n";
 
 
@@ -594,7 +595,10 @@ export const ActiveAlarmPage: React.FC = () => {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell>{a.alarm_message ?? "—"}</TableCell>
+                    <TableCell>
+                      {a.alarm_message ?? "—"}
+                      {a.source !== "sensor" && <FaultManualLinks faultType={a.fault_type} code={a.alarm_code} className="mt-0.5 flex" />}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

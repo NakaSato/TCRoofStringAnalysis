@@ -3,6 +3,7 @@
  * task's length; `onMove`). */
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Route } from "lucide-react";
 import type { OmBusyBlock, OmPerson, OmTask, OmTeam } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { cn } from "@/lib/utils";
@@ -10,6 +11,7 @@ import { useI18n } from "@/i18n";
 import { fmtInt } from "../../components/ui";
 import { TablePager, pageBounds } from "../../components/TablePager";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BUSY_CHIP, TYPE_CHIP, WEEKDAYS, addDays, weekdayName, covers, daysBetween, personName, spanLabel, statusChip, statusOf, taskTitle, taskWhere } from "./format";
@@ -176,7 +178,9 @@ export const WeekLanes: React.FC<{
   onOpen: (t: OmTask) => void;
   onCreate: (day: string) => void;
   onMove?: (t: OmTask, day: string) => void;
-}> = ({ from, today, tasks, busy, people, teams, only, me, onOpen, onCreate, onMove }) => {
+  /** the Visit Route link for a day ("Plan route" in its header); none = no button */
+  routeFor?: (day: string) => string;
+}> = ({ from, today, tasks, busy, people, teams, only, me, onOpen, onCreate, onMove, routeFor }) => {
   const { t: tr } = useI18n();
   const days = daysBetween(from, addDays(from, 6));
   const drop = useDrop(tasks, onMove);
@@ -227,7 +231,23 @@ export const WeekLanes: React.FC<{
             <th className="eyebrow w-40 border-b border-white/[0.06] px-2 py-1.5 text-left">{tr("Who")}</th>
             {days.map((day, i) => (
               <th key={day} className={cn("eyebrow border-b border-white/[0.06] px-2 py-1.5 text-left", day === today && "text-solar-200")}>
-                {weekdayName(i)} <span className="num">{Number(day.slice(8))}</span>
+                <div className="flex items-center justify-between gap-1">
+                  <span>
+                    {weekdayName(i)} <span className="num">{Number(day.slice(8))}</span>
+                  </span>
+                  {routeFor && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button asChild variant="ghost" size="icon-xs" aria-label={tr("Plan route for {day}", { day })}>
+                          <Link to={routeFor(day)}>
+                            <Route />
+                          </Link>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{tr("Plan route")}</TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               </th>
             ))}
           </tr>

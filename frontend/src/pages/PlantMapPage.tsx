@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { AppWindow, CloudRain, ExternalLink, Layers, LocateFixed, MapPinOff, Maximize2, Search, X } from "lucide-react";
+import { AppWindow, CloudRain, ExternalLink, Layers, LocateFixed, MapPinOff, Maximize2, Route, Search, X } from "lucide-react";
 import { useFleet } from "../context/FleetContext";
 import { plantPath } from "../context/routes";
 import { pick, useUrlState } from "../lib/useUrlState";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { PlantRainRow, RainRadarBar, type RainingFrame, type RainingPlant, rainLook, useFleetRain, useRainRadar } from "./plantMap/rainRadar";
 import { type FramePoint, RAIN_ALPHA, useFrameRain } from "./plantMap/frameRain";
 import { useI18n } from "../i18n";
+import { routeHref } from "./visitRoute/href";
 
 /* Basemaps. With a Mapbox token (`VITE_MAPBOX_TOKEN`, a public `pk.` token: restrict it by URL at
    Mapbox) the map uses Mapbox raster style tiles; without one, Esri's free tiles. Attribution is required. */
@@ -573,9 +574,13 @@ export const PlantMapPage: React.FC = () => {
               {radar.available && radar.data && radar.data.point_rain !== false && selected.located && (
                 <PlantRainRow plantId={selected.plant.plant_id} legend={radar.data.legend} />
               )}
-              <div className="mt-2.5 flex gap-2">
+              <div className="mt-2.5 flex flex-wrap gap-2">
                 <Button type="button" size="sm" onClick={() => navigate(plantPath(selected.plant.plant_id))}>
                   {t("Open plant")}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => navigate(routeHref({ plantIds: [selected.plant.plant_id] }))}>
+                  <Route data-icon="inline-start" />
+                  {t("Add to route")}
                 </Button>
                 {selected.located && (
                   <Button asChild variant="outline" size="sm">

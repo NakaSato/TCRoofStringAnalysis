@@ -276,6 +276,8 @@ export const TH_CENTER: Record<string, string> = {
   "Days since the last cleaning in the Site log": "จำนวนวันนับจากการล้างแผงครั้งล่าสุดในบันทึกหน้างาน",
   "no energy stored": "ไม่มีข้อมูลพลังงานที่บันทึกไว้",
   "Not in the PWA meter report": "ไม่อยู่ในรายงานมิเตอร์ PWA",
+  "Add to route": "เพิ่มในเส้นทาง",
+  "Add {plant} to route": "เพิ่ม {plant} ในเส้นทาง",
 
   // ---- list tabs, empty states, footnotes ----
   "Fix first": "แก้ก่อน",

@@ -3,10 +3,14 @@
  * estimated lost kWh / ฿: the page shows stored measurements, the report and entered costs only. */
 import React from "react";
 import { Link } from "react-router-dom";
+import { Route } from "lucide-react";
 import type { OmCenterIssue, OmCenterPlant, PwaMeterSiteSummary } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { fmt, fmtInt } from "../../components/ui";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { routeHref } from "../visitRoute/href";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHead } from "../pwaMeter/tables";
 import { ENTERED, fmtDay, thb } from "./format";
@@ -35,6 +39,9 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
         <TableHead className="text-right">{t("Age")}</TableHead>
         <TableHead>{t("Acknowledged")}</TableHead>
         <TableHead>{t("Next visit")}</TableHead>
+        <TableHead className="w-8">
+          <span className="sr-only">{t("Add to route")}</span>
+        </TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -74,6 +81,18 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
             ) : (
               <span className="text-amber-300">{t("None planned")}</span>
             )}
+          </TableCell>
+          <TableCell className="w-8 py-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button asChild variant="ghost" size="icon-xs" aria-label={t("Add {plant} to route", { plant: i.plant_name ?? t("Plant {id}", { id: i.plant_id }) })}>
+                  <Link to={routeHref({ plantIds: [i.plant_id] })}>
+                    <Route />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("Add to route")}</TooltipContent>
+            </Tooltip>
           </TableCell>
         </TableRow>
       ))}

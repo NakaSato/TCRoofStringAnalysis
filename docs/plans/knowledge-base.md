@@ -1,6 +1,8 @@
 # Plan: Knowledge Base (create and edit manuals)
 
-Status: **Planned** · Created 2026-11-22 · Owner: Chanthawat
+Status: **Phase 1 built** (text articles, revisions, 409 check, Thai search, list / view / editor) · Created 2026-11-22 · Owner: Chanthawat
+
+The uploaded PDF library (vendor manuals, datasheets, drawings; page-level search, viewer, fault-code links) is planned and built separately in `docs/plans/kb-documents.md`; these articles are its **Articles** tab.
 
 An in-app library of O&M manuals: SOPs, troubleshooting guides, alarm-code manuals, inverter and equipment notes, and safety procedures. Engineers and admins can write, edit, search and read them, including on a phone at the site. Each article keeps its edit history, and articles link to the alarm codes, inverter models and plants they cover.
 
@@ -71,7 +73,7 @@ An in-app library of O&M manuals: SOPs, troubleshooting guides, alarm-code manua
 | `kb_links` | `article_id`, `kind` (`alarm_code` \| `inverter_model` \| `plant`), `key` (`"<fault_type>:<alarm_code>"`, model key, or plant id) | Unique (article, kind, key); index on (kind, key) |
 | `kb_assets` | `id` (uuid), `article_id?`, `object_name`, `content_type`, `bytes`, `width`, `height`, `original_name`, `created_by/at` | Files live in GCS (§5); SQL keeps only metadata |
 
-- Alembic migration on head `b1c2d3e4f5a6`.
+- Alembic migration `d3e4f5a6b7c8` on `c2d3e4f5a6b7` (phase 1: `kb_articles`, `kb_revisions`; `kb_articles` also has `created_by_user_id` for the own-drafts rule).
 - `plant_id` has no FK, as in claims.
 - SQL only. Nothing goes to Firestore (rule 2).
 

@@ -1,0 +1,188 @@
+/* Visit Route map (RouteMap.tsx). The container also carries `.plant-map`, so the Leaflet controls,
+   attribution and popups look like the Plant Map (index.css). Unlayered on purpose, like index.css's map
+   rules: leaflet.css is unlayered, so overrides inside @layer would lose to it. */
+
+.route-map .rm-icon {
+  background: none;
+  border: 0;
+}
+.route-map .rm {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+/* candidate: small faint dot in the colour of its most urgent reason */
+.route-map .rm-cand {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--c) 70%, transparent);
+  border: 1.5px solid rgba(8, 12, 22, 0.85);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 22%, transparent);
+  opacity: 0.8;
+}
+.route-map .rm-cand:hover {
+  transform: translate(-50%, -50%) scale(1.4);
+  opacity: 1;
+}
+.route-map .rm-cand.rm-sel {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.5);
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35), 0 0 12px rgba(251, 191, 36, 0.55);
+}
+
+/* stop: numbered circle */
+.route-map .rm-stop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: #0ea5e9;
+  border: 2px solid rgba(8, 12, 22, 0.95);
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.35), 0 2px 6px rgba(0, 0, 0, 0.6);
+  color: #f8fafc;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.route-map .rm-stop:hover {
+  transform: translate(-50%, -50%) scale(1.15);
+}
+/* late: after sunset / after the latest finish / window missed */
+.route-map .rm-stop.rm-late {
+  background: #f59e0b;
+  color: #111827;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4), 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+/* not solved yet: hollow ring, no number */
+.route-map .rm-stop.rm-unsolved {
+  background: rgba(8, 12, 22, 0.8);
+  border: 2.5px solid #0ea5e9;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.route-map .rm-stop.rm-unsolved.rm-late {
+  border-color: #f59e0b;
+}
+.route-map .rm-stop.rm-sel {
+  transform: translate(-50%, -50%) scale(1.25);
+  outline: 2.5px solid #fbbf24;
+  outline-offset: 2px;
+}
+
+/* start: rounded square with a home glyph */
+.route-map .rm-start {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: #10b981;
+  border: 2px solid rgba(8, 12, 22, 0.95);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.35), 0 2px 8px rgba(0, 0, 0, 0.65);
+  color: #04130d;
+  cursor: default;
+}
+.route-map .rm-start svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* popup */
+.route-map .rm-pop {
+  min-width: 170px;
+  max-width: 240px;
+}
+.route-map .rm-pop-name {
+  font-weight: 600;
+  color: #f1f5f9;
+  overflow-wrap: anywhere;
+}
+.route-map .rm-pop-meta {
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.route-map .rm-pop-meta.rm-pop-late {
+  color: #fbbf24;
+}
+.route-map .rm-pop-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.route-map .rm-pop-reasons span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  font-size: 10.5px;
+}
+.route-map .rm-pop-reasons i {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--c);
+}
+.route-map .rm-pop-btn {
+  margin-top: 8px;
+  width: 100%;
+  min-height: 32px; /* finger-sized on a phone */
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.14);
+  color: #fde68a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.route-map .rm-pop-btn:hover {
+  background: rgba(251, 191, 36, 0.24);
+}
+.route-map .rm-pop-btn.rm-pop-remove {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fecaca;
+}
+.route-map .rm-pop-btn.rm-pop-remove:hover {
+  background: rgba(248, 113, 113, 0.2);
+}
+
+/* picking the start: crosshair over the map and its markers */
+.route-map.rm-picking,
+.route-map.rm-picking .leaflet-interactive,
+.route-map.rm-picking .rm {
+  cursor: crosshair;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-map .rm { transition: none; }
+}
+html:lang(th) .route-map .rm-pop-meta { font-size: 12px; }
+html:lang(th) .route-map .rm-pop-reasons span { font-size: 11.5px; }
+
+/* Credit line: leaflet.css loads with this page's chunk, after index.css, and its white box wins
+   over `.plant-map .leaflet-control-attribution` (same specificity), leaving the light links unreadable.
+   "Powered by Geoapify" must stay visible (its free plan), so pin the dark style here. */
+.route-map.leaflet-container .leaflet-control-attribution {
+  background: rgba(5, 8, 15, 0.75);
+  color: #94a3b8;
+  font-size: 10px;
+}
+.route-map.leaflet-container .leaflet-control-attribution a {
+  color: #e2e8f0;
+}
