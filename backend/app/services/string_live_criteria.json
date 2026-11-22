@@ -1,0 +1,22 @@
+{
+  "version": "2026-11-22",
+  "status": "proposed: thresholds to be signed off with O&M before any rule uses them",
+  "gates": {
+    "irradiance_min_wm2": 400,
+    "stale_s": 600,
+    "weather_max_gap_s": 300,
+    "clip_pct_of_rated": 98,
+    "off_mpp_voltage_ratio": 1.05,
+    "sanity_current_max": 1.25,
+    "sanity_voltage_max": 1.1
+  },
+  "notes": {
+    "irradiance_min_wm2": "below this the translation error of the modelled curve grows; points are drawn but not diagnostic",
+    "stale_s": "a live record older than this is stale (hollow), never shown as now",
+    "weather_max_gap_s": "the sensor record and the inverter record must be within this of each other (one record interval; both report about every 5 min)",
+    "clip_pct_of_rated": "AC at or above this share of rated power x the power limit = clipped or limited, the point is off MPP",
+    "off_mpp_voltage_ratio": "V above this x Vmp(model) = the MPPT walked towards Voc (zero export / curtailment)",
+    "sanity_current_max": "I above this x Isc(model) = reading or model out of range",
+    "sanity_voltage_max": "V above this x Voc(model) = reading or model out of range"
+  }
+}

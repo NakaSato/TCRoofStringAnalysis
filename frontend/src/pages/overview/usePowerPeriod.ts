@@ -7,17 +7,19 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { GrowattPlantOverview, GrowattPlantPower } from "../../api/client";
+import type { Curtailment, GrowattPlantOverview, GrowattPlantPower } from "../../api/client";
 import type { PanelChartSpec } from "../../components/PanelChart";
 import { plantToday } from "../../context/alarmLogStore";
 import { isWindowed, periodDayText, periodFromQuery, periodToQuery, windowText } from "../../components/stringDetail/period";
 import type { StringPeriod } from "../../components/stringDetail/period";
 import { useUrlState } from "@/lib/useUrlState";
-import { powerCurveSpec, powerSpec } from "../generation/charts";
+import { DAILY_BARS_AFTER_DAYS, dailyEnergySpec, periodDays, plantPowerLimit, powerCurveSpec, powerSpec } from "../generation/charts";
+import { dateLocale } from "../../i18n";
 import type { PowerCurve } from "../generation/charts";
 import type { LiveInverter } from "../inverters/shared";
 import { withLiveTail } from "./liveTail";
 import { withLiveMeter } from "./useLiveMeter";
+import { useLiveIrradiance, withLiveIrradiance } from "./useLiveIrradiance";
 import type { MeterPoint } from "./useLiveMeter";
 
 const REFRESH_MS = 5 * 60_000;
@@ -42,11 +44,25 @@ export interface PeriodFigures {
   gridImportKwh: number | null;
   gridExportKwh: number | null;
   loadKwh: number | null;
+  /** curtailment estimate of the period (backend; stored records only); null when not computed */
+  curtailment: Curtailment | null;
 }
 
 type Loaded = { key: string; ov?: GrowattPlantOverview; power?: GrowattPlantPower; error?: string };
 
-export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string | null, recs: LiveInverter[] = [], meterPts: MeterPoint[] = []) => {
+/**
+ * `live: false` (Generation page): stored records only, no live sensor irradiance tail for today.
+ * Plant Overview only: `singlePanel` (every series in one kW panel, irradiance in the tooltip), `expected`
+ * (the modelled available power line), `dailyBars` (a range of more than `DAILY_BARS_AFTER_DAYS`
+ * days as one bar per day).
+ */
+export const usePowerPeriod = (
+  ov: GrowattPlantOverview | null,
+  liveAt: string | null,
+  recs: LiveInverter[] = [],
+  meterPts: MeterPoint[] = [],
+  opts: { live?: boolean; singlePanel?: boolean; expected?: boolean; dailyBars?: boolean } = {}
+) => {
   const [query, setQuery] = useUrlState();
   const period = periodFromQuery(query);
   const setPeriod = (p: StringPeriod) => setQuery(periodToQuery(p));
@@ -113,15 +129,14 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
   const growattTs = windowed ? undefined : gPower?.growatt_timeseries;
 
   const answered = mode === "own" || got != null;
+  // today's sensor irradiance for the slots not stored yet (memory only; only while today is shown)
+  const irrPts = useLiveIrradiance(ov, opts.live !== false && mode !== "curve" && day === today);
   // today's whole day: the stored curve continued with the live records past its newest slot
   const liveDay = Boolean(dayOv && dayOv.meta.day === today);
-  const ts = useMemo(
-    () =>
-      dayOv && liveDay
-        ? withLiveMeter(withLiveTail(dayOv.timeseries, recs, today, dayOv.kpis.capacity_kwp ?? null), meterPts, today)
-        : (dayOv?.timeseries ?? null),
-    [dayOv, liveDay, recs, meterPts, today]
-  );
+  const ts = useMemo(() => {
+    if (!dayOv || !liveDay) return dayOv?.timeseries ?? null;
+    return withLiveIrradiance(withLiveMeter(withLiveTail(dayOv.timeseries, recs, today, dayOv.kpis.capacity_kwp ?? null), meterPts, today), irrPts, today);
+  }, [dayOv, liveDay, recs, meterPts, irrPts, today]);
   // each inverter's own today's yield from its live record, only when every inverter has one
   const liveYield = useMemo(() => {
     if (!dayOv || !liveDay) return null;
@@ -129,11 +144,16 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
     const n = dayOv.inverters.length;
     return n && todays.length >= n ? todays.reduce((a, r) => a + (r.eac_today_kwh ?? 0), 0) : null;
   }, [dayOv, liveDay, recs, today]);
+  const bars = Boolean(opts.dailyBars && mode === "curve" && day && periodDays(day, endDay) > DAILY_BARS_AFTER_DAYS);
+  const { singlePanel, expected } = opts;
   const spec = useMemo<PanelChartSpec | null>(() => {
     const ratedKw = power?.rated_ac_kw ?? null;
+    // today's whole day: a fixed 00:00–24:00 axis, the hours still to come shaded "Later today"
+    const vo = { singlePanel, expected, fullDay: day === today && !endDay && !windowed };
+    if (bars) return power ? dailyEnergySpec(power.daily, { kwp: ov?.kpis.capacity_kwp ?? null, windowed, locale: dateLocale() }) : null;
     // answered without a curve (error, or a day the backend has no records for): the empty frame
-    const frame = () => (day ? powerCurveSpec({ ts: [], day, endDay, start, end, inverters: 0, ratedKw }, liveAt) : null);
-    if (dayOv) return powerSpec(dayOv, liveAt, { extra: true, irradiance: true, grid: true, ts: ts ?? undefined, growatt: growattTs }) ?? frame();
+    const frame = () => (day ? powerCurveSpec({ ts: [], day, endDay, start, end, inverters: 0, ratedKw }, liveAt, { ratedLine: false, clearSky: false, fitX: true, fitY: true, ...vo }) : null);
+    if (dayOv) return powerSpec(dayOv, liveAt, { extra: true, irradiance: true, grid: true, ratedLine: false, clearSky: false, fitX: true, fitY: true, ts: ts ?? undefined, growatt: growattTs, ...vo }) ?? frame();
     if (!power) return answered ? frame() : null;
     return powerCurveSpec(
       {
@@ -146,11 +166,12 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
         ratedKw: power.rated_ac_kw,
         kwp: ov?.kpis.capacity_kwp ?? null,
         growatt: growattTs,
+        limit: ov ? plantPowerLimit(ov.inverters) : null,
       },
       liveAt,
-      { extra: true, irradiance: true, grid: true }
+      { extra: true, irradiance: true, grid: true, ratedLine: false, clearSky: false, fitX: true, fitY: true, ...vo }
     );
-  }, [dayOv, ts, power, liveAt, start, end, day, endDay, answered, growattTs, ov]);
+  }, [dayOv, ts, power, liveAt, start, end, day, endDay, answered, growattTs, ov, singlePanel, expected, bars, windowed, today]);
 
   // Growatt's figure covers whole days: only without a time window, and only when every day has one
   const gDaily = gPower?.daily ?? null;
@@ -192,6 +213,7 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
         gridImportKwh: k.grid_import_kwh ?? null,
         gridExportKwh: k.grid_export_kwh ?? null,
         loadKwh: k.load_kwh ?? null,
+        curtailment: k.curtailment ?? null,
       };
     }
     const es = power!.daily.map((d) => d.energy_kwh).filter((v): v is number => v != null);
@@ -210,6 +232,7 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
       gridImportKwh: power!.grid_import_kwh ?? null,
       gridExportKwh: power!.grid_export_kwh ?? null,
       loadKwh: power!.load_kwh ?? null,
+      curtailment: power!.curtailment ?? null,
     };
   }, [dayOv, ts, liveYield, power, ov, growattKwh, growattImplausible]);
 
@@ -224,11 +247,21 @@ export const usePowerPeriod = (ov: GrowattPlantOverview | null, liveAt: string |
     today,
     ovDay,
     day,
+    /** last day of a range (null = one day) */
+    endDay,
+    /** a time-of-day window is set (whole-day figures such as the baseline do not apply) */
+    windowed,
     multi,
     mode,
     label,
     spec,
     figures,
+    /** the chart is one bar per day; `barDays[i]` is the day of bar i */
+    bars,
+    barDays: bars && power ? power.daily.map((d) => d.day) : null,
+    /** the whole day's overview the period shows (the context's or the picked day's); null for a
+     *  range / time window, or while a picked day loads */
+    dayOv,
     /** the request for a picked period is running (or has not answered yet) */
     loading: loading || (key != null && !got),
     error: got?.error ?? null,

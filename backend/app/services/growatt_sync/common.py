@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, Iterable, Optional, Sequence, TypeVar
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattInverter, GrowattPlant
+from app.db.models import GrowattInverter, GrowattPlant, inverter_installed
 from solar_core.growatt import GrowattAPIError
 
 RATE_LIMIT_CODE = 10012
@@ -74,11 +74,12 @@ MAX_RATE_LIMITED = 3
 
 
 def _inverters_query(phase: Optional[int], include_untagged: bool):
-    """Inverters ordered by plant; restricted to one phase's plants when `phase` is given.
+    """Installed inverters ordered by plant; restricted to one phase's plants when `phase` is given.
 
     `include_untagged` also takes plants with no phase yet (they default to the first account).
+    Inverters marked not installed are never synced (no Growatt calls for them).
     """
-    q = select(GrowattInverter).order_by(GrowattInverter.plant_id, GrowattInverter.device_sn)
+    q = select(GrowattInverter).where(inverter_installed()).order_by(GrowattInverter.plant_id, GrowattInverter.device_sn)
     if phase is None:
         return q
     cond = GrowattPlant.phase == phase

@@ -27,6 +27,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { TablePager, pageBounds } from "../../components/TablePager";
+
+/** events per page of the Site log */
+const EVENT_PAGE = 25;
 
 export const EVENT_TYPES: ReadonlyArray<{ value: SiteEventType; label: string }> = [
   { value: "cleaning", label: "Cleaning" },
@@ -358,6 +362,13 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
     void load();
   }, [load]);
 
+  // EVENT_PAGE events at a time; back to page 1 for another plant or type (a re-read after a save keeps the page)
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [plantId, type]);
+  const events = data?.events ?? [];
+  const { pageNo } = pageBounds(events.length, EVENT_PAGE, page);
+  const pageEvents = events.slice(pageNo * EVENT_PAGE, (pageNo + 1) * EVENT_PAGE);
+
   useEffect(() => {
     let live = true;
     api
@@ -442,7 +453,7 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.events.map((e) => (
+              {pageEvents.map((e) => (
                 <TableRow key={e.id}>
                   <TableCell className="num whitespace-nowrap text-xs text-white">{span(e)}</TableCell>
                   <TableCell>
@@ -482,6 +493,7 @@ export const SiteEventsCard: React.FC<{ plantId: number }> = ({ plantId }) => {
             </TableBody>
           </Table>
         )}
+        {events.length > EVENT_PAGE && <TablePager className="border-t border-white/[0.06] px-4 py-2.5" rows={events.length} pageSize={EVENT_PAGE} pageNo={pageNo} onPage={setPage} />}
       </CardContent>
 
       <EventDialog

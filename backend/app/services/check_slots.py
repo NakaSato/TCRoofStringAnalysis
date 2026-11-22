@@ -45,7 +45,7 @@ day's slot is always buildable. The first build is stored in `pwa_check_slots` a
 build (later publishes the same day, 19:30, yesterday's 06:00 / 18:15 re-publishes, the
 worker's sheet fill) reuses it, so a slot the sheet has shown never changes.
 
-Inverters named as replaced in Growatt ("INV 1 old") are left out (daily_checks.is_replaced).
+Inverters named as replaced in Growatt ("INV 1 old") or marked not installed are left out (daily_checks.left_out).
 """
 
 from __future__ import annotations
@@ -152,21 +152,21 @@ def now_local() -> datetime:
 # --------------------------------------------------------------------------- one slot
 
 
-def is_replaced(inv: GrowattInverter) -> bool:
-    from app.services.daily_checks import is_replaced as _replaced
+def left_out(inv: GrowattInverter) -> bool:
+    from app.services.daily_checks import left_out as _left_out
 
-    return _replaced(inv)
+    return _left_out(inv)
 
 
 def _labels(db: Session, plant_id: int) -> Dict[str, str]:
     from app.services.daily_checks import inverter_label
 
-    invs = [i for i in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id)) if not is_replaced(i)]
+    invs = [i for i in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id)) if not left_out(i)]
     return {i.device_sn: inverter_label(i, sole=len(invs) == 1) for i in invs}
 
 
 def has_inverters(db: Session, plant_id: int) -> bool:
-    """The plant has at least one inverter that is not marked as replaced."""
+    """The plant has at least one inverter that is not replaced or marked not installed."""
     return bool(_labels(db, plant_id))
 
 

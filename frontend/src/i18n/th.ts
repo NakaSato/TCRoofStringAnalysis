@@ -13,6 +13,8 @@ import { TH_STRINGS } from "./th/strings";
 import { TH_CALENDAR } from "./th/calendar";
 import { TH_CLAIMS } from "./th/claims";
 import { TH_ADMIN } from "./th/admin";
+import { TH_LEASE } from "./th/lease";
+import { TH_PVSYST } from "./th/pvsyst";
 import { TH_SHARED } from "./th/shared";
 
-export const TH: Record<string, string> = { ...TH_CORE, ...TH_CENTER, ...TH_ALARMS, ...TH_OVERVIEW, ...TH_PLANT, ...TH_STRINGS, ...TH_CALENDAR, ...TH_CLAIMS, ...TH_ADMIN, ...TH_SHARED };
+export const TH: Record<string, string> = { ...TH_CORE, ...TH_CENTER, ...TH_ALARMS, ...TH_OVERVIEW, ...TH_PLANT, ...TH_STRINGS, ...TH_CALENDAR, ...TH_CLAIMS, ...TH_ADMIN, ...TH_LEASE, ...TH_PVSYST, ...TH_SHARED };

@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattInverter, GrowattIssue, GrowattPlant, OmTask
+from app.db.models import GrowattInverter, GrowattIssue, GrowattPlant, OmTask, inverter_installed
 from solar_core.growatt import GrowattAPIError, GrowattClient
 from app.services.growatt_sync.common import RATE_LIMIT_CODE, _fnum, _retry, _upsert, log
 from app.services.growatt_sync.env import sync_env_sensors
@@ -63,6 +63,9 @@ def remove_blocked_plants(db: Session, plant_ids: Iterable[int]) -> List[int]:
         from app.services import om_plans  # local: keeps the sync package free of the calendar's imports
 
         om_plans.delete_plant_rows(db, found)  # plan links, per-plant planning figures
+        from app.services import plant_documents
+
+        plant_documents.delete_plant_rows(db, found)  # as-built / photo links
         db.execute(delete(GrowattPlant).where(GrowattPlant.plant_id.in_(found)))
         db.commit()
         log.info("blocked plants removed from the registry: %s", found)
@@ -158,7 +161,7 @@ def sync_fleet(
     return list(
         db.scalars(
             select(GrowattInverter)
-            .where(GrowattInverter.plant_id.in_(pids))
+            .where(GrowattInverter.plant_id.in_(pids), inverter_installed())
             .order_by(GrowattInverter.plant_id, GrowattInverter.device_sn)
         )
     )
@@ -202,7 +205,7 @@ def _sync_inverter_info(
 
     invs = db.scalars(
         select(GrowattInverter)
-        .where(GrowattInverter.plant_id.in_(plant_ids))
+        .where(GrowattInverter.plant_id.in_(plant_ids), inverter_installed())
         .order_by(GrowattInverter.info_synced_at.is_not(None), GrowattInverter.info_synced_at, GrowattInverter.device_sn)
     )
     for inv in list(invs):
@@ -328,7 +331,7 @@ def _sync_device_params(
         i
         for i in db.scalars(
             select(GrowattInverter)
-            .where(GrowattInverter.plant_id.in_(plant_ids))
+            .where(GrowattInverter.plant_id.in_(plant_ids), inverter_installed())
             .order_by(GrowattInverter.param_synced_at.is_not(None), GrowattInverter.param_synced_at, GrowattInverter.device_sn)
         )
         if _due(i.param_synced_at, cutoff)
@@ -351,7 +354,7 @@ def _sync_create_dates(
     invs = list(
         db.scalars(
             select(GrowattInverter)
-            .where(GrowattInverter.plant_id.in_(plant_ids), GrowattInverter.growatt_created_at.is_(None))
+            .where(GrowattInverter.plant_id.in_(plant_ids), inverter_installed(), GrowattInverter.growatt_created_at.is_(None))
             .order_by(GrowattInverter.device_sn)
         )
     )
@@ -403,7 +406,7 @@ def _sync_missing_dataloggers(
     datalogger status and the meter / sensor lookups go by that serial). Usually none."""
     invs = db.scalars(
         select(GrowattInverter)
-        .where(GrowattInverter.plant_id.in_(plant_ids), or_(GrowattInverter.datalogger_sn.is_(None), GrowattInverter.datalogger_sn == ""))
+        .where(GrowattInverter.plant_id.in_(plant_ids), inverter_installed(), or_(GrowattInverter.datalogger_sn.is_(None), GrowattInverter.datalogger_sn == ""))
         .order_by(GrowattInverter.device_sn)
     )
     return _registry_sweep(

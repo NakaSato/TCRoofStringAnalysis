@@ -16,7 +16,7 @@ import { isAdmin } from "../auth/access";
 import { plantToday } from "../context/alarmLogStore";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
-import { SkeletonRows, fmtInt } from "../components/ui";
+import { SkeletonRows, Suspended, fmtInt } from "../components/ui";
 import { TablePager, pageBounds } from "../components/TablePager";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -69,7 +69,7 @@ export const ToolsPage: React.FC = () => {
   const desc = url.get("desc") === "1";
   const toolId = /^\d+$/.test(url.get("tool") ?? "") ? Number(url.get("tool")) : null;
 
-  const { data, loading, error, reload } = useInstruments(showRetired || status === "retired");
+  const { data, loading, refreshing, error, reload } = useInstruments(showRetired || status === "retired");
   const [version, setVersion] = useState(0);
   const changed = useCallback(() => {
     setVersion((v) => v + 1);
@@ -429,7 +429,7 @@ export const ToolsPage: React.FC = () => {
                 {CATEGORIES.map((c) => (
                   <SelectItem key={c.value} value={c.value}>
                     <c.icon />
-                    {t(c.label)} ({all.filter((i) => i.category === c.value && (showRetired || i.status !== "retired")).length})
+                    {t(c.label)} ({data ? fmtInt(all.filter((i) => i.category === c.value && (showRetired || i.status !== "retired")).length) : "—"})
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -480,6 +480,7 @@ export const ToolsPage: React.FC = () => {
         </CardContent>
 
         <CardContent ref={tableRef} className="overflow-x-auto overflow-y-hidden px-0" style={{ height: fit.height }}>
+          <Suspended busy={refreshing} label={t("Loading instruments…")} className="h-full" contentClassName="h-full">
           {rowCount === 0 ? (
             firstRead ? (
               <SkeletonRows rows={8} className="p-4" />
@@ -510,6 +511,7 @@ export const ToolsPage: React.FC = () => {
           ) : (
             <DueTable rows={slice(dueRows)} today={today} onOpen={open} actions={actions} dueAction={dueAction} />
           )}
+          </Suspended>
         </CardContent>
         <CardContent className="border-t py-2.5">
           <TablePager rows={rowCount} pageSize={fit.pageSize} pageNo={pageNo} onPage={setPage} />

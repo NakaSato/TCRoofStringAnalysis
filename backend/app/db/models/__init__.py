@@ -37,6 +37,8 @@ from app.db.models.growatt import (  # noqa: F401
     GrowattEnvReading,
     GrowattEnvSensor,
     GrowattInverter,
+    inverter_installed,
+    not_installed_sns,
     GrowattInverterEnergyDay,
     GrowattInverterRaw,
     GrowattInverterReading,
@@ -47,6 +49,7 @@ from app.db.models.growatt import (  # noqa: F401
     GrowattPlantPower,
     GrowattStringLayout,
     GrowattStringReading,
+    GrowattStringRemoved,
 )
 from app.db.models.rules import (  # noqa: F401
     GrowattInverterDaily,
@@ -86,6 +89,19 @@ from app.db.models.pwa import (  # noqa: F401
     PwaMeterExpected,
     PwaMeterSite,
 )
+from app.db.models.pvsyst import (  # noqa: F401
+    PvsystPhase,
+    PvsystStation,
+)
+from app.db.models.tfrs16 import (  # noqa: F401
+    Tfrs16Import,
+    Tfrs16Period,
+    Tfrs16Phase,
+    Tfrs16Remeasurement,
+    Tfrs16RevenueMonth,
+    Tfrs16RolloutStation,
+)
+from app.db.models.plant_docs import PlantDocument  # noqa: F401
 from app.db.models.system import (  # noqa: F401
     AiUsage,
     AppLog,

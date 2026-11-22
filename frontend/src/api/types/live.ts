@@ -214,3 +214,63 @@ export interface GrowattInverterSnapshot {
   errors: Record<string, string>;
   sweep: { fresh: number; checked: number; total: number; oldest_age_s: number; inverters: number; answered: number };
 }
+
+/** Why a live operating point is not diagnostic (`/live/plants/{id}/strings/operating`). */
+export type OperatingGate =
+  | "no_reading"
+  | "stale"
+  | "not_producing"
+  | "clipped_or_limited"
+  | "no_model"
+  | "weather_not_aligned"
+  | "low_irradiance"
+  | "out_of_range"
+  | "off_mpp";
+
+export interface ModelledStringCurve {
+  modules: number;
+  /** modelled: single-diode model of the fleet module at the sensor's G and T_mod */
+  points: Array<{ v: number; i: number; p: number }>;
+  v_oc_v: number;
+  i_sc_a: number;
+  v_mp_v: number;
+  i_mp_a: number;
+  p_mp_w: number;
+}
+
+export interface StringOperatingPoint {
+  device_sn: string;
+  string_no: number;
+  mppt_no: number | null;
+  /** String Layout module count; null = not entered (no modelled curve) */
+  modules: number | null;
+  /** measured, newest live record (voltage = the MPPT's, shared by its strings) */
+  voltage_v: number | null;
+  current_a: number | null;
+  power_w: number | null;
+  timestamp: string | null;
+  /** current ÷ the inverter's other strings in the same record (live string check) */
+  r_i: number | null;
+  /** current ÷ Imp and voltage ÷ Vmp of the modelled curve; null without a curve */
+  r_imp: number | null;
+  r_v: number | null;
+  gates: OperatingGate[];
+  diagnostic: boolean;
+  model_reason: string | null;
+  live_status: LiveStringStatus | null;
+  live_reason: string | null;
+}
+
+export interface LiveStringOperating {
+  plant_id: number;
+  modelled: true;
+  /** sensors averaged; null = no curve (see weather_reason) */
+  weather: { irradiance_wm2: number; module_temp_c: number; ambient_temp_c: number | null; timestamp: string | null; sensors: number } | null;
+  weather_reason: string | null;
+  module: { manufacturer: string | null; model: string | null; wp: number | null; source: string | null };
+  criteria: { version: string; status: string; irradiance_min_wm2: number; stale_s: number; weather_max_gap_s: number; clip_pct_of_rated: number; off_mpp_voltage_ratio: number };
+  curves: ModelledStringCurve[];
+  inverters: Array<{ device_sn: string; alias: string | null; timestamp: string | null; age_s: number | null; status: number | null; pac_w: number | null; limited: boolean; stale: boolean }>;
+  strings: StringOperatingPoint[];
+  errors: Record<string, string>;
+}

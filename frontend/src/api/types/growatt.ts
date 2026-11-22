@@ -34,6 +34,33 @@ export interface GrowattPlant {
   growatt_datalogger_count?: number | null;
   energy_date?: string | null;
   synced_at?: string | null;
+  /** overview only: links to the plant's as-built PDF / site photo folder on Google Drive (a kind without a link is absent) */
+  documents?: Partial<Record<PlantDocumentKind, { url: string; title: string | null; revision: string | null }>>;
+}
+
+/** `/growatt/plants/{id}/documents`: links only; the files stay on Google Drive */
+export type PlantDocumentKind = "asbuilt" | "site_photos";
+
+export interface PlantDocument {
+  kind: PlantDocumentKind;
+  url: string;
+  title: string | null;
+  /** "REV.3" as read from the Drive file name */
+  revision: string | null;
+  /** matched = Drive name matcher, manual = set by an admin (a re-import keeps it) */
+  source: "matched" | "manual";
+  /** name-match confidence 0…1 (matched only) */
+  match_score: number | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export interface PlantDocumentRow {
+  plant_id: number;
+  name: string;
+  phase: number | null;
+  asbuilt: PlantDocument | null;
+  site_photos: PlantDocument | null;
 }
 
 export interface GrowattDbMeta {
@@ -167,6 +194,8 @@ export interface GrowattPlantOverview {
     grid_import_kwh?: number | null;
     grid_export_kwh?: number | null;
     load_kwh?: number | null;
+    /** curtailed energy of the day (estimated; backend services/growatt_curtailment.py) */
+    curtailment?: Curtailment;
   };
   inverters: Array<{
     device_sn: string;
@@ -213,6 +242,8 @@ export interface GrowattPlantOverview {
     live_diagnostics?: GrowattLiveDiagnostics | null;
     live_mppt_energy?: GrowattMpptEnergy[] | null;
   }>;
+  /** listed in Growatt but marked not installed on site: in no figure of this overview */
+  not_installed_inverters?: GrowattInverter[];
   timeseries: Array<{
     timestamp: string;
     /** null = no inverter record in this slot (a row of the energy meter only, e.g. at night); never 0 */
@@ -234,6 +265,12 @@ export interface GrowattPlantOverview {
     load_kw?: number | null;
     module_temp_c?: number | null;
     ambient_temp_c?: number | null;
+    /** what the array could give in the slot (modelled: kWp × POA × temperature × EPI factor, capped at rated AC); null without a sensor reading */
+    available_kw?: number | null;
+    /** available − AC where the plant was held back (estimated); 0 = judged, not curtailed; null = not judged */
+    curtailed_kw?: number | null;
+    /** why: the meter holds ~0 kW (zero-export, PV follows the load) or AC at the power-limit setting */
+    curtailed_by?: CurtailCause | null;
   }>;
   weather?: {
     has_sensor: boolean;
@@ -394,6 +431,14 @@ export interface GrowattInverter {
   /** when the device was added to Growatt (`device/all/create_date`), as reported; not a commissioning date */
   growatt_created_at?: string | null;
   settings?: GrowattInverterSettings;
+  /** marked by an admin as listed in Growatt but not installed on site (null = installed) */
+  not_installed?: InverterNotInstalled | null;
+}
+
+export interface InverterNotInstalled {
+  at: string;
+  by: string | null;
+  note: string | null;
 }
 
 /** /growatt/plants/{id}/power — the plant's stored 5-min AC / DC curve over a day or day range (DB only). */
@@ -412,6 +457,8 @@ export interface GrowattPlantPower {
   grid_import_kwh?: number | null;
   grid_export_kwh?: number | null;
   load_kwh?: number | null;
+  /** curtailed energy of the period (estimated); per slot in `timeseries`, per day in `daily` */
+  curtailment?: Curtailment;
   /** Growatt's own 5-min plant AC curve (`plant/power`), stored for finished days only */
   growatt_timeseries?: Array<{ timestamp: string; pac_kw: number }>;
   /** AC energy per day integrated from the records (in the time window); null = no records.
@@ -424,7 +471,27 @@ export interface GrowattPlantPower {
     growatt_inverters_reported?: number;
     /** a Growatt figure above 10 kWh/kWp was withheld (null), as a Growatt glitch */
     growatt_implausible?: boolean;
+    /** curtailed kWh of the day (estimated); null = no slot could be judged */
+    curtailed_kwh?: number | null;
   }>;
+}
+
+export type CurtailCause = "export_limit" | "power_limit";
+
+/** Curtailment estimate of a day or period (backend services/growatt_curtailment.py). Estimated,
+ * never measured: the modelled available power minus the AC in slots where the meter held ~0 kW
+ * or the AC sat at the power-limit setting. */
+export interface Curtailment {
+  /** null = no slot could be judged (no sensor reading, no kWp) */
+  kwh: number | null;
+  slots: number;
+  judged_slots: number;
+  by: Partial<Record<CurtailCause, number>>;
+  reason: "no_capacity" | "no_sensor_slots" | null;
+  estimated: true;
+  /** the EPI system factor in the model */
+  factor: number;
+  limit_kw: number | null;
 }
 
 /** The EPI model's system factor in use for a plant (backend services/epi_fit.py). Modelled. */
@@ -443,4 +510,55 @@ export interface EpiFactor {
   reason: string | null;
   fitted_at: string | null;
   modelled: true;
+}
+
+/** One stored plant-day of `growatt_plant_daily` (`/growatt/plants/{id}/kpi-daily`). DB only.
+ * PR / PR' come from the plant's weather sensor (IEC 61724; null without one). `modelled_energy_kwh`,
+ * `epi` and `system_factor` are modelled. */
+export interface PlantKpiDay {
+  day: string;
+  capacity_kwp: number | null;
+  energy_kwh: number | null;
+  dc_energy_kwh: number | null;
+  /** modelled */
+  modelled_energy_kwh: number | null;
+  /** reference yield: POA insolation ÷ 1 kW/m² (h) */
+  yr_h: number | null;
+  /** array yield, DC (kWh/kWp) */
+  ya_kwh_kwp: number | null;
+  /** final (specific) yield, AC (kWh/kWp) */
+  yf_kwh_kwp: number | null;
+  ya_minus_yf: number | null;
+  pr_pct: number | null;
+  pr_temp_corrected_pct: number | null;
+  /** modelled */
+  epi: number | null;
+  /** modelled */
+  system_factor: number | null;
+  irradiance_weighted_tmod_c: number | null;
+  filtered_slots: number | null;
+  stale_masked_slots: number | null;
+  clipped_masked_slots: number | null;
+  curtailed_masked_slots: number | null;
+  sensor_stale_slots: number | null;
+  sensor_high_slots: number | null;
+  sensor_midday_wm2: number | null;
+  sensor_neighbour_ratio: number | null;
+  sensor_neighbours: number | null;
+  /** Google cloud cover at midday (modelled) */
+  cloud_midday_pct: number | null;
+  /** R16: false = PR, PR' and EPI of the day rest on a suspect sensor; null = not judged */
+  sensor_ok: boolean | null;
+  /** "stale" | "above_clear_sky" | "below_neighbours" */
+  sensor_flags: string[];
+}
+
+export interface PlantKpiDaily {
+  plant_id: number;
+  start: string;
+  end: string;
+  /** stored days only, oldest first (a day with no row is missing, not zero) */
+  days: PlantKpiDay[];
+  epi_factor: EpiFactor;
+  meta: { source: "db"; modelled: string[] };
 }

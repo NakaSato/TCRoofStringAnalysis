@@ -228,3 +228,59 @@ def test_layout_save_publishes_plant_inverter_docs(client, export_dir):
     db = next(iter(sessions.values()))()
     registry = dict(ds.build_registry_docs(next(db)))
     assert "strings" not in registry["inverters/INVY"] and len(registry[f"inverters/{SN}"]["strings"]) == 2
+
+
+def test_removed_mark_hides_an_active_string_from_the_layout_only(client):
+    eng = _login(client, "engineer")
+    url = f"/api/growatt/plants/{PLANT}/string-layout"
+    before, _ = _strings(client, eng)
+
+    # string 3 carried current this week, yet a removed mark hides it from the editor
+    body = [{"device_sn": SN, "string_no": no, "modules": m} for no, m in MODULES.items() if no != 3]
+    body.append({"device_sn": SN, "string_no": 3, "removed": True})
+    saved = client.put(url, json=body, headers=eng)
+    assert saved.status_code == 200
+    inv = saved.json()["inverters"][0]
+    assert [x["string_no"] for x in inv["strings"]] == [1, 2] and inv["removed_strings"] == [3]
+    inv = client.get(url, headers=eng).json()["inverters"][0]
+    assert [x["string_no"] for x in inv["strings"]] == [1, 2] and inv["removed_strings"] == [3]
+
+    # layout only: the overview still analyses string 3 from its readings
+    after, _ = _strings(client, eng)
+    assert set(after) == set(before) and after[3]["actual_energy_kwh"] == pytest.approx(before[3]["actual_energy_kwh"])
+    assert after[3]["modules"] is None
+
+    # a PUT without the mark brings it back (seen with current)
+    back = client.put(url, json=body[:-1], headers=eng).json()["inverters"][0]
+    assert [x["string_no"] for x in back["strings"]] == [1, 2, 3] and back["removed_strings"] == []
+    assert back["strings"][2]["modules"] is None and back["strings"][2]["active"]
+
+    # removed again, then a module count at the same input clears the mark
+    client.put(url, json=body, headers=eng)
+    full = [{"device_sn": SN, "string_no": no, "modules": m} for no, m in MODULES.items()]
+    inv = client.put(url, json=full, headers=eng).json()["inverters"][0]
+    assert [x["modules"] for x in inv["strings"]] == [18, 18, 16] and inv["removed_strings"] == []
+
+    # a never-seen input can be marked too; an empty PUT clears every mark
+    inv = client.put(url, json=[{"device_sn": SN, "string_no": 9, "removed": True}], headers=eng).json()["inverters"][0]
+    assert inv["removed_strings"] == [9] and [x["string_no"] for x in inv["strings"]] == [1, 2, 3]
+    assert client.put(url, json=[], headers=eng).json()["inverters"][0]["removed_strings"] == []
+
+
+def test_removed_mark_validation(client):
+    eng = _login(client, "engineer")
+    url = f"/api/growatt/plants/{PLANT}/string-layout"
+    # modules is required unless removed
+    assert client.put(url, json=[{"device_sn": SN, "string_no": 1}], headers=eng).status_code == 422
+    assert client.put(url, json=[{"device_sn": SN, "string_no": 1, "removed": False}], headers=eng).status_code == 422
+    # the same input in both sets, or marked twice
+    both = [{"device_sn": SN, "string_no": 1, "modules": 18}, {"device_sn": SN, "string_no": 1, "removed": True}]
+    r = client.put(url, json=both, headers=eng)
+    assert r.status_code == 422 and "Duplicate entry" in r.json()["detail"]
+    twice = [{"device_sn": SN, "string_no": 2, "removed": True}] * 2
+    assert client.put(url, json=twice, headers=eng).status_code == 422
+    # a mark on another plant's inverter
+    assert client.put(url, json=[{"device_sn": "INVY", "string_no": 1, "removed": True}], headers=eng).status_code == 422
+    # nothing was stored by the refused saves
+    inv = client.get(url, headers=eng).json()["inverters"][0]
+    assert inv["removed_strings"] == [] and all(x["modules"] is None for x in inv["strings"])

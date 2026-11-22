@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { pickDay, useUrlState } from "@/lib/useUrlState";
 import { dayLabel, fromDate, toDate } from "@/lib/day";
 import { plantPath } from "../context/routes";
-import { SkeletonRows, fmt, fmtInt } from "../components/ui";
+import { SkeletonRows, Suspended, fmt, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
 import { useSensorAlarms } from "../components/SensorAlarmPanel";
 import { STATUS_VIEW, flagLabel } from "../components/sensorView";
@@ -179,6 +179,12 @@ export const ActiveAlarmPage: React.FC = () => {
   })();
   const result = view?.result ?? null;
   const loading = view?.running ?? false;
+  // Refresh pressed with the day on screen: suspend the table until it answers (background re-reads stay quiet)
+  const [manual, setManual] = useState(false);
+  useEffect(() => {
+    if (!loading) setManual(false);
+  }, [loading]);
+  const refreshing = manual && loading && result != null;
   const error = view?.error ?? null;
   /** first read of this day: nothing to show yet */
   const firstRead = !result && !error;
@@ -390,7 +396,15 @@ export const ActiveAlarmPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => setDay(today)} disabled={isToday}>
             {t("Today")}
           </Button>
-          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setManual(true);
+              refresh();
+            }}
+            disabled={loading}
+          >
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
             {loading ? t("Refreshing…") : t("Refresh")}
           </Button>
@@ -520,6 +534,7 @@ export const ActiveAlarmPage: React.FC = () => {
           )}
         </CardContent>
         <CardContent ref={tableRef} className="overflow-hidden px-0" style={{ height: fit.height }}>
+          <Suspended busy={refreshing} label={t("Loading alarms…")} className="h-full" contentClassName="h-full">
           {rows.length === 0 ? (
             firstRead ? (
               <SkeletonRows rows={8} className="p-4" />
@@ -585,6 +600,7 @@ export const ActiveAlarmPage: React.FC = () => {
               </TableBody>
             </Table>
           )}
+          </Suspended>
         </CardContent>
         <CardContent className="border-t py-2.5">
           <TablePager rows={rows.length} pageSize={fit.pageSize} pageNo={pageNo} onPage={setPage} />

@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattInverterDaily, GrowattPlant, GrowattPlantDaily, GrowattPlantEpiFit
+from app.db.models import GrowattInverterDaily, GrowattPlant, GrowattPlantDaily, GrowattPlantEpiFit, not_installed_sns
 from solar_core.sun import clear_sky_ghi
 
 log = logging.getLogger(__name__)
@@ -186,7 +186,7 @@ def fit(db: Session, end: date, plant_ids: Optional[Sequence[int]] = None, refit
     down_by: Dict[int, Dict[date, float]] = defaultdict(dict)  # share of daylight not producing
     for pid, d, m, dl in db.execute(
         select(ID.plant_id, ID.day, func.sum(ID.fault_min + ID.off_min + ID.standby_min + ID.no_data_min), func.sum(ID.daylight_min))
-        .where(ID.plant_id.in_(ids), ID.day >= start, ID.day <= end)
+        .where(ID.plant_id.in_(ids), ID.day >= start, ID.day <= end, ID.device_sn.not_in(not_installed_sns()))
         .group_by(ID.plant_id, ID.day)
     ):
         down_by[pid][d] = float(m or 0) / float(dl) if dl else 1.0

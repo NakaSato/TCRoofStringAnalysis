@@ -389,6 +389,9 @@ def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None
                 "phase": int(ph), "day": day.date().isoformat(), "sites": int(len(read)),
                 "meter_mwh": _f(read.meter.sum() / 1000, 2) if len(read) else None,
                 "contract_mwh": _f(g.con.sum() / 1000, 2) if has_con else None,
+                # metered energy of the sites with a contract figure that day: the like-for-like
+                # numerator of vs_contract_pct (a site with no reading counts 0, as in billing)
+                "meter_on_contract_mwh": _f(g.meter_c.sum() / 1000, 2) if has_con else None,
                 # metered energy ÷ kWp of the sites that have a reading on the day
                 "yield_kwh_kwp": _f(_div(read.meter.sum(), read.kwp.sum()), 3) if len(read) else None,
                 "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), g.con.sum()), 1) if has_con and g.con.sum() else None,

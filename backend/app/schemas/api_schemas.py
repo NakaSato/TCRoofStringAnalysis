@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional, Union
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -302,14 +302,33 @@ class PTWPermitOut(PTWPermitIn):
 
 
 class GrowattStringLayoutEntry(BaseModel):
-    """As-built module count of one Growatt string input (`string_no` as in `vString{n}`)."""
+    """As-built module count of one Growatt string input (`string_no` as in `vString{n}`).
+
+    `removed: true` marks the input as removed from the String Layout editor (layout only: its
+    readings and every analysis stay as they are); `modules` is then not needed and the other
+    fields are ignored. Otherwise `modules` is required.
+    """
 
     device_sn: str = Field(min_length=1, max_length=64)
     string_no: int = Field(ge=1, le=64)
-    modules: int = Field(ge=1, le=60)
+    removed: bool = False
+    modules: Optional[int] = Field(default=None, ge=1, le=60)
     module_wp: Optional[float] = Field(default=None, ge=50, le=1500)
     azimuth_deg: Optional[float] = Field(default=None, ge=0, le=360)
     tilt_deg: Optional[float] = Field(default=None, ge=0, le=90)
+
+    @model_validator(mode="after")
+    def _modules_unless_removed(self) -> "GrowattStringLayoutEntry":
+        if not self.removed and self.modules is None:
+            raise ValueError("modules is required unless removed is true")
+        return self
+
+
+class InverterInstalled(BaseModel):
+    """Mark an inverter listed in Growatt as not installed on site (`installed: false`), or clear the mark."""
+
+    installed: bool
+    note: Optional[str] = Field(default=None, max_length=255)
 
 
 class FleetModule(BaseModel):
@@ -564,6 +583,27 @@ class OmPlantSettingsBody(BaseModel):
 
     cleaning_crew_days: Optional[float] = Field(default=None, gt=0, le=60)
     cleaning_cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
+
+
+class PlantDocumentBody(BaseModel):
+    """An admin's document link for one plant (https only)."""
+
+    url: str = Field(..., min_length=8, max_length=1000)
+    title: Optional[str] = Field(default=None, max_length=300)
+
+
+class PlantDocumentRow(BaseModel):
+    plant_id: int
+    kind: str = Field(..., max_length=32)
+    url: str = Field(..., max_length=1000)
+    drive_id: Optional[str] = Field(default=None, max_length=128)
+    title: Optional[str] = Field(default=None, max_length=300)
+    revision: Optional[str] = Field(default=None, max_length=16)
+    match_score: Optional[float] = Field(default=None, ge=0, le=1)
+
+
+class PlantDocumentImport(BaseModel):
+    rows: List[PlantDocumentRow] = Field(..., max_length=2000)
 
 
 class OmRoundPreview(BaseModel):

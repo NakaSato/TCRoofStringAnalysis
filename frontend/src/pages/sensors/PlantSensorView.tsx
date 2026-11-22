@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, CircleHelp, Clock, CloudOff, RefreshCw, WifiOff, X } from "lucide-react";
-import type { SensorLiveRow, SensorStatus } from "../../api/client";
+import type { SensorLiveRow, SensorStatus, SensorThresholds } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
 import { Led, LoadingState, StatusBadge, fmt, fmtInt } from "../../components/ui";
 import { FlagList, STATUS_VIEW } from "../../components/sensorView";
@@ -28,7 +28,7 @@ import { Row } from "./SensorInfo";
 import { translate, useI18n } from "../../i18n";
 
 /** One plain sentence on why the sensor has its status. */
-const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: { late_min: number; offline_min: number }) => {
+const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: SensorThresholds) => {
   const age = l?.last_update_time ? fmtAge(minutesBetween(l.last_update_time, now)) : null;
   switch (st) {
     case "online":
@@ -39,6 +39,8 @@ const statusWhy = (st: SensorStatus, l: SensorLiveRow | null, now: string, th: {
       return l?.lost
         ? translate("Growatt reports the sensor as lost · last upload {age}", { age: age ?? translate("never") })
         : translate("No upload for over {n} min · last {age}", { n: th.offline_min, age: age ?? translate("never") });
+    case "inactive":
+      return translate("No upload for over {n} days · last upload {at}", { n: th.inactive_days ?? "—", at: l?.last_update_time?.slice(0, 16) ?? "—" });
     case "not_synced":
       return translate("Nothing stored yet and not checked live");
     default:
@@ -51,6 +53,7 @@ const ALERT_VARIANT: Record<SensorStatus, "warn" | "destructive" | "default" | n
   online: null,
   late: "warn",
   offline: "destructive",
+  inactive: "default",
   not_synced: "warn",
   unknown: "default",
 };
@@ -63,7 +66,9 @@ const statusAdviceEn = (st: SensorStatus, l: SensorLiveRow | null) =>
     ? l?.lost
       ? "Check the sensor's power and its RS485 link to the datalogger."
       : "Check the datalogger's connection."
-    : st === "late"
+    : st === "inactive"
+      ? "Growatt still lists this sensor on the datalogger, but it stopped uploading long ago. If it was removed or re-addressed on site, delete it from the datalogger in ShineServer; if it should be there, check its power and RS485 link."
+      : st === "late"
       ? "Usually a slow datalogger upload; it clears by itself when the next upload arrives."
       : st === "not_synced"
         ? "The worker has not stored anything for this sensor yet, and Growatt has not been asked."
@@ -95,12 +100,14 @@ export const PlantSensorView: React.FC<{
   now: string;
   until: string | null;
   onPick: (key: string) => void;
-  thresholds: { late_min: number; offline_min: number };
+  thresholds: SensorThresholds;
   notes: string[];
   onRefresh: () => void;
   refreshing: boolean;
 }> = ({ sensors, selected, now, until, onPick, thresholds, notes, onRefresh, refreshing }) => {
-  const sensor = selected ?? sensors[0] ?? null;
+  // opens on a working sensor: inactive ones (Growatt still lists them, no upload for weeks) last
+  const sensor = selected ?? sensors.find((s) => s.st !== "inactive") ?? sensors[0] ?? null;
+  const inactive = sensors.filter((s) => s.st === "inactive");
   const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   // time-of-day window (?from=&to=, HH:MM): day numbers and chart cover it only; "from" after "to" = whole day
@@ -195,11 +202,21 @@ export const PlantSensorView: React.FC<{
 
   return (
     <div className="flex flex-col gap-4">
+      {inactive.length > 0 && sensors.length > 1 && (
+        <p className="text-xs text-muted-foreground">
+          {t(
+            inactive.length === sensors.length
+              ? "Growatt lists {n} weather sensors on this plant's datalogger, but none has uploaded for over {days} days. They are probably old entries (a sensor removed or re-addressed); delete the unused ones in ShineServer."
+              : "{n} of the {total} weather sensors Growatt lists here have not uploaded for over {days} days (Inactive). They are probably old entries (a sensor removed or re-addressed); delete the unused ones in ShineServer.",
+            { n: inactive.length, total: sensors.length, days: thresholds.inactive_days ?? "—" }
+          )}
+        </p>
+      )}
       {sensors.length > 1 && (
         <Tabs value={sensor.key} onValueChange={onPick}>
           <TabsList variant="line" aria-label={t("Sensors of this plant")}>
-            {sensors.map((s) => (
-              <TabsTrigger key={s.key} value={s.key} className="num">
+            {[...sensors.filter((s) => s.st !== "inactive"), ...inactive].map((s) => (
+              <TabsTrigger key={s.key} value={s.key} className={cn("num", s.st === "inactive" && "opacity-60")} title={s.st === "inactive" ? t("Inactive") : undefined}>
                 <Led level={STATUS_VIEW[s.st].level === "info" ? "off" : STATUS_VIEW[s.st].level} />
                 {s.datalogger_sn}#{s.address}
               </TabsTrigger>
@@ -360,7 +377,7 @@ export const PlantSensorView: React.FC<{
         <CardContent className="flex flex-col gap-4">
           {alertVariant ? (
             <Alert variant={alertVariant}>
-              {st === "offline" ? <WifiOff /> : st === "late" ? <Clock /> : st === "not_synced" ? <CloudOff /> : <CircleHelp />}
+              {st === "offline" || st === "inactive" ? <WifiOff /> : st === "late" ? <Clock /> : st === "not_synced" ? <CloudOff /> : <CircleHelp />}
               <AlertTitle>{statusWhy(st, l, now, th)}</AlertTitle>
               <AlertDescription>{statusAdvice(st, l)}</AlertDescription>
             </Alert>

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, String
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, String, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -84,6 +84,11 @@ class GrowattInverter(Base):
     # reports it (time zone not verified); not a commissioning date
     growatt_created_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     history_synced_until: Mapped[Optional[datetime]] = mapped_column(DateTime)  # latest reading stored
+    # Marked by an admin as listed in Growatt but not installed on site (`set_installed`): left
+    # out of every job, live call, count and analysis (`inverter_installed()`); its stored rows stay.
+    not_installed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    not_installed_by: Mapped[Optional[str]] = mapped_column(String(64))
+    not_installed_note: Mapped[Optional[str]] = mapped_column(String(255))
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
     plant: Mapped[GrowattPlant] = relationship(back_populates="inverters")
@@ -93,6 +98,20 @@ class GrowattInverter(Base):
         """Configured active power limit, % of rated: `readPower` when read, else `max_data_info`'s
         activeRate (usually unknown); None = unknown, never assumed 100."""
         return self.power_limit_pct if self.power_limit_pct is not None else self.active_rate_pct
+
+    @property
+    def installed(self) -> bool:
+        return self.not_installed_at is None
+
+
+def inverter_installed():
+    """SQL condition: the inverter is not marked "not installed" (see `GrowattInverter.not_installed_at`)."""
+    return GrowattInverter.not_installed_at.is_(None)
+
+
+def not_installed_sns():
+    """SELECT of the serials marked not installed, for `device_sn.not_in(...)` on per-inverter tables."""
+    return select(GrowattInverter.device_sn).where(GrowattInverter.not_installed_at.is_not(None))
 
 
 class GrowattInverterReading(Base):
@@ -335,6 +354,22 @@ class GrowattStringLayout(Base):
     azimuth_deg: Mapped[Optional[float]] = mapped_column(Float)  # 0..360; null = default/same group
     tilt_deg: Mapped[Optional[float]] = mapped_column(Float)  # 0..90; null = default/same group
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class GrowattStringRemoved(Base):
+    """A string input an engineer removed from the String Layout editor.
+
+    Layout only: the input is left out of `get_string_layout` even when it carried current in
+    the last week. Its readings stay, and every analysis (wired inputs, string checks, daily
+    rules, summaries) ignores this table. Saving a module count at the same input clears it.
+    No FK on device_sn: the registry outlives inverter re-syncs.
+    """
+
+    __tablename__ = "growatt_string_removed"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    string_no: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    removed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class GoogleWeatherHourly(Base):

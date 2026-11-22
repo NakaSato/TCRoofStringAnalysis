@@ -20,6 +20,7 @@ from app.db.models import (
     GrowattInverterReading,
     GrowattPlant,
     GrowattStringReading,
+    inverter_installed,
 )
 
 
@@ -39,13 +40,17 @@ MAX_DC_AC_RATIO = 3.0
 
 
 def plant_rated_ac_w(db: Session, plant_ids: Optional[Sequence[int]] = None) -> Dict[int, float]:
-    """Summed rated AC power (W) per plant, only for plants where every inverter has one."""
-    q = select(
-        GrowattInverter.plant_id,
-        func.sum(GrowattInverter.nominal_power_w),
-        func.count(GrowattInverter.nominal_power_w),
-        func.count(),
-    ).group_by(GrowattInverter.plant_id)
+    """Summed rated AC power (W) per plant, only for plants where every installed inverter has one."""
+    q = (
+        select(
+            GrowattInverter.plant_id,
+            func.sum(GrowattInverter.nominal_power_w),
+            func.count(GrowattInverter.nominal_power_w),
+            func.count(),
+        )
+        .where(inverter_installed())
+        .group_by(GrowattInverter.plant_id)
+    )
     if plant_ids is not None:
         q = q.where(GrowattInverter.plant_id.in_(list(plant_ids)))
     return {int(pid): float(w) for pid, w, known, n in db.execute(q) if w and known == n}
@@ -205,6 +210,16 @@ def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
             "read_at": inv.info_synced_at.isoformat() if inv.info_synced_at else None,
         },
         "synced_at": inv.synced_at.isoformat() if inv.synced_at else None,
+        # marked by an admin as listed in Growatt but not installed on site (null = installed)
+        "not_installed": (
+            {
+                "at": inv.not_installed_at.isoformat(),
+                "by": inv.not_installed_by,
+                "note": inv.not_installed_note,
+            }
+            if inv.not_installed_at is not None
+            else None
+        ),
     }
 
 

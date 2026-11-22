@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids, get_current_user, require_plant_read
 from app.config import settings
-from app.db.models import GrowattInverter, GrowattPlant, User
+from app.db.models import GrowattInverter, GrowattPlant, User, inverter_installed
 from app.db.session import get_db
 from app.services import growatt_meter
 from app.services import growatt_sensors
@@ -28,6 +28,7 @@ from app.services import google_weather as gw
 from app.services import longdo_weather as longdo
 from app.services import rainviewer
 from app.services import live_string_check
+from app.services import string_operating
 from app.services import jobs
 from app.api.routes.growatt._common import sensor_scope
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable, get_live_service
@@ -100,9 +101,9 @@ def live_inverter_snapshot(
     if plant_id is not None and allowed is not None and plant_id not in allowed:
         raise HTTPException(status_code=404, detail="Plant not found")
     rows = db.execute(
-        select(GrowattInverter.device_sn, GrowattInverter.plant_id, GrowattPlant.phase).join(
-            GrowattPlant, GrowattPlant.plant_id == GrowattInverter.plant_id
-        )
+        select(GrowattInverter.device_sn, GrowattInverter.plant_id, GrowattPlant.phase)
+        .join(GrowattPlant, GrowattPlant.plant_id == GrowattInverter.plant_id)
+        .where(inverter_installed())
     ).all()
     plant_of = {sn: int(pid) for sn, pid, _ph in rows}
     wanted: Optional[Set[str]] = None
@@ -177,6 +178,25 @@ def live_plant_latest(
             "dataloggers_error": loggers_error,
         },
     }
+
+
+@router.get("/live/plants/{plant_id}/strings/operating")
+def live_string_operating(
+    plant_id: int,
+    db: Session = Depends(get_db),
+    live: GrowattLiveService = Depends(get_live_service),
+    _user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Each string's newest operating point (measured V / I) on the modelled string curve at the
+    weather sensor's live irradiance and module temperature, with the gates it fails. Memory only:
+    the same cached records as `/latest` and `/weather`, nothing written. The curve is modelled
+    (`data.modelled`) and drawn only for strings whose module count is on String Layout."""
+    try:
+        return string_operating.build(db, live, plant_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
 
 
 @router.get("/live/plants/{plant_id}/meter")
@@ -268,6 +288,7 @@ def live_sensor_status(
         datetime.now(jobs.PLANT_TZ).replace(tzinfo=None),
         settings.sensor_late_min,
         settings.sensor_offline_min,
+        settings.sensor_inactive_days,
     )
 
 
@@ -307,12 +328,17 @@ def live_sensor(
                 settings.sensor_late_min,
                 settings.sensor_offline_min,
                 sensor.history_synced_until,
+                settings.sensor_inactive_days,
             ),
             "measured": measured,
             "reading": d["reading"],
             "raw": d["raw"] if user.role == "admin" else None,
             "errors": d["errors"],
-            "thresholds": {"late_min": settings.sensor_late_min, "offline_min": settings.sensor_offline_min},
+            "thresholds": {
+                "late_min": settings.sensor_late_min,
+                "offline_min": settings.sensor_offline_min,
+                "inactive_days": settings.sensor_inactive_days,
+            },
         },
     }
 

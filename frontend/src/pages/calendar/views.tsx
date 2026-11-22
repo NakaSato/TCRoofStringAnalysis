@@ -1,13 +1,14 @@
 /** Calendar Team views: month grid, week lanes (one row per person / team) and the task list.
  * Planned / started tasks can be dragged to another day in the month and week views (keeps the
  * task's length; `onMove`). */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { OmBusyBlock, OmPerson, OmTask, OmTeam } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 import { fmtInt } from "../../components/ui";
+import { TablePager, pageBounds } from "../../components/TablePager";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -285,9 +286,23 @@ export const WeekLanes: React.FC<{
 
 // --------------------------------------------------------------------------- list
 
-export const TaskList: React.FC<{ tasks: OmTask[]; onOpen: (t: OmTask) => void; showPlant?: boolean }> = ({ tasks, onOpen, showPlant = true }) => {
+/** rows per page of the task list */
+const TASK_PAGE = 50;
+
+export const TaskList: React.FC<{
+  tasks: OmTask[];
+  onOpen: (t: OmTask) => void;
+  showPlant?: boolean;
+  /** changes when the filters / period change: back to page 1 (a re-read after a save keeps the page) */
+  resetKey?: string;
+}> = ({ tasks, onOpen, showPlant = true, resetKey = "" }) => {
   const { t: tr } = useI18n();
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [resetKey]);
+  const { pageNo } = pageBounds(tasks.length, TASK_PAGE, page);
+  const shown = tasks.slice(pageNo * TASK_PAGE, (pageNo + 1) * TASK_PAGE);
   return (
+  <>
   <Table containerClassName="table-wrap">
     <TableHeader>
       <TableRow>
@@ -307,7 +322,7 @@ export const TaskList: React.FC<{ tasks: OmTask[]; onOpen: (t: OmTask) => void; 
           </TableCell>
         </TableRow>
       )}
-      {tasks.map((t) => (
+      {shown.map((t) => (
         <TableRow key={t.id} className="cursor-pointer" onClick={() => onOpen(t)}>
           <TableCell className="num whitespace-nowrap">{spanLabel(t)}</TableCell>
           {showPlant && (
@@ -336,5 +351,7 @@ export const TaskList: React.FC<{ tasks: OmTask[]; onOpen: (t: OmTask) => void; 
       ))}
     </TableBody>
   </Table>
+  {tasks.length > TASK_PAGE && <TablePager className="mt-3" rows={tasks.length} pageSize={TASK_PAGE} pageNo={pageNo} onPage={setPage} />}
+  </>
   );
 };

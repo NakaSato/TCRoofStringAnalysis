@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { claimsApi } from "./useClaims";
 import { StatusBadge, WaitingText } from "./ClaimTable";
 import { CAUSE, LINK_KIND, STATUS, TYPE, evidenceHref, fmtDay, inverterHref, isOpen, linkHref, relDays, stringHref } from "./format";
-import { safeHref } from "@/lib/safeUrl";
+import { appPath, safeHref } from "@/lib/safeUrl";
 import { translate, useI18n } from "../../i18n";
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
@@ -53,11 +53,12 @@ const eventText = (e: ClaimEvent, counterparty: string): string => {
 export interface DetailActions {
   status?: () => void;
   edit?: () => void;
-  event: (kind: "note" | "message" | "shipment") => void;
-  evidence: (item: ClaimEvidence) => void;
-  toggleEvidence: (item: ClaimEvidence) => Promise<void>;
-  link: () => void;
-  unlink: (linkId: number) => Promise<void>;
+  /* the rest are left out when the user may not change the claim (closed / withdrawn, not admin) */
+  event?: (kind: "note" | "message" | "shipment") => void;
+  evidence?: (item: ClaimEvidence) => void;
+  toggleEvidence?: (item: ClaimEvidence) => Promise<void>;
+  link?: () => void;
+  unlink?: (linkId: number) => Promise<void>;
 }
 
 export const ClaimDetail: React.FC<{
@@ -129,15 +130,19 @@ export const ClaimDetail: React.FC<{
                     {t("Change status")}
                   </Button>
                 )}
-                <Button size="xs" variant="outline" onClick={() => act.event("note")}>
-                  {t("Add note")}
-                </Button>
-                <Button size="xs" variant="outline" onClick={() => act.event("message")}>
-                  {t("Message")}
-                </Button>
-                <Button size="xs" variant="outline" onClick={() => act.event("shipment")}>
-                  {t("Shipment")}
-                </Button>
+                {act.event && (
+                  <>
+                    <Button size="xs" variant="outline" onClick={() => act.event?.("note")}>
+                      {t("Add note")}
+                    </Button>
+                    <Button size="xs" variant="outline" onClick={() => act.event?.("message")}>
+                      {t("Message")}
+                    </Button>
+                    <Button size="xs" variant="outline" onClick={() => act.event?.("shipment")}>
+                      {t("Shipment")}
+                    </Button>
+                  </>
+                )}
                 {act.edit && (
                   <Button size="xs" variant="ghost" onClick={act.edit}>
                     {t("Edit")}
@@ -207,9 +212,11 @@ export const ClaimDetail: React.FC<{
                 <Section
                   title={t("Linked records")}
                   right={
-                    <Button size="xs" variant="ghost" onClick={act.link}>
-                      {t("Link…")}
-                    </Button>
+                    act.link && (
+                      <Button size="xs" variant="ghost" onClick={act.link}>
+                        {t("Link…")}
+                      </Button>
+                    )
                   }
                 >
                   {c.links.length === 0 ? (
@@ -221,16 +228,18 @@ export const ClaimDetail: React.FC<{
                           #{l.ref_id}
                           {l.label ? ` ${l.label}` : ""}
                         </Link>
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          className="ml-1"
-                          disabled={busyKey === `l${l.id}`}
-                          onClick={() => void busy(`l${l.id}`, () => act.unlink(l.id))}
-                          aria-label={t("Unlink")}
-                        >
-                          ×
-                        </Button>
+                        {act.unlink && (
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            className="ml-1"
+                            disabled={busyKey === `l${l.id}`}
+                            onClick={() => void busy(`l${l.id}`, () => act.unlink!(l.id))}
+                            aria-label={t("Unlink")}
+                          >
+                            ×
+                          </Button>
+                        )}
                       </Row>
                     ))
                   )}
@@ -255,8 +264,8 @@ export const ClaimDetail: React.FC<{
                     <div key={e.key} className="flex flex-wrap items-center gap-2 border-b border-white/[0.05] py-1.5 text-xs last:border-0">
                       <Checkbox
                         checked={e.done}
-                        disabled={busyKey === e.key}
-                        onCheckedChange={() => void busy(e.key, () => act.toggleEvidence(e))}
+                        disabled={!act.toggleEvidence || busyKey === e.key}
+                        onCheckedChange={() => act.toggleEvidence && void busy(e.key, () => act.toggleEvidence!(e))}
                         aria-label={t("{label}: done", { label: e.label })}
                       />
                       <span className={cn("min-w-0 flex-1", e.done && "text-muted-foreground")}>
@@ -265,19 +274,27 @@ export const ClaimDetail: React.FC<{
                         {e.note && <span className="block text-[11px] text-muted-foreground">{e.note}</span>}
                         {e.done && e.by && <span className="block text-[11px] text-slate-500">{[e.by, e.at?.slice(0, 16)].filter(Boolean).join(" · ")}</span>}
                       </span>
-                      {safeHref(e.url) && (
+                      {safeHref(e.url) ? (
                         <a href={safeHref(e.url)} target="_blank" rel="noreferrer" className="hover:text-solar-400">
                           {t("File")}
                         </a>
+                      ) : (
+                        appPath(e.url) && (
+                          <Link to={appPath(e.url)!} className="hover:text-solar-400">
+                            {t("File")}
+                          </Link>
+                        )
                       )}
                       {app && (
                         <Link to={app.href} className="text-muted-foreground hover:text-solar-400" title={t("Where the app has it")}>
                           {t(app.label)}
                         </Link>
                       )}
-                      <Button size="xs" variant="ghost" onClick={() => act.evidence(e)}>
-                        {t("Edit")}
-                      </Button>
+                      {act.evidence && (
+                        <Button size="xs" variant="ghost" onClick={() => act.evidence?.(e)}>
+                          {t("Edit")}
+                        </Button>
+                      )}
                     </div>
                   );
                 })}

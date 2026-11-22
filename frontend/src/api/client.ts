@@ -22,9 +22,11 @@ export type * from "./types/claims";
 export type * from "./types/calendar";
 export type * from "./types/pwaMeter";
 export type * from "./types/center";
+export type * from "./types/tfrs16";
+export type * from "./types/pvsyst";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
-import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
+import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, LiveStringOperating, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, PlantKpiDaily, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, PlantDocument, PlantDocumentKind, PlantDocumentRow, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay, FleetRadarRain, PlantRadarRain, RainRadar } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
@@ -56,6 +58,8 @@ import type {
 } from "./types/calendar";
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
 import type { OmCenter } from "./types/center";
+import type { Tfrs16Rollout, Tfrs16Schedule, Tfrs16Summary } from "./types/tfrs16";
+import type { PvsystDesign, PvsystVsMeter } from "./types/pvsyst";
 import type { PwaBilling, PwaImportResult, PwaMeterCoverage, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantBaseline, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
@@ -211,6 +215,13 @@ export const api = {
   listGrowattInverters: (plantId: number) => apiFetch<GrowattInverter[]>(`/growatt/plants/${plantId}/inverters`),
   getGrowattPlantOverview: (plantId: number, day?: string) =>
     apiFetch<GrowattPlantOverview>(`/growatt/plants/${plantId}/overview${day ? `?day=${day}` : ""}`),
+  /** every visible plant's as-built / site photo links (Settings → Plant documents) */
+  listPlantDocuments: () => apiFetch<{ plants: PlantDocumentRow[]; kinds: PlantDocumentKind[] }>("/growatt/documents"),
+  /** admin: set a link by hand (source manual; a Drive re-import keeps it) */
+  putPlantDocument: (plantId: number, kind: PlantDocumentKind, body: { url: string; title?: string | null }) =>
+    apiFetch<PlantDocument>(`/growatt/plants/${plantId}/documents/${kind}`, { method: "PUT", body: JSON.stringify(body) }),
+  deletePlantDocument: (plantId: number, kind: PlantDocumentKind) =>
+    apiFetch<{ removed: boolean }>(`/growatt/plants/${plantId}/documents/${kind}`, { method: "DELETE" }),
   /** `records: "false"`: only Growatt's own figures (curve, daily kWh), no stored records read */
   getGrowattPlantPower: (plantId: number, q: { day: string; end_day?: string | null; start?: string; end?: string; records?: "false" }) =>
     apiFetch<GrowattPlantPower>(
@@ -227,6 +238,9 @@ export const api = {
       fields: string[];
       records: Array<Record<string, unknown>>;
     }>(`/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/raw${day ? `?day=${day}` : ""}`),
+  /** Stored plant-day KPIs (PR, PR', Yf, EPI…) of the `days` days up to `day` (default today); days 1–365. */
+  getPlantKpiDaily: (plantId: number, days: number, day?: string | null) =>
+    apiFetch<PlantKpiDaily>(`/growatt/plants/${plantId}/kpi-daily?days=${days}${day ? `&day=${day}` : ""}`),
   getGrowattInverterDaily: (plantId: number, deviceSn: string, days = 30, day?: string) =>
     apiFetch<GrowattInverterDaily>(
       `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/daily?days=${days}${day ? `&day=${day}` : ""}`
@@ -253,6 +267,12 @@ export const api = {
     apiFetch<FleetModuleOut>("/growatt/fleet-module", { method: "PUT", body: JSON.stringify(m) }),
   getGrowattStringLayout: (plantId: number) =>
     apiFetch<GrowattStringLayout>(`/growatt/plants/${plantId}/string-layout`),
+  /** admin: mark an inverter Growatt lists as not installed on site (`installed: false`), or clear the mark */
+  setInverterInstalled: (plantId: number, deviceSn: string, installed: boolean, note?: string | null) =>
+    apiFetch<{ inverter: GrowattInverter; issues_closed: number; published?: PublishResult }>(
+      `/growatt/plants/${plantId}/inverters/${encodeURIComponent(deviceSn)}/installed`,
+      { method: "PUT", body: JSON.stringify({ installed, note: note ?? null }) }
+    ),
   putGrowattStringLayout: (plantId: number, entries: GrowattStringLayoutEntry[]) =>
     apiFetch<GrowattStringLayout & { published?: PublishResult }>(`/growatt/plants/${plantId}/string-layout`, {
       method: "PUT",
@@ -320,6 +340,9 @@ export const api = {
   /** grid import / export now (energy meter) and the derived load; `load: false` skips the inverter records */
   getGrowattLiveMeter: (plantId: number, load = true) =>
     apiFetch<GrowattLive<GrowattLiveMeter>>(`/growatt/live/plants/${plantId}/meter${load ? "" : "?load=false"}`),
+  /** each string's live operating point on the modelled curve at the sensor's conditions (memory only) */
+  getLiveStringOperating: (plantId: number) =>
+    apiFetch<GrowattLive<LiveStringOperating>>(`/growatt/live/plants/${plantId}/strings/operating`),
   getGrowattLiveWeather: (plantId: number) =>
     apiFetch<GrowattLive<GrowattLiveWeather>>(`/growatt/live/plants/${plantId}/weather`),
   getGrowattPlantWeather: (
@@ -571,6 +594,13 @@ export const api = {
   getPwaMeterCheck: (w: PwaMeterWindow = {}) => apiFetch<PwaMeterCheck[]>(`/pwa/meter/meter-check${pwaWindow(w)}`),
   /** every report site's Cewe meter days against Growatt's own day energy (both measured) */
   getPwaMeterVsGrowatt: (w: PwaMeterWindow = {}) => apiFetch<PwaVsGrowatt>(`/pwa/meter/vs-growatt${pwaWindow(w)}`),
+  // ---- PVsyst design data (modelled; stations scoped like the meter sites; import is the CLI)
+  getPvsystDesign: () => apiFetch<PvsystDesign>("/pvsyst/design"),
+  getPvsystVsMeter: (w: PwaMeterWindow = {}) => apiFetch<PvsystVsMeter>(`/pvsyst/vs-meter${pwaWindow(w)}`),
+  // ---- TFRS 16 lease model (admin only; the model's accounting, never measured; import is the CLI)
+  getTfrs16Summary: () => apiFetch<Tfrs16Summary>("/tfrs16/summary"),
+  getTfrs16Schedule: () => apiFetch<Tfrs16Schedule>("/tfrs16/schedule"),
+  getTfrs16Rollout: () => apiFetch<Tfrs16Rollout>("/tfrs16/rollout"),
   // ---- claims (warranty / insurance claims for plant equipment; DB only)
   listClaims: () => apiFetch<ClaimList>("/claims"),
   getClaim: (id: number) => apiFetch<ClaimDetail>(`/claims/${id}`),

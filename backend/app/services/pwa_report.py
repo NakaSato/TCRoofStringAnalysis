@@ -115,7 +115,7 @@ def _registry(
     datalogger's inverters not marked as replaced (`max_data_info` innerVersion else fwVersion,
     and fwVersion alone), each sorted and joined with ", ". The sheet fillers blank a Firmware cell
     that holds one of these; a version typed by hand is kept."""
-    from app.services.daily_checks import is_replaced
+    from app.services.daily_checks import left_out
 
     global _registry_cache
     now = time.monotonic()
@@ -137,10 +137,10 @@ def _registry(
             continue
         loggers[sn] = pid  # last by device_sn wins, as before
         models[sn] = models.get(sn) or (inv.datalogger_model or "").strip() or None
-        counts[sn] = counts.get(sn, 0) + (0 if is_replaced(inv) else 1)
+        counts[sn] = counts.get(sn, 0) + (0 if left_out(inv) else 1)
         if sn not in every.setdefault(pid, []):
             every[pid].append(sn)
-        if not is_replaced(inv):
+        if not left_out(inv):
             if sn not in current.setdefault(pid, []):
                 current[pid].append(sn)
             for kind, v in (("inner", inv.inner_version or inv.fw_version), ("fw", inv.fw_version)):
@@ -171,7 +171,7 @@ def _sql_checks(
     inverter not marked as replaced has it frozen (the publish freezes all plants before it
     writes Firestore), so the sheet's all-or-nothing gate still holds."""
     from app.services.check_slots import hh
-    from app.services.daily_checks import is_replaced
+    from app.services.daily_checks import left_out
 
     frozen: Dict[str, Dict[str, Any]] = {}
     for r in db.scalars(select(PwaCheckSlot).where(PwaCheckSlot.day == day)):
@@ -180,7 +180,7 @@ def _sql_checks(
     if not frozen:
         return docs, ready, stats
 
-    active = {str(i.plant_id) for i in db.scalars(select(GrowattInverter)) if not is_replaced(i)}
+    active = {str(i.plant_id) for i in db.scalars(select(GrowattInverter)) if not left_out(i)}
     sql_ready = [
         h for h in sorted({h for slots in frozen.values() for h in slots})
         if active and all(h in (frozen.get(pid) or {}) for pid in active)

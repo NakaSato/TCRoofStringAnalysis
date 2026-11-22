@@ -288,7 +288,7 @@ export const GridFaultCards: React.FC<{ state: LiveState }> = ({ state }) => {
               <Table containerClassName="table-wrap">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t("Phase")}</TableHead>
+                    <TableHead>{t("Grid phase")}</TableHead>
                     <TableHead className="text-right">V L-N</TableHead>
                     <TableHead className="text-right">V L-L</TableHead>
                     <TableHead className="text-right">A</TableHead>

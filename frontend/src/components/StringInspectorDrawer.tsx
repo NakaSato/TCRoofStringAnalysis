@@ -33,7 +33,7 @@ import { useAppContext, usePlantHref } from "../context/AppContext";
 import { api } from "../api/client";
 import { PanelChart } from "./PanelChart";
 import { ivPvSpecFrom, stringDailySpecFrom, stringProfileSpecFrom } from "./ivPvSpec";
-import { StatusBadge, Led, Meter, LoadingState, EmptyState, statusLevel, fmt } from "./ui";
+import { StatusBadge, Led, Meter, LoadingState, EmptyState, Suspended, statusLevel, fmt } from "./ui";
 import { plantToday } from "../context/alarmLogStore";
 import { StringPeriodPicker } from "./stringDetail/StringPeriodPicker";
 import { useStringDetail } from "./stringDetail/useStringDetail";
@@ -184,7 +184,7 @@ export const StringInspectorDrawer: React.FC = () => {
   const today = plantToday();
   const ovDay = selectedPlantOverview?.meta.day ?? null;
   // the day(s) on screen: what the backend answered, else what was asked for
-  const day = stringDetail?.meta.day ?? period.day;
+  const day = stringDetail?.meta.day ?? period.day ?? today;
   const endDay = stringDetail ? (stringDetail.meta.end_day ?? null) : period.endDay;
   const ranged = Boolean(endDay && endDay !== day);
   const periodText = day ? periodDayText(day, endDay, today) : null;
@@ -259,23 +259,25 @@ export const StringInspectorDrawer: React.FC = () => {
     setPeriod((p) => ({ ...p, start: slotTime(lo, day, false), end: slotTime(hi, day, true) }));
   };
   const chartBody = (spec: ReturnType<typeof ivPvSpecFrom>, empty: string, onBrush?: (lo: number, hi: number) => void) =>
-    loadingDetail ? (
+    loadingDetail && !stringDetail ? (
       <LoadingState label={t("Loading {period}…", { period: `${periodText ?? t("the newest stored day")}${winText ? ` ${winText}` : ""}` })} shape="chart" />
     ) : detailError ? (
       <EmptyState
         icon={AlertTriangle}
-        title={winText ? t("No stored data {window}", { window: winText }) : period.day ? t("No stored data on {day}", { day: periodText }) : t("Stored day not available")}
+        title={winText ? t("No stored data {window}", { window: winText }) : day ? t("No stored data on {day}", { day: periodText }) : t("Stored day not available")}
         description={
           winText
             ? t("This string has no stored records in that time window. Widen it, or pick All day.")
-            : period.day
-              ? t("This string has no stored records then. Pick another day, or Latest.")
+            : day
+              ? t("This string has no stored records then. Pick another day, or Today.")
               : detailError
         }
         className="py-8"
       />
     ) : spec ? (
-      <PanelChart spec={spec} height={300} onBrush={onBrush} />
+      <Suspended busy={loadingDetail} pill="center">
+        <PanelChart spec={spec} height={300} onBrush={onBrush} />
+      </Suspended>
     ) : (
       <EmptyState icon={Activity} title={t("Nothing to draw")} description={empty} className="py-8" />
     );
@@ -333,7 +335,7 @@ export const StringInspectorDrawer: React.FC = () => {
             <StringPeriodPicker
               period={period}
               onChange={setPeriod}
-              shownDay={stringDetail?.meta.day ?? null}
+              shownDay={stringDetail?.meta.day ?? today}
               shownEndDay={stringDetail?.meta.end_day ?? null}
               today={today}
               loading={loadingDetail}

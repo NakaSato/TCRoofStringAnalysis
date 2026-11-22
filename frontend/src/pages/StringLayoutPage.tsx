@@ -1,25 +1,56 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Cpu, Grid3x3, Search } from "lucide-react";
+import { AlertTriangle, Cpu, Grid3x3, Plus, Search } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { api } from "../api/client";
 import type { FleetModuleOut, GrowattStringLayout, GrowattStringLayoutEntry } from "../api/client";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { EmptyState, LoadingState, Meter, fmt } from "../components/ui";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { useI18n } from "../i18n";
+import { notify } from "@/lib/notify";
 import { SaveBar } from "./settings/shared";
-import { InverterSld, SldLegend, type Draft } from "./stringLayout/TopologyDiagram";
+import {
+  InverterSld,
+  SldLegend,
+  inputSpecOf,
+  type Draft,
+  type LayoutInverter,
+  type LayoutString,
+  type StringEdits,
+} from "./stringLayout/TopologyDiagram";
 
 const EMPTY_DRAFT: Draft = { modules: "", wp: "", azimuth: "", tilt: "" };
 const FILTERS = ["all", "incomplete", "mismatch"] as const;
 const keyOf = (sn: string, no: number) => `${sn}|${no}`;
 const toInt = (v: string) => (/^\d+$/.test(v.trim()) ? Number(v) : null);
 const toNum = (v: string) => (v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
+/** a string added on the page: no readings and nothing saved yet */
+type AddedString = { sn: string; s: LayoutString };
+
+/**
+ * The DC input a new string goes on when none is picked: the lowest spare input of the model's
+ * datasheet, else the input after the highest one in use. Inputs removed from the layout (`removed`)
+ * are spare too, but taken only when no other spare is left. null = every datasheet input is used.
+ */
+const nextInput = (inv: LayoutInverter, used: Set<number>, removed: Set<number> = new Set()) => {
+  const spec = inputSpecOf(inv);
+  if (spec) {
+    const total = spec.mppts * spec.perMppt;
+    for (const skipRemoved of [true, false])
+      for (let n = 1; n <= total; n++)
+        if (!used.has(n) && !(skipRemoved && removed.has(n))) return { no: n, mppt: Math.ceil(n / spec.perMppt) };
+    return null;
+  }
+  const no = Math.max(0, ...used, ...removed) + 1;
+  // Growatt string n sits on MPPT (n + 1) / 2, as the backend assumes for a string without readings
+  return { no, mppt: Math.ceil(no / 2) };
+};
 
 const draftFrom = (l: GrowattStringLayout) => {
   const d: Record<string, Draft> = {};
@@ -51,9 +82,14 @@ export const StringLayoutPage: React.FC = () => {
   const [layout, setLayout] = useState<GrowattStringLayout | null>(null);
   const [baseline, setBaseline] = useState<Record<string, Draft>>({});
   const [draft, setDraft] = useState<Record<string, Draft>>({});
+  // strings added / removed on the page, until saved or reset
+  const [added, setAdded] = useState<Record<string, AddedString>>({});
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ tone: "ok" | "crit"; text: string } | null>(null);
+  // save outcomes are toasts; only a failed load is shown on the page
+  const [loadError, setLoadError] = useState<string | null>(null);
   // page choices in the URL; switching plant drops them
   const [url, setUrl] = useUrlState();
   const filter = pick(url.get("filter"), FILTERS, "all");
@@ -65,7 +101,7 @@ export const StringLayoutPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    setMsg(null);
+    setLoadError(null);
     setLayout(null);
     if (selectedGrowattPlantId == null) return;
     setLoading(true);
@@ -76,8 +112,10 @@ export const StringLayoutPage: React.FC = () => {
         setLayout(l);
         setBaseline(d);
         setDraft(d);
+        setAdded({});
+        setRemoved(new Set());
       })
-      .catch((e) => setMsg({ tone: "crit", text: t("Failed to load string layout: {error}", { error: e.message }) }))
+      .catch((e) => setLoadError(t("Failed to load string layout: {error}", { error: e.message })))
       .finally(() => setLoading(false));
   }, [selectedGrowattPlantId]);
 
@@ -102,13 +140,35 @@ export const StringLayoutPage: React.FC = () => {
       [...(layout?.inverters ?? [])]
         .sort((a, b) => (a.alias || a.device_sn).localeCompare(b.alias || b.device_sn, undefined, { numeric: true }))
         .map((inv, idx) => {
-        const rows = inv.strings.map((s) => {
+        const strings = [
+          ...inv.strings.filter((s) => !removed.has(keyOf(inv.device_sn, s.string_no))),
+          ...Object.values(added).filter((a) => a.sn === inv.device_sn).map((a) => a.s),
+        ].sort((a, b) => a.string_no - b.string_no);
+        const rows = strings.map((s) => {
           const k = keyOf(inv.device_sn, s.string_no);
           const d = draft[k] ?? EMPTY_DRAFT;
           const m = toInt(d.modules);
           const wp = toNum(d.wp) ?? fleetWp;
-          return { s, k, d, m, kwp: m != null && wp != null ? (m * wp) / 1000 : null, invalid: d.modules.trim() !== "" && m == null, dirty: isDirty(k) };
+          const isNew = k in added;
+          return {
+            s,
+            k,
+            d,
+            m,
+            kwp: m != null && wp != null ? (m * wp) / 1000 : null,
+            // a new string is kept only with a module count, so it needs one before saving
+            invalid: (d.modules.trim() !== "" && m == null) || (isNew && m == null),
+            dirty: isNew || isDirty(k),
+            added: isNew,
+          };
         });
+        const removedHere = inv.strings.filter((s) => removed.has(keyOf(inv.device_sn, s.string_no)));
+        // inputs drawn as "removed": saved marks not re-added on the page, plus strings with current
+        // removed on the page (they get a mark on save; inactive ones are just left out)
+        const removedInputs = new Set([
+          ...(inv.removed_strings ?? []).filter((no) => !(keyOf(inv.device_sn, no) in added)),
+          ...removedHere.filter((s) => s.active).map((s) => s.string_no),
+        ]);
         // strings in parallel on one MPPT share its voltage, so unequal lengths there lose energy
         const mismatch = new Set(
           rows
@@ -127,10 +187,11 @@ export const StringLayoutPage: React.FC = () => {
           filled: rows.filter((r) => r.m != null).length,
           complete: active.length > 0 && active.every((r) => r.m != null),
           kwp: rows.reduce((t, r) => t + (r.kwp ?? 0), 0),
-          dirty: rows.filter((r) => r.dirty).length,
+          removedInputs,
+          dirty: rows.filter((r) => r.dirty).length + removedHere.length,
         };
       }),
-    [layout, draft, baseline, fleetWp]
+    [layout, draft, baseline, fleetWp, added, removed]
   );
 
   const totals = useMemo(() => {
@@ -164,6 +225,54 @@ export const StringLayoutPage: React.FC = () => {
   // the URL's inverter, else the first one listed
   const selected = invs.find((i) => i.inv.device_sn === invParam) ?? shown[0] ?? invs[0] ?? null;
 
+  const addString = (inv: LayoutInverter, at?: { no: number; mppt: number }) => {
+    const sel = invs.find((i) => i.inv.device_sn === inv.device_sn);
+    const used = new Set(sel?.rows.map((r) => r.s.string_no) ?? []);
+    const pos = at ?? nextInput(inv, used, sel?.removedInputs);
+    if (!pos || used.has(pos.no)) return;
+    const k = keyOf(inv.device_sn, pos.no);
+    if (removed.has(k)) {
+      // put a removed string back as it was
+      setRemoved((r) => {
+        const n = new Set(r);
+        n.delete(k);
+        return n;
+      });
+    } else {
+      setAdded((a) => ({
+        ...a,
+        [k]: {
+          sn: inv.device_sn,
+          s: { string_no: pos.no, mppt_no: pos.mppt, modules: null, module_wp: null, azimuth_deg: null, tilt_deg: null, active: false },
+        },
+      }));
+      setDraft((d) => ({ ...d, [k]: EMPTY_DRAFT }));
+    }
+    setOpenKey(k);
+  };
+  const removeString = (k: string) => {
+    if (openKey === k) setOpenKey(null);
+    if (k in added) {
+      setAdded(({ [k]: _, ...rest }) => rest);
+      setDraft(({ [k]: _, ...rest }) => rest);
+    } else setRemoved((r) => new Set(r).add(k));
+  };
+  const resetEdits = () => {
+    setDraft(baseline);
+    setAdded({});
+    setRemoved(new Set());
+    setOpenKey(null);
+  };
+  const edits: StringEdits | null = selected
+    ? {
+        onAdd: (no, mppt) => addString(selected.inv, { no, mppt }),
+        onRemove: removeString,
+        openKey,
+        onEditorClosed: () => setOpenKey(null),
+      }
+    : null;
+  const selectedNext = selected ? nextInput(selected.inv, new Set(selected.rows.map((r) => r.s.string_no)), selected.removedInputs) : null;
+
   // warn before leaving the page with unsaved edits
   useEffect(() => {
     if (!totals.dirty) return;
@@ -174,41 +283,54 @@ export const StringLayoutPage: React.FC = () => {
 
   const save = async () => {
     if (!layout || selectedGrowattPlantId == null) return;
+    // the strings as edited: removed ones left out (the PUT clears what it is not sent), added ones in
     const entries: GrowattStringLayoutEntry[] = [];
-    for (const inv of layout.inverters)
-      for (const s of inv.strings) {
-        const d = draft[keyOf(inv.device_sn, s.string_no)];
-        const m = toInt(d?.modules ?? "");
-        if (m == null) continue;
+    const sent = new Set<string>();
+    for (const i of invs)
+      for (const r of i.rows) {
+        if (r.m == null) continue;
+        sent.add(r.k);
         entries.push({
-          device_sn: inv.device_sn,
-          string_no: s.string_no,
-          modules: m,
-          module_wp: toNum(d?.wp ?? ""),
-          azimuth_deg: toNum(d?.azimuth ?? ""),
-          tilt_deg: toNum(d?.tilt ?? ""),
+          device_sn: i.inv.device_sn,
+          string_no: r.s.string_no,
+          modules: r.m,
+          module_wp: toNum(r.d.wp),
+          azimuth_deg: toNum(r.d.azimuth),
+          tilt_deg: toNum(r.d.tilt),
         });
       }
+    const moduleCount = entries.length;
+    // "removed" marks: strings with current removed on the page (they would come back from the
+    // readings) and saved marks not re-added here (the PUT clears marks it is not sent); one entry
+    // per input, a module entry wins (it clears the mark)
+    for (const i of invs)
+      for (const no of i.removedInputs) {
+        const k = keyOf(i.inv.device_sn, no);
+        if (sent.has(k)) continue;
+        sent.add(k);
+        entries.push({ device_sn: i.inv.device_sn, string_no: no, removed: true });
+      }
     setSaving(true);
-    setMsg(null);
     try {
       const saved = await api.putGrowattStringLayout(selectedGrowattPlantId, entries);
       const d = draftFrom(saved);
       setLayout(saved);
       setBaseline(d);
       setDraft(d);
+      setAdded({});
+      setRemoved(new Set());
+      setOpenKey(null);
       await refreshAll();
       const p = saved.published;
       const where = p?.sink === "firestore" ? "Firestore" : p?.sink ?? t("the summary sink");
-      setMsg(
-        p?.error
-          ? { tone: "crit", text: t("Saved {n} string module counts. Publishing to {where} failed ({error}); the next publish job retries.", { n: entries.length, where, error: p.error }) }
-          : p?.deferred
-          ? { tone: "ok", text: t("Saved {n} string module counts. Today's write budget is used up; inverters publish on the next quota day.", { n: entries.length }) }
-          : { tone: "ok", text: t("Saved {n} string module counts and published {written} inverter doc(s) to {where}. Diagnostics recalculated.", { n: entries.length, written: p?.written ?? 0, where }) }
-      );
+      if (p?.error)
+        notify("crit", t("Saved {n} string module counts. Publishing to {where} failed ({error}); the next publish job retries.", { n: moduleCount, where, error: p.error }));
+      else if (p?.deferred)
+        notify("ok", t("Saved {n} string module counts. Today's write budget is used up; inverters publish on the next quota day.", { n: moduleCount }));
+      else
+        notify("ok", t("Saved {n} string module counts and published {written} inverter doc(s) to {where}. Diagnostics recalculated.", { n: moduleCount, written: p?.written ?? 0, where }));
     } catch (e: any) {
-      setMsg({ tone: "crit", text: t("Save failed: {error}", { error: e.message }) });
+      notify("crit", t("Save failed: {error}", { error: e.message }));
     } finally {
       setSaving(false);
     }
@@ -227,19 +349,12 @@ export const StringLayoutPage: React.FC = () => {
     <div className="space-y-4">
       <SelectedPlantBanner />
 
-      {loading || (!layout && !msg) ? (
+      {loading || (!layout && !loadError) ? (
         <LoadingState label={t("Loading string layout…")} shape="chart" />
       ) : !layout ? (
-        msg && <div className="callout-crit">{msg.text}</div>
+        loadError && <div className="callout-crit">{loadError}</div>
       ) : (
         <>
-          {msg && (
-            <div className={`${msg.tone === "ok" ? "callout-ok" : "callout-crit"} flex items-center gap-2`}>
-              {msg.tone === "ok" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
-              <span>{msg.text}</span>
-            </div>
-          )}
-
           {invs.length === 0 ? (
             <EmptyState icon={Cpu} title={t("This plant has no inverters in the registry")} />
           ) : (
@@ -350,9 +465,23 @@ export const StringLayoutPage: React.FC = () => {
                         {t("{n} strings on {m} MPPT", { n: selected.rows.length, m: selected.mppts.length })}
                       </span>
                       {!canEdit && <Badge variant="neutral">{t("Read only")}</Badge>}
-                      <div className="ml-auto">
-                        <SldLegend canEdit={canEdit} />
-                      </div>
+                      {canEdit && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          onClick={() => addString(selected.inv)}
+                          disabled={!selectedNext}
+                          title={
+                            selectedNext
+                              ? t("Add a string at input {n} (MPPT {m})", { n: selectedNext.no, m: selectedNext.mppt })
+                              : t("Every DC input of this model has a string")
+                          }
+                        >
+                          <Plus data-icon="inline-start" />
+                          {t("Add string")}
+                        </Button>
+                      )}
                     </header>
                     <div className="p-4">
                       <InverterSld
@@ -361,8 +490,12 @@ export const StringLayoutPage: React.FC = () => {
                         canEdit={canEdit}
                         fleetWp={fleetWp}
                         onChange={set}
+                        edits={edits!}
                       />
                     </div>
+                    <footer className="border-t border-white/[0.06] px-4 py-3">
+                      <SldLegend canEdit={canEdit} />
+                    </footer>
                   </Card>
                 )}
               </div>
@@ -372,7 +505,7 @@ export const StringLayoutPage: React.FC = () => {
                   dirty={totals.dirty > 0}
                   saving={saving}
                   onSave={save}
-                  onReset={() => setDraft(baseline)}
+                  onReset={resetEdits}
                   label={t("Save layout")}
                   canSave={totals.invalid === 0}
                   note={

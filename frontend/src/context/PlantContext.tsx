@@ -4,6 +4,7 @@ import { useAuth } from "./AuthContext";
 import { useFleet } from "./FleetContext";
 import { useLivePoll } from "./useLivePoll";
 import { overviewCache } from "./plantCache";
+import { plantToday } from "./alarmLogStore";
 
 const OVERVIEW_REFRESH_MS = 5 * 60_000; // DB history refresh (worker syncs every 10 min)
 
@@ -71,8 +72,9 @@ export const PlantProvider: React.FC<{ plantId: number | null; live: boolean; ch
   const [liveRec, setLiveRec] = useState<GrowattLive<GrowattLivePlantLatest> | null>(null);
   const [liveFailed, setLiveFailed] = useState(false);
 
+  // every plant tab opens on the current (plant-local) day, also before its first record is stored
   const fetchOverview = useCallback(async (id: number) => {
-    const ov = await api.getGrowattPlantOverview(id);
+    const ov = await api.getGrowattPlantOverview(id, plantToday());
     overviewCache.set(id, { ov, at: Date.now() });
     return ov;
   }, []);
@@ -87,7 +89,9 @@ export const PlantProvider: React.FC<{ plantId: number | null; live: boolean; ch
       return;
     }
     let cancelled = false;
-    const cached = overviewCache.get(plantId);
+    // a cached overview of an earlier day (the tab stayed open past midnight) is not shown
+    const hit = overviewCache.get(plantId);
+    const cached = hit && hit.ov.meta.day === plantToday() ? hit : undefined;
     setDbOverview(cached?.ov ?? null);
     setError(null);
 

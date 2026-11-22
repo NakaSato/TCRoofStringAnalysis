@@ -16,11 +16,12 @@ import { api } from "../api/client";
 import type { OmAssignees, OmTask, OmTaskList, OmTaskStatus, OmTaskType } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { translate, useI18n } from "@/i18n";
+import { notify } from "@/lib/notify";
 import { isAdmin } from "../auth/access";
 import { plantToday } from "../context/alarmLogStore";
 import { pick, pickDay, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
-import { fmtInt } from "../components/ui";
+import { LoadingState, Suspended, fmtInt } from "../components/ui";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -76,7 +77,6 @@ export const CalendarPage: React.FC = () => {
   const [feedOpen, setFeedOpen] = useState(false);
   const [round, setRound] = useState<number[] | null>(null);
   const [dueVersion, setDueVersion] = useState(0);
-  const [notice, setNotice] = useState<string | null>(null);
   const [lanesVersion, setLanesVersion] = useState(0);
 
   const load = useCallback(async () => {
@@ -132,7 +132,7 @@ export const CalendarPage: React.FC = () => {
   const move = async (t: OmTask, d: string) => {
     try {
       await api.patchOmTask(t.plant_id, t.id, { start_day: d });
-      setNotice(translate("Moved \"{task}\" ({plant}) to {day}.", { task: t.title || t.label, plant: t.plant_name ?? t.plant_id, day: d }));
+      notify("ok", translate("Moved \"{task}\" ({plant}) to {day}.", { task: t.title || t.label, plant: t.plant_name ?? t.plant_id, day: d }));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -186,16 +186,6 @@ export const CalendarPage: React.FC = () => {
         </div>
       </div>
 
-      {notice && !error && (
-        <Alert>
-          <AlertDescription className="flex items-center justify-between gap-2">
-            {notice}
-            <Button variant="ghost" size="xs" onClick={() => setNotice(null)}>
-              {t("Dismiss")}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
       {error && (
         <Alert variant="destructive">
           <AlertTitle>{t("Could not load the calendar")}</AlertTitle>
@@ -318,10 +308,10 @@ export const CalendarPage: React.FC = () => {
           {view === "due" ? (
             <DueView month={day} admin={admin} version={dueVersion} onPlanRound={setRound} />
           ) : !data && loading ? (
-            <div className="flex h-40 items-center justify-center">
-              <Spinner className="size-5" />
-            </div>
-          ) : view === "month" ? (
+            <LoadingState label={t("Loading tasks…")} shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
+          ) : (
+            <Suspended busy={loading} label={t("Loading tasks…")}>
+            {view === "month" ? (
             <MonthGrid
               from={from}
               month={day}
@@ -335,7 +325,9 @@ export const CalendarPage: React.FC = () => {
           ) : view === "week" ? (
             <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} teams={lanes?.teams ?? []} only={userId} me={me} onOpen={open} onCreate={create} onMove={move} />
           ) : (
-            <TaskList tasks={tasks} onOpen={open} />
+            <TaskList tasks={tasks} onOpen={open} resetKey={`${from}|${to}|${plantId ?? ""}|${type}|${status}|${userParam}|${teamId ?? ""}`} />
+          )}
+            </Suspended>
           )}
           {view === "week" && !admin && (data?.busy.length ?? 0) > 0 && (
             <p className="text-[11px] text-muted-foreground">{t("“Busy” = work on a plant you are not assigned to: only the dates are shown.")}</p>
@@ -351,7 +343,7 @@ export const CalendarPage: React.FC = () => {
           onClose={() => setRound(null)}
           onSaved={(msg) => {
             setRound(null);
-            setNotice(msg);
+            notify("ok", msg);
             setDueVersion((v) => v + 1);
           }}
         />

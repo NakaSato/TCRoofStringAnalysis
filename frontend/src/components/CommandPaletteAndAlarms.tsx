@@ -406,7 +406,7 @@ export const AlarmCenterDrawer: React.FC<{
                     <div>
                       <span className="text-slate-500">{t("Operating V / I")}</span>
                       <div className="text-slate-200">
-                        {fmt(a.avg_voltage_v, 0)}V · {fmt(a.avg_current_a, 2)}A
+                        {fmt(a.avg_voltage_v, 0)}V / {fmt(a.avg_current_a, 2)}A
                       </div>
                     </div>
                     <div>

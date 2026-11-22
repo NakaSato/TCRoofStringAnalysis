@@ -1,5 +1,5 @@
 import React from "react";
-import { Banknote, Cpu, Layers } from "lucide-react";
+import { Banknote, Cpu, FileText, Layers } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { isAdmin } from "../auth/access";
@@ -11,18 +11,20 @@ import { useI18n } from "../i18n";
 import { ModuleSettings } from "./settings/ModuleSettings";
 import { PriceSettings } from "./settings/PriceSettings";
 import { PlantLinks } from "./settings/PlantLinks";
+import { PlantDocuments } from "./settings/PlantDocuments";
 
-const SECTIONS = ["module", "price", "plant"] as const;
+const SECTIONS = ["module", "price", "documents", "plant"] as const;
 type Section = (typeof SECTIONS)[number];
 
 const META: Record<Section, { label: string; hint: string; icon: LucideIcon }> = {
   module: { label: "PV module", hint: "Ratings every string uses", icon: Cpu },
   price: { label: "Price per kWh", hint: "TOU, Ft, flat rates, PWA", icon: Banknote },
+  documents: { label: "Plant documents", hint: "As-built PDF, site photos", icon: FileText },
   plant: { label: "Per-plant settings", hint: "Where they live", icon: Layers },
 };
 
 /**
- * Settings (`/settings?tab=module|price|plant`): fleet-wide settings, one section at a time.
+ * Settings (`/settings?tab=module|price|documents|plant`): fleet-wide settings, one section at a time.
  * Sections pick from a side menu on wide screens and from line tabs on phones. Each editable
  * section saves on its own (sticky bar while there are unsaved changes).
  */
@@ -90,6 +92,7 @@ export const PlantSettingsPage: React.FC = () => {
         <div className="min-w-0">
           {tab === "module" && <ModuleSettings />}
           {tab === "price" && <PriceSettings />}
+          {tab === "documents" && <PlantDocuments />}
           {tab === "plant" && <PlantLinks />}
         </div>
       </div>

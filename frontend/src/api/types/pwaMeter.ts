@@ -105,6 +105,9 @@ export interface PwaMeterPhaseDay {
   meter_mwh: number | null;
   /** modelled */
   contract_mwh: number | null;
+  /** metered energy of the sites with a contract figure that day (no reading = 0): the like-for-like
+   * numerator of `vs_contract_pct` */
+  meter_on_contract_mwh?: number | null;
   /** metered energy ÷ kWp of the sites with a reading */
   yield_kwh_kwp: number | null;
   vs_contract_pct: number | null;

@@ -8,6 +8,7 @@ import type { GrowattPlant, OmPerson, OmPlan, OmPlanBody, OmPlanPreset, OmTaskTy
 import { plantToday } from "../../context/alarmLogStore";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
+import { notify } from "@/lib/notify";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -79,7 +80,6 @@ export const PlansDialog: React.FC<{
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -98,14 +98,12 @@ export const PlansDialog: React.FC<{
     if (!open) return;
     setDraft(null);
     setPlans(null);
-    setNotice(null);
     void load();
   }, [open]);
 
   const edit = (d: Draft) => {
     setConfirmDelete(false);
     setError(null);
-    setNotice(null);
     setDraft(d);
   };
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -116,7 +114,7 @@ export const PlansDialog: React.FC<{
       const msg = await fn();
       setDraft(null);
       setConfirmDelete(false);
-      setNotice(msg);
+      notify("ok", msg);
       await load();
       onChanged();
     } catch (e) {
@@ -160,7 +158,6 @@ export const PlansDialog: React.FC<{
         </DialogHeader>
 
         {error && <p className="text-xs text-red-300">{error}</p>}
-        {notice && !draft && <p className="text-xs text-emerald-300">{notice}</p>}
 
         {!draft ? (
           plans == null ? (

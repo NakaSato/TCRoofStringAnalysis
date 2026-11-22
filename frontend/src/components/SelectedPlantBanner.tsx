@@ -11,6 +11,8 @@ import {
   Search,
   X,
   Rows3,
+  FileText,
+  Images,
 } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { canAccessPlantPage } from "../auth/access";
@@ -20,9 +22,41 @@ import { StatusBadge, fmt, LOADING_STATUS } from "./ui";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { StatusLevel } from "./ui";
+import type { GrowattPlant } from "../api/client";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "../i18n";
+
+/** As-built PDF and site photo folder on Google Drive; a kind without a link shows no button. */
+const PlantDocumentLinks: React.FC<{ documents: GrowattPlant["documents"] }> = ({ documents }) => {
+  const { t } = useI18n();
+  const asbuilt = documents?.asbuilt;
+  const photos = documents?.site_photos;
+  if (!asbuilt && !photos) return null;
+  const hint = t("Opens Google Drive in a new tab. You need access to the company Drive.");
+  return (
+    <span className="inline-flex items-center gap-1">
+      {asbuilt && (
+        <Button asChild variant="ghost" size="xs" title={`${asbuilt.title ?? t("As-built drawing")}\n${hint}`}>
+          <a href={asbuilt.url} target="_blank" rel="noreferrer">
+            <FileText />
+            {t("As-built")}
+            {asbuilt.revision && <span className="text-muted-foreground">{asbuilt.revision}</span>}
+          </a>
+        </Button>
+      )}
+      {photos && (
+        <Button asChild variant="ghost" size="xs" title={`${photos.title ?? t("Site photos")}\n${hint}`}>
+          <a href={photos.url} target="_blank" rel="noreferrer">
+            <Images />
+            {t("Site photos")}
+          </a>
+        </Button>
+      )}
+    </span>
+  );
+};
 
 export const SelectedPlantBanner: React.FC = () => {
   const {
@@ -93,7 +127,7 @@ export const SelectedPlantBanner: React.FC = () => {
     { page: "sensors", label: t("Sensors"), icon: Gauge },
     { page: "strings", label: t("String Diagnostics & I-V / P-V Curves"), icon: Activity },
     { page: "string-layout", label: t("String Layout"), icon: Rows3 },
-    { page: "maintenance", label: t("Alarms & Maintenance"), icon: Wrench },
+    { page: "maintenance", label: t("Maintenance"), icon: Wrench },
   ];
   const navItems =
     selectedGrowattPlantId == null
@@ -127,6 +161,7 @@ export const SelectedPlantBanner: React.FC = () => {
                 {plantOverviewLoading && (
                   <Spinner className="size-3.5" aria-label={t("Refreshing plant data…")} />
                 )}
+                <PlantDocumentLinks documents={plant?.documents} />
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
                 <span className="num text-slate-300">{t("ID")} #{plant?.plant_id ?? selectedGrowattPlantId}</span>

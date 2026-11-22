@@ -20,7 +20,9 @@ from app.api.routes import (
     maintenance,
     plants,
     push,
+    pvsyst,
     pwa_meter,
+    tfrs16,
     rca,
     report,
     system,
@@ -86,11 +88,15 @@ def create_app() -> FastAPI:
     api_router.include_router(tools.router, dependencies=[Depends(get_current_user)])
     # PWA daily meter report: read-only, scoped to the user's plants (import is the CLI)
     api_router.include_router(pwa_meter.router, dependencies=[Depends(get_current_user)])
+    # PVsyst design data: read-only, stations scoped like the meter sites (import is the CLI)
+    api_router.include_router(pvsyst.router, dependencies=[Depends(get_current_user)])
     # Legacy analysis / O&M modules work on the local `plants` table, which has no link to the
     # Growatt plants an engineer is assigned, so they are admin only.
     admin_only = [Depends(require_admin)]
     for module in (plants, datasets, analysis, maintenance, rca, users, system):
         api_router.include_router(module.router, dependencies=admin_only)
+    # TFRS 16 lease model (finance data, read-only; import is the CLI): admin only
+    api_router.include_router(tfrs16.router, dependencies=admin_only)
 
     # Mount at both `/api` and `/` for compatibility
     app.include_router(api_router, prefix="/api")

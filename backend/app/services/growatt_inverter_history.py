@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     GrowattInverter,
+    inverter_installed,
 )
 from app.services.growatt_common import GrowattNotFound, INACTIVE_MAX_A, R, S, _bucket, _day_bounds, _expected_kw, _fmt_ts, _get_plant, _mean, _round, capacity_check, newest_inverter_ts
 from app.services.growatt_layout import load_layout
@@ -59,7 +60,7 @@ def build_inverter_timeseries(
             cap_kwp, cap_basis = round(w / 1000.0, 2), "string_layout"
     plant_cap_kwp = capacity_check(db, plant)[0] if cap_kwp is None else None
     if plant_cap_kwp:
-        n_inv = db.scalar(select(func.count()).select_from(GrowattInverter).where(GrowattInverter.plant_id == plant_id))
+        n_inv = db.scalar(select(func.count()).select_from(GrowattInverter).where(GrowattInverter.plant_id == plant_id, inverter_installed()))
         if n_inv:
             cap_kwp, cap_basis = round(plant_cap_kwp / n_inv, 2), "plant_share"
 

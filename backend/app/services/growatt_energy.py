@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     GrowattInverter,
+    inverter_installed,
     GrowattInverterEnergyDay,
     GrowattPlant,
     GrowattPlantEnergyDay,
@@ -154,7 +155,7 @@ def sync_growatt_energy(
     invs: Dict[int, List[str]] = {}
     for sn, pid in db.execute(
         select(GrowattInverter.device_sn, GrowattInverter.plant_id)
-        .where(GrowattInverter.plant_id.in_(pids))
+        .where(GrowattInverter.plant_id.in_(pids), inverter_installed())
         .order_by(GrowattInverter.plant_id, GrowattInverter.device_sn)
     ).all():
         invs.setdefault(int(pid), []).append(sn)

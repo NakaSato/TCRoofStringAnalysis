@@ -235,11 +235,14 @@ def test_links(api):
     # a shadow issue is admin only
     sid = _issue(f, shadow=True)
     assert client.post(url, headers=eng, json={"kind": "issue", "ref_id": sid}).status_code == 422
-    assert client.post(url, headers=admin, json={"kind": "issue", "ref_id": sid}).status_code == 201
-    labels = {l["kind"]: l["label"] for l in client.get(f"/claims/{c['id']}", headers=eng).json()["links"]}
-    assert labels["issue"] is None  # not visible to the engineer
+    shadow_link = client.post(url, headers=admin, json={"kind": "issue", "ref_id": sid}).json()
+    # an engineer does not see the shadow issue's link at all, and cannot unlink it
+    assert "issue" not in {l["kind"] for l in client.get(f"/claims/{c['id']}", headers=eng).json()["links"]}
+    assert client.get(f"/claims/{c['id']}", headers=admin).json()["links"][-1]["label"].startswith("R2")
+    assert client.delete(f"{url}/{shadow_link['id']}", headers=eng).status_code == 404
     assert client.delete(f"{url}/{site['id']}", headers=eng).status_code == 204
     assert client.delete(f"{url}/{site['id']}", headers=eng).status_code == 404
+    assert client.delete(f"{url}/{shadow_link['id']}", headers=admin).status_code == 204
     # moving a linked claim to another plant is refused
     assert client.patch(f"/claims/{c['id']}", headers=admin, json={"plant_id": P2, "device_sn": SN2}).status_code == 422
 
@@ -266,3 +269,46 @@ def test_list_filters(api):
     assert len(client.get("/claims?type=inverter_warranty", headers=admin).json()["claims"]) == 1
     summary = client.get("/claims", headers=admin).json()["summary"]
     assert summary["open"] == 1
+
+
+def test_closed_claim_is_read_only_for_engineers(api):
+    f, client, admin, eng = api
+    c = client.post("/claims", headers=eng, json=_body()).json()
+    base = f"/claims/{c['id']}"
+    with f() as db:
+        ev = SiteEvent(plant_id=P1, event_type="repair", day=date(2026, 11, 12))
+        ev2 = SiteEvent(plant_id=P1, event_type="repair", day=date(2026, 11, 13))
+        db.add_all([ev, ev2])
+        db.commit()
+        event_id, event2_id = ev.id, ev2.id
+    link = client.post(f"{base}/links", headers=eng, json={"kind": "site_log", "ref_id": event_id}).json()
+    client.post(f"{base}/status", headers=admin, json={"status": "withdrawn", "note": "not needed"})
+
+    note = {"kind": "note", "summary": "late note"}
+    assert client.put(f"{base}/evidence/photos", headers=eng, json={"done": True}).status_code == 409
+    assert client.post(f"{base}/links", headers=eng, json={"kind": "site_log", "ref_id": event2_id}).status_code == 409
+    assert client.delete(f"{base}/links/{link['id']}", headers=eng).status_code == 409
+    assert client.post(f"{base}/events", headers=eng, json=note).status_code == 409
+
+    assert client.put(f"{base}/evidence/photos", headers=admin, json={"done": True}).status_code == 200
+    assert client.post(f"{base}/links", headers=admin, json={"kind": "site_log", "ref_id": event2_id}).status_code == 201
+    assert client.delete(f"{base}/links/{link['id']}", headers=admin).status_code == 204
+    assert client.post(f"{base}/events", headers=admin, json=note).status_code == 201
+    d = client.get(base, headers=admin).json()
+    assert d["updated_by"] == "admin"
+
+
+def test_claim_number_taken_meanwhile_is_retried(api, monkeypatch):
+    f, client, admin, eng = api
+    first = client.post("/claims", headers=eng, json=_body()).json()
+    real = claims._next_number
+    calls = []
+
+    def stale(db, year):  # the first try sees the numbers as they were before `first` was saved
+        calls.append(year)
+        return first["number"] if len(calls) == 1 else real(db, year)
+
+    monkeypatch.setattr(claims, "_next_number", stale)
+    r = client.post("/claims", headers=eng, json=_body())
+    assert r.status_code == 201, r.text
+    assert r.json()["number"] != first["number"] and len(calls) == 2

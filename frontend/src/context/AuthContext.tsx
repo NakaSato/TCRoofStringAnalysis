@@ -45,6 +45,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Any 401 from the API (expired token, disabled account) signs out.
   useEffect(() => {
     const onExpired = () => {
+      // the next user to sign in on this tab may see other plants
+      clearAlarmLogs();
+      clearPlantCache();
       clearAssistantThreads();
       void releasePush(false); // the session is gone: only this browser's subscription can be dropped
       setUser(null);

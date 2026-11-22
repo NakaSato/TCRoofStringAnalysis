@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Users, UserPlus, MapPin, Save, Search, KeyRound, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Users, UserPlus, MapPin, Save, Search, KeyRound, AlertTriangle } from "lucide-react";
 import { api, UserProfile, UserRole } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { PageHeader, Panel, EmptyState, LoadingState, fmt } from "../components/ui";
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useI18n } from "../i18n";
+import { notify } from "@/lib/notify";
 
 /**
  * Admin only. Two roles:
@@ -18,7 +19,6 @@ import { useI18n } from "../i18n";
  * - engineer: only the Growatt plants assigned here (checked by the backend on every request,
  *   so a change applies at once, without the engineer signing in again).
  */
-type Msg = { tone: "ok" | "crit"; text: string } | null;
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -26,14 +26,15 @@ export const UsersPage: React.FC = () => {
   const { user: me, growattPlants } = useAppContext();
   const { t } = useI18n();
   const [users, setUsers] = useState<UserProfile[] | null>(null);
-  const [msg, setMsg] = useState<Msg>(null);
+  // action outcomes are toasts; only a failed load is shown on the page
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const load = () =>
     api
       .listUsers()
       .then(setUsers)
-      .catch((e) => setMsg({ tone: "crit", text: t("Failed to load users: {error}", { error: errText(e) }) }));
+      .catch((e) => setLoadError(t("Failed to load users: {error}", { error: errText(e) })));
 
   useEffect(() => {
     load();
@@ -43,12 +44,11 @@ export const UsersPage: React.FC = () => {
   const selected = users?.find((u) => u.id === selectedId) ?? null;
 
   const run = async (fn: () => Promise<UserProfile>, ok: string) => {
-    setMsg(null);
     try {
       replace(await fn());
-      setMsg({ tone: "ok", text: ok });
+      notify("ok", ok);
     } catch (e) {
-      setMsg({ tone: "crit", text: errText(e) });
+      notify("crit", errText(e));
     }
   };
 
@@ -60,7 +60,7 @@ export const UsersPage: React.FC = () => {
     const pw = window.prompt(t("New password for {user} (at least 8 characters):", { user: u.username }));
     if (pw == null) return;
     if (pw.length < 8) {
-      setMsg({ tone: "crit", text: t("Password must be at least 8 characters.") });
+      notify("crit", t("Password must be at least 8 characters."));
       return;
     }
     run(() => api.updateUser(u.id, { password: pw }), t("Password for {user} changed.", { user: u.username }));
@@ -75,10 +75,10 @@ export const UsersPage: React.FC = () => {
         description={t("Admins see and manage everything. Engineers see and work on only the plants assigned to them here.")}
       />
 
-      {msg && (
-        <div className={`flex items-center gap-2 font-medium ${msg.tone === "ok" ? "callout-ok" : "callout-crit"}`}>
-          {msg.tone === "ok" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
-          <span>{msg.text}</span>
+      {loadError && (
+        <div className="callout-crit flex items-center gap-2 font-medium">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>{loadError}</span>
         </div>
       )}
 
@@ -86,9 +86,9 @@ export const UsersPage: React.FC = () => {
         onCreated={(u) => {
           setUsers((list) => [...(list ?? []), u]);
           if (u.role === "engineer") setSelectedId(u.id);
-          setMsg({ tone: "ok", text: t("User {user} created.", { user: u.username }) });
+          notify("ok", t("User {user} created.", { user: u.username }));
         }}
-        onError={(text) => setMsg({ tone: "crit", text })}
+        onError={(text) => notify("crit", text)}
       />
 
       <Panel icon={Users} title={t("Accounts")} subtitle={t("Accounts are disabled, never deleted")} bodyClassName="">
@@ -175,9 +175,9 @@ export const UsersPage: React.FC = () => {
           plants={growattPlants}
           onSaved={(u) => {
             replace(u);
-            setMsg({ tone: "ok", text: t("{user}: {n} plant(s) assigned.", { user: u.username, n: u.plant_ids?.length ?? 0 }) });
+            notify("ok", t("{user}: {n} plant(s) assigned.", { user: u.username, n: u.plant_ids?.length ?? 0 }));
           }}
-          onError={(text) => setMsg({ tone: "crit", text })}
+          onError={(text) => notify("crit", text)}
         />
       )}
     </div>

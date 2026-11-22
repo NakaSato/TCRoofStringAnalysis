@@ -35,6 +35,7 @@ from app.db.models import (
     PushToken,
     User,
     UserPlantAssignment,
+    inverter_installed,
 )
 
 log = logging.getLogger(__name__)
@@ -326,7 +327,8 @@ def _plant_messages(db: Session, events: List[Event]) -> Dict[int, Tuple[str, Di
         by_plant.setdefault(ev.plant_id, []).append(ev)
     names = dict(db.execute(select(GrowattPlant.plant_id, GrowattPlant.name).where(GrowattPlant.plant_id.in_(by_plant))).all())
     inverters: Dict[int, List[GrowattInverter]] = {}
-    for inv in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id.in_(by_plant))):
+    # installed only, so a plant's sole real inverter still reads "INV1" next to a marked one
+    for inv in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id.in_(by_plant), inverter_installed())):
         inverters.setdefault(inv.plant_id, []).append(inv)
 
     out: Dict[int, Tuple[str, Dict[str, str]]] = {}

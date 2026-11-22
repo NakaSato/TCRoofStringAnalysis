@@ -14,7 +14,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../../i18n";
-import { NoticeLine, Notice, NumberField, SaveBar, SavedStamp, SectionHeader, num, publishNotice } from "./shared";
+import { NoticeLine, Notice, NumberField, SaveBar, SavedStamp, SectionHeader, notifyNotice, num, publishNotice } from "./shared";
+import { notify } from "@/lib/notify";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -148,9 +149,9 @@ export const PriceSettings: React.FC = () => {
     try {
       const saved = await api.putTariff(body);
       load(saved);
-      setNotice(publishNotice(saved.published));
+      notifyNotice(publishNotice(saved.published));
     } catch (e: any) {
-      setNotice({ tone: "crit", text: t("Save failed: {error}", { error: e.message }) });
+      notify("crit", t("Save failed: {error}", { error: e.message }));
     } finally {
       setSaving(false);
     }
@@ -162,14 +163,14 @@ export const PriceSettings: React.FC = () => {
     try {
       const r = await api.applyPwaRates();
       load(r.tariff);
-      setNotice({
-        tone: "ok",
-        text: r.applied
+      notify(
+        "ok",
+        r.applied
           ? t("{n} PWA plants now use the contract book price; {kept} rates already entered were kept.", { n: r.added, kept: r.kept })
-          : t("Every PWA plant already has a rate; nothing changed."),
-      });
+          : t("Every PWA plant already has a rate; nothing changed.")
+      );
     } catch (e: any) {
-      setNotice({ tone: "crit", text: t("Save failed: {error}", { error: e.message }) });
+      notify("crit", t("Save failed: {error}", { error: e.message }));
     } finally {
       setApplying(false);
     }
@@ -324,7 +325,7 @@ export const PriceSettings: React.FC = () => {
           <CardHeader className="px-4">
             <CardTitle className="text-sm">{t("PWA contract")}</CardTitle>
             <CardDescription className="text-xs">
-              {t("Read only, from the PWA meter criteria file{version}. Billing in Engineering O&M uses the book price.", {
+              {t("Read only, from the PWA meter criteria file{version}. Billing in Energy & Billing uses the book price.", {
                 version: pwa.criteria_version ? ` (${pwa.criteria_version})` : "",
               })}
             </CardDescription>

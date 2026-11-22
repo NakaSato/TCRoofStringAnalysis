@@ -4,12 +4,12 @@
  * - InverterTrendPanel: daily yield of one inverter vs the plant's average inverter, 7–90 days
  */
 import { useUrlState } from "@/lib/useUrlState";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Grid3x3, TrendingUp } from "lucide-react";
 import { api } from "../api/client";
 import type { GrowattInverterDaily, GrowattInverterTimeseries } from "../api/client";
 import { DailyTrendChart, StringHeatmap } from "./D3Charts";
-import { EmptyState, LoadingState, Panel } from "./ui";
+import { EmptyState, LoadingState, Panel, Suspended } from "./ui";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 
@@ -33,10 +33,12 @@ export const StringHeatmapPanel: React.FC<{
         series?.meta.day ? ` · ${series.meta.day}` : ""
       }`}
     >
-      {loading ? (
+      {loading && !series ? (
         <LoadingState label={t("Loading string currents…")} shape="chart" />
       ) : h && h.string_nos.length ? (
-        <StringHeatmap stringNos={h.string_nos} timestamps={h.timestamps} currentA={h.current_a} />
+        <Suspended busy={loading} pill="center">
+          <StringHeatmap stringNos={h.string_nos} timestamps={h.timestamps} currentA={h.current_a} />
+        </Suspended>
       ) : (
         <EmptyState icon={Grid3x3} title={t("No string records")} description={t("No string carried current on this day.")} />
       )}
@@ -63,9 +65,15 @@ export const InverterTrendPanel: React.FC<{
   const setDays = (d: (typeof RANGES)[number]) => setQuery({ days: d === 30 ? null : d });
   const [data, setData] = useState<GrowattInverterDaily | null>(null);
   const [loading, setLoading] = useState(false);
+  // another inverter: drop the old one's history; a new range of the same one stays on screen, suspended
+  const shownSn = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    if (shownSn.current !== `${plantId}/${deviceSn}`) {
+      shownSn.current = `${plantId}/${deviceSn}`;
+      setData(null);
+    }
     setLoading(true);
     api
       .getGrowattInverterDaily(plantId, deviceSn, days, day ?? undefined)
@@ -117,10 +125,12 @@ export const InverterTrendPanel: React.FC<{
         </div>
       }
     >
-      {loading ? (
+      {loading && !data ? (
         <LoadingState label={t("Loading daily history…")} shape="chart" />
       ) : hasAny ? (
-        <DailyTrendChart rows={trend} height={300} />
+        <Suspended busy={loading} label={t("Loading daily history…")} pill="center">
+          <DailyTrendChart rows={trend} height={300} />
+        </Suspended>
       ) : (
         <EmptyState icon={TrendingUp} title={t("No daily history")} description={t("No stored yield for {name} in the last {n} days.", { name: label, n: days })} />
       )}

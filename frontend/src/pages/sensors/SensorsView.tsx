@@ -1,7 +1,7 @@
 /** Weather Sensors list (fleet `/sensors` and the plant Sensors tab): tiles, filters, table, and the Status / Info views. */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, CircleCheck, CircleHelp, Clock, CloudOff, Gauge, Info, ListChecks, RefreshCw, Search, TriangleAlert, WifiOff, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleCheck, CircleHelp, Clock, CloudOff, Gauge, Info, ListChecks, PowerOff, RefreshCw, Search, TriangleAlert, WifiOff, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api } from "../../api/client";
 import type { GrowattLive, GrowattWeatherField, SensorList, SensorLiveStatus, SensorRow, SensorStatus } from "../../api/client";
@@ -23,6 +23,10 @@ import { LOW_COVERAGE_PCT, hhmm, plantNow, minutesBetween, fmtAge, coverageTone 
 import { SensorInfo } from "./SensorInfo";
 import { PlantSensorView } from "./PlantSensorView";
 import { useI18n } from "../../i18n";
+import { TablePager, pageBounds } from "../../components/TablePager";
+
+/** rows per page of the sensor list */
+const SENSOR_PAGE = 50;
 
 /** DB list re-read while the page is visible: the worker stores new readings every 10 min. */
 const REFRESH_MS = 5 * 60_000;
@@ -31,7 +35,7 @@ const TABS = ["status", "info"] as const;
 
 type Tab = (typeof TABS)[number];
 
-const FILTERS = ["all", "online", "late", "offline", "unknown", "not_synced", "low", "flags"] as const;
+const FILTERS = ["all", "online", "late", "offline", "inactive", "unknown", "not_synced", "low", "flags"] as const;
 
 type Filter = (typeof FILTERS)[number];
 
@@ -160,6 +164,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       online: n("online"),
       late: n("late"),
       offline: n("offline"),
+      inactive: n("inactive"),
       unknown: n("unknown"),
       notSynced: n("not_synced"),
       checked: sensors.filter((s) => s.live?.checked_at != null).length,
@@ -200,6 +205,12 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       return desc ? -c : c;
     });
   }, [sensors, filter, phase, query, sort, desc]);
+
+  // the list shows SENSOR_PAGE rows at a time; back to page 1 when a filter, the search or the sort changes
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [filter, phase, query, sort, desc]);
+  const { pageNo } = pageBounds(rows.length, SENSOR_PAGE, page);
+  const pageRows = rows.slice(pageNo * SENSOR_PAGE, (pageNo + 1) * SENSOR_PAGE);
 
   const onSort = (k: SortKey) => setUrl({ sort: k === "plant" ? null : k, desc: sort === k ? !desc : false });
   const toggleFilter = (f: Filter) => setUrl({ status: filter === f ? null : f });
@@ -287,7 +298,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
         />
       ) : tab === "status" ? (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
             {(
               [
                 ["online", t("Online"), counts.online, t("Upload ≤ {n} min ago", { n: live?.data.thresholds.late_min ?? 15 }), CircleCheck, "text-emerald-300"],
@@ -300,6 +311,14 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                   "text-amber-300",
                 ],
                 ["offline", t("Offline"), counts.offline, t("Lost, or silent > 1 h"), WifiOff, "text-red-300"],
+                [
+                  "inactive",
+                  t("Inactive"),
+                  counts.inactive,
+                  t("No upload for over {n} days", { n: live?.data.thresholds.inactive_days ?? 30 }),
+                  PowerOff,
+                  "text-slate-300",
+                ],
                 ["unknown", t("Not checked"), counts.unknown, t(sweeping ? "Live check in progress" : "No usable live answer"), CircleHelp, "text-slate-300"],
               ] as const
             ).map(([f, label, value, hint, icon, text]) => (
@@ -402,7 +421,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.map((s) => {
+                  {pageRows.map((s) => {
                     const st = STATUS_VIEW[s.st];
                     return (
                       <TableRow key={s.key} className="cursor-pointer" onClick={() => openInfo(s.key)}>
@@ -464,11 +483,12 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                 </TableBody>
               </Table>
             )}
+            {rows.length > 0 && <TablePager className="border-t border-white/[0.06] px-4 py-2.5" rows={rows.length} pageSize={SENSOR_PAGE} pageNo={pageNo} onPage={setPage} />}
           </Panel>
           <p className="text-[11px] text-slate-500">
             {t(
-              "Status: online = last upload ≤ {late} min ago, late up to {offline} min, offline after that or when Growatt reports the sensor lost.",
-              { late: live?.data.thresholds.late_min ?? 15, offline: live?.data.thresholds.offline_min ?? 60 }
+              "Status: online = last upload ≤ {late} min ago, late up to {offline} min, offline after that or when Growatt reports the sensor lost; inactive = no upload for over {days} days (an entry Growatt still lists, not an alarm).",
+              { late: live?.data.thresholds.late_min ?? 15, offline: live?.data.thresholds.offline_min ?? 60, days: live?.data.thresholds.inactive_days ?? 30 }
             )}{" "}
             {t("Readings are the newest stored record, not live values. n/f = probe not fitted (read 0 all of the last 7 days).")}{" "}
             {t("Coverage counts 5-min slots from 06:00 up to the last history sync{until}.", { until: until ? ` (${until})` : "" })}{" "}

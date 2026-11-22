@@ -217,6 +217,7 @@ def test_daily_gives_phase_days_to_admins_and_site_days_in_scope(api):
     # 10 Mar: 400 + 300 + 390 kWh over 300 kWp, contract 3 × 380
     assert (ok["phase"], ok["day"], ok["sites"], ok["meter_mwh"], ok["contract_mwh"]) == (1, "2026-03-10", 3, 1.09, 1.14)
     assert ok["yield_kwh_kwp"] == pytest.approx(3.633) and ok["vs_contract_pct"] == 95.6
+    assert ok["meter_on_contract_mwh"] == 1.09  # every site has a contract figure: the same as meter_mwh
     assert out["meter_mwh"] == 0.69 and out["yield_kwh_kwp"] == 2.3  # P1-01 is down and still counts with 0 kWh
     assert [s["site_id"] for s in d["sites"]] == ["P1-01", "P1-02", "P1-03"]
     assert d["sites"][0]["yield_kwh_kwp"] == [4.0, 0.0] and d["sites"][0]["status"] == ["ok", "outage"]

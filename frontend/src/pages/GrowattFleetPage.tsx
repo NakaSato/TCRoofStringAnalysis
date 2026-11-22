@@ -4,13 +4,17 @@ import { api } from "../api/client";
 import type { GrowattInverter } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { OFFLINE_LABEL, inverterStatusLevel } from "../context/PlantContext";
-import { PageHeader, Panel, KpiTile, StatusBadge, EmptyState, LoadingState, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
+import { PageHeader, Panel, KpiTile, StatusBadge, EmptyState, LoadingState, Suspended, fmt, fmtInt, LOADING_STATUS } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
 import { dateLocale, translate, useI18n } from "../i18n";
+import { TablePager, pageBounds } from "../components/TablePager";
+
+/** rows per page of the plant table */
+const PLANT_PAGE = 50;
 
 const PLANT_STATUS: Record<number, { label: string; level: StatusLevel }> = {
   1: { label: "Normal", level: "ok" },
@@ -102,6 +106,12 @@ export const GrowattFleetPage: React.FC = () => {
     return q ? list.filter((p) => `${p.name} ${p.city ?? ""} ${p.plant_id}`.toLowerCase().includes(q)) : list;
   }, [plants, query]);
 
+  // PLANT_PAGE plants at a time; back to page 1 when the search changes
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [query]);
+  const { pageNo } = pageBounds(filtered.length, PLANT_PAGE, page);
+  const pagePlants = filtered.slice(pageNo * PLANT_PAGE, (pageNo + 1) * PLANT_PAGE);
+
   const totals = useMemo(() => {
     const list = plants ?? [];
     return {
@@ -140,7 +150,7 @@ export const GrowattFleetPage: React.FC = () => {
       {!plants && !error && <LoadingState label={t("Loading plants…")} shape="table" />}
 
       {plants && (
-        <>
+        <Suspended busy={loading} label={t("Loading plants…")} contentClassName="space-y-6">
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <KpiTile label={t("Plants")} value={fmtInt(totals.count)} icon={Radio} tone="solar"
               hint={totals.abnormal ? t("{n} not normal", { n: totals.abnormal }) : totals.unknown ? t("{n} status unknown", { n: totals.unknown }) : t("All normal")}
@@ -174,7 +184,7 @@ export const GrowattFleetPage: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filtered.map((p) => {
+                    {pagePlants.map((p) => {
                       const st = plantStatus(p.status);
                       const kw = p.current_power_w == null ? null : p.current_power_w / 1000;
                       const load = kw != null && p.peak_power_kwp ? (kw / p.peak_power_kwp) * 100 : null;
@@ -197,6 +207,7 @@ export const GrowattFleetPage: React.FC = () => {
                     })}
                   </TableBody>
               </Table>
+              {filtered.length > 0 && <TablePager className="border-t border-white/[0.06] px-4 py-2.5" rows={filtered.length} pageSize={PLANT_PAGE} pageNo={pageNo} onPage={setPage} />}
             </Panel>
 
             <Panel
@@ -223,6 +234,7 @@ export const GrowattFleetPage: React.FC = () => {
               {selected && invLoading && !inverters && <div className="p-4"><LoadingState label={t("Fetching inverters…")} shape="table" /></div>}
               {selected && invError && <EmptyState icon={AlertTriangle} title={t("Could not load inverters")} description={invError} />}
               {selected && inverters && (
+                <Suspended busy={invLoading} label={t("Fetching inverters…")} pill={false}>
                 <Table containerClassName="scroll-x-hint max-h-[640px] overflow-auto">
                     <TableHeader>
                       <TableRow>
@@ -252,10 +264,11 @@ export const GrowattFleetPage: React.FC = () => {
                       ))}
                     </TableBody>
                 </Table>
+                </Suspended>
               )}
             </Panel>
           </div>
-        </>
+        </Suspended>
       )}
     </div>
   );

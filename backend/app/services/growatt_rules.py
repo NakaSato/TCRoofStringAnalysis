@@ -236,6 +236,10 @@ def evaluate(
     )
     since = day - timedelta(days=look - 1)
     out: List[Dict[str, Any]] = []
+    from app.services.inverter_install import not_installed_sns
+
+    # inverters marked not installed: their older daily rows raise nothing
+    gone = not_installed_sns(db, plant_ids)
 
     SD = GrowattStringDaily
     q = select(SD).where(SD.day >= since, SD.day <= day)
@@ -243,7 +247,8 @@ def evaluate(
         q = q.where(SD.plant_id.in_(list(plant_ids)))
     strings: Dict[tuple, Dict[date, GrowattStringDaily]] = defaultdict(dict)
     for r in db.scalars(q):
-        strings[(r.plant_id, r.device_sn, r.string_no)][r.day] = r
+        if r.device_sn not in gone:
+            strings[(r.plant_id, r.device_sn, r.string_no)][r.day] = r
 
     for (pid, sn, sno), days in strings.items():
         today = days.get(day)
@@ -359,7 +364,8 @@ def evaluate(
         q2 = q2.where(ID.plant_id.in_(list(plant_ids)))
     invs: Dict[tuple, Dict[date, GrowattInverterDaily]] = defaultdict(dict)
     for r in db.scalars(q2):
-        invs[(r.plant_id, r.device_sn)][r.day] = r
+        if r.device_sn not in gone:
+            invs[(r.plant_id, r.device_sn)][r.day] = r
 
     def gap_pct(r: GrowattInverterDaily) -> Optional[float]:
         if not r.daylight_min:

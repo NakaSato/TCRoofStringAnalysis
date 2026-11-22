@@ -83,6 +83,9 @@ _ADDED_COLUMNS = [
     ("growatt_inverter_readings", "fault_code", "INTEGER", None),
     ("growatt_inverter_readings", "warn_code", "INTEGER", None),
     ("growatt_inverters", "growatt_created_at", "TIMESTAMP", None),
+    ("growatt_inverters", "not_installed_at", "TIMESTAMP WITH TIME ZONE", None),
+    ("growatt_inverters", "not_installed_by", "VARCHAR(64)", None),
+    ("growatt_inverters", "not_installed_note", "VARCHAR(255)", None),
 ]
 
 

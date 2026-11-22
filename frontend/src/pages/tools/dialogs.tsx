@@ -20,7 +20,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { toolsApi } from "./useInstruments";
 import { CATEGORIES, DUE_KIND, addDays, addMonths, categoryOf, fmtDay } from "./format";
-import { isWebUrl } from "@/lib/safeUrl";
+import { isLinkValue } from "@/lib/safeUrl";
 import { translate, useI18n } from "../../i18n";
 
 const NONE = "__none";
@@ -532,7 +532,7 @@ export const DueDialog: React.FC<{ target: { instrument: Instrument; kind?: DueK
   const interval = instrument?.calibration_interval_months ?? null;
   const fromInterval = kind === "calibration" && interval && day ? addMonths(day, interval) : null;
   const submit = () => {
-    if (url.trim() && !isWebUrl(url)) return setError(t("The link must start with http:// or https://"));
+    if (url.trim() && !isLinkValue(url)) return setError(t("The link must start with http(s):// or / (a page in this app)"));
     const c = numOrNull(cost);
     if (c === undefined) return setError(t("Cost must be a number"));
     void run(() =>
@@ -599,7 +599,7 @@ export const DueDialog: React.FC<{ target: { instrument: Instrument; kind?: DueK
             <Input id="du-cost" inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} />
           </Field>
           <Field id="du-url" label={t("Document link")}>
-            <Input id="du-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" aria-invalid={url.trim() !== "" && !isWebUrl(url)} />
+            <Input id="du-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" aria-invalid={url.trim() !== "" && !isLinkValue(url)} />
           </Field>
           <Field id="du-note" label={t("Note")} wide>
             <Textarea id="du-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />

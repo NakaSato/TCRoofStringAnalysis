@@ -2,11 +2,13 @@
  * Engineering O&M charts PanelChart cannot draw (its tooltip follows x only):
  * - YieldHeatmap: site × report day, coloured by specific yield, outage and missing readings marked,
  *   days with a curtailment remark ticked; a row opens the site's days on click.
- * - WeatherBoxPlot: specific yield of the sites' producing days by the report's weather word, per phase.
+ * - YieldBoxPlot: specific yield of the sites' producing days per category (the report's weather word,
+ *   or the calendar month), one box per phase.
+ * - RankBars: the sites lowest against the contract, a bar each; a row opens the site on click.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import type { PwaDayStatus, PwaMeterDaily, PwaWeather } from "../../api/client";
+import type { PwaDayStatus, PwaMeterDaily, PwaMeterSiteDaily, PwaWeather } from "../../api/client";
 import { C, TICK_FONT, TipRow, Tooltip, textWidth, useWidth } from "../../components/chartKit";
 import type { TipState } from "../../components/chartKit";
 import { STATUS } from "../../components/chartTheme";
@@ -14,7 +16,7 @@ import { fmt, fmtInt } from "../../components/ui";
 import { DAY_STATUS, WEATHER } from "../pwaMeter/format";
 import { PHASE_COLOR } from "./chartSpecs";
 import { fmtDay } from "./format";
-import { dateLocale, useI18n } from "../../i18n";
+import { dateLocale, translate, useI18n } from "../../i18n";
 
 export const Legend: React.FC<{ items: ReadonlyArray<{ label: string; color: string }>; note?: string }> = ({ items, note }) => {
   const { t } = useI18n();
@@ -162,12 +164,13 @@ export const YieldHeatmap: React.FC<{
 };
 
 /* -------------------------------------------------------------------------- */
-/* Weather impact: box plot of specific yield by the report's weather          */
+/* Specific yield distribution: box plots by weather or by month               */
 /* -------------------------------------------------------------------------- */
 const WEATHER_ORDER: PwaWeather[] = ["clear", "cloudy", "rain"];
 
-export interface WeatherBox {
-  weather: PwaWeather;
+export interface YieldBox {
+  /** the weather word or the month (YYYY-MM) */
+  cat: string;
   phase: number;
   /** site-days in the box */
   n: number;
@@ -179,50 +182,65 @@ export interface WeatherBox {
   p95: number;
 }
 
-/** Specific yield (meter kWh ÷ kWp, measured) of the given sites' producing days, grouped by the
- * report's weather word and phase. Left out: days that are not `ok` (outage, a missing reading), days
- * with no weather word and days whose remark says curtailed, so the boxes show the weather, not
- * faults or zero export. A group needs `minDays` site-days. */
-export const weatherBoxes = (daily: PwaMeterDaily, siteIds: ReadonlySet<string>, minDays = 5): WeatherBox[] => {
-  const groups = new Map<string, { weather: PwaWeather; phase: number; v: number[]; sites: Set<string> }>();
+/** A site-day counts when it has a reading and the report calls it producing normally (`ok`): outage
+ * days, days with a missing reading and days whose remark says curtailed are left out, so a box shows
+ * the weather or the season, not faults or zero export. A group needs `minDays` site-days. */
+const yieldBoxes = (daily: PwaMeterDaily, siteIds: ReadonlySet<string>, catOf: (s: PwaMeterSiteDaily, j: number) => string | null, minDays: number): YieldBox[] => {
+  const groups = new Map<string, { cat: string; phase: number; v: number[]; sites: Set<string> }>();
   for (const s of daily.sites) {
     if (!siteIds.has(s.site_id)) continue;
     s.yield_kwh_kwp.forEach((v, j) => {
-      const w = s.weather?.[j];
-      if (v == null || w == null || s.status[j] !== "ok" || s.curtailment?.[j]) return;
-      const key = `${w}|${s.phase}`;
-      const g = groups.get(key) ?? { weather: w, phase: s.phase, v: [], sites: new Set<string>() };
+      if (v == null || s.status[j] !== "ok" || s.curtailment?.[j]) return;
+      const cat = catOf(s, j);
+      if (cat == null) return;
+      const key = `${cat}|${s.phase}`;
+      const g = groups.get(key) ?? { cat, phase: s.phase, v: [], sites: new Set<string>() };
       g.v.push(v);
       g.sites.add(s.site_id);
       groups.set(key, g);
     });
   }
-  const out: WeatherBox[] = [];
+  const out: YieldBox[] = [];
   for (const g of groups.values()) {
     if (g.v.length < minDays) continue;
     const v = g.v.sort((a, b) => a - b);
     const q = (p: number) => d3.quantileSorted(v, p)!;
-    out.push({ weather: g.weather, phase: g.phase, n: v.length, sites: g.sites.size, p05: q(0.05), q1: q(0.25), median: q(0.5), q3: q(0.75), p95: q(0.95) });
+    out.push({ cat: g.cat, phase: g.phase, n: v.length, sites: g.sites.size, p05: q(0.05), q1: q(0.25), median: q(0.5), q3: q(0.75), p95: q(0.95) });
   }
-  return out.sort((a, b) => WEATHER_ORDER.indexOf(a.weather) - WEATHER_ORDER.indexOf(b.weather) || a.phase - b.phase);
+  return out;
 };
 
-export const WeatherBoxPlot: React.FC<{ boxes: WeatherBox[]; height?: number }> = ({ boxes, height = 300 }) => {
+/** Specific yield (meter kWh ÷ kWp, measured) of the sites' producing days by the report's weather
+ * word; days with no weather word are left out too. */
+export const weatherBoxes = (daily: PwaMeterDaily, siteIds: ReadonlySet<string>, minDays = 5): YieldBox[] =>
+  yieldBoxes(daily, siteIds, (s, j) => s.weather?.[j] ?? null, minDays).sort(
+    (a, b) => WEATHER_ORDER.indexOf(a.cat as PwaWeather) - WEATHER_ORDER.indexOf(b.cat as PwaWeather) || a.phase - b.phase
+  );
+
+/** The same by calendar month of the report day (A4: normalised for site size, so seasons and drift show). */
+export const monthBoxes = (daily: PwaMeterDaily, siteIds: ReadonlySet<string>, minDays = 5): YieldBox[] =>
+  yieldBoxes(daily, siteIds, (_, j) => daily.days[j]?.slice(0, 7) ?? null, minDays).sort((a, b) => a.cat.localeCompare(b.cat) || a.phase - b.phase);
+
+export const weatherLabel = (c: string) => translate(WEATHER[c as PwaWeather] ?? c);
+
+export const YieldBoxPlot: React.FC<{ boxes: YieldBox[]; catLabel: (cat: string) => string; ariaLabel: string; height?: number }> = ({ boxes, catLabel, ariaLabel, height = 300 }) => {
   const { t } = useI18n();
   const [ref, width] = useWidth<HTMLDivElement>();
   const [tip, setTip] = useState<TipState | null>(null);
-  const weathers = WEATHER_ORDER.filter((w) => boxes.some((b) => b.weather === w));
+  const cats = [...new Set(boxes.map((b) => b.cat))];
   const phases = [...new Set(boxes.map((b) => b.phase))].sort();
   const m = { top: 24, right: 12, bottom: 46, left: 44 };
   const iw = Math.max(0, width - m.left - m.right);
   const ih = height - m.top - m.bottom;
-  const x = d3.scaleBand<string>().domain(weathers).range([0, iw]).paddingInner(0.25).paddingOuter(0.15);
+  const x = d3.scaleBand<string>().domain(cats).range([0, iw]).paddingInner(0.25).paddingOuter(0.15);
   const xi = d3.scaleBand<string>().domain(phases.map(String)).range([0, x.bandwidth()]).padding(0.2);
   const y = d3.scaleLinear().domain([0, d3.max(boxes, (b) => b.p95) ?? 1]).nice().range([ih, 0]);
   const ticks = y.ticks(5);
   const fmtY = (v: number) => `${fmt(v, 2)} kWh/kWp`;
+  // category labels: every one while they fit, else every k-th
+  const every = Math.max(1, Math.ceil((d3.max(cats, (c) => textWidth(catLabel(c))) ?? 0) / Math.max(1, x.step() - 6)));
 
-  const show = (b: WeatherBox, e: React.MouseEvent) => {
+  const show = (b: YieldBox, e: React.MouseEvent) => {
     const box = ref.current!.getBoundingClientRect();
     setTip({
       x: e.clientX - box.left,
@@ -230,7 +248,7 @@ export const WeatherBoxPlot: React.FC<{ boxes: WeatherBox[]; height?: number }> 
       content: (
         <>
           <div className="mb-1 font-semibold text-white">
-            {t(WEATHER[b.weather] ?? b.weather)} · {t("Phase {n}", { n: b.phase })}
+            {catLabel(b.cat)} · {t("Phase {n}", { n: b.phase })}
           </div>
           <TipRow label={t("Median")} value={fmtY(b.median)} />
           <TipRow label={t("Middle half (P25–P75)")} value={`${fmt(b.q1, 2)} – ${fmt(b.q3, 2)}`} />
@@ -245,7 +263,7 @@ export const WeatherBoxPlot: React.FC<{ boxes: WeatherBox[]; height?: number }> 
   return (
     <div ref={ref} className="relative w-full" style={{ height }} onMouseLeave={() => setTip(null)}>
       {width > 0 && (
-        <svg width={width} height={height} role="img" aria-label={t("Specific yield of producing days by weather, per phase")}>
+        <svg width={width} height={height} role="img" aria-label={ariaLabel}>
           <g transform={`translate(${m.left},${m.top})`}>
             {ticks.map((v) => (
               <g key={v} transform={`translate(0,${y(v)})`}>
@@ -258,13 +276,15 @@ export const WeatherBoxPlot: React.FC<{ boxes: WeatherBox[]; height?: number }> 
             <text x={-m.left + 2} y={-10} fontSize={TICK_FONT - 1} fill={C.muted}>
               kWh/kWp
             </text>
-            {weathers.map((w) => (
-              <g key={w} transform={`translate(${x(w)},0)`}>
-                <text x={x.bandwidth() / 2} y={ih + 32} textAnchor="middle" fontSize={TICK_FONT} fill={C.text}>
-                  {t(WEATHER[w] ?? w)}
-                </text>
+            {cats.map((c, ci) => (
+              <g key={c} transform={`translate(${x(c)},0)`}>
+                {ci % every === 0 && (
+                  <text x={x.bandwidth() / 2} y={ih + 32} textAnchor="middle" fontSize={TICK_FONT} fill={C.text}>
+                    {catLabel(c)}
+                  </text>
+                )}
                 {boxes
-                  .filter((b) => b.weather === w)
+                  .filter((b) => b.cat === c)
                   .map((b) => {
                     const bx = xi(String(b.phase)) ?? 0;
                     const bw = xi.bandwidth();
@@ -291,6 +311,113 @@ export const WeatherBoxPlot: React.FC<{ boxes: WeatherBox[]; height?: number }> 
               </g>
             ))}
             <line x1={0} x2={iw} y1={ih} y2={ih} stroke={C.axis} />
+          </g>
+        </svg>
+      )}
+      <Tooltip tip={tip} width={width} />
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/* Ranking: the sites lowest against the contract                              */
+/* -------------------------------------------------------------------------- */
+export interface RankRow {
+  site_id: string;
+  name: string;
+  phase: number;
+  region: string | null;
+  /** billed ÷ contract on the days with a contract figure, % */
+  pct: number;
+  billed_kwh: number | null;
+  /** modelled */
+  contract_kwh: number | null;
+  missing_days: number;
+  outage_days: number;
+}
+
+/** The `n` lowest rows by `pct` (rows without a contract figure are not ranked). */
+export const lowestRows = <T extends { vs_contract_pct: number | null }>(rows: T[], n: number): T[] =>
+  rows
+    .filter((r) => r.vs_contract_pct != null)
+    .sort((a, b) => a.vs_contract_pct! - b.vs_contract_pct!)
+    .slice(0, n);
+
+/** One horizontal bar per site from 0 to billed ÷ contract, coloured by the criteria file's lines
+ * (under `watch` red, under `good` amber); the contract (100 %) and the lines drawn across. */
+export const RankBars: React.FC<{ rows: RankRow[]; bands: { good: number; watch: number } | null; onOpen: (siteId: string) => void }> = ({ rows, bands, onOpen }) => {
+  const { t } = useI18n();
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const [tip, setTip] = useState<TipState | null>(null);
+  const rowH = 20;
+  const m = { top: 18, right: 62, bottom: 22, left: Math.min(200, Math.max(110, width * 0.36)) };
+  const height = m.top + m.bottom + rows.length * rowH;
+  const iw = Math.max(0, width - m.left - m.right);
+  const x = d3.scaleLinear().domain([0, Math.max(105, d3.max(rows, (r) => r.pct) ?? 100)]).nice().range([0, iw]);
+  const lines = [{ v: 100, label: t("Contract"), color: C.ref }, ...(bands ? [{ v: bands.good, label: `${fmt(bands.good, 0)} %`, color: STATUS.warn }, { v: bands.watch, label: `${fmt(bands.watch, 0)} %`, color: STATUS.crit }] : [])];
+  const tone = (p: number) => (!bands ? C.muted : p < bands.watch ? STATUS.crit : p < bands.good ? STATUS.warn : STATUS.good);
+  const maxChars = Math.max(6, Math.floor((m.left - 10) / (TICK_FONT * 0.6)));
+  const clip = (s: string) => (s.length > maxChars ? `${s.slice(0, maxChars - 1)}…` : s);
+  const mwh = (v: number | null) => (v == null ? "—" : `${fmt(v / 1000, 2)} MWh`);
+
+  const show = (r: RankRow, e: React.MouseEvent) => {
+    const box = ref.current!.getBoundingClientRect();
+    setTip({
+      x: e.clientX - box.left,
+      y: e.clientY - box.top,
+      content: (
+        <>
+          <div className="mb-1 font-semibold text-white">{r.name}</div>
+          <TipRow label={t("Phase")} value={String(r.phase)} />
+          {r.region && <TipRow label={t("Region")} value={r.region} />}
+          <TipRow label={t("Billed ÷ contract")} value={`${fmt(r.pct, 1)} %`} />
+          <TipRow label={t("Billed")} value={mwh(r.billed_kwh)} />
+          <TipRow label={t("Contract (modelled)")} value={mwh(r.contract_kwh)} />
+          <TipRow label={t("Outage days")} value={fmtInt(r.outage_days)} />
+          <TipRow label={t("Days without a reading")} value={fmtInt(r.missing_days)} />
+          <div className="mt-1 text-slate-400">{t("Click to open the site")}</div>
+        </>
+      ),
+    });
+  };
+
+  return (
+    <div ref={ref} className="relative w-full" style={{ height }} onMouseLeave={() => setTip(null)}>
+      {width > 0 && (
+        <svg width={width} height={height} role="img" aria-label={t("Sites lowest against the contract")}>
+          <g transform={`translate(${m.left},${m.top})`}>
+            {x.ticks(5).map((v) => (
+              <g key={v} transform={`translate(${x(v)},0)`}>
+                <line y1={0} y2={rows.length * rowH} stroke={C.grid} />
+                <text y={rows.length * rowH + 14} textAnchor="middle" fontSize={TICK_FONT - 1} fill={C.muted}>
+                  {fmt(v, 0)} %
+                </text>
+              </g>
+            ))}
+            {rows.map((r, i) => (
+              <g key={r.site_id} transform={`translate(0,${i * rowH})`} className="cursor-pointer" onMouseMove={(e) => show(r, e)} onClick={() => onOpen(r.site_id)}>
+                <rect x={-m.left} y={0} width={width} height={rowH} fill="transparent" />
+                <text x={-8} y={rowH / 2} dy="0.32em" textAnchor="end" fontSize={TICK_FONT} fill={C.text}>
+                  {clip(r.name)}
+                </text>
+                <rect x={0} y={4} width={Math.max(1, x(Math.max(0, r.pct)))} height={rowH - 8} rx={2} fill={tone(r.pct)} fillOpacity={0.75} />
+                {/* the value in a column right of the plot, clear of the reference lines; * = days without a reading */}
+                <text x={iw + m.right - 4} y={rowH / 2} dy="0.32em" textAnchor="end" fontSize={TICK_FONT - 1} fill={r.missing_days > 0 ? C.muted : C.text}>
+                  {fmt(r.pct, 1)} %{r.missing_days > 0 ? "*" : ""}
+                </text>
+              </g>
+            ))}
+            {lines.map((l, k) => (
+              <g key={l.v} transform={`translate(${x(l.v)},0)`}>
+                <line y1={-4} y2={rows.length * rowH} stroke={l.color} strokeDasharray="4 3" />
+                {/* label above the plot, left out when it would print over the previous line's */}
+                {(k === 0 || Math.abs(x(l.v) - x(lines[k - 1].v)) > textWidth(l.label, TICK_FONT - 2) + 4) && (
+                  <text y={-8} textAnchor="middle" fontSize={TICK_FONT - 2} fill={l.color}>
+                    {l.label}
+                  </text>
+                )}
+              </g>
+            ))}
           </g>
         </svg>
       )}

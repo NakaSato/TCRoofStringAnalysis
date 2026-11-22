@@ -55,6 +55,9 @@ def _seed_growatt(session) -> None:
 
 @pytest.fixture()
 def client(tmp_path):
+    from app.services import growatt_layout
+
+    growatt_layout._wired_cache.clear()  # keyed by serials, which every test here shares
     engine = build_engine(f"sqlite:///{tmp_path / 'growatt.db'}")
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     Base.metadata.create_all(bind=engine)

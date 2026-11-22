@@ -9,11 +9,12 @@
  *
  * Hover: a crosshair through every panel and one tooltip listing each series at that x.
  * Time charts can also shade x ranges across every panel (`bands`, `gaps`) and draw labelled
- * vertical markers (`markers`, e.g. "now").
+ * vertical markers (`markers`, e.g. "now"; category charts too).
  *
  * Opt-in interaction: `legendToggle` makes legend items buttons that hide / show a series (a panel
  * with every series hidden is dropped; the last visible series cannot be hidden), and `onBrush`
- * (time / numeric axes) reports the x range dragged across with the mouse.
+ * (time / numeric axes) reports the x range dragged across with the mouse; `onPick` reports the x
+ * index clicked (any axis; a drag of 8 px or more is a brush, not a click).
  */
 import React, { useMemo, useState } from "react";
 import * as d3 from "d3";
@@ -115,6 +116,9 @@ export interface PanelChartSpec {
   xZero?: boolean;
   /** Tick text for category labels. */
   xTickLabel?: (v: XValue) => string;
+  /** Category axes: label every nth category (default: as many as fit). With it the caller thins
+   * the labels itself (e.g. days), and they are rotated only when they overlap at that spacing. */
+  xTickEvery?: number;
   /** Tooltip heading for an x value (time and category charts). */
   xTipLabel?: (v: XValue) => string;
   /** Tooltip heading for a numeric x position (linear charts). */
@@ -245,7 +249,9 @@ export const PanelChart: React.FC<{
   legendPosition?: "top" | "bottom";
   /** Time / numeric axes: called with the x range dragged across (ms since epoch on a time axis). */
   onBrush?: (lo: number, hi: number) => void;
-}> = ({ spec: fullSpec, height = 320, emptyLabel: emptyLabelIn = "No data for this chart.", legendToggle = false, legendPosition = "top", onBrush }) => {
+  /** Any axis: called with the index in `spec.x` of the point clicked (the one the tooltip names). */
+  onPick?: (i: number) => void;
+}> = ({ spec: fullSpec, height = 320, emptyLabel: emptyLabelIn = "No data for this chart.", legendToggle = false, legendPosition = "top", onBrush, onPick }) => {
   const { t } = useI18n();
   // a caller's English label is translated too when the dictionary has it
   const emptyLabel = t(emptyLabelIn);
@@ -322,8 +328,8 @@ export const PanelChart: React.FC<{
       xb = d3.scaleBand<string>().domain(keys).range([0, iw]).paddingInner(0.22).paddingOuter(0.12);
       bandLabels = sharedX.map((v) => (spec.xTickLabel ? spec.xTickLabel(v) : String(v)));
       const maxW = d3.max(bandLabels, (s) => textWidth(s)) ?? 0;
-      rotate = maxW + 8 > xb.step();
-      every = Math.max(1, Math.ceil(14 / xb.step()));
+      rotate = maxW + 8 > xb.step() * (spec.xTickEvery ?? 1);
+      every = spec.xTickEvery ?? Math.max(1, Math.ceil(14 / xb.step()));
     } else {
       const all: number[] = [];
       for (const p of panels) for (const s of p.series) seriesX(s).forEach((v) => all.push(xNum(v)));
@@ -396,33 +402,34 @@ export const PanelChart: React.FC<{
 
   /* ---- drag to pick an x range ---- */
   const brushable = Boolean(onBrush && layout?.xc);
+  const pickable = Boolean(onPick && layout);
   const plotPx = (e: React.MouseEvent) => {
     const box = ref.current!.getBoundingClientRect();
     return { px: e.clientX - box.left - layout!.ml, py: e.clientY - box.top };
   };
   const onDown = (e: React.MouseEvent) => {
-    if (!brushable || e.button !== 0) return;
+    if (!(brushable || pickable) || e.button !== 0) return;
     const { px, py } = plotPx(e);
     if (px < 0 || px > layout!.iw || py < layout!.geo[0].top || py > layout!.plotBottom) return;
-    e.preventDefault();
+    if (brushable) e.preventDefault();
     setDrag({ x0: px, x1: px });
   };
   const onUp = () => {
-    if (!drag || !layout?.xc) return;
+    if (!drag || !layout) return;
     const a = Math.max(0, Math.min(drag.x0, drag.x1));
     const b = Math.min(layout.iw, Math.max(drag.x0, drag.x1));
     setDrag(null);
-    if (b - a >= 8) {
+    if (b - a >= 8 && brushable && layout.xc) {
       setTip(null);
       setHoverX(null);
       onBrush!(+layout.xc.invert(a), +layout.xc.invert(b));
-    }
+    } else if (b - a < 8 && pickable && hoverX?.i != null) onPick!(hoverX.i);
   };
 
   /* ---- hover ---- */
   const onMove = (e: React.MouseEvent) => {
     if (!layout) return;
-    if (drag) {
+    if (drag && brushable) {
       const { px } = plotPx(e);
       setTip(null);
       return setDrag({ ...drag, x1: Math.max(0, Math.min(layout.iw, px)) });
@@ -552,7 +559,7 @@ export const PanelChart: React.FC<{
       {legendPosition === "top" && legendBox}
       <div
         ref={ref}
-        className={cn("relative w-full", brushable && "cursor-crosshair select-none")}
+        className={cn("relative w-full", brushable && "cursor-crosshair select-none", pickable && !brushable && "cursor-pointer")}
         onMouseMove={onMove}
         onMouseDown={onDown}
         onMouseUp={onUp}
@@ -626,8 +633,9 @@ export const PanelChart: React.FC<{
               )}
 
               {/* vertical markers */}
-              {layout.xc &&
-                spec.markers?.map((m) => {
+              {/* (category axes too: xPos is the category's centre) */}
+              {spec.markers?.map((m) => {
+                  if (layout.xb && !layout.xb.domain().includes(String(m.x))) return null;
                   const x = layout.xPos(m.x);
                   if (!(x >= 0 && x <= layout.iw)) return null;
                   const color = m.color ?? C.ref;
@@ -924,7 +932,10 @@ const XAxis: React.FC<{ layout: Layout; spec: PanelChartSpec }> = ({ layout, spe
           })
         : (xc as d3.ScaleLinear<number, number>).ticks(Math.max(2, Math.floor(iw / 80))).map((t) => {
             const x = (xc as d3.ScaleLinear<number, number>)(t);
-            const label = spec.xKind === "time" ? tickTime(new Date(+t), spansDays(xc)) : d3.format("~s")(+t);
+            const multiDay = spansDays(xc);
+            // a one-day axis that ends at midnight: its last tick is the day's end, 24:00, not 00:00
+            const dayEnd = spec.xKind === "time" && !multiDay && +t === +xc!.domain()[1] && new Date(+t).getHours() === 0 && new Date(+t).getMinutes() === 0;
+            const label = spec.xKind === "time" ? (dayEnd ? "24:00" : tickTime(new Date(+t), multiDay)) : d3.format("~s")(+t);
             return (
               <g key={+t} transform={`translate(${x},${plotBottom})`}>
                 <line y2={5} stroke={C.axis} />

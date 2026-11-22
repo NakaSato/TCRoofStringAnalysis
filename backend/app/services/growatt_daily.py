@@ -32,6 +32,7 @@ from app.db.models import (
     GrowattEnvReading,
     GrowattEnvSensor,
     GrowattInverter,
+    inverter_installed,
     GrowattInverterDaily,
     GrowattPlant,
     GrowattPlantDaily,
@@ -249,7 +250,7 @@ def compute_plant_day(
     `until`: newest stored record of the fleet; daylight after it is not judged (today).
     `pricer`: the tariff, for splitting lost kWh into on-peak / off-peak hours."""
     pr = pricer or load_pricer(db)
-    invs = list(db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant.plant_id)))
+    invs = list(db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant.plant_id, inverter_installed())))
     sns = [i.device_sn for i in invs]
     by_sn = {i.device_sn: i for i in invs}
     lo, hi = _day_bounds(day)

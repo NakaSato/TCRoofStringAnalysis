@@ -18,6 +18,7 @@ import { GroupLabel, HOT_C, KPI_ROW, LOW_PCT, LiveBadge, Row, Stat, Unit, hhmm, 
 import type { Anomaly, LiveState, OverviewInverter } from "./shared";
 import type { GrowattLiveDatalogger } from "../../api/types/growatt";
 import { RawExportButton } from "./RawExportButton";
+import { InverterActiveSwitch } from "./InstalledSwitch";
 import { useAppContext } from "../../context/AppContext";
 
 /** Growatt's live word on the inverter's datalogger: its `lost` flag and last upload (never stored). */
@@ -116,7 +117,8 @@ export const InverterCard: React.FC<{
             .filter(Boolean)
             .join(" · ")}
         </CardDescription>
-        <CardAction className="flex items-center gap-2">
+        <CardAction className="flex items-center gap-3">
+          {selectedGrowattPlantId != null && <InverterActiveSwitch plantId={selectedGrowattPlantId} sn={inv.device_sn} name={invName(inv)} />}
           <RawExportButton key={`${inv.device_sn}:${day}`} plantId={selectedGrowattPlantId} deviceSn={inv.device_sn} day={day} />
           <ButtonGroup aria-label={t("Step through inverters")}>
             <Button variant="outline" size="icon-sm" onClick={() => onStep(-1)} disabled={count < 2} aria-label={t("Previous inverter")}>

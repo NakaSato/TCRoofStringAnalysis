@@ -4,8 +4,9 @@ The checks are snapshots taken CHECK_OFFSET_MIN before the hour (08:50 / 12:50 /
 slot holds is defined in one place, `services/check_slots.py`. This module keeps the inverter
 naming helpers and `build_checks`, a thin wrapper over that definition.
 
-Inverters named as replaced in Growatt ("INV 1 old", "GKLNF3901P(old)") are left out: they stay
-listed under the plant but never report again, so they would read "offline" every day.
+Inverters named as replaced in Growatt ("INV 1 old", "GKLNF3901P(old)") and inverters an admin
+marked not installed are left out (`left_out`): they stay listed under the plant but never report,
+so they would read "offline" every day.
 """
 
 from __future__ import annotations
@@ -24,6 +25,11 @@ REPLACED = re.compile(r"\bold\b|เก่า", re.IGNORECASE)  # "INV 1 old", "I
 
 def is_replaced(inv: GrowattInverter) -> bool:
     return bool(inv.alias and REPLACED.search(inv.alias))
+
+
+def left_out(inv: GrowattInverter) -> bool:
+    """Not part of the checks: named as replaced, or marked not installed."""
+    return is_replaced(inv) or inv.not_installed_at is not None
 
 
 # the inverter number in a Growatt alias: "INVERTER 3", "Inverter no.3", "Inverter03",
@@ -55,7 +61,7 @@ def build_checks(db: Session, plant_id: int, day: date) -> Optional[Dict[str, Di
     from app.services.check_slots import CHECK_HOURS, compute_slots
 
     plant = db.get(GrowattPlant, plant_id)
-    invs = [i for i in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id)) if not is_replaced(i)]
+    invs = [i for i in db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id)) if not left_out(i)]
     if plant is None or not invs:
         return None
     return compute_slots(db, plant, day, CHECK_HOURS)

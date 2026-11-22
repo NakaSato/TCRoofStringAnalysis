@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -412,7 +413,20 @@ def _link_labels(db: Session, links: List[ClaimLink], allow_shadow: bool) -> Dic
     return {link.id: labels.get((link.kind, link.ref_id)) for link in links}
 
 
+def _shadow_issue_ids(db: Session, links: List[ClaimLink]) -> Set[int]:
+    """Issue ids among the links that are shadow-mode issues (admin only)."""
+    ids = {l.ref_id for l in links if l.kind == "issue"}
+    if not ids:
+        return set()
+    return set(db.scalars(select(GrowattIssue.id).where(GrowattIssue.id.in_(ids), GrowattIssue.shadow.is_(True))))
+
+
 def serialize_links(db: Session, links: List[ClaimLink], allow_shadow: bool) -> List[Dict[str, Any]]:
+    """Links with their labels. Without `allow_shadow`, links to shadow issues are left out
+    entirely (not even the id shows); a link to a record that is gone keeps `label: null`."""
+    if not allow_shadow:
+        hidden = _shadow_issue_ids(db, links)
+        links = [l for l in links if not (l.kind == "issue" and l.ref_id in hidden)]
     labels = _link_labels(db, links, allow_shadow)
     return [{"id": l.id, "kind": l.kind, "ref_id": l.ref_id, "label": labels.get(l.id)} for l in links]
 
@@ -484,15 +498,24 @@ def create_claim(
         _check_link(db, data["plant_id"], *pair, allow_shadow)
         if pair not in pairs:
             pairs.append(pair)
-    c = Claim(
-        number=_next_number(db, _today().year),
-        status="draft",
-        old_sn=data.get("device_sn") if data["claim_type"] == "inverter_warranty" else None,
-        created_by=who,
-        **data,
-    )
-    db.add(c)
-    db.flush()
+    c: Optional[Claim] = None
+    for attempt in range(3):
+        c = Claim(
+            number=_next_number(db, _today().year),
+            status="draft",
+            old_sn=data.get("device_sn") if data["claim_type"] == "inverter_warranty" else None,
+            created_by=who,
+            **data,
+        )
+        db.add(c)
+        try:
+            db.flush()  # claims.number is unique: two claims opened at once can take the same number
+            break
+        except IntegrityError:
+            db.rollback()
+            if attempt == 2:
+                raise ClaimConflict("Another claim took the same number: try again") from None
+    assert c is not None
     for kind, ref_id in pairs:
         db.add(ClaimLink(claim_id=c.id, kind=kind, ref_id=ref_id, created_by=who))
     _event(db, c, "created", who, "Claim created")
@@ -504,8 +527,7 @@ def create_claim(
 def update_claim(db: Session, c: Claim, fields: Dict[str, Any], who: str, *, admin: bool) -> List[str]:
     """Change the fields sent. A closed or withdrawn claim is changed by admins only. Returns the
     names of the fields that changed (an `edit` event records old → new)."""
-    if c.status in CLOSED and not admin:
-        raise ClaimConflict("The claim is closed: only an admin can change it")
+    _check_open(c, admin)
     fields = {k: v for k, v in fields.items() if k in FIELDS}
     for k in REQUIRED_FIELDS:
         if k in fields and fields[k] in (None, ""):
@@ -575,8 +597,15 @@ def set_status(
     return c
 
 
-def add_event(db: Session, c: Claim, body: Dict[str, Any], who: str) -> ClaimEvent:
+def _check_open(c: Claim, admin: bool) -> None:
+    """A closed or withdrawn claim is changed by admins only."""
+    if c.status in CLOSED and not admin:
+        raise ClaimConflict("The claim is closed: only an admin can change it")
+
+
+def add_event(db: Session, c: Claim, body: Dict[str, Any], who: str, *, admin: bool) -> ClaimEvent:
     """A note, a message sent / received or a shipment out / in."""
+    _check_open(c, admin)
     kind = body.get("kind")
     if kind not in EVENT_KINDS:
         raise ValueError(f"kind must be one of {', '.join(EVENT_KINDS)}")
@@ -608,8 +637,9 @@ def add_event(db: Session, c: Claim, body: Dict[str, Any], who: str) -> ClaimEve
     return e
 
 
-def set_evidence(db: Session, c: Claim, key: str, body: Dict[str, Any], who: str) -> Dict[str, Any]:
+def set_evidence(db: Session, c: Claim, key: str, body: Dict[str, Any], who: str, *, admin: bool) -> Dict[str, Any]:
     """Tick / untick a checklist item, with an optional link and note (only the ones sent change)."""
+    _check_open(c, admin)
     if key not in {k for k, _, _ in EVIDENCE[c.claim_type]}:
         raise GrowattNotFound(f"No evidence item {key} for a {c.claim_type} claim")
     e = db.get(ClaimEvidence, (c.id, key))
@@ -631,21 +661,28 @@ def set_evidence(db: Session, c: Claim, key: str, body: Dict[str, Any], who: str
 
 
 def add_link(db: Session, c: Claim, kind: str, ref_id: int, who: str, *, allow_shadow: bool) -> ClaimLink:
+    """Admins (`allow_shadow`) may also link shadow issues and change closed claims."""
+    _check_open(c, allow_shadow)
     _check_link(db, c.plant_id, kind, ref_id, allow_shadow)
     if db.scalar(select(ClaimLink.id).where(ClaimLink.claim_id == c.id, ClaimLink.kind == kind, ClaimLink.ref_id == ref_id)):
         raise ClaimConflict("Already linked")
     link = ClaimLink(claim_id=c.id, kind=kind, ref_id=ref_id, created_by=who)
     db.add(link)
     c.updated_by = who
+    c.updated_at = datetime.now(ZoneInfo("UTC"))
     db.commit()
     return link
 
 
-def delete_link(db: Session, c: Claim, link_id: int) -> None:
+def delete_link(db: Session, c: Claim, link_id: int, who: str, *, allow_shadow: bool) -> None:
+    """A link to a shadow issue does not exist for a non-admin (404, like in `detail`)."""
     link = db.get(ClaimLink, link_id)
-    if link is None or link.claim_id != c.id:
+    if link is None or link.claim_id != c.id or (not allow_shadow and _shadow_issue_ids(db, [link])):
         raise GrowattNotFound(f"Link {link_id} not found")
+    _check_open(c, allow_shadow)
     db.delete(link)
+    c.updated_by = who
+    c.updated_at = datetime.now(ZoneInfo("UTC"))
     db.commit()
 
 

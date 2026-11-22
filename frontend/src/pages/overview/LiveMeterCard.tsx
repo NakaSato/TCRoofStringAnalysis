@@ -60,7 +60,7 @@ export const LiveMeterCard: React.FC<{ m: ReturnType<typeof useLiveMeter> }> = (
               <IconStat
                 icon={ArrowDownToLine}
                 label={t("Grid import")}
-                value={fmt(g?.grid_import_kw, 2)}
+                num={g?.grid_import_kw} digits={2}
                 unit="kW"
                 tone={g?.grid_import_kw ? "text-sky-300" : undefined}
                 hint={t("Bought from the grid now, measured by the energy meter · {time}", { time: when(g?.timestamp) })}
@@ -68,7 +68,7 @@ export const LiveMeterCard: React.FC<{ m: ReturnType<typeof useLiveMeter> }> = (
               <IconStat
                 icon={ArrowUpFromLine}
                 label={t("Grid export")}
-                value={fmt(g?.grid_export_kw, 2)}
+                num={g?.grid_export_kw} digits={2}
                 unit="kW"
                 tone={exporting ? "text-energy-300" : undefined}
                 hint={t("Sent to the grid now, measured by the energy meter · {time}", { time: when(g?.timestamp) })}
@@ -76,7 +76,7 @@ export const LiveMeterCard: React.FC<{ m: ReturnType<typeof useLiveMeter> }> = (
               <IconStat
                 icon={House}
                 label={t("Load (derived)")}
-                value={fmt(load?.load_kw, 2)}
+                num={load?.load_kw} digits={2}
                 unit="kW"
                 hint={
                   load?.load_kw != null
@@ -88,18 +88,18 @@ export const LiveMeterCard: React.FC<{ m: ReturnType<typeof useLiveMeter> }> = (
             {/* one meter: its own phase split, counter and quality figures, as reported */}
             {one && (
               <IconStats cols="grid-cols-3">
-                <IconStat icon={Activity} label={t("Phase L1 power")} value={fmt(kw(one.active_power_l1_w), 2)} unit="kW" hint={t("+ import / − export")} />
-                <IconStat icon={Activity} label={t("Phase L2 power")} value={fmt(kw(one.active_power_l2_w), 2)} unit="kW" hint={t("+ import / − export")} />
-                <IconStat icon={Activity} label={t("Phase L3 power")} value={fmt(kw(one.active_power_l3_w), 2)} unit="kW" hint={t("+ import / − export")} />
+                <IconStat icon={Activity} label={t("Phase L1 power")} num={kw(one.active_power_l1_w)} digits={2} unit="kW" hint={t("+ import / − export")} />
+                <IconStat icon={Activity} label={t("Phase L2 power")} num={kw(one.active_power_l2_w)} digits={2} unit="kW" hint={t("+ import / − export")} />
+                <IconStat icon={Activity} label={t("Phase L3 power")} num={kw(one.active_power_l3_w)} digits={2} unit="kW" hint={t("+ import / − export")} />
                 <IconStat
                   icon={Sigma}
                   label={t("Import counter")}
-                  value={fmt(one.import_counter_kwh, 0)}
+                  num={one.import_counter_kwh} digits={0}
                   unit="kWh"
                   hint={t("Lifetime import register of the meter")}
                 />
-                <IconStat icon={Gauge} label={t("Power factor")} value={fmt(one.power_factor, 2)} />
-                <IconStat icon={Waves} label={t("Frequency")} value={fmt(one.frequency_hz, 2)} unit="Hz" />
+                <IconStat icon={Gauge} label={t("Power factor")} num={one.power_factor} digits={2} />
+                <IconStat icon={Waves} label={t("Frequency")} num={one.frequency_hz} digits={2} unit="Hz" />
               </IconStats>
             )}
             {meters.length > 1 && (

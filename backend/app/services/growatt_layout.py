@@ -17,7 +17,9 @@ from app.services.fleet_settings import get_fleet_module
 from app.services.inverter_models import model_spec
 from app.db.models import (
     GrowattInverter,
+    inverter_installed,
     GrowattStringLayout,
+    GrowattStringRemoved,
 )
 from app.services.growatt_common import INACTIVE_MAX_A, S, _get_plant
 
@@ -104,15 +106,34 @@ def wired_inputs(db: Session, sns: Sequence[str]) -> Dict[str, Set[int]]:
 def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
     """Module count per string input of a plant: registry rows plus inputs seen in the last week.
 
-    `modules` is null where nobody has entered it yet; nothing is guessed.
+    `modules` is null where nobody has entered it yet; nothing is guessed. An input with a removed
+    mark (`growatt_string_removed`) is left out of `strings` even when it carried current; each
+    inverter lists its marks in `removed_strings`. The marks touch only this editor output: the
+    analyses (`load_layout`, `wired_inputs`, string checks, daily rules) never read them.
     """
     plant = _get_plant(db, plant_id)
     invs = list(
-        db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id).order_by(GrowattInverter.device_sn))
+        db.scalars(
+            select(GrowattInverter)
+            .where(GrowattInverter.plant_id == plant_id, inverter_installed())
+            .order_by(GrowattInverter.device_sn)
+        )
     )
     sns = [inv.device_sn for inv in invs]
     layout = load_layout(db, sns, fleet_wp=False)
     orientations = load_layout_orientations(db, sns)
+    removed: Set[Tuple[str, int]] = (
+        {
+            (sn, int(no))
+            for sn, no in db.execute(
+                select(GrowattStringRemoved.device_sn, GrowattStringRemoved.string_no).where(
+                    GrowattStringRemoved.device_sn.in_(sns)
+                )
+            )
+        }
+        if sns
+        else set()
+    )
     seen: Dict[Tuple[str, int], int] = {}
     latest = newest_string_ts(db, sns)
     if latest is not None:
@@ -124,7 +145,10 @@ def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
             seen[(sn, int(sno))] = int(mppt)
     out = []
     for inv in invs:
-        nos = sorted({n for s, n in seen if s == inv.device_sn} | {n for s, n in layout if s == inv.device_sn})
+        gone = sorted(n for s, n in removed if s == inv.device_sn)
+        nos = sorted(
+            ({n for s, n in seen if s == inv.device_sn} | {n for s, n in layout if s == inv.device_sn}) - set(gone)
+        )
         out.append(
             {
                 "device_sn": inv.device_sn,
@@ -147,6 +171,8 @@ def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
                     }
                     for n in nos
                 ],
+                # inputs removed from the editor (layout only; readings and analyses unchanged)
+                "removed_strings": gone,
             }
         )
     return {
@@ -159,17 +185,29 @@ def get_string_layout(db: Session, plant_id: int) -> Dict[str, Any]:
 
 
 def put_string_layout(db: Session, plant_id: int, entries: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-    """Replace the plant's module-count registry with `entries` (strings left out are cleared)."""
+    """Replace the plant's module-count registry and removed marks with `entries`.
+
+    An entry with `removed` true is stored as a removed mark (`growatt_string_removed`: the input
+    is hidden from the String Layout editor, layout only); the others as module-count rows. Both
+    sets are replaced for the plant's inverters: strings and marks left out are cleared, so a
+    module count saved at a removed input brings it back. One input twice is a ValueError.
+    """
     _get_plant(db, plant_id)
     sns = set(db.scalars(select(GrowattInverter.device_sn).where(GrowattInverter.plant_id == plant_id)))
     rows: Dict[Tuple[str, int], GrowattStringLayout] = {}
+    marks: Dict[Tuple[str, int], GrowattStringRemoved] = {}
     for e in entries:
         sn = str(e["device_sn"])
         if sn not in sns:
             raise ValueError(f"Inverter {sn} does not belong to plant {plant_id}")
         key = (sn, int(e["string_no"]))
-        if key in rows:
+        if key in rows or key in marks:
             raise ValueError(f"Duplicate entry for {sn} string {key[1]}")
+        if e.get("removed"):
+            marks[key] = GrowattStringRemoved(device_sn=sn, string_no=key[1])
+            continue
+        if e.get("modules") is None:
+            raise ValueError(f"Missing module count for {sn} string {key[1]}")
         rows[key] = GrowattStringLayout(
             device_sn=sn,
             string_no=key[1],
@@ -180,6 +218,8 @@ def put_string_layout(db: Session, plant_id: int, entries: Iterable[Dict[str, An
         )
     if sns:
         db.execute(delete(GrowattStringLayout).where(GrowattStringLayout.device_sn.in_(sns)))
+        db.execute(delete(GrowattStringRemoved).where(GrowattStringRemoved.device_sn.in_(sns)))
     db.add_all(rows.values())
+    db.add_all(marks.values())
     db.commit()
     return get_string_layout(db, plant_id)

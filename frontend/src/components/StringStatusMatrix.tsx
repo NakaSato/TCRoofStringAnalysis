@@ -80,7 +80,7 @@ export const StringStatusMatrix: React.FC = () => {
       </div>
       <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("Not active")}</div>
       <div className="num mt-2 text-[11px] text-slate-500">
-        {s.reason === "no_current" ? `MPPT ${fmt(s.v_max, 0)}V · 0 A` : t("No data")}
+        {s.reason === "no_current" ? `MPPT ${fmt(s.v_max, 0)}V / 0 A` : t("No data")}
       </div>
     </div>
   );
@@ -128,11 +128,11 @@ export const StringStatusMatrix: React.FC = () => {
         <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
           {isLive ? (
             <span className="num text-sky-300" title={t("Live record {at}", { at: s.live_at ?? "" })}>
-              {t("Now")} {fmt(s.live_voltage_v, 0)}V · {fmt(s.live_current_a, 1)}A · {fmt((s.live_power_w ?? 0) / 1000, 2)}kW
+              {t("Now")} {fmt(s.live_voltage_v, 0)}V / {fmt(s.live_current_a, 1)}A / {fmt((s.live_power_w ?? 0) / 1000, 2)}kW
             </span>
           ) : (
             <span className="num" title={t("Today's average from the database (no live value)")}>
-              {t("Avg")} {fmt(s.v_avg, 0)}V · {fmt(s.i_avg, 1)}A
+              {t("Avg")} {fmt(s.v_avg, 0)}V / {fmt(s.i_avg, 1)}A
             </span>
           )}
           <span className="text-solar-400 opacity-0 transition group-hover:opacity-100">I-V →</span>

@@ -67,7 +67,7 @@ export const Tooltip: React.FC<{ tip: TipState | null; width: number }> = ({ tip
   return (
     <div
       ref={box}
-      className="pointer-events-none absolute z-10 w-max min-w-[150px] max-w-[340px] rounded-lg border border-solar-500/50 bg-ink-850/95 px-3 py-2 text-[13px] leading-snug text-slate-100 shadow-xl backdrop-blur"
+      className="pointer-events-none absolute z-10 w-max min-w-[150px] max-w-[380px] rounded-lg border border-solar-500/50 bg-ink-850/95 px-3 py-2 text-[13px] leading-snug text-slate-100 shadow-xl backdrop-blur"
       style={{ left, top: Math.max(0, tip.y - 12) }}
     >
       {tip.content}
@@ -75,16 +75,22 @@ export const Tooltip: React.FC<{ tip: TipState | null; width: number }> = ({ tip
   );
 };
 
+/** Label left, value right. The label keeps at least 9rem: a value too long to fit beside it moves to its
+ * own line under the label (right-aligned), instead of squeezing the label to a word per line. */
 export const TipRow: React.FC<{ color?: string; dash?: boolean; label: string; value: string }> = ({ color, dash, label, value }) => (
-  <div className="flex items-center gap-2">
-    {color && (
-      <span
-        className="inline-block h-0.5 w-3 shrink-0"
-        style={dash ? { borderTop: `2px dotted ${color}` } : { background: color, height: 8, borderRadius: 2 }}
-      />
-    )}
-    <span className="text-slate-400">{label}</span>
-    <span className="num ml-auto whitespace-nowrap pl-3 font-semibold text-white">{value}</span>
+  <div className="flex flex-wrap items-start gap-x-3">
+    <span className="flex min-w-0 flex-[1_1_9rem] items-start gap-2">
+      {color && (
+        <span className="flex h-[1lh] shrink-0 items-center">
+          <span
+            className="inline-block h-0.5 w-3"
+            style={dash ? { borderTop: `2px dotted ${color}` } : { background: color, height: 8, borderRadius: 2 }}
+          />
+        </span>
+      )}
+      <span className="min-w-0 text-slate-400">{label}</span>
+    </span>
+    <span className="num ml-auto max-w-full text-right font-semibold text-white">{value}</span>
   </div>
 );
 

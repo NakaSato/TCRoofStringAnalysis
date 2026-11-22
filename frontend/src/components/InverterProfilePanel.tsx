@@ -4,7 +4,7 @@ import type { GrowattInverterTimeseries } from "../api/client";
 import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
-import { EmptyState, LoadingState, Panel, fmt } from "./ui";
+import { EmptyState, LoadingState, Panel, Suspended, fmt } from "./ui";
 import { useI18n } from "../i18n";
 
 /**
@@ -75,10 +75,12 @@ export const InverterProfilePanel: React.FC<{
         series?.meta.day ? ` · ${series.meta.day}` : ""
       }`}
     >
-      {loading ? (
+      {loading && !series ? (
         <LoadingState label={t("Loading 5-minute inverter time series…")} shape="chart" />
       ) : spec ? (
-        <PanelChart spec={spec} height={380} />
+        <Suspended busy={loading} pill="center">
+          <PanelChart spec={spec} height={380} />
+        </Suspended>
       ) : (
         <EmptyState icon={Cpu} title={t("No stored history")} description={t("No 5-minute records for {sn} on this day.", { sn: deviceSn })} />
       )}

@@ -19,6 +19,7 @@ import { claimsApi } from "./useClaims";
 import { CAUSE, CAUSE_KEYS, LINK_KIND, STATUS, TRANSITIONS, TRANSITION_LABEL, TYPE, TYPE_KEYS, isOpen } from "./format";
 import type { Prefill } from "./format";
 import { Spinner } from "@/components/ui/spinner";
+import { isLinkValue } from "@/lib/safeUrl";
 import { translate, useI18n } from "../../i18n";
 
 const str = (s: string) => (s.trim() ? s.trim() : null);
@@ -574,7 +575,7 @@ export const EvidenceDialog: React.FC<{ target: { claim: Claim; item: ClaimEvide
     setError(null);
   }, [target, setError]);
   if (!target) return null;
-  const badUrl = url.trim() !== "" && !/^https?:\/\//i.test(url.trim());
+  const badUrl = url.trim() !== "" && !isLinkValue(url);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -587,7 +588,7 @@ export const EvidenceDialog: React.FC<{ target: { claim: Claim; item: ClaimEvide
             <Checkbox checked={done} onCheckedChange={(v) => setDone(v === true)} />
             {t("Done: we have it")}
           </label>
-          <Field id="ev-url" label={t("Link")} hint={badUrl ? t("Starts with https://") : undefined}>
+          <Field id="ev-url" label={t("Link")} hint={badUrl ? t("Starts with https:// or / (a page in this app)") : undefined}>
             <Input id="ev-url" className="h-8" placeholder="https://" value={url} onChange={(e) => setUrl(e.target.value)} />
           </Field>
           <Field id="ev-note" label={t("Note")}>

@@ -31,7 +31,7 @@ import type { PwaMeterCoverage, PwaMeterCriteria, PwaMeterSiteSummary, PwaMeterW
 import { isAdmin } from "../auth/access";
 import { useAppContext } from "../context/AppContext";
 import { PanelChart } from "../components/PanelChart";
-import { SkeletonRows, Suspended, fmt, fmtInt } from "../components/ui";
+import { SkeletonChart, SkeletonRows, Suspended, fmt, fmtInt } from "../components/ui";
 import { TablePager, pageBounds } from "../components/TablePager";
 import { pick, pickDay, useUrlState } from "@/lib/useUrlState";
 import type { UrlPatch } from "@/lib/useUrlState";
@@ -67,9 +67,10 @@ import { useCenter } from "./center/useCenter";
 import { RANGES, RANGE_LABEL, VIEWS, monthWindow, prevMonth, rangeStart, thb, thbShort, windowMonth } from "./center/format";
 import type { Range, View } from "./center/format";
 import { IssuesTable, PlantSortKeys, PlantsTable, plantSortValue } from "./center/tables";
-import { PHASE_COLOR, contractBands, fleetDailySpec } from "./center/chartSpecs";
-import { HEAT_LEGEND, Legend, WeatherBoxPlot, YieldHeatmap, weatherBoxes } from "./center/charts";
+import { PHASE_COLOR, contractBands, cumulativeSpec, fleetDailySpec } from "./center/chartSpecs";
+import { HEAT_LEGEND, Legend, RankBars, YieldBoxPlot, YieldHeatmap, lowestRows, monthBoxes, weatherBoxes, weatherLabel } from "./center/charts";
 import { BILLED_HINT, BillSortKeys, BillingTable, billSortValue, billedMonthSpec, billedRegionSpec, fmtMonth, monthTotals, regionTotals } from "./center/billing";
+import { LeaseCharts } from "./center/LeaseCharts";
 import { FINANCE_HINT, FinanceSortKeys, FinanceTable, SPEND_GROUPS, financeModel, financeMonthSpec, financeSortValue } from "./center/finance";
 import { GROWATT_HINT, VsGrowattSortKeys, VsGrowattTable, vsGrowattDaySpec, vsGrowattDays, vsGrowattSiteSpec, vsGrowattSortValue } from "./center/vsGrowatt";
 import { useI18n } from "../i18n";
@@ -150,18 +151,24 @@ const Group: React.FC<{ title?: string; source?: string; badge?: React.ReactNode
   </section>
 );
 
-/** A chart with its source and label; a skeleton while loading, a line of text when there is nothing to draw. */
+/** sites in the "lowest against the contract" ranking */
+const RANK_N = 15;
+
+/** A chart with its source and label; a chart placeholder ("Loading chart…", `chartHeight` tall like the chart
+ * it stands for) while loading, a line of text when there is nothing to draw. */
 const ChartCard: React.FC<{
   title: string;
   source: string;
   badge?: string;
   badgeTitle?: string;
   className?: string;
+  /** height of the loading placeholder (px), the chart's own height so the card does not jump */
+  chartHeight?: number;
   loading: boolean;
   empty: string | null;
   note?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ title, source, badge, badgeTitle, className, loading, empty, note, children }) => (
+}> = ({ title, source, badge, badgeTitle, className, chartHeight = 330, loading, empty, note, children }) => (
   <Card className={className}>
     <CardHeader>
       <CardTitle className="flex flex-wrap items-center gap-2">
@@ -176,7 +183,7 @@ const ChartCard: React.FC<{
     </CardHeader>
     <CardContent className="flex flex-col gap-3">
       {loading ? (
-        <SkeletonRows rows={5} />
+        <SkeletonChart height={chartHeight} />
       ) : empty ? (
         <Empty className="py-10">
           <EmptyHeader>
@@ -233,6 +240,8 @@ export const OmCenterPage: React.FC = () => {
   const loading = center.loading || pwa.loading;
   // a re-read (period change, Refresh) with figures already on screen: suspend them until both sources answer
   const refreshing = loading && (c != null || pwa.data != null);
+  // the first read (nothing on screen yet): the tiles would show bare "—", so they are suspended too
+  const firstLoad = loading && c == null && pwa.data == null;
   const reload = () => {
     void center.reload();
     void pwa.reload();
@@ -310,6 +319,23 @@ export const OmCenterPage: React.FC = () => {
   const missingDays = billSites.reduce((s, r) => s + r.missing_days, 0);
   const billSpec = useMemo(() => billedMonthSpec(months, bands), [months, bands]);
   const regionSpec = useMemo(() => billedRegionSpec(regionTotals(billSites), bands), [billSites, bands]);
+  // the sites lowest against the contract over the period (sites without a contract figure are not ranked)
+  const rankRows = useMemo(
+    () =>
+      lowestRows(billSites, RANK_N).map((r) => ({
+        site_id: r.site_id,
+        name: r.name,
+        phase: r.phase,
+        region: r.region,
+        pct: r.vs_contract_pct!,
+        billed_kwh: r.billed_kwh,
+        contract_kwh: r.contract_kwh,
+        missing_days: r.missing_days,
+        outage_days: r.outage_days,
+      })),
+    [billSites]
+  );
+  const ranked = billSites.filter((r) => r.vs_contract_pct != null).length;
   // ---- finance: the billing against the O&M spend entered in the Site log (same plants, same months)
   const fin = useMemo(() => financeModel(billRowsAll, billSites, c?.spend_by_month ?? []), [billRowsAll, billSites, c]);
   const finSpec = useMemo(() => financeMonthSpec(fin.months), [fin]);
@@ -329,6 +355,10 @@ export const OmCenterPage: React.FC = () => {
   // weather impact: the visible sites of the phase, producing days only
   const boxes = useMemo(() => (daily ? weatherBoxes(daily, new Set(inPhase.map((r) => r.site_id))) : []), [daily, inPhase]);
   const boxPhases = [...new Set(boxes.map((b) => b.phase))].sort();
+  const mBoxes = useMemo(() => (daily ? monthBoxes(daily, new Set(inPhase.map((r) => r.site_id))) : []), [daily, inPhase]);
+  const mBoxMonths = new Set(mBoxes.map((b) => b.cat)).size;
+  const mBoxPhases = [...new Set(mBoxes.map((b) => b.phase))].sort();
+  const cumSpec = useMemo(() => (daily ? cumulativeSpec(daily, phaseNo, bands) : null), [daily, phaseNo, bands]);
   // heatmap rows: lowest measured yield first (sites without one last)
   const heatOrder = useMemo(() => byKey(inPhase, (r) => r.yield_kwh_kwp, false).map((r) => r.site_id), [inPhase]);
   const pwaLoading = pwa.loading && !pwa.data;
@@ -543,6 +573,7 @@ export const OmCenterPage: React.FC = () => {
       {/* ---- figures, suspended (dimmed, not clickable) while a new period loads */}
       <Suspended busy={refreshing} label={t("Loading the period…")} contentClassName="flex flex-col gap-5">
           {/* ---- figures: billing first, then engineering (meter report, inverters) and the team's work; sources are never added together */}
+          <Suspended busy={firstLoad} label={t("Loading the period…")}>
           <div className="grid gap-x-5 gap-y-5 xl:grid-cols-2">
             <Group
               title={t("Billing")}
@@ -705,6 +736,7 @@ export const OmCenterPage: React.FC = () => {
               />
             </Group>
           </div>
+          </Suspended>
 
           {/* ---- billing by month: what was billed against the contract, and against the O&M spend */}
           <div className="grid gap-4 xl:grid-cols-2">
@@ -732,7 +764,7 @@ export const OmCenterPage: React.FC = () => {
             </ChartCard>
           </div>
 
-          {/* ---- billing by region, and what the weather does to the sites' yield */}
+          {/* ---- billing by region, and the sites lowest against the contract */}
           <div className="grid gap-4 xl:grid-cols-2">
             <ChartCard
               title={t("Billed vs contract by region")}
@@ -746,6 +778,21 @@ export const OmCenterPage: React.FC = () => {
               <PanelChart spec={regionSpec} height={330} />
             </ChartCard>
             <ChartCard
+              title={t("Lowest sites: billed vs contract")}
+              source={t("PWA meter")}
+              badge={t("Contract modelled")}
+              badgeTitle={t("Measured meter kWh; the contract's energy is modelled")}
+              loading={pwaLoading}
+              empty={!rankRows.length ? t("No site with a contract figure in this period") : null}
+              note={t("The {n} sites lowest in billed ÷ contract over the period, of {total} with a contract figure (the phase above applies), on the days with a contract figure; a day without a reading counts 0 (grey value with *). Hover for the energy and those days, click to open the site.", { n: Math.min(RANK_N, ranked), total: ranked })}
+            >
+              <RankBars rows={rankRows} bands={bands} onOpen={openSite} />
+            </ChartCard>
+          </div>
+
+          {/* ---- specific yield distribution: by the report's weather word and by month */}
+          <div className="grid gap-4 xl:grid-cols-2">
+            <ChartCard
               title={t("Weather impact: specific yield by weather")}
               source={t("PWA meter")}
               badge={t("Measured")}
@@ -755,18 +802,43 @@ export const OmCenterPage: React.FC = () => {
               note={t("One box per weather and phase over the sites' producing days (the phase above applies): the box is the middle half, the white line the median, the whiskers P5–P95. Outage days, days with a missing reading or no weather word, and days the report marks as curtailed are left out.")}
             >
               {boxPhases.length > 1 && <Legend items={boxPhases.map((ph) => ({ label: t("Phase {n}", { n: ph }), color: PHASE_COLOR[ph] }))} />}
-              <WeatherBoxPlot boxes={boxes} height={boxPhases.length > 1 ? 296 : 330} />
+              <YieldBoxPlot boxes={boxes} catLabel={weatherLabel} ariaLabel={t("Specific yield of producing days by weather, per phase")} height={boxPhases.length > 1 ? 296 : 330} />
+            </ChartCard>
+            <ChartCard
+              title={t("Specific yield by month")}
+              source={t("PWA meter")}
+              badge={t("Measured")}
+              badgeTitle={t("Meter kWh ÷ kWp per report day")}
+              loading={pwaLoading}
+              empty={mBoxMonths < 2 ? t("Pick a period of two months or more (e.g. Year to date) to compare months") : null}
+              note={t("One box per month and phase over the sites' producing days (the phase above applies): the box is the middle half, the white line the median, the whiskers P5–P95. Specific yield takes out the site size, so seasons and slow drift show. Outage days, days with a missing reading and days marked as curtailed are left out.")}
+            >
+              {mBoxPhases.length > 1 && <Legend items={mBoxPhases.map((ph) => ({ label: t("Phase {n}", { n: ph }), color: PHASE_COLOR[ph] }))} />}
+              <YieldBoxPlot boxes={mBoxes} catLabel={(m) => fmtMonth(m)} ariaLabel={t("Specific yield of producing days by month, per phase")} height={mBoxPhases.length > 1 ? 296 : 330} />
             </ChartCard>
           </div>
 
           {/* ---- charts: the meter report first, then the meter against Growatt */}
           <div className="grid gap-4 xl:grid-cols-2">
             {admin && (
-              <ChartCard title={t("Fleet by day: daily specific yield of the fleet (kWh/kWp)")} source={t("PWA meter")} badge={t("Contract modelled")} badgeTitle={t("Measured meter kWh; the contract's energy is modelled")} className="xl:col-span-2" loading={pwaLoading} empty={!fleetSpec ? noReport : null}>
-                <PanelChart spec={fleetSpec} height={372} />
-              </ChartCard>
+              <div className="grid gap-4 xl:col-span-2 xl:grid-cols-3">
+                <ChartCard chartHeight={372} title={t("Fleet by day: daily specific yield of the fleet (kWh/kWp)")} source={t("PWA meter")} badge={t("Contract modelled")} badgeTitle={t("Measured meter kWh; the contract's energy is modelled")} className="xl:col-span-2" loading={pwaLoading} empty={!fleetSpec ? noReport : null}>
+                  <PanelChart spec={fleetSpec} height={372} />
+                </ChartCard>
+                <ChartCard chartHeight={372}
+                  title={t("Cumulative: meter vs contract")}
+                  source={t("PWA meter")}
+                  badge={t("Contract modelled")}
+                  badgeTitle={t("Measured meter kWh; the contract's energy is modelled")}
+                  loading={pwaLoading}
+                  empty={!cumSpec ? noReport : null}
+                  note={t("Summed from the period's first report day over the sites with a contract figure (the phase above applies); a site with no reading counts 0. The gap is against a modelled figure, not a measured loss.")}
+                >
+                  <PanelChart spec={cumSpec} height={372} legendPosition="bottom" />
+                </ChartCard>
+              </div>
             )}
-            <ChartCard
+            <ChartCard chartHeight={480}
               title={t("Daily heatmap: site × day (kWh/kWp)")}
               source={t("PWA meter")}
               badge={t("Measured")}
@@ -797,7 +869,7 @@ export const OmCenterPage: React.FC = () => {
             </ChartCard>
             {/* meter vs Growatt: by day (2/3) and the sites' medians (1/3) side by side on wide screens */}
             <div className="grid gap-4 xl:col-span-2 xl:grid-cols-3">
-              <ChartCard
+              <ChartCard chartHeight={400}
                 title={t("Meter vs Growatt by day")}
                 source={t("PWA meter · Growatt plant/energy")}
                 badge={t("Measured")}
@@ -809,7 +881,7 @@ export const OmCenterPage: React.FC = () => {
               >
                 <PanelChart spec={vsgSpec} height={400} legendPosition="bottom" legendToggle />
               </ChartCard>
-              <ChartCard
+              <ChartCard chartHeight={400}
                 title={t("Sites by meter ÷ Growatt")}
                 source={t("Median of each site's days")}
                 badge={t("Measured")}
@@ -910,7 +982,13 @@ export const OmCenterPage: React.FC = () => {
             <CardContent ref={listBodyRef} className="max-h-[70vh] overflow-auto px-0">
               {rowsShown === 0 ? (
                 viewLoading ? (
-                  <SkeletonRows rows={8} className="p-4" />
+                  <div className="flex flex-col gap-3 p-4" aria-busy>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Spinner className="size-3" aria-hidden />
+                      {t("Loading…")}
+                    </div>
+                    <SkeletonRows rows={8} />
+                  </div>
                 ) : (
                   <Empty className="py-16">
                     <EmptyHeader>
@@ -944,6 +1022,17 @@ export const OmCenterPage: React.FC = () => {
             </CardContent>
           </Card>
       </Suspended>
+
+      {/* ---- TFRS 16 lease accounting (admins): the whole 20-year contract from the imported model, not the period above */}
+      {admin && (
+        <section className="flex flex-col gap-2">
+          <div className="flex h-7 items-center gap-2">
+            <h2 className="shrink-0 text-sm font-semibold">{t("TFRS 16 lease (model)")}</h2>
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground">{t("Whole contract, not the period above")}</span>
+          </div>
+          <LeaseCharts />
+        </section>
+      )}
 
       <ImportDialog open={importing} onClose={() => setImporting(false)} onImported={() => {
           void loadCoverage();

@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import { api } from "../api/client";
 import type { AssistantUsage } from "../api/client";
-import { EmptyState, KpiTile, LoadingState, Meter, PageHeader, fmt, fmtInt } from "../components/ui";
+import { EmptyState, KpiTile, LoadingState, Meter, PageHeader, Suspended, fmt, fmtInt } from "../components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +79,7 @@ export const AiUsagePage: React.FC = () => {
         description={t("{month} (Bangkok) · {model} · resets on {day}", { month: data.month, model: data.model, day: data.resets_on })}
         actions={refresh}
       />
+      <Suspended busy={loading} label={t("Loading AI usage…")} contentClassName="space-y-4">
       {error && <div className="callout-warn">{t("Refresh failed: {error}", { error })}</div>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -182,6 +183,7 @@ export const AiUsagePage: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+      </Suspended>
     </div>
   );
 };

@@ -2,6 +2,7 @@
 import React from "react";
 import { Cloud, Server } from "lucide-react";
 import type { StatusLevel } from "../ui";
+import { useI18n } from "../../i18n";
 
 interface DonutSegment {
   label: string;
@@ -113,6 +114,7 @@ export const PlantThumbnail: React.FC<{
   lon: number | null;
   name: string;
 }> = ({ statusLevel, source, lat, lon, name }) => {
+  const { t } = useI18n();
   const [failed, setFailed] = React.useState(false);
   const borderTone =
     statusLevel === "ok"
@@ -131,7 +133,7 @@ export const PlantThumbnail: React.FC<{
           src={satelliteUrl(lat, lon)}
           crossOrigin="anonymous" // CORS response, so the service worker can cache it
           alt={`Satellite view of ${name}`}
-          title="Satellite imagery: Esri World Imagery"
+          title={t("Satellite imagery: Esri World Imagery")}
           loading="lazy"
           decoding="async"
           width={64}
@@ -156,8 +158,8 @@ export const PlantThumbnail: React.FC<{
       )}
       <span
         className="absolute bottom-0.5 right-0.5 rounded bg-ink-950/80 p-0.5 text-sky-300"
-        title={source === "local" ? "SCADA" : "Growatt cloud"}
-        aria-label={source === "local" ? "SCADA" : "Growatt cloud"}
+        title={source === "local" ? "SCADA" : t("Growatt cloud")}
+        aria-label={source === "local" ? "SCADA" : t("Growatt cloud")}
       >
         {source === "local" ? <Server className="h-2.5 w-2.5" /> : <Cloud className="h-2.5 w-2.5" />}
       </span>

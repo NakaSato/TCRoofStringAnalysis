@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Set
 from sqlalchemy import delete, func, insert, select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattAlarm, GrowattAlarmSync, GrowattInverter, GrowattInverterReading, GrowattPlant
+from app.db.models import GrowattAlarm, GrowattAlarmSync, GrowattInverter, GrowattInverterReading, GrowattPlant, inverter_installed
 from solar_core.growatt import GrowattAPIError, GrowattClient
 
 log = logging.getLogger("growatt_alarms")
@@ -312,6 +312,7 @@ def alarm_day(db: Session, day: date, allowed: Optional[Set[int]]) -> Dict[str, 
     plant_q = (
         select(GrowattPlant.plant_id, GrowattPlant.name, func.count(GrowattInverter.device_sn))
         .join(GrowattInverter, GrowattInverter.plant_id == GrowattPlant.plant_id)
+        .where(inverter_installed())
         .group_by(GrowattPlant.plant_id, GrowattPlant.name)
         .order_by(GrowattPlant.plant_id)
     )
@@ -327,7 +328,7 @@ def alarm_day(db: Session, day: date, allowed: Optional[Set[int]]) -> Dict[str, 
             func.max(GrowattAlarmSync.synced_at),
         )
         .join(GrowattInverter, GrowattInverter.device_sn == GrowattAlarmSync.device_sn)
-        .where(GrowattAlarmSync.day == day)
+        .where(GrowattAlarmSync.day == day, inverter_installed())
         .group_by(GrowattAlarmSync.plant_id)
     )
     stamps: Dict[int, tuple] = {pid: (n, lo, hi) for pid, n, lo, hi in db.execute(cover)}

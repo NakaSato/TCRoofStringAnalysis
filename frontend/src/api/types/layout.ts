@@ -4,7 +4,10 @@ import type { IvCellTechnology } from "./iv";
 export interface GrowattStringLayoutEntry {
   device_sn: string;
   string_no: number;
-  modules: number;
+  /** required unless `removed` */
+  modules?: number | null;
+  /** true = a "removed" mark: the input is hidden from String Layout (its readings stay in String Analysis) */
+  removed?: boolean;
   module_wp?: number | null;
   azimuth_deg?: number | null;
   tilt_deg?: number | null;
@@ -96,6 +99,11 @@ export interface GrowattStringLayout {
     rated_power_w?: number | null;
     /** manufacturer datasheet of `device_model` (backend `inverter_models`); null = model not in the catalog */
     datasheet?: InverterDatasheet | null;
+    /**
+     * inputs removed from the layout (string_no of each "removed" mark); left out of `strings` even
+     * with current, drawn as spare inputs. A module entry at such an input clears its mark.
+     */
+    removed_strings?: number[];
     strings: Array<{
       string_no: number;
       mppt_no: number;

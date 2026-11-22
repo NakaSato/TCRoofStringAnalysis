@@ -95,3 +95,57 @@ export const fleetDailySpec = (d: PwaMeterDaily, phase: number | null, bands: Co
     tipExtra: (i) => [{ label: translate("Sites with a reading"), value: String(sites[i]) }],
   };
 };
+
+/** Cumulative energy over the period's report days (the phases shown summed): the meter energy of the
+ * sites with a contract figure (measured) against the contract's (modelled, dashed), and the meter ÷
+ * contract to date with the criteria file's lines. Like for like: the same sites and days on both
+ * lines, a site with no reading counting 0 (as in billing). No loss is derived from the gap: the tooltip
+ * gives meter − contract, labelled as against a modelled figure. Null without phase totals (engineers). */
+export const cumulativeSpec = (d: PwaMeterDaily, phase: number | null, bands: ContractBands | null = null): PanelChartSpec | null => {
+  const rows = d.phases.filter((r) => (phase == null || r.phase === phase) && r.contract_mwh != null && r.meter_on_contract_mwh != null);
+  if (!rows.length || !d.days.length) return null;
+  const idx = new Map(d.days.map((day, i) => [day, i]));
+  const meter = d.days.map(() => 0);
+  const contract = d.days.map(() => 0);
+  const has = d.days.map(() => false);
+  for (const r of rows) {
+    const i = idx.get(r.day);
+    if (i == null) continue;
+    meter[i] += r.meter_on_contract_mwh!;
+    contract[i] += r.contract_mwh!;
+    has[i] = true;
+  }
+  let cm = 0;
+  let cc = 0;
+  let started = false;
+  const cumM: Array<number | null> = [];
+  const cumC: Array<number | null> = [];
+  d.days.forEach((_, i) => {
+    started ||= has[i];
+    cm += meter[i];
+    cc += contract[i];
+    cumM.push(started ? cm : null);
+    cumC.push(started ? cc : null);
+  });
+  const pct = cumM.map((m, i) => (m != null && cumC[i] ? (100 * m) / cumC[i]! : null));
+  const fmtM = (v: number) => `${fmt(v, 1)} MWh`;
+  return {
+    xKind: "time",
+    x: d.days.map(dayMs),
+    xStep: DAY_MS,
+    panels: [
+      {
+        key: "cum",
+        title: translate("Cumulative energy (MWh)"),
+        yMin: 0,
+        series: [
+          { key: "meter", name: translate("Meter (measured)"), type: "line", color: SERIES.ac, y: cumM, width: 2.2, area: true, format: fmtM },
+          { key: "contract", name: translate("Contract (modelled)"), type: "line", color: SERIES.reference, dash: "dash", y: cumC, width: 1.6, format: fmtM },
+        ],
+      },
+      { key: "pct", title: translate("Meter ÷ contract to date (%)"), weight: 0.7, zero: false, tickSuffix: " %", refLines: contractRefLines(bands), series: [{ key: "pct", name: translate("Meter ÷ contract to date"), type: "line", color: SERIES.ac, y: pct, width: 2, noLegend: true, format: (v) => `${fmt(v, 1)} %` }] },
+    ],
+    tipExtra: (i) =>
+      cumM[i] == null || cumC[i] == null ? [] : [{ label: translate("Meter − contract to date (contract modelled)"), value: `${fmt(cumM[i]! - cumC[i]!, 1)} MWh` }],
+  };
+};

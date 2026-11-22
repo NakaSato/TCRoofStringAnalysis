@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { CloudRain, CloudSun, Droplets, Sun, Thermometer, Umbrella, Wind } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api, GoogleWeatherDay, GoogleWeatherNow, GoogleWeatherSlot, GrowattLive } from "../api/client";
@@ -6,7 +6,7 @@ import { useLivePoll } from "../context/useLivePoll";
 import { PanelChart } from "./PanelChart";
 import type { PanelChartSpec } from "./PanelChart";
 import { SERIES } from "./chartTheme";
-import { EmptyState, LoadingState, Meter, Panel, fmt } from "./ui";
+import { EmptyState, LoadingState, Meter, Panel, Suspended, fmt } from "./ui";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "../i18n";
 
@@ -67,8 +67,14 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
   const [live, setLive] = useState<GrowattLive<GoogleWeatherNow> | null>(null);
   const { t, locale } = useI18n();
 
+  // another plant: drop the old one's day; another day of the same plant stays on screen, suspended
+  const shownPlant = useRef<number | null>(null);
   useEffect(() => {
     let cancelled = false;
+    if (shownPlant.current !== plantId) {
+      shownPlant.current = plantId;
+      setWx(null);
+    }
     setLoading(true);
     api
       .getGoogleWeatherDay(plantId, day ?? undefined)
@@ -163,7 +169,7 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
       ) : !wx.configured && !wx.hours.length ? (
         <EmptyState icon={CloudSun} title={t("Google Weather not configured")} description={t("Set GOOGLE_WEATHER_API_KEY on the backend and worker.")} />
       ) : (
-        <div className="space-y-4">
+        <Suspended busy={loading} label={t("Loading Google weather…")} pill={false} contentClassName="space-y-4">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {(["09", "12", "17"] as const).map((h) => (
               <Slot key={h} hour={h} slot={wx.slots[h]} />
@@ -228,7 +234,7 @@ export const GoogleWeatherPanel: React.FC<{ plantId: number; day: string | null 
               description={t("The worker stores Google's daytime hours (06:00–18:00) every day at 18:15 (Bangkok), so today's hours appear this evening.")}
             />
           )}
-        </div>
+        </Suspended>
       )}
     </Panel>
   );

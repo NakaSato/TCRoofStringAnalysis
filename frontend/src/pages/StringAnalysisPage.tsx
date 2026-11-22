@@ -1,12 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  AlertTriangle,
-  CheckCircle2,
   Cpu,
   Gauge,
   Search,
-  Zap,
   SlidersHorizontal,
   ArrowUpRight,
   ArrowDown,
@@ -23,7 +20,6 @@ import { SERIES, STATUS } from "../components/chartTheme";
 import { ivPvSpecFrom, stringProfileSpecFrom } from "../components/ivPvSpec";
 import {
   Panel,
-  KpiTile,
   StatusBadge,
   Led,
   Meter,
@@ -34,6 +30,7 @@ import {
 } from "../components/ui";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { StringStatusMatrix } from "../components/StringStatusMatrix";
+import { LiveOperatingCard } from "../components/stringDetail/LiveOperatingCard";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -84,7 +81,6 @@ export const StringAnalysisPage: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
 
   const plant = selectedPlantOverview?.plant;
-  const kpis = selectedPlantOverview?.kpis;
   const inverters = selectedPlantOverview?.inverters || [];
   const strings = selectedPlantOverview?.strings || [];
   const anomalies = selectedPlantOverview?.anomalies || [];
@@ -237,44 +233,10 @@ export const StringAnalysisPage: React.FC = () => {
     <div className="space-y-6">
       <SelectedPlantBanner />
 
-      {/* String Health Summary KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiTile
-          label={t("Monitored Strings")}
-          value={String(kpis?.string_count || strings.length)}
-          unit={t("strings")}
-          icon={Cpu}
-          tone="info"
-          hint={t("Across {n} Growatt MAX inverters", { n: inverters.length })}
-        />
-        <KpiTile
-          label={t("Healthy Strings")}
-          value={String(kpis?.healthy_strings || 0)}
-          unit={`/ ${kpis?.string_count || strings.length}`}
-          icon={CheckCircle2}
-          tone="ok"
-          hint={t("Operating within nominal MPPT peer envelope")}
-          hintTone="ok"
-        />
-        <KpiTile
-          label={t("Warning / Mismatch")}
-          value={String(kpis?.warning_strings || 0)}
-          unit={t("strings")}
-          icon={AlertTriangle}
-          tone="warn"
-          hint={t("Current or voltage deviation vs. MPPT peer")}
-          hintTone={Number(kpis?.warning_strings || 0) > 0 ? "warn" : "ok"}
-        />
-        <KpiTile
-          label={t("Critical String Faults")}
-          value={String(kpis?.critical_strings || 0)}
-          unit={t("strings")}
-          icon={Zap}
-          tone="crit"
-          hint={t("Avg String Health {v} / 100", { v: fmt(kpis?.avg_health_score, 1) })}
-          hintTone={Number(kpis?.critical_strings || 0) > 0 ? "crit" : "ok"}
-        />
-      </div>
+      {/* Live: each string's newest record on the curve modelled at the sensor's conditions */}
+      {selectedGrowattPlantId != null && (
+        <LiveOperatingCard plantId={selectedGrowattPlantId} selectedId={activeString?.string_id ?? null} onSelect={setActiveStringKey} />
+      )}
 
       {/* Inverter & Status Filter Bar */}
       <Card className="gap-0 px-5 py-3.5">

@@ -212,7 +212,7 @@ export const DigitalTwinPanel: React.FC = () => {
                             </div>
                             <div className="num flex items-center gap-3 text-[11px]">
                               <span className="text-slate-400">
-                                {fmt(s.avg_vmp_v, 0)}V · {fmt(s.avg_imp_a, 1)}A
+                                {fmt(s.avg_vmp_v, 0)}V / {fmt(s.avg_imp_a, 1)}A
                               </span>
                               <span className="font-bold text-solar-400">PR {fmt(s.pr_pct, 1)}%</span>
                               <span

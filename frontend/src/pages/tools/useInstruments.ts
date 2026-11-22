@@ -22,11 +22,14 @@ export function useInstruments(includeRetired: boolean) {
   const [data, setData] = useState<InstrumentList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // a foreground re-read (Refresh, a change, a filter) with data on screen; the 5-min one stays quiet
+  const [refreshing, setRefreshing] = useState(false);
   const seq = useRef(0);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (background = false) => {
     const n = ++seq.current;
     setLoading(true);
+    setRefreshing(!background);
     try {
       const d = await toolsApi.listInstruments(includeRetired);
       if (n !== seq.current) return;
@@ -36,17 +39,20 @@ export function useInstruments(includeRetired: boolean) {
       if (n !== seq.current) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      if (n === seq.current) setLoading(false);
+      if (n === seq.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [includeRetired]);
 
   useEffect(() => {
     void reload();
     const t = setInterval(() => {
-      if (!document.hidden) void reload();
+      if (!document.hidden) void reload(true);
     }, REFRESH_MS);
     return () => clearInterval(t);
   }, [reload]);
 
-  return { data, loading, error, reload };
+  return { data, loading, refreshing: refreshing && data != null, error, reload };
 }

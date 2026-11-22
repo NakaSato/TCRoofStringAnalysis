@@ -271,6 +271,21 @@ def test_live_status_thresholds():
     assert st(False, None) == "unknown" and st(None, "garbage") == "unknown"
 
 
+def test_live_status_inactive_after_days_without_upload():
+    now = datetime(2026, 11, 22, 12, 0)
+    st = lambda lost, t, days=30: gs.live_status(lost, t, now, 15, 60, days)
+    # an entry Growatt still lists that stopped uploading weeks ago: inactive, lost or not
+    assert st(True, "2026-09-02 14:11:18") == "inactive"
+    assert st(False, "2026-10-23 11:59:00") == "inactive"
+    # within the window it is offline as before
+    assert st(True, "2026-10-23 12:01:00") == "offline"
+    assert st(False, "2026-11-22 10:00:00") == "offline"
+    # lost with no upload time: age unknown, stays offline; off (0 / None) = never inactive
+    assert st(True, None) == "offline"
+    assert st(True, "2026-09-02 14:11:18", 0) == "offline"
+    assert gs.live_status(True, "2026-09-02 14:11:18", now, 15, 60) == "offline"
+
+
 def test_status_route_engineer_sweeps_own_dataloggers_and_writes_nothing(factory, monkeypatch):
     from app.api.routes.growatt import live as routes
 
@@ -517,6 +532,8 @@ def test_stale_history_flag_rules():
     synced = TODAY.replace(hour=9, minute=55)
     flag = gs.stale_history_flag("online", "2026-11-13 11:58:00", synced)
     assert flag and flag["code"] == "stale_history" and "2 h 03 min behind" in flag["reason"]
+    # the values behind the reason, for the UI to write it in its own language
+    assert flag["params"] == {"last_upload": "11:58", "synced_until": f"{synced:%Y-%m-%d %H:%M}", "minutes": 123}
     assert gs.stale_history_flag("online", "2026-11-13 11:55:00", synced) is None  # exactly 2 h
     assert gs.stale_history_flag("late", "2026-11-13 11:58:00", synced) is None
     assert gs.stale_history_flag("online", "2026-11-13 11:58:00", None) is None  # not synced: status says it

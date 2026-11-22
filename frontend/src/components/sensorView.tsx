@@ -10,6 +10,7 @@ export const STATUS_VIEW: Record<SensorStatus, { label: string; level: StatusLev
   online: { label: "Online", level: "ok" },
   late: { label: "Late", level: "warn" },
   offline: { label: "Offline", level: "crit" },
+  inactive: { label: "Inactive", level: "neutral" },
   unknown: { label: "Not checked", level: "neutral" },
   not_synced: { label: "Not synced", level: "warn" },
 };
@@ -30,12 +31,44 @@ export const flagLabel = (f: SensorFlag, lang?: Lang) =>
       ? translate("Irradiance 0 by day", undefined, lang)
       : translate("History behind", undefined, lang);
 
+/** "45 min" / "4 h 20 min", in the UI language. */
+const spanText = (minutes: number, lang?: Lang) =>
+  minutes < 60
+    ? translate("{n} min", { n: minutes }, lang)
+    : translate("{h} h {m} min", { h: Math.floor(minutes / 60), m: String(minutes % 60).padStart(2, "0") }, lang);
+
+/** Why the flag fired, in the UI language, from the backend's `params` (else its English `reason`). */
+export const flagReason = (f: SensorFlag, lang?: Lang): string => {
+  const p = f.params;
+  if (!p) return f.reason;
+  const field = translate(f.field ? FIELD_LABEL[f.field] : "Probe", undefined, lang);
+  if (f.code === "probe_missing")
+    return translate(
+      p.day
+        ? "{field} read 0 in all {n} stored slots on {day} ({from}–{to}) but reported in the last 7 days: probe fault or disconnected"
+        : "{field} read 0 in all {n} stored slots today ({from}–{to}) but reported in the last 7 days: probe fault or disconnected",
+      { field, n: p.slots ?? "—", day: p.day ?? "", from: p.from ?? "—", to: p.to ?? "—" },
+      lang
+    );
+  if (f.code === "irradiance_zero_daylight")
+    return translate(
+      "Irradiance read 0 W/m² for {span} between {lo} and {hi} ({from}–{to}) while the plant's inverters produced power: shaded, dirty or faulty irradiance probe",
+      { span: spanText(Number(p.minutes ?? 0), lang), lo: p.from_h ?? "—", hi: p.to_h ?? "—", from: p.from ?? "—", to: p.to ?? "—" },
+      lang
+    );
+  return translate(
+    "Online (last upload {at}) but stored readings end at {until}, {span} behind: history sync problem, not a sensor fault",
+    { at: p.last_upload ?? "—", until: p.synced_until ?? "—", span: spanText(Number(p.minutes ?? 0), lang) },
+    lang
+  );
+};
+
 /** Health-check chips; the reason is the tooltip. */
 export const FlagChips: React.FC<{ flags: SensorFlag[] }> = ({ flags }) =>
   flags.length ? (
     <div className="flex flex-wrap gap-1">
       {flags.map((f) => (
-        <Badge key={`${f.code}:${f.field ?? ""}`} variant="warn" className="px-1.5 py-0 text-[10px] font-semibold" title={f.reason}>
+        <Badge key={`${f.code}:${f.field ?? ""}`} variant="warn" className="px-1.5 py-0 text-[10px] font-semibold" title={flagReason(f)}>
           {flagLabel(f)}
         </Badge>
       ))}
@@ -51,7 +84,7 @@ export const FlagList: React.FC<{ flags: SensorFlag[] }> = ({ flags }) => (
       <li key={`${f.code}:${f.field ?? ""}`} className="flex items-start gap-2 text-[12px] text-slate-300">
         <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
         <span>
-          <span className="font-semibold text-amber-200">{flagLabel(f)}</span> · {f.reason}
+          <span className="font-semibold text-amber-200">{flagLabel(f)}</span> · {flagReason(f)}
         </span>
       </li>
     ))}

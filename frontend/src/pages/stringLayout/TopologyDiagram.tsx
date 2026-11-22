@@ -1,13 +1,15 @@
 import React from "react";
 import type { GrowattStringLayout } from "../../api/client";
 import { fmt } from "../../components/ui";
+import { Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../../i18n";
 
-type LayoutInverter = GrowattStringLayout["inverters"][number];
-type LayoutString = LayoutInverter["strings"][number];
+export type LayoutInverter = GrowattStringLayout["inverters"][number];
+export type LayoutString = LayoutInverter["strings"][number];
 
 /** `wp` blank = the fleet module's rating (global setting), so a fleet change applies everywhere. */
 export type Draft = { modules: string; wp: string; azimuth: string; tilt: string };
@@ -23,6 +25,8 @@ export interface TopologySlot {
   kwp: number | null;
   invalid: boolean;
   dirty: boolean;
+  /** added on this page and not saved yet */
+  added: boolean;
 }
 
 export interface TopologyInverter {
@@ -33,18 +37,28 @@ export interface TopologyInverter {
   complete: boolean;
   kwp: number;
   dirty: number;
+  /** inputs removed from the layout (saved marks, plus strings with current removed on the page): drawn as spares labelled "removed" */
+  removedInputs: Set<number>;
 }
 
 export const strLabel = (no: number) => `STR-${String(no).padStart(2, "0")}`;
 
 type OnChange = (k: string, field: keyof Draft, value: string) => void;
+/** string editing beyond the fields: add a string at a DC input, remove one, which editor opens on mount */
+export interface StringEdits {
+  onAdd: (inputNo: number, mppt: number) => void;
+  onRemove: (k: string) => void;
+  /** the string just added: its editor opens on mount */
+  openKey: string | null;
+  onEditorClosed: () => void;
+}
 
 /**
  * DC inputs from the model's datasheet (backend `inverter_models`, e.g. MAX 125KTL3-X LV = 10 MPPT × 2),
  * so inputs that carry no string are drawn as spares. Input n sits on MPPT ⌈n / perMppt⌉. A model not
  * in the catalog shows the inputs the layout knows (seen in the last 7 days or with a count).
  */
-const inputSpecOf = (inv: LayoutInverter) => {
+export const inputSpecOf = (inv: LayoutInverter) => {
   const mppts = inv.datasheet?.mppt_count;
   const perMppt = inv.datasheet?.strings_per_mppt;
   return mppts && perMppt ? { mppts, perMppt } : null;
@@ -76,6 +90,7 @@ export const SldLegend: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
       <span className="flex items-center gap-1.5">{box("border-sky-300 bg-sky-400/15")} {t("Unsaved changes")}</span>
       <span className="flex items-center gap-1.5">{box("border-dashed border-amber-300")} {t("unequal")}</span>
       {canEdit && <span className="text-slate-500">{t("Click a string to enter its modules")}</span>}
+      {canEdit && <span className="text-slate-500">{t("Click a spare input to add a string")}</span>}
     </div>
   );
 };
@@ -109,7 +124,8 @@ export const InverterSld: React.FC<{
   canEdit: boolean;
   fleetWp: number | null;
   onChange: OnChange;
-}> = ({ ti: { inv, mppts, mismatch, complete, kwp }, no, canEdit, fleetWp, onChange }) => {
+  edits: StringEdits;
+}> = ({ ti: { inv, mppts, mismatch, complete, kwp, removedInputs }, no, canEdit, fleetWp, onChange, edits }) => {
   const { t, lang } = useI18n();
   const ac = inv.rated_power_w != null ? inv.rated_power_w / 1000 : null;
   const ratio = complete && ac ? kwp / ac : null;
@@ -179,7 +195,7 @@ export const InverterSld: React.FC<{
 
   const annotOf = (slot: TopologySlot) => {
     const w = wpOf(slot.d);
-    return !slot.s.active
+    return !slot.s.active && !slot.added
       ? t("no current (7 d)")
       : slot.invalid
       ? t("invalid")
@@ -187,8 +203,10 @@ export const InverterSld: React.FC<{
       ? t("not set")
       : `${slot.m} × ${w ? `${fmt(w.wp, 0)} Wp${w.fleet ? "*" : ""}` : "— Wp"} · ${slot.kwp != null ? `${fmt(slot.kwp, 2)} kWp` : "— kWp"}`;
   };
+  // a spare input's label: "removed" where the string was removed from the layout
+  const spareLabel = (inputNo: number) => (removedInputs.has(inputNo) ? t("removed") : canEdit ? t("+ add string") : t("spare"));
   // ~5.6 px per 9 px character; at least room for "STR-00"
-  const H = Y.label + Math.max(48, ...terms.map(({ slot }) => (slot ? annotOf(slot) : t("spare")).length * 5.6)) + 18;
+  const H = Y.label + Math.max(48, ...terms.map(({ no, slot }) => (slot ? annotOf(slot) : spareLabel(no)).length * 5.6)) + 18;
 
   const line = "stroke-slate-300";
   const thin = "stroke-slate-400";
@@ -315,10 +333,37 @@ export const InverterSld: React.FC<{
             {/* DC cables and PV generators */}
             {terms.map(({ mppt, no: inputNo, slot }, i) => {
               const x = tx(i);
+              const wasRemoved = !slot && removedInputs.has(inputNo);
               if (!slot)
                 return (
-                  <g key={`spare-${inputNo}`}>
-                    <title>{t("Input {n} · MPPT {m}: spare", { n: inputNo, m: mppt })}</title>
+                  <g
+                    key={`spare-${inputNo}`}
+                    {...(canEdit
+                      ? {
+                          role: "button",
+                          tabIndex: 0,
+                          "aria-label": t("Add a string at input {n} (MPPT {m})", { n: inputNo, m: mppt }),
+                          onClick: () => edits.onAdd(inputNo, mppt),
+                          onKeyDown: (e: React.KeyboardEvent) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              edits.onAdd(inputNo, mppt);
+                            }
+                          },
+                          className: "group cursor-pointer outline-none",
+                        }
+                      : {})}
+                  >
+                    <title>
+                      {wasRemoved
+                        ? canEdit
+                          ? t("Input {n} · MPPT {m}: string removed from the layout; its readings stay in String Diagnostics. Click to add a string here, which brings it back", { n: inputNo, m: mppt })
+                          : t("Input {n} · MPPT {m}: string removed from the layout; its readings stay in String Diagnostics. Adding a string here brings it back", { n: inputNo, m: mppt })
+                        : canEdit
+                        ? t("Input {n} · MPPT {m}: spare. Click to add a string", { n: inputNo, m: mppt })
+                        : t("Input {n} · MPPT {m}: spare", { n: inputNo, m: mppt })}
+                    </title>
+                    {canEdit && <rect x={x - pitch / 2} y={Y.boxEnd + 4} width={pitch} height={H - Y.boxEnd - 4} fill="transparent" />}
                     <circle cx={x} cy={Y.boxEnd} r={2.6} className="fill-ink-950 stroke-slate-500" strokeWidth={1.2} />
                     <text x={x + 4} y={Y.boxEnd + 13} className={cn(dim, "num text-[8.5px]")}>
                       {inputNo}
@@ -327,8 +372,16 @@ export const InverterSld: React.FC<{
                     <line x1={x} y1={Y.boxEnd + 2.6} x2={x} y2={Y.tick + 6} className="stroke-slate-600" strokeWidth={1.1} strokeDasharray="2 3" />
                     <line x1={x - 5} y1={Y.tick + 6} x2={x + 5} y2={Y.tick + 6} className="stroke-slate-500" strokeWidth={1.2} />
                     <g transform={`translate(${x} ${Y.label}) rotate(-90)`}>
-                      <text x={0} y={3} textAnchor="end" className="num fill-slate-600 text-[9.5px] italic">
-                        {t("spare")}
+                      <text
+                        x={0}
+                        y={3}
+                        textAnchor="end"
+                        className={cn(
+                          "num fill-slate-600 text-[9.5px] italic",
+                          canEdit && "group-hover:fill-sky-300 group-focus-visible:fill-sky-300"
+                        )}
+                      >
+                        {spareLabel(inputNo)}
                       </text>
                     </g>
                   </g>
@@ -364,7 +417,7 @@ export const InverterSld: React.FC<{
                     strokeWidth={1.1}
                   />
                   {/* PV generator + annotation: the editor */}
-                  <StringEditor slot={slot} mppt={mppt} sn={inv.device_sn} canEdit={canEdit} fleetWp={fleetWp} onChange={onChange}>
+                  <StringEditor slot={slot} mppt={mppt} sn={inv.device_sn} canEdit={canEdit} fleetWp={fleetWp} onChange={onChange} edits={edits}>
                     <g
                       role="button"
                       tabIndex={0}
@@ -437,13 +490,14 @@ const StringEditor: React.FC<{
   canEdit: boolean;
   fleetWp: number | null;
   onChange: OnChange;
+  edits: StringEdits;
   children: React.ReactElement;
-}> = ({ slot: { s, k, d, kwp, invalid }, mppt, sn, canEdit, fleetWp, onChange, children }) => {
+}> = ({ slot: { s, k, d, kwp, invalid, added }, mppt, sn, canEdit, fleetWp, onChange, edits, children }) => {
   const { t } = useI18n();
   const label = strLabel(s.string_no);
-  const status = s.active ? (kwp != null ? `${fmt(kwp, 2)} kWp` : t("not set")) : t("no current (7 d)");
+  const status = s.active || added ? (kwp != null ? `${fmt(kwp, 2)} kWp` : t("not set")) : t("no current (7 d)");
   return (
-    <Popover>
+    <Popover defaultOpen={k === edits.openKey} onOpenChange={(o) => !o && k === edits.openKey && edits.onEditorClosed()}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent className="w-64 text-xs" align="center">
         <div className="flex items-center justify-between">
@@ -506,7 +560,31 @@ const StringEditor: React.FC<{
             <span className="text-[10px] text-slate-500">{t("tilt°")}</span>
           </label>
         </div>
-        {invalid && <p className="text-[11px] text-red-300">{t("Modules must be a whole number.")}</p>}
+        {invalid && (
+          <p className="text-[11px] text-red-300">
+            {added && d.modules.trim() === "" ? t("Enter the modules of the new string.") : t("Modules must be a whole number.")}
+          </p>
+        )}
+        {canEdit && (
+          <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] pt-2">
+            {s.active ? (
+              // a string with current is kept by a "removed" mark on save; its readings stay
+              <span className="text-[10px] text-slate-500">{t("Has current in the last 7 days. Removing it hides it from the layout; its readings stay in String Diagnostics.")}</span>
+            ) : (
+              <span className="text-[10px] text-slate-500">{added ? t("New string, not saved yet") : t("No current in the last 7 days")}</span>
+            )}
+            <Button
+              type="button"
+              size="xs"
+              variant="destructive"
+              onClick={() => edits.onRemove(k)}
+              title={s.active ? t("Hide this string from the layout; its readings stay in String Diagnostics") : undefined}
+            >
+              <Trash2 data-icon="inline-start" />
+              {t("Remove string")}
+            </Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );

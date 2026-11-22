@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Cpu } from "lucide-react";
 import { useAppContext, usePlantHref } from "../context/AppContext";
 import { pick, useUrlState } from "@/lib/useUrlState";
@@ -15,6 +15,7 @@ import { PlantInvertersCard } from "./inverters/PlantInvertersCard";
 import { InverterCard } from "./inverters/InverterCard";
 import { GridFaultCards, MpptCard, StringsCard } from "./inverters/DetailTabs";
 import { InverterIssuesCard } from "./inverters/InverterIssuesCard";
+import { NotInstalledCard } from "./inverters/InstalledSwitch";
 import { invName, liveState } from "./inverters/shared";
 import type { LiveState, OverviewInverter } from "./inverters/shared";
 
@@ -77,6 +78,7 @@ export const InvertersPage: React.FC = () => {
   // one inverter-day of stored 5-min history, shared by the profile chart and the string heatmap
   const [series, setSeries] = useState<GrowattInverterTimeseries | null>(null);
   const [seriesLoading, setSeriesLoading] = useState(false);
+  const seriesKey = useRef<string | null>(null);
   const invSn = inv?.device_sn ?? null;
   useEffect(() => {
     if (selectedGrowattPlantId == null || !invSn) {
@@ -84,6 +86,11 @@ export const InvertersPage: React.FC = () => {
       return;
     }
     let cancelled = false;
+    // another inverter: drop the old one's records (a new day of the same one stays on screen, suspended)
+    if (seriesKey.current !== `${selectedGrowattPlantId}/${invSn}`) {
+      seriesKey.current = `${selectedGrowattPlantId}/${invSn}`;
+      setSeries(null);
+    }
     setSeriesLoading(true);
     api
       .getGrowattInverterTimeseries(selectedGrowattPlantId, invSn, day ?? undefined)
@@ -111,11 +118,17 @@ export const InvertersPage: React.FC = () => {
       </div>
     );
   }
+  const notInstalled = ov.not_installed_inverters ?? [];
   if (inverters.length === 0 || !inv) {
     return (
       <div className="flex flex-col gap-4">
         <SelectedPlantBanner />
-        <EmptyState icon={Cpu} title={t("No inverters")} description={t("This plant has no inverters in the registry yet.")} />
+        <EmptyState
+          icon={Cpu}
+          title={t("No inverters")}
+          description={notInstalled.length ? t("Every inverter of this plant is marked not installed.") : t("This plant has no inverters in the registry yet.")}
+        />
+        <NotInstalledCard plantId={selectedGrowattPlantId} inverters={notInstalled} />
       </div>
     );
   }
@@ -170,6 +183,8 @@ export const InvertersPage: React.FC = () => {
         onStep={step}
         onTab={setTab}
       />
+
+      <NotInstalledCard plantId={selectedGrowattPlantId} inverters={notInstalled} />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as DetailTab)}>
         <TabsList variant="line" aria-label={t("{name} details", { name: invName(inv) })}>

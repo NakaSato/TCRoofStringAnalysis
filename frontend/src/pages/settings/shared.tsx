@@ -7,6 +7,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import { translate, useI18n } from "../../i18n";
+import { notify } from "@/lib/notify";
 
 export type Notice = { tone: "ok" | "warn" | "crit"; text: string } | null;
 
@@ -26,6 +27,11 @@ export const publishNotice = (p: Published | null | undefined): Notice =>
     : p.deferred
     ? { tone: "warn", text: translate("Saved. Today's Firestore write budget is used up; it publishes on the next quota day.") }
     : { tone: "ok", text: translate("Saved and published to {sink} ({n} write).", { sink: p.sink === "firestore" ? "Firestore" : p.sink ?? "sink", n: p.written ?? 0 }) };
+
+/** A save's outcome as a toast; checks before saving stay on the page as a `NoticeLine`. */
+export const notifyNotice = (n: Notice) => {
+  if (n) notify(n.tone, n.text);
+};
 
 /** "Default (not saved yet)" or "Saved by X · time", as a quiet badge. */
 export const SavedStamp: React.FC<{ source: "default" | "saved"; by: string | null; at: string | null }> = ({ source, by, at }) => {

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Layout } from "./components/Layout";
 import { isAdmin } from "./auth/access";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toast";
 import { I18nProvider, useI18n } from "./i18n";
 
 // Each page is its own chunk, fetched on first visit (Layout shows a fallback meanwhile).
@@ -114,6 +115,8 @@ export const App: React.FC = () => {
     <I18nProvider>
     <AppProvider>
       <TooltipProvider delayDuration={200}>
+      {/* save outcomes (`lib/notify`) */}
+      <Toaster>
       <AuthGate>
       <BrowserRouter>
         <DataScope>
@@ -160,6 +163,7 @@ export const App: React.FC = () => {
         </DataScope>
       </BrowserRouter>
       </AuthGate>
+      </Toaster>
       </TooltipProvider>
     </AppProvider>
     </I18nProvider>

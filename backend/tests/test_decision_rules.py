@@ -585,3 +585,15 @@ def test_day_rates_weight_tou_by_stored_power_and_scope_by_plant(tmp_path):
     body = client.get(f"/growatt/tariff/rates?day={DAY.isoformat()}", headers=eng).json()
     assert set(body["plants"]) == {"9001"} and body["meta"]["estimated"] is True
     assert set(client.get(f"/growatt/tariff/rates?day={DAY.isoformat()}", headers=admin).json()["plants"]) == {"9001", "9002"}
+
+
+def test_inverter_marked_not_installed_raises_nothing(factory):
+    with factory() as db:
+        _seed_day(db, current=lambda sn, s, ts, i: 0.0 if (sn, s) == (A, 3) and _between(ts, 10, 11) else i)
+        _compute(db)
+        assert ("R2", A, 3) in _rules(db)
+        inv = db.get(GrowattInverter, A)
+        assert inv is not None
+        inv.not_installed_at = datetime(2026, 11, 11)  # its stored daily rows stay, but raise nothing
+        db.commit()
+        assert all(f["device_sn"] != A for f in growatt_rules.evaluate(db, DAY))

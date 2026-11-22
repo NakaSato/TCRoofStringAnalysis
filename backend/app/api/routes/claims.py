@@ -144,7 +144,7 @@ def add_claim_event(
     """Add a note, a message (sent / received) or a shipment (out / in) to the timeline."""
     c = _claim(db, user, claim_id)
     try:
-        e = svc.add_event(db, c, payload.model_dump(), _who(user))
+        e = svc.add_event(db, c, payload.model_dump(), _who(user), admin=user.role == "admin")
     except _HANDLED as exc:
         raise _errors(exc) from exc
     return svc.serialize_event(e)
@@ -161,7 +161,7 @@ def set_claim_evidence(
     """Tick or untick an evidence item, with an optional link and note."""
     c = _claim(db, user, claim_id)
     try:
-        return svc.set_evidence(db, c, key, payload.model_dump(exclude_unset=True), _who(user))
+        return svc.set_evidence(db, c, key, payload.model_dump(exclude_unset=True), _who(user), admin=user.role == "admin")
     except _HANDLED as exc:
         raise _errors(exc) from exc
 
@@ -186,6 +186,6 @@ def delete_claim_link(
 ) -> None:
     c = _claim(db, user, claim_id)
     try:
-        svc.delete_link(db, c, link_id)
+        svc.delete_link(db, c, link_id, _who(user), allow_shadow=user.role == "admin")
     except _HANDLED as exc:
         raise _errors(exc) from exc

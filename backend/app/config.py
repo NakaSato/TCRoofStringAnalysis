@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     inverter_snapshot_sweep_per_request: int = 4  # max chunks refreshed per /live/inverters/snapshot request
     sensor_late_min: int = 15  # last upload older than this = late
     sensor_offline_min: int = 60  # older than this (or Growatt says lost) = offline
+    # last upload older than this = inactive: an entry Growatt still lists that stopped uploading long
+    # ago (removed / re-addressed on site); not an alarm, kept apart from offline. 0 = off
+    sensor_inactive_days: float = 30
     sensor_alarm_coverage_pct: float = 80.0
     # Optional Redis (on the tcroof-db VM, no persistence) mirroring the live memory caches so a
     # Cloud Run cold start / deploy keeps them warm; empty = process memory only

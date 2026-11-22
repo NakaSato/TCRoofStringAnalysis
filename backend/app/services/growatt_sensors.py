@@ -107,15 +107,22 @@ def live_status(
     now_local: datetime,
     late_min: float,
     offline_min: float,
+    inactive_days: Optional[float] = None,
 ) -> str:
-    """Status from Growatt's live `env_list` entry: `offline` when Growatt says lost or the last
-    upload is older than `offline_min`, `late` past `late_min`, else `online`. No usable upload
-    time and not lost = `unknown` (never guessed)."""
+    """Status from Growatt's live `env_list` entry: `inactive` when the last upload is older than
+    `inactive_days` (an entry Growatt still lists but that stopped uploading long ago, e.g. a sensor
+    removed or re-addressed on site), `offline` when Growatt says lost or the last upload is older
+    than `offline_min`, `late` past `late_min`, else `online`. No usable upload time and not lost =
+    `unknown` (never guessed); lost with no upload time stays `offline` (its age is not known)."""
+    try:
+        at: Optional[datetime] = datetime.strptime(last_update or "", "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        at = None
+    if at is not None and inactive_days and (now_local - at).total_seconds() > inactive_days * 86400:
+        return "inactive"
     if lost:
         return "offline"
-    try:
-        at = datetime.strptime(last_update or "", "%Y-%m-%d %H:%M:%S")
-    except ValueError:
+    if at is None:
         return "unknown"
     age_min = (now_local - at).total_seconds() / 60.0
     return "online" if age_min <= late_min else "late" if age_min <= offline_min else "offline"
@@ -133,10 +140,12 @@ def probe_flags(
     values: Dict[str, Dict[datetime, List[float]]],
     measured: Optional[List[str]],
     day_label: str = "today",
+    day: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """`probe_missing` per probe that reported in the last 7 days (`measured`) but read 0 in every
     stored reading of today's daylight. `values[field][slot]` = today's non-null readings in that
-    5-min slot. Needs readings in >= `PROBE_MIN_SLOTS` midday slots; fewer = no judgement."""
+    5-min slot. Needs readings in >= `PROBE_MIN_SLOTS` midday slots; fewer = no judgement.
+    `day` (ISO date) when the day judged is not today; it goes into `params` for the UI's own text."""
     out: List[Dict[str, Any]] = []
     lo, hi = PROBE_MIDDAY_H
     for f in PROBE_FIELDS:
@@ -151,6 +160,13 @@ def probe_flags(
             {
                 "code": "probe_missing",
                 "field": f,
+                # the values of `reason`, so the UI can write it in its own language
+                "params": {
+                    "slots": len(slots),
+                    "day": day,
+                    "from": _hm(first),
+                    "to": _hm(last + timedelta(minutes=SLOT_MIN)),
+                },
                 "reason": (
                     f"{FIELD_LABEL[f]} read 0 in all {len(slots)} stored slots {day_label} "
                     f"({_hm(first)}–{_hm(last + timedelta(minutes=SLOT_MIN))}) but reported in the last 7 days: "
@@ -177,6 +193,13 @@ def irradiance_zero_flag(
     return {
         "code": "irradiance_zero_daylight",
         "field": "irradiance_wm2",
+        "params": {
+            "minutes": len(zero) * SLOT_MIN,
+            "from_h": f"{lo:02d}:00",
+            "to_h": f"{hi:02d}:00",
+            "from": _hm(zero[0]),
+            "to": _hm(zero[-1] + timedelta(minutes=SLOT_MIN)),
+        },
         "reason": (
             f"Irradiance read 0 W/m² for {_span(len(zero) * SLOT_MIN)} between {lo:02d}:00 and {hi:02d}:00 "
             f"({_hm(zero[0])}–{_hm(zero[-1] + timedelta(minutes=SLOT_MIN))}) while the plant's inverters produced power: "
@@ -207,6 +230,11 @@ def stale_history_flag(
         return None
     return {
         "code": "stale_history",
+        "params": {
+            "last_upload": f"{at:%H:%M}",
+            "synced_until": f"{synced_until:%Y-%m-%d %H:%M}",
+            "minutes": int(behind.total_seconds() // 60),
+        },
         "reason": (
             f"Online (last upload {at:%H:%M}) but stored readings end at {synced_until:%Y-%m-%d %H:%M}, "
             f"{_span(int(behind.total_seconds() // 60))} behind: history sync problem, not a sensor fault"
@@ -258,11 +286,12 @@ def live_row(
     late_min: float,
     offline_min: float,
     synced_until: Optional[datetime] = None,
+    inactive_days: Optional[float] = None,
 ) -> Dict[str, Any]:
     """One sensor's live state from its datalogger's cached `env_list` entry (None = not checked).
     `flags` holds the checks that need the live state (`stale_history`, from `synced_until`)."""
     hit = next((e for e in entry["sensors"] if e["address"] == addr), None) if entry else None
-    status = live_status(hit["lost"], hit["last_update_time"], now_local, late_min, offline_min) if hit else "unknown"
+    status = live_status(hit["lost"], hit["last_update_time"], now_local, late_min, offline_min, inactive_days) if hit else "unknown"
     stale = stale_history_flag(status, hit["last_update_time"], synced_until) if hit else None
     return {
         "key": _key(dl, addr),
@@ -299,12 +328,13 @@ def overlay_live_status(
     now_local: datetime,
     late_min: float,
     offline_min: float,
+    inactive_days: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Per-sensor live status from a `sensor_status` envelope. Status is judged now, so a
     cached `env_list` entry still turns late / offline as its upload ages. A datalogger not
     checked yet, or a sensor its `env_list` does not list, is `unknown`."""
     dls = env["data"]["dataloggers"]
-    rows = [live_row(dl, addr, dls.get(dl), now_local, late_min, offline_min, su) for dl, addr, _ph, su in sensors]
+    rows = [live_row(dl, addr, dls.get(dl), now_local, late_min, offline_min, su, inactive_days) for dl, addr, _ph, su in sensors]
     data = env["data"]
     return {
         **env,
@@ -312,7 +342,7 @@ def overlay_live_status(
             "sensors": rows,
             "errors": data["errors"],
             "sweep": data["sweep"],
-            "thresholds": {"late_min": late_min, "offline_min": offline_min},
+            "thresholds": {"late_min": late_min, "offline_min": offline_min, "inactive_days": inactive_days},
         },
     }
 
@@ -405,7 +435,9 @@ def list_sensors(
         vals = values.get(k, {})
         cov = round(100.0 * len(seen.get(k, ())) / expected, 1) if expected else None
         then = measured_then.get(k)
-        flags = probe_flags(vals, then, "today" if is_today else f"on {today.isoformat()}")
+        flags = probe_flags(
+            vals, then, "today" if is_today else f"on {today.isoformat()}", day=None if is_today else today.isoformat()
+        )
         if not any(fl["field"] == "irradiance_wm2" for fl in flags):  # all-day zero already says it
             zf = irradiance_zero_flag(vals.get("irradiance_wm2", {}), then, producing.get(s.plant_id, set()))
             if zf:

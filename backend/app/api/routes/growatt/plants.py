@@ -45,11 +45,12 @@ def list_growatt_plants(
 @router.get("/plants/{plant_id}/inverters")
 def list_growatt_inverters(
     plant_id: int,
+    include_not_installed: bool = Query(False, description="Also the inverters marked not installed (`not_installed` set)"),
     db: Session = Depends(get_db),
     _user: User = Depends(require_plant_read),
 ) -> List[Dict[str, Any]]:
     """Inverter registry for a plant from the DB (status = last synced value)."""
-    return ov.list_inverters(db, plant_id)
+    return ov.list_inverters(db, plant_id, include_not_installed=include_not_installed)
 
 
 @router.get("/plants/{plant_id}/overview")

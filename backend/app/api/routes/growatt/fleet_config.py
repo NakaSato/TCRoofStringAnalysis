@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.auth import allowed_plant_ids, get_current_user, require_admin, require_plant_read, require_plant_write
 from app.db.models import User
 from app.db.session import get_db
-from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry, Tariff
+from app.schemas.api_schemas import FleetModule, GrowattStringLayoutEntry, InverterInstalled, Tariff
 from app.services import fleet_settings
 from app.services import growatt_overview as ov
 from app.api.routes.growatt._common import DAY_QUERY, audit
@@ -51,7 +51,9 @@ def get_growatt_string_layout(
     db: Session = Depends(get_db),
     _user: User = Depends(require_plant_read),
 ) -> Dict[str, Any]:
-    """As-built module count per string input (null = not entered), plus inputs seen in the last week."""
+    """As-built module count per string input (null = not entered), plus inputs seen in the last week.
+
+    Inputs with a removed mark are left out of `strings` and listed in `removed_strings`."""
     try:
         return ov.get_string_layout(db, plant_id)
     except ov.GrowattNotFound as exc:
@@ -65,7 +67,11 @@ def put_growatt_string_layout(
     db: Session = Depends(get_db),
     _user: User = Depends(require_plant_write),
 ) -> Dict[str, Any]:
-    """Replace the plant's module-count registry; strings left out are cleared."""
+    """Replace the plant's module-count registry and removed marks; strings left out are cleared.
+
+    An entry with `removed: true` (no `modules` needed) hides that input from the String Layout
+    editor even when it carried current; layout only, its readings and every analysis are
+    unchanged. A mark not sent again is cleared. One input twice (in either set) = 422."""
     try:
         saved = ov.put_string_layout(db, plant_id, [e.model_dump() for e in entries])
     except ov.GrowattNotFound as exc:
@@ -75,6 +81,33 @@ def put_growatt_string_layout(
     from app.services import daily_summary
 
     return {**saved, "published": _publish_safely(db, lambda: daily_summary.publish_plant_inverters(db, plant_id))}
+
+
+@router.put("/plants/{plant_id}/inverters/{device_sn}/installed")
+def put_inverter_installed(
+    plant_id: int,
+    device_sn: str,
+    payload: InverterInstalled,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Mark an inverter Growatt lists as not installed on site (`installed: false`, optional note),
+    or clear the mark (admin only). A marked inverter is left out of every job, live call, count
+    and analysis, and its active issues are dismissed; its stored rows are kept."""
+    from app.services import daily_summary, inverter_install
+
+    who = user.username or user.email
+    try:
+        out = inverter_install.set_installed(db, plant_id, device_sn, payload.installed, who, payload.note)
+    except ov.GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    audit.info(
+        "%s marked inverter %s of plant %s %s (issues closed: %d)",
+        who, device_sn, plant_id, "installed" if payload.installed else "not installed", out["issues_closed"],
+    )
+    return {**out, "published": _publish_safely(db, lambda: daily_summary.publish_plant_inverters(db, plant_id))}
 
 
 def _publish_safely(db: Session, fn: Any) -> Dict[str, Any]:

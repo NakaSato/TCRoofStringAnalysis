@@ -18,7 +18,7 @@ import { isAdmin } from "../auth/access";
 import { plantToday } from "../context/alarmLogStore";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
-import { SkeletonRows, fmtInt } from "../components/ui";
+import { SkeletonRows, Suspended, fmtInt } from "../components/ui";
 import { TablePager, pageBounds } from "../components/TablePager";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -94,7 +94,7 @@ export const ClaimsPage: React.FC = () => {
   const claimId = /^\d+$/.test(url.get("claim") ?? "") ? Number(url.get("claim")) : null;
   const prefill = useMemo(() => readPrefill(url), [url]);
 
-  const { data, loading, error, reload } = useClaims();
+  const { data, loading, refreshing, error, reload } = useClaims();
   const [version, setVersion] = useState(0);
   const changed = useCallback(() => {
     setVersion((v) => v + 1);
@@ -399,7 +399,7 @@ export const ClaimsPage: React.FC = () => {
               <SelectSeparator />
               {TYPE_KEYS.map((k) => (
                 <SelectItem key={k} value={k}>
-                  {t(TYPE[k].label)} ({all.filter((c) => c.type === k).length})
+                  {t(TYPE[k].label)} ({data ? fmtInt(all.filter((c) => c.type === k).length) : "—"})
                 </SelectItem>
               ))}
             </SelectContent>
@@ -454,6 +454,7 @@ export const ClaimsPage: React.FC = () => {
         </CardContent>
 
         <CardContent ref={tableRef} className="overflow-x-auto overflow-y-hidden px-0" style={{ height: fit.height }}>
+          <Suspended busy={refreshing} label={t("Loading claims…")} className="h-full" contentClassName="h-full">
           {rows.length === 0 ? (
             firstRead ? (
               <SkeletonRows rows={8} className="p-4" />
@@ -478,6 +479,7 @@ export const ClaimsPage: React.FC = () => {
               actions={actions}
             />
           )}
+          </Suspended>
         </CardContent>
         <CardContent className="border-t py-2.5">
           <TablePager rows={rows.length} pageSize={fit.pageSize} pageNo={pageNo} onPage={setPage} />
@@ -492,12 +494,15 @@ export const ClaimsPage: React.FC = () => {
         onClose={() => setUrl({ claim: null })}
         actions={(d) => ({
           status: admin && TRANSITIONS[d.status].length ? () => setStatusOf(d) : undefined,
-          edit: canEdit(d) ? () => setEditing(d) : undefined,
-          event: (kind) => setEventOf({ claim: d, kind }),
-          evidence: (item) => setEvidenceOf({ claim: d, item }),
-          toggleEvidence: (item) => guard(item.label, () => claimsApi.setClaimEvidence(d.id, item.key, { done: !item.done })),
-          link: () => setLinkOf(d),
-          unlink: (linkId) => guard(t("Unlink"), () => claimsApi.deleteClaimLink(d.id, linkId)),
+          // a closed / withdrawn claim is read only for engineers (the backend answers 409)
+          ...(canEdit(d) && {
+            edit: () => setEditing(d),
+            event: (kind) => setEventOf({ claim: d, kind }),
+            evidence: (item) => setEvidenceOf({ claim: d, item }),
+            toggleEvidence: (item) => guard(item.label, () => claimsApi.setClaimEvidence(d.id, item.key, { done: !item.done })),
+            link: () => setLinkOf(d),
+            unlink: (linkId) => guard(t("Unlink"), () => claimsApi.deleteClaimLink(d.id, linkId)),
+          }),
         })}
       />
       <ClaimDialog

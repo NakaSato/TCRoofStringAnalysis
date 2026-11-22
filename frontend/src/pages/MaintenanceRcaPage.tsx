@@ -358,7 +358,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
           subtitle={t("Auto-generated from string fault diagnostics + active Inverter / Switchgear alarms")}
           actions={
             <Button onClick={handleRegenerateCm} size="sm" disabled={cmSyncing}>
-              {cmSyncing ? <Spinner data-icon="inline-start" className="size-3.5" /> : <RefreshCw data-icon="inline-start" className="size-3.5" />}
+              {cmSyncing ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" className="size-3.5" />}
               {t("Sync from Analysis")}
             </Button>
           }

@@ -32,6 +32,7 @@ from app.db.models import (
     GrowattPlantDaily,
     OmTask,
     SiteEvent,
+    not_installed_sns,
 )
 from app.services import growatt_issues, growatt_rules, jobs, tariff
 
@@ -200,7 +201,7 @@ def overview(
     inv: Dict[int, Dict[str, float]] = {}
     cols = [ID.energy_kwh, ID.daylight_min, ID.fault_min, ID.off_min, ID.standby_min, ID.no_data_min, ID.limited_min]
     q = scoped(select(ID.plant_id, func.count(ID.energy_kwh), *[func.sum(c) for c in cols]), ID.plant_id).where(
-        ID.day >= start, ID.day <= end
+        ID.day >= start, ID.day <= end, ID.device_sn.not_in(not_installed_sns())
     )
     for row in db.execute(q.group_by(ID.plant_id)):
         inv[int(row[0])] = {

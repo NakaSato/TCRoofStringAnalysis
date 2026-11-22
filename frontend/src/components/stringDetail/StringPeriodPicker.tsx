@@ -49,10 +49,10 @@ export const StringPeriodPicker: React.FC<{
   time?: boolean;
   /** popover edge aligned to the trigger: "end" when the picker sits at the right of its row */
   align?: "start" | "end";
-  /** the reset button: back to the default period (default "Latest", the newest stored day) */
+  /** the reset button: back to the default period (default "Today": every plant tab opens on the current day) */
   resetLabel?: string;
   resetTitle?: string;
-}> = ({ period, onChange, shownDay, shownEndDay, today, loading, onPopoverOpenChange, hint, time = true, align = "start", resetLabel = "Latest", resetTitle = "The newest stored day, all day" }) => {
+}> = ({ period, onChange, shownDay, shownEndDay, today, loading, onPopoverOpenChange, hint, time = true, align = "start", resetLabel = "Today", resetTitle = "Back to today, all day" }) => {
   const { t } = useI18n();
   const uid = useId();
   const [open, setOpen] = useState(false);

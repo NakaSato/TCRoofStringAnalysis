@@ -20,7 +20,7 @@ import { useAppContext } from "../../context/AppContext";
 import { PanelChart } from "../PanelChart";
 import type { ChartSeries, PanelChartSpec } from "../PanelChart";
 import { SERIES, STATUS } from "../chartTheme";
-import { Panel, fmt } from "../ui";
+import { LoadingState, Panel, Suspended, fmt } from "../ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -384,7 +384,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
         {error && <div className="text-xs text-red-400">{error}</div>}
 
         {loading && sweeps.length === 0 ? (
-          <div className="text-xs text-slate-500">{t("Loading stored I-V sweeps…")}</div>
+          <LoadingState label={t("Loading stored I-V sweeps…")} shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
         ) : sweeps.length === 0 ? (
           <div className="text-xs text-slate-500">
             {t("No field or online smart I-V sweeps stored for this string yet. Use")} <strong>{t("Ingest I-V sweep")}</strong>{" "}
@@ -392,7 +392,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
           </div>
         ) : (
           active && (
-            <div className="space-y-4">
+            <Suspended busy={loading} label={t("Loading stored I-V sweeps…")} pill={false} contentClassName="space-y-4">
               {/* Sweep selector + conditions bar */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -703,7 +703,7 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                   </div>
                 )}
               </div>
-            </div>
+            </Suspended>
           )
         )}
       </div>

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Check, Clock, Search, ServerCrash, X } from "lucide-react";
 import { api } from "../api/client";
 import type { SystemLogEntry, SystemLogLevel, SystemLogPage, SystemLogSource, SystemLogSummary } from "../api/client";
-import { EmptyState, LoadingState, PageHeader, Panel, fmtInt } from "../components/ui";
+import { EmptyState, LoadingState, PageHeader, Panel, Suspended, fmtInt } from "../components/ui";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
@@ -271,7 +271,7 @@ export const SystemLogsPage: React.FC = () => {
             className="py-10"
           />
         ) : (
-          <>
+          <Suspended busy={loading} label={t("Loading log records…")}>
             <LogTable
               items={items}
               open={open}
@@ -298,7 +298,7 @@ export const SystemLogsPage: React.FC = () => {
                 <span>{runId != null ? t("End of the run") : t("End of the last {range}", { range })}</span>
               )}
             </div>
-          </>
+          </Suspended>
         )}
       </Panel>
     </div>

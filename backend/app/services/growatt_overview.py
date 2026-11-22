@@ -16,13 +16,14 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from solar_core.sun import sun_times
-from app.services import epi_fit, growatt_meter, growatt_weather
+from app.services import epi_fit, growatt_curtailment, growatt_meter, growatt_weather
 from app.db.models import (
     GrowattInverter,
     GrowattInverterEnergyDay,
     GrowattPlant,
     GrowattPlantEnergyDay,
     GrowattPlantPower,
+    inverter_installed,
 )
 
 from app.services.growatt_common import GrowattNotFound, INACTIVE_MAX_A, MAX_DC_AC_RATIO, MAX_GAP_H, R, S, SAMPLE_H, _bucket, _day_bounds, _expected_kw, _fmt_ts, _get_plant, _integrate_kwh, _latest_reading, _max, _mean, _round, capacity_check, inverter_out, newest_inverter_ts, plant_coords, plant_phase, plant_rated_ac_w, plausible_capacity_kwp  # noqa: F401 (re-export)
@@ -49,14 +50,14 @@ def list_plants_summary(db: Session, plant_ids: Optional[Set[int]] = None) -> Li
     inv_counts: Dict[int, int] = {
         int(pid): int(cnt)
         for pid, cnt in db.execute(
-            select(GrowattInverter.plant_id, func.count()).group_by(GrowattInverter.plant_id)
+            select(GrowattInverter.plant_id, func.count()).where(inverter_installed()).group_by(GrowattInverter.plant_id)
         )
     }
 
     # Per-inverter "newest record" lookups ride the (device_sn, timestamp) primary key: one short
     # index scan per inverter, instead of grouping the whole readings table on every request.
     inv = GrowattInverter
-    inv_q = select(inv.plant_id, inv.device_sn)
+    inv_q = select(inv.plant_id, inv.device_sn).where(inverter_installed())
     if plant_ids is not None:
         inv_q = inv_q.where(inv.plant_id.in_(plant_ids))
 
@@ -154,11 +155,22 @@ def list_plants_summary_shared(db: Session, plant_ids: Optional[Set[int]] = None
     return rows if plant_ids is None else [p for p in rows if p["plant_id"] in plant_ids]
 
 
-def list_inverters(db: Session, plant_id: int) -> List[Dict[str, Any]]:
-    invs = db.scalars(
-        select(GrowattInverter).where(GrowattInverter.plant_id == plant_id).order_by(GrowattInverter.device_sn)
+def list_inverters(db: Session, plant_id: int, include_not_installed: bool = False) -> List[Dict[str, Any]]:
+    """The plant's inverters; those marked not installed only with `include_not_installed`."""
+    q = select(GrowattInverter).where(GrowattInverter.plant_id == plant_id).order_by(GrowattInverter.device_sn)
+    if not include_not_installed:
+        q = q.where(inverter_installed())
+    return [inverter_out(inv) for inv in db.scalars(q)]
+
+
+def not_installed_inverters(db: Session, plant_id: int) -> List[Dict[str, Any]]:
+    """The plant's inverters marked not installed (left out of every figure), newest mark first."""
+    q = (
+        select(GrowattInverter)
+        .where(GrowattInverter.plant_id == plant_id, GrowattInverter.not_installed_at.is_not(None))
+        .order_by(GrowattInverter.not_installed_at.desc(), GrowattInverter.device_sn)
     )
-    return [inverter_out(inv) for inv in invs]
+    return [inverter_out(inv) for inv in db.scalars(q)]
 
 
 def _plant_curve(raw: Sequence[Any], cap_kwp: Optional[float]) -> List[Dict[str, Any]]:
@@ -257,6 +269,13 @@ def _sensor_health(db: Session, plant_id: int, day: Optional[date]) -> Optional[
 DEFAULT_SUNRISE = time(6, 0)
 
 
+def _documents(db: Session, plant_id: int) -> Dict[str, Any]:
+    """{kind: {url, title, revision}} of the plant's document links (Drive), {} when none."""
+    from app.services import plant_documents  # local: plant_documents imports the models only
+
+    return {k: {"url": d["url"], "title": d["title"], "revision": d["revision"]} for k, d in plant_documents.for_plant(db, plant_id).items()}
+
+
 def _sunrise(plant: GrowattPlant, day: date) -> datetime:
     """Plant-local sunrise of `day` (NOAA, from the plant's coordinates), else 06:00."""
     if plant.latitude is not None and plant.longitude is not None:
@@ -275,7 +294,9 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     plant = _get_plant(db, plant_id)
     inverters = list(
         db.scalars(
-            select(GrowattInverter).where(GrowattInverter.plant_id == plant_id).order_by(GrowattInverter.device_sn)
+            select(GrowattInverter)
+            .where(GrowattInverter.plant_id == plant_id, inverter_installed())
+            .order_by(GrowattInverter.device_sn)
         )
     )
     sns = [inv.device_sn for inv in inverters]
@@ -547,6 +568,21 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             epi = round(meas_kw_sum / mod_kw_sum, 3)
     pr["epi"] = epi
 
+    # Curtailment per slot (estimated): the modelled available power where the AC is held below
+    # it by a zero-export meter or the power-limit setting (services/growatt_curtailment.py)
+    c_invs = growatt_curtailment.inverters(db, plant_id)
+    curtailment = growatt_curtailment.annotate(
+        timeseries,
+        kwp=cap_kwp,
+        rated_ac_kw=(plant_rated_ac_w(db, [plant_id]).get(plant_id) or 0.0) / 1000.0 or None,
+        limit_kw=growatt_curtailment.plant_limit_kw(c_invs),
+        gamma_pct=gamma_pct,
+        factor=float(epi_factor["factor"]),
+        inverter_count=len(c_invs),
+        stale=growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2"),
+        tmod_fallback={day.isoformat(): wk.get("irradiance_weighted_module_temp_c") or wk.get("avg_module_temp_daylight_c")} if day else None,
+    )
+
     # Loss waterfall — a modelled breakdown; only built when every input is measured. With a
     # weather sensor the reference is the measured POA insolation × kWp (IEC reference yield)
     # and thermal derating uses the measured module temperature.
@@ -607,6 +643,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "address": plant.address,
             "growatt_inverter_count": plant.growatt_inverter_count,
             "growatt_datalogger_count": plant.growatt_datalogger_count,
+            # as-built PDF / site photo links on Google Drive (plant_documents; links only)
+            "documents": _documents(db, plant.plant_id),
         },
         "kpis": {
             "capacity_kwp": cap_kwp,
@@ -626,6 +664,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             "epi": epi,
             # the model's system factor behind `epi` (modelled): fitted per plant, or the default
             "epi_factor": epi_factor,
+            # curtailed energy of the day (estimated) with what it rests on; per slot in `timeseries`
+            "curtailment": curtailment,
             # R16 verdict on the day's stored sensor evidence (null = not computed / no irradiance);
             # ok false = the IEC PR, PR' and EPI above rest on a suspect sensor
             "sensor_health": _sensor_health(db, plant_id, day),
@@ -657,6 +697,8 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
             **grid_energy,
         },
         "inverters": inverters_out,
+        # listed in Growatt but marked not installed: in no figure above
+        "not_installed_inverters": not_installed_inverters(db, plant_id),
         "timeseries": timeseries,
         "weather": {
             "has_sensor": weather["has_sensor"],
@@ -697,7 +739,7 @@ def build_plant_power(
     last_day = end_day if end_day is not None and end_day > day else day
     if (last_day - day).days + 1 > MAX_RANGE_DAYS:
         raise ValueError(f"A day range covers at most {MAX_RANGE_DAYS} days")
-    sns = list(db.scalars(select(GrowattInverter.device_sn).where(GrowattInverter.plant_id == plant_id)))
+    sns = list(db.scalars(select(GrowattInverter.device_sn).where(GrowattInverter.plant_id == plant_id, inverter_installed())))
     cap_kwp, _ = capacity_check(db, plant)
     rated_w = plant_rated_ac_w(db, [plant_id]).get(plant_id)
     raw: List[Any] = []
@@ -793,14 +835,42 @@ def build_plant_power(
     # Weather sensor POA irradiance (measured) per slot, built day by day as the day view does,
     # so a probe stuck at 0 all day counts as not measured. Null where the plant has no sensor.
     irr: Dict[str, Optional[float]] = {}
+    tmod: Dict[str, Optional[float]] = {}
+    stale: Set[str] = set()
+    tmod_day: Dict[str, Optional[float]] = {}
     if growatt_weather.plant_sensors(db, plant_id):
         d = day
         while d <= last_day:
-            for p in growatt_weather.build_weather_day(db, plant_id, d, latest_if_none=False)["series"]:
+            wday = growatt_weather.build_weather_day(db, plant_id, d, latest_if_none=False)
+            for p in wday["series"]:
                 irr[p["timestamp"]] = p["irradiance_wm2"]
+                tmod[p["timestamp"]] = p.get("module_temp_c")
+            stale |= set(growatt_weather._stale_timestamps(wday["series"], "irradiance_wm2"))
+            wk = wday["kpis"]
+            tmod_day[d.isoformat()] = wk.get("irradiance_weighted_module_temp_c") or wk.get("avg_module_temp_daylight_c")
             d += timedelta(days=1)
     for r in curve:
         r["irradiance_wm2"] = irr.get(r["timestamp"])
+        r["module_temp_c"] = tmod.get(r["timestamp"])
+    # curtailment per slot and day (estimated; services/growatt_curtailment.py)
+    from app.services import fleet_settings
+
+    c_invs = growatt_curtailment.inverters(db, plant_id)
+    gamma_pct = float(fleet_settings.get_fleet_module(db).get("temp_coeff_pmax_pct") or growatt_weather.DEFAULT_GAMMA_PCT_PER_K)
+    curtailment = growatt_curtailment.annotate(
+        curve,
+        kwp=cap_kwp,
+        rated_ac_kw=rated_w / 1000.0 if rated_w else None,
+        limit_kw=growatt_curtailment.plant_limit_kw(c_invs),
+        gamma_pct=gamma_pct,
+        factor=float(epi_fit.factor_info(db, plant_id)["factor"]),
+        inverter_count=len(c_invs),
+        stale=stale,
+        tmod_fallback=tmod_day,
+    )
+    c_days = growatt_curtailment.per_day(curve)
+    for row in daily:
+        row["curtailed_kwh"] = c_days.get(row["day"])
     return {
         "meta": {
             "source": "db",
@@ -814,6 +884,8 @@ def build_plant_power(
         "timeseries": curve,
         "has_meter": has_meter,
         **grid_energy,
+        # curtailed energy of the period (estimated); per slot in `timeseries`, per day in `daily`
+        "curtailment": curtailment,
         # Growatt's own 5-minute plant AC curve (`plant/power`, stored for finished days)
         "growatt_timeseries": [{"timestamp": _fmt_ts(ts), "pac_kw": round(w / 1000.0, 2)} for ts, w in g_raw],
         "daily": daily,

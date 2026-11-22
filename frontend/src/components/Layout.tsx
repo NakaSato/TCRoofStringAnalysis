@@ -13,7 +13,6 @@ import {
   LogOut,
   RefreshCw,
   AlertTriangle,
-  Search,
   Users,
   ScrollText,
   BellRing,
@@ -86,6 +85,8 @@ const HIDDEN_NAV: NavItem[] = [
   { to: "/sensors", label: "Weather Sensors", icon: Gauge, description: "Every weather sensor: status, last upload & newest reading" },
 ];
 
+/** The tab title index.html starts with; each page puts its name in front of it. */
+const APP_TITLE = document.title || "TC Roof";
 const ALL_NAV = [...NAV_GROUPS.flatMap((g) => g.items), ...HIDDEN_NAV];
 
 /** Plant pages: reached from the plant's own tab bar (`SelectedPlantBanner`), not the sidebar.
@@ -98,7 +99,7 @@ const PLANT_NAV: Record<PlantPage, { label: string; description?: string }> = {
   strings: { label: "String Diagnostics", description: "String performance, heatmap & I-V / P-V curves" },
   string: { label: "String Analysis", description: "One string in depth: I-V / P-V, profile, mismatch by hour, daily energy" },
   "string-layout": { label: "String Layout", description: "Modules per string for each inverter" },
-  maintenance: { label: "Maintenance", description: "Site log (cleanings, repairs) and, for admins, PM / CM / RCA" },
+  maintenance: { label: "Maintenance", description: "Upcoming tasks and the site log (cleanings, repairs)" },
 };
 
 const useClock = () => {
@@ -203,6 +204,11 @@ export const Layout: React.FC = () => {
   const current = plantRoute
     ? plantRoute.page != null ? PLANT_NAV[plantRoute.page] : undefined
     : ALL_NAV.find((n) => (n.to === "/" ? location.pathname === "/" : location.pathname.startsWith(n.to)));
+  // Browser tab title: the page's name (as in the header), then the app's own title from index.html.
+  const pageTitle = current?.label ? t(current.label) : null;
+  useEffect(() => {
+    document.title = pageTitle ? `${pageTitle} · ${APP_TITLE}` : APP_TITLE;
+  }, [pageTitle]);
   // Name / place of the plant in the URL; on fleet pages the legacy analysis plant, if loaded.
   const shownPlantName =
     selectedPlantOverview?.plant.name ??
@@ -430,7 +436,7 @@ export const Layout: React.FC = () => {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar */}
         <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-ink-950/80 backdrop-blur-xl">
-          <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
+          <div className="flex h-14 items-center gap-1.5 px-3 sm:gap-3 sm:px-6">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label={t("Open navigation")}>
               <Menu className="size-5" />
             </Button>
@@ -456,7 +462,9 @@ export const Layout: React.FC = () => {
                   {shownPlantName ?? t("Solar Fleet")}
                 </span>
                 <span className="hidden sm:inline text-slate-700">/</span>
-                <span className="shrink-0 font-semibold text-slate-200">{t(current?.label || "Monitoring")}</span>
+                <span className="min-w-0 truncate font-semibold text-slate-200" title={t(current?.label || "Monitoring")}>
+                  {t(current?.label || "Monitoring")}
+                </span>
               </div>
               {current?.description && (
                 <div className="hidden truncate text-[11px] text-slate-500 md:block">{t(current.description)}</div>
@@ -480,20 +488,6 @@ export const Layout: React.FC = () => {
               </span>
               <span className="text-slate-500">ICT</span>
             </div>
-
-            {/* Quick Jump / Command Palette (⌘K) */}
-            <button
-              onClick={() => setCmdOpen(true)}
-              className="hidden shrink-0 cursor-pointer items-center gap-2 rounded-full border border-white/[0.08] bg-ink-900/90 px-2 py-1 text-[11px] text-slate-400 transition hover:border-solar-400/40 hover:text-slate-200 sm:flex lg:px-3"
-              title={t("Command Palette (⌘K)")}
-              aria-label={t("Quick Jump")}
-            >
-              <Search className="h-3.5 w-3.5 text-solar-400" />
-              <span className="hidden lg:inline">{t("Quick Jump…")}</span>
-              <kbd className="num hidden rounded border border-white/10 bg-ink-850 px-1.5 py-px text-[11px] text-slate-400 lg:inline">
-                ⌘K
-              </kbd>
-            </button>
 
             {assistantEnabled && (
               <Tooltip>

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toolsApi } from "./useInstruments";
 import { DUE_KIND, DUE_STATE, STATUS, categoryOf, fmtDay, missingPvRating, relDays, specValue, thb } from "./format";
-import { safeHref } from "@/lib/safeUrl";
+import { appPath, safeHref } from "@/lib/safeUrl";
 import { useI18n } from "../../i18n";
 
 /** check-in condition as shown (the API sends the code) */
@@ -151,6 +151,10 @@ export const InstrumentDetail: React.FC<{
                             <a href={safeHref(h.url)} target="_blank" rel="noreferrer" className="hover:text-solar-400">
                               {h.number ?? t("Link")}
                             </a>
+                          ) : appPath(h.url) ? (
+                            <Link to={appPath(h.url)!} className="hover:text-solar-400">
+                              {h.number ?? t("Link")}
+                            </Link>
                           ) : (
                             (h.number ?? "—")
                           )}

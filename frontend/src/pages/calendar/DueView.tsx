@@ -2,12 +2,12 @@
  * cleaning and PM (Site log), days since cleaning, next planned cleaning, the month's tasks and
  * overdue work. Admins tick plants for a cleaning round and enter each plant's crew-days and cost.
  * DB only (`/growatt/calendar/due?month=`). URL: `show`, `days`, `q`. */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import type { OmDue, OmDueRow } from "../../api/client";
 import { plantPath } from "../../context/routes";
-import { fmtInt } from "../../components/ui";
+import { LoadingState, Suspended, fmtInt } from "../../components/ui";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { shortDay } from "./format";
+import { TablePager, pageBounds } from "../../components/TablePager";
+
+/** rows (plants) per page of the Due list */
+const DUE_PAGE = 50;
 
 const SHOWS = ["all", "due", "never", "unplanned", "overdue"] as const;
 type Show = (typeof SHOWS)[number];
@@ -99,15 +103,23 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
   const q = url.get("q") ?? "";
   const [data, setData] = useState<OmDue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [editing, setEditing] = useState<OmDueRow | null>(null);
 
+  const seq = useRef(0);
   const load = useCallback(async () => {
+    const n = ++seq.current;
+    setLoading(true);
     try {
-      setData(await api.getOmDue(month.slice(0, 7)));
+      const out = await api.getOmDue(month.slice(0, 7));
+      if (n !== seq.current) return;
+      setData(out);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (n === seq.current) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (n === seq.current) setLoading(false);
     }
   }, [month]);
 
@@ -131,6 +143,13 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
     // never cleaned first, then the longest since the last cleaning
     return out.sort((a, b) => (b.days_since_cleaning ?? Infinity) - (a.days_since_cleaning ?? Infinity) || a.name.localeCompare(b.name));
   }, [data, q, show, minDays]);
+
+  // DUE_PAGE plants at a time; back to page 1 when the month, the filter or the search changes.
+  // The header tick still selects every plant the filter matches, on every page.
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [month, q, show, minDays]);
+  const { pageNo } = pageBounds(rows.length, DUE_PAGE, page);
+  const pageRows = rows.slice(pageNo * DUE_PAGE, (pageNo + 1) * DUE_PAGE);
 
   const allOn = rows.length > 0 && rows.every((r) => selected.has(r.plant_id));
   const toggleAll = () => setSelected(allOn ? new Set([...selected].filter((id) => !rows.some((r) => r.plant_id === id))) : new Set([...selected, ...rows.map((r) => r.plant_id)]));
@@ -182,10 +201,9 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
       {error && <p className="text-xs text-red-300">{error}</p>}
 
       {!data ? (
-        <div className="flex h-40 items-center justify-center">
-          <Spinner className="size-5" />
-        </div>
+        <LoadingState label={t("Loading the monthly plan…")} shape="table" className="border-0 bg-transparent p-0 shadow-none" />
       ) : (
+        <Suspended busy={loading} label={t("Loading the monthly plan…")}>
         <Table containerClassName="table-wrap max-h-[65vh]">
           <TableHeader>
             <TableRow>
@@ -210,7 +228,7 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((r) => {
+            {pageRows.map((r) => {
               const other = OTHER.filter((o) => r.last[o.key]);
               const st = r.settings;
               return (
@@ -274,6 +292,8 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
             })}
           </TableBody>
         </Table>
+        {rows.length > 0 && <TablePager className="mt-3" rows={rows.length} pageSize={DUE_PAGE} pageNo={pageNo} onPage={setPage} />}
+        </Suspended>
       )}
       <SettingsDialog
         row={editing}

@@ -78,7 +78,8 @@ const SensorReading: React.FC<{ sensor: SensorRow; r: ReturnType<typeof pickRead
               key={f}
               icon={icon}
               label={t(label)}
-              value={fitted(f) ? fmt(values[f], digits) : "—"}
+              num={fitted(f) ? values[f] : null}
+              digits={digits}
               unit={unit}
               hint={fitted(f) ? undefined : t("Not fitted on this sensor")}
             />

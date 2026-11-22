@@ -10,7 +10,8 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "../../i18n";
-import { NoticeLine, Notice, NumberField, SaveBar, SavedStamp, SectionHeader, num, publishNotice } from "./shared";
+import { NoticeLine, Notice, NumberField, SaveBar, SavedStamp, SectionHeader, notifyNotice, num, publishNotice } from "./shared";
+import { notify } from "@/lib/notify";
 
 type NumKey = Exclude<keyof FleetModule, "manufacturer" | "model" | "datasheet_url" | "cell_technology">;
 type F = { key: NumKey; label: string; unit?: string; step: string };
@@ -113,9 +114,9 @@ export const ModuleSettings: React.FC = () => {
       setModule(saved);
       setDraft(toDraft(saved));
       await refreshAll();
-      setNotice(publishNotice(saved.published));
+      notifyNotice(publishNotice(saved.published));
     } catch (e: any) {
-      setNotice({ tone: "crit", text: t("Save failed: {error}", { error: e.message }) });
+      notify("crit", t("Save failed: {error}", { error: e.message }));
     } finally {
       setSaving(false);
     }

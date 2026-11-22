@@ -2,8 +2,16 @@
 import type { GrowattWeatherField } from "./weather";
 
 /** Sensor status. Phase 1 (DB only): `not_synced` (nothing stored) or `unknown` (online state
- * is realtime and comes from the live sweep). */
-export type SensorStatus = "online" | "late" | "offline" | "unknown" | "not_synced";
+ * is realtime and comes from the live sweep). `inactive` (live): Growatt still lists the sensor but
+ * its last upload is older than `thresholds.inactive_days` (removed / re-addressed on site); not an alarm. */
+export type SensorStatus = "online" | "late" | "offline" | "inactive" | "unknown" | "not_synced";
+
+/** Live status thresholds; `inactive_days` null / 0 or missing (older backend) = no inactive status. */
+export interface SensorThresholds {
+  late_min: number;
+  offline_min: number;
+  inactive_days?: number | null;
+}
 
 /** A health check on a weather sensor (not a measurement), always with the reason it fired.
  * `probe_missing` / `irradiance_zero_daylight` come from stored data (`/growatt/sensors`);
@@ -11,7 +19,10 @@ export type SensorStatus = "online" | "late" | "offline" | "unknown" | "not_sync
 export interface SensorFlag {
   code: "probe_missing" | "irradiance_zero_daylight" | "stale_history";
   field?: GrowattWeatherField;
+  /** the reason in English (API, logs, AI assistant); the UI writes its own from `params` */
   reason: string;
+  /** the values in `reason`; missing on an older backend, then the UI shows `reason` */
+  params?: Record<string, string | number | null>;
 }
 
 /** /growatt/sensors — one weather sensor from the registry and stored history (DB only). */
@@ -76,7 +87,7 @@ export interface SensorLiveStatus {
   errors: Record<string, string>;
   /** dataloggers fresh / checked at all / visible; the sweep refreshes a few per request */
   sweep: { fresh: number; checked: number; total: number; oldest_age_s: number };
-  thresholds: { late_min: number; offline_min: number };
+  thresholds: SensorThresholds;
 }
 
 /** /growatt/live/sensors/{dl}/{addr}/today — today's 5-min records straight from Growatt (`env_data`, memory only, never stored). */
@@ -103,5 +114,5 @@ export interface SensorLive {
   raw: Record<string, string | number | boolean | null> | null;
   /** per part ("status", "reading") when Growatt failed for it */
   errors: Record<string, string>;
-  thresholds: { late_min: number; offline_min: number };
+  thresholds: SensorThresholds;
 }

@@ -238,7 +238,8 @@ def build_inverter_docs(db: Session, plant_id: Optional[int] = None) -> List[Doc
 
     `strings` is the as-built layout: [{string_no, modules, module_wp}], `module_wp` null = the
     fleet module (`config/fleet_module`). The key is left out while an inverter has no layout,
-    so adding the field rewrote only inverters that have one.
+    so adding the field rewrote only inverters that have one. Likewise `not_installed: true`
+    only on an inverter an admin marked not installed (listed in Growatt, not on site).
     """
     q = select(GrowattInverter).order_by(GrowattInverter.device_sn)
     if plant_id is not None:
@@ -264,6 +265,8 @@ def build_inverter_docs(db: Session, plant_id: Optional[int] = None) -> List[Doc
         }
         if layout.get(inv.device_sn):
             doc["strings"] = layout[inv.device_sn]
+        if inv.not_installed_at is not None:
+            doc["not_installed"] = True
         docs.append((f"inverters/{inv.device_sn}", doc))
     return docs
 
@@ -273,7 +276,8 @@ def build_registry_docs(db: Session) -> List[Doc]:
     docs: List[Doc] = build_inverter_docs(db)
     inv_by_plant: Dict[int, List[str]] = defaultdict(list)
     for _path, doc in docs:
-        inv_by_plant[doc["plant_id"]].append(doc["device_sn"])
+        if not doc.get("not_installed"):
+            inv_by_plant[doc["plant_id"]].append(doc["device_sn"])
     rated_ac = plant_rated_ac_w(db)
     for p in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)):
         docs.append(

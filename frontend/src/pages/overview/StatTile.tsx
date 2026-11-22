@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 
 export type MeterSegment = { pct: number; className: string; title?: string };
 
@@ -29,7 +30,11 @@ export const StatTile: React.FC<{
   tag?: string;
   /** amber tag: the figure is of an older day than today */
   tagWarn?: boolean;
-  value: string;
+  /** formatted value; or pass `num` instead for a live reading that eases between polls */
+  value?: string;
+  num?: number | null;
+  /** decimals of `num` */
+  digits?: number;
   unit?: string;
   /** text colour of the value */
   tone?: string;
@@ -39,7 +44,8 @@ export const StatTile: React.FC<{
   /** whole tile links here */
   href?: string;
   linkLabel?: string;
-}> = ({ label, tag, tagWarn, value, unit, tone, meter, footer, href, linkLabel }) => {
+}> = ({ label, tag, tagWarn, value, num, digits = 1, unit, tone, meter, footer, href, linkLabel }) => {
+  const empty = num !== undefined ? num == null || !Number.isFinite(num) : (value ?? "—") === "—";
   const body = (
     <Card className="h-full gap-0 px-3.5 py-3 transition-colors group-hover:border-white/[0.14]">
       <div className="flex items-center justify-between gap-2">
@@ -59,8 +65,10 @@ export const StatTile: React.FC<{
         )}
       </div>
       <div className="num mt-1.5 truncate leading-none">
-        <span className={cn("text-2xl font-semibold tracking-tight", value === "—" ? "text-slate-500" : (tone ?? "text-foreground"))}>{value}</span>
-        {value !== "—" && unit && <span className="ml-1 text-xs text-muted-foreground">{unit}</span>}
+        <span className={cn("text-2xl font-semibold tracking-tight", empty ? "text-slate-500" : (tone ?? "text-foreground"))}>
+          {num !== undefined ? <AnimatedNumber value={num} digits={digits} /> : (value ?? "—")}
+        </span>
+        {!empty && unit && <span className="ml-1 text-xs text-muted-foreground">{unit}</span>}
       </div>
       <div className="mt-2 h-2">{meter}</div>
       {footer && <div className="mt-1 flex min-h-4 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">{footer}</div>}

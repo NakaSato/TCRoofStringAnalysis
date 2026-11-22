@@ -85,7 +85,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold tracking-tight text-white">{t("Plant KPIs")}</h3>
               <span className="num inline-flex items-center gap-1.5 text-[11px] text-slate-400" title={todayHint}>
-                {kpiFresh.busy ? <Spinner className="size-3" /> : <Led level={kpiFresh.level} pulse={kpiFresh.level === "ok"} />}
+                {kpiFresh.busy ? <Spinner className="size-3" aria-hidden /> : <Led level={kpiFresh.level} pulse={kpiFresh.level === "ok"} />}
                 {kpiFresh.text}
               </span>
               <Link
