@@ -1,5 +1,5 @@
 import React from "react";
-import { Banknote, Cpu, FileText, Layers } from "lucide-react";
+import { Banknote, Cpu, FileText, Layers, Network } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { isAdmin } from "../auth/access";
@@ -12,19 +12,21 @@ import { ModuleSettings } from "./settings/ModuleSettings";
 import { PriceSettings } from "./settings/PriceSettings";
 import { PlantLinks } from "./settings/PlantLinks";
 import { PlantDocuments } from "./settings/PlantDocuments";
+import { SiteRegisterSettings } from "./settings/SiteRegisterSettings";
 
-const SECTIONS = ["module", "price", "documents", "plant"] as const;
+const SECTIONS = ["module", "price", "documents", "register", "plant"] as const;
 type Section = (typeof SECTIONS)[number];
 
 const META: Record<Section, { label: string; hint: string; icon: LucideIcon }> = {
   module: { label: "PV module", hint: "Ratings every string uses", icon: Cpu },
   price: { label: "Price per kWh", hint: "TOU, Ft, flat rates, PWA", icon: Banknote },
   documents: { label: "Plant documents", hint: "As-built PDF, site photos", icon: FileText },
+  register: { label: "Site register", hint: "Station data, devices, network", icon: Network },
   plant: { label: "Per-plant settings", hint: "Where they live", icon: Layers },
 };
 
 /**
- * Settings (`/settings?tab=module|price|documents|plant`): fleet-wide settings, one section at a time.
+ * Settings (`/settings?tab=module|price|documents|register|plant`): fleet-wide settings, one section at a time.
  * Sections pick from a side menu on wide screens and from line tabs on phones. Each editable
  * section saves on its own (sticky bar while there are unsaved changes).
  */
@@ -93,6 +95,7 @@ export const PlantSettingsPage: React.FC = () => {
           {tab === "module" && <ModuleSettings />}
           {tab === "price" && <PriceSettings />}
           {tab === "documents" && <PlantDocuments />}
+          {tab === "register" && <SiteRegisterSettings />}
           {tab === "plant" && <PlantLinks />}
         </div>
       </div>

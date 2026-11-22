@@ -30,6 +30,8 @@ secrets/
 # Growatt registry exports (regenerated from the API; contain plant GPS & serials)
 data/*.csv
 data/*.json
+# O&M asset & network register workbooks (site IPs, SIMs, PEA account numbers)
+data/*.xlsx
 *.db
 *.sqlite3
 *.tsbuildinfo

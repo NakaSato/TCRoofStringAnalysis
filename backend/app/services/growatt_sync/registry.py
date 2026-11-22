@@ -66,6 +66,9 @@ def remove_blocked_plants(db: Session, plant_ids: Iterable[int]) -> List[int]:
         from app.services import plant_documents
 
         plant_documents.delete_plant_rows(db, found)  # as-built / photo links
+        from app.services import site_register
+
+        site_register.delete_plant_rows(db, found)  # O&M register stations + devices
         db.execute(delete(GrowattPlant).where(GrowattPlant.plant_id.in_(found)))
         db.commit()
         log.info("blocked plants removed from the registry: %s", found)

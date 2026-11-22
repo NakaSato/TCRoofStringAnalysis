@@ -24,6 +24,7 @@ import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { DocStatusBadge, docPath, docTitle, docTypeOf, revText, viewPath } from "./kb/docFormat";
 import { UploadDocDialog } from "./kb/DocDialogs";
 import { useLoad } from "./kb/useDocs";
+import { SiteRegisterCard } from "./siteRegister/SiteRegisterCard";
 
 type Item = KbDocSummary & { pages: number[] };
 type DriveLink = KbPlantDocuments["drive"][string];
@@ -186,6 +187,9 @@ const PlantDocuments: React.FC<{ plantId: number }> = ({ plantId }) => {
           <DriveTile icon={Images} label={t("Site photos")} link={d.drive.site_photos} missing={t("No photo folder linked yet")} admin={admin} />
         </CardContent>
       </Card>
+
+      {/* O&M site register: station data and the devices on site */}
+      <SiteRegisterCard plantId={plantId} />
 
       {/* Knowledge Base */}
       <div className="flex flex-wrap items-center justify-between gap-2">

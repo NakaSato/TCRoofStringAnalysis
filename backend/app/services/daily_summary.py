@@ -51,6 +51,7 @@ from app.db.models import (
     PlantDocument,
     PublishedDoc,
     PublishWriteCount,
+    SiteRegister,
 )
 from app.services import check_slots, google_weather
 from app.services.fleet_settings import config_docs
@@ -325,9 +326,27 @@ def plant_links(db: Session) -> Dict[int, Dict[str, Dict[str, Any]]]:
     return out
 
 
+# O&M site register fields that go to Firestore (docs/plans/om-asset-network.md §6). Network details
+# (IPs, SIMs), meter / PEA account numbers and people stay in SQL.
+SITE_FIELDS = ("site_code", "project_phase", "province", "cod_actual")
+
+
+def plant_sites(db: Session) -> Dict[int, Dict[str, Any]]:
+    """{plant_id: {site_code, project_phase, province, cod_actual}} of the matched register stations,
+    fields without a value left out."""
+    out: Dict[int, Dict[str, Any]] = {}
+    for r in db.scalars(select(SiteRegister).where(SiteRegister.plant_id.is_not(None))):
+        site = {f: getattr(r, f) for f in SITE_FIELDS if getattr(r, f) not in (None, "")}
+        if isinstance(site.get("cod_actual"), date):
+            site["cod_actual"] = site["cod_actual"].isoformat()
+        out[int(r.plant_id)] = site
+    return out
+
+
 def build_registry_docs(db: Session) -> List[Doc]:
     """Static plant / inverter fields only — status and power are realtime and stay out.
-    `documents` (as-built / site photo links) is left out while a plant has none."""
+    `documents` (as-built / site photo links) and `site` (O&M site register) are left out while a
+    plant has none."""
     docs: List[Doc] = build_inverter_docs(db)
     inv_by_plant: Dict[int, List[str]] = defaultdict(list)
     for _path, doc in docs:
@@ -335,6 +354,7 @@ def build_registry_docs(db: Session) -> List[Doc]:
             inv_by_plant[doc["plant_id"]].append(doc["device_sn"])
     rated_ac = plant_rated_ac_w(db)
     links = plant_links(db)
+    sites = plant_sites(db)
     for p in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)):
         doc: Dict[str, Any] = {
             "schema": SCHEMA_VERSION,
@@ -351,6 +371,8 @@ def build_registry_docs(db: Session) -> List[Doc]:
         }
         if links.get(p.plant_id):
             doc["documents"] = links[p.plant_id]
+        if sites.get(p.plant_id):
+            doc["site"] = sites[p.plant_id]
         docs.append((f"plants/{p.plant_id}", doc))
     docs.extend((path, {"schema": SCHEMA_VERSION, **doc}) for path, doc in config_docs(db))
     return docs
@@ -359,6 +381,12 @@ def build_registry_docs(db: Session) -> List[Doc]:
 def publish_plant_inverters(db: Session, plant_id: int, sink: Optional["DocSink"] = None) -> "PublishReport":
     """Publish one plant's `inverters/{sn}` docs (only changed ones are written), e.g. after a layout edit."""
     return publish(db, sink or make_sink(settings.publish_sink), build_inverter_docs(db, plant_id), settings.publish_daily_write_budget)
+
+
+def publish_plants(db: Session, sink: Optional["DocSink"] = None) -> "PublishReport":
+    """Publish only the `plants/{id}` docs (only changed ones are written), e.g. after a site register import."""
+    docs = [(path, doc) for path, doc in build_registry_docs(db) if path.startswith("plants/")]
+    return publish(db, sink or make_sink(settings.publish_sink), docs, settings.publish_daily_write_budget)
 
 
 def publish_config(db: Session, sink: Optional["DocSink"] = None) -> "PublishReport":

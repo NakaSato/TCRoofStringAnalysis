@@ -111,6 +111,7 @@ from app.db.models.tfrs16 import (  # noqa: F401
     Tfrs16RolloutStation,
 )
 from app.db.models.plant_docs import PlantDocument  # noqa: F401
+from app.db.models.site_register import SiteDevice, SiteRegister  # noqa: F401
 from app.db.models.route import RouteOffice  # noqa: F401
 from app.db.models.system import (  # noqa: F401
     AiUsage,

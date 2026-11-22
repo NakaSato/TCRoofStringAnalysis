@@ -90,6 +90,20 @@ export const useFleetDirectory = () => {
     };
   }, []);
 
+  // province per plant from the O&M site register (DB, read once); Growatt's `city` is often a district,
+  // an English name or blank, so it is only the fallback
+  const [registerProvince, setRegisterProvince] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getSiteRegisterProvinces()
+      .then((r) => !cancelled && setRegisterProvince(r.provinces))
+      .catch(() => undefined); // no register: Growatt's city
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // newest record of every inverter (realtime, backend memory only; never stored)
   const [snap, setSnap] = useState<GrowattLive<GrowattInverterSnapshot> | null>(null);
   const [snapFailed, setSnapFailed] = useState(false);
@@ -126,7 +140,8 @@ export const useFleetDirectory = () => {
 
   // FusionSolar Filter bar state
   const [plantNameFilter, setPlantNameFilter] = useState("");
-  const [regionFilter, setRegionFilter] = useState("");
+  /** "ALL", "NONE" (no province) or a province name (`UnifiedPlantItem.province`) */
+  const [provinceFilter, setProvinceFilter] = useState<string>("ALL");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState("ALL");
   const [phaseFilter, setPhaseFilter] = useState<"ALL" | "NONE" | number>("ALL");
   const [deviceSnFilter, setDeviceSnFilter] = useState("");
@@ -182,13 +197,16 @@ export const useFleetDirectory = () => {
         Math.abs(gp.latitude) <= 90 &&
         Math.abs(gp.longitude) <= 180;
 
+      // the register's province first, Growatt `city` (often a district) as fallback
+      const province = registerProvince[String(gp.plant_id)] ?? (gp.city?.trim() || null);
       items.push({
         uid: `growatt-${gp.plant_id}`,
         source: "growatt",
         id: gp.plant_id,
         phase: gp.phase ?? null,
         name: gp.name || `Growatt Plant #${gp.plant_id}`,
-        location: [gp.city, gp.country].filter(Boolean).join(", ") || "Thailand",
+        location: [province, gp.country].filter(Boolean).join(", ") || "Thailand",
+        province,
         latitude: located ? gp.latitude : null,
         longitude: located ? gp.longitude : null,
         capacityKwp: capKwp,
@@ -213,7 +231,7 @@ export const useFleetDirectory = () => {
     }
 
     return items;
-  }, [growattPlants, todayByPlant, invByPlant]);
+  }, [growattPlants, todayByPlant, invByPlant, registerProvince]);
 
   // Compute Fleet KPIs, Plant Status breakdown, and Active Alarms breakdown for the 3-column Hero Banner
   const heroMetrics = useMemo(() => {
@@ -293,12 +311,11 @@ export const useFleetDirectory = () => {
       /** newest worker read of today's alarm log (UTC ISO); null = not synced today */
       alarmSyncedAt: alarmLog?.syncedAt ?? null,
     };
-  }, [unifiedPlants, rates, alarmLog, liveToday, liveTodayFailed, snap, snapFailed, invByPlant]);
+  }, [unifiedPlants, rates, alarmLog, liveToday, liveTodayFailed, snap, snapFailed, invByPlant, registerProvince]);
 
   // Filter & Sort plants for the table
   const filteredPlants = useMemo(() => {
     const nameQ = plantNameFilter.trim().toLowerCase();
-    const regionQ = regionFilter.trim().toLowerCase();
     const snQ = deviceSnFilter.trim().toLowerCase();
     const engineerPlants =
       typeof engineerFilter === "number" ? new Set(engineers.find((u) => u.id === engineerFilter)?.plant_ids ?? []) : null;
@@ -308,7 +325,7 @@ export const useFleetDirectory = () => {
       if (nameQ && !p.name.toLowerCase().includes(nameQ) && !String(p.id).includes(nameQ)) {
         return false;
       }
-      if (regionQ && !p.location.toLowerCase().includes(regionQ)) {
+      if (provinceFilter === "NONE" ? p.province != null : provinceFilter !== "ALL" && p.province !== provinceFilter) {
         return false;
       }
       if (deviceTypeFilter !== "ALL" && p.deviceType !== deviceTypeFilter) {
@@ -344,7 +361,7 @@ export const useFleetDirectory = () => {
         ? String(av).localeCompare(String(bv))
         : String(bv).localeCompare(String(av));
     });
-  }, [unifiedPlants, plantNameFilter, regionFilter, deviceTypeFilter, phaseFilter, deviceSnFilter, statusFilter, engineerFilter, engineers, sortField, sortAsc]);
+  }, [unifiedPlants, plantNameFilter, provinceFilter, deviceTypeFilter, phaseFilter, deviceSnFilter, statusFilter, engineerFilter, engineers, sortField, sortAsc]);
 
   // Phases present in the registry (one Growatt account each), with plant counts
   const phaseOptions = useMemo(() => {
@@ -355,6 +372,17 @@ export const useFleetDirectory = () => {
       else counts.set(p.phase, (counts.get(p.phase) ?? 0) + 1);
     }
     return { phases: [...counts.entries()].sort((a, b) => a[0] - b[0]), untagged };
+  }, [unifiedPlants]);
+
+  // Provinces present (register, else Growatt `city`), with plant counts
+  const provinceOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    let unset = 0;
+    for (const p of unifiedPlants) {
+      if (p.province == null) unset += 1;
+      else counts.set(p.province, (counts.get(p.province) ?? 0) + 1);
+    }
+    return { provinces: [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], "th")), unset };
   }, [unifiedPlants]);
 
   const handleSort = (
@@ -380,7 +408,7 @@ export const useFleetDirectory = () => {
 
   const handleResetFilters = () => {
     setPlantNameFilter("");
-    setRegionFilter("");
+    setProvinceFilter("ALL");
     setDeviceTypeFilter("ALL");
     setPhaseFilter("ALL");
     setDeviceSnFilter("");
@@ -415,8 +443,8 @@ export const useFleetDirectory = () => {
     setCloudNotice,
     plantNameFilter,
     setPlantNameFilter,
-    regionFilter,
-    setRegionFilter,
+    provinceFilter,
+    setProvinceFilter,
     deviceTypeFilter,
     setDeviceTypeFilter,
     phaseFilter,
@@ -448,6 +476,7 @@ export const useFleetDirectory = () => {
     heroMetrics,
     filteredPlants,
     phaseOptions,
+    provinceOptions,
     handleSort,
     handleResetFilters,
     totalPages,

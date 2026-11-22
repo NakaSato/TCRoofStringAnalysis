@@ -169,6 +169,29 @@ def test_registry_plant_doc_carries_its_drive_links_only_when_it_has_them(db):
     assert {k: v for k, v in doc.items() if k != "documents"} == before
 
 
+def test_registry_plant_doc_carries_its_site_register_fields_only(db):
+    from datetime import date as _date
+
+    from app.db.models import SiteDevice, SiteRegister
+
+    before = dict(ds.build_registry_docs(db))[f"plants/{PLANT}"]
+    assert "site" not in before
+    db.add(SiteRegister(site_code="P1-001", plant_id=PLANT, match_rule="logger_sn", name="Site 1", project_phase=1,
+                        province="ชลบุรี", pea_account_no="020012345678", pea_meter_no="M1", cod_actual=_date(2024, 3, 1),
+                        engineers_text="Somchai", imported_by="admin"))
+    db.add(SiteRegister(site_code="P1-002", plant_id=None, name="Unmatched", province="ระยอง", imported_by="admin"))
+    db.flush()
+    db.add(SiteDevice(site_code="P1-001", kind="router", seq=1, ip="10.0.0.1", sim="0812345678"))
+    db.commit()
+    docs = dict(ds.build_registry_docs(db))
+    doc = docs[f"plants/{PLANT}"]
+    assert doc["site"] == {"site_code": "P1-001", "project_phase": 1, "province": "ชลบุรี", "cod_actual": "2024-03-01"}
+    assert {k: v for k, v in doc.items() if k != "site"} == before
+    text = json.dumps(docs, ensure_ascii=False)
+    for secret in ("020012345678", "10.0.0.1", "0812345678", "Somchai", "ระยอง"):
+        assert secret not in text  # network, account numbers, people and unmatched stations stay in SQL
+
+
 def test_inverter_doc_carries_the_string_topology_only_when_entered(db):
     from app.db.models import GrowattInverter, GrowattStringLayout, GrowattStringRemoved
 

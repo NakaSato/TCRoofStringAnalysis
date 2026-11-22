@@ -17,6 +17,7 @@ import { TH_LEASE } from "./th/lease";
 import { TH_PVSYST } from "./th/pvsyst";
 import { TH_KB } from "./th/kb";
 import { TH_ROUTE } from "./th/route";
+import { TH_SITE_REGISTER } from "./th/siteRegister";
 import { TH_SHARED } from "./th/shared";
 
-export const TH: Record<string, string> = { ...TH_CORE, ...TH_CENTER, ...TH_ALARMS, ...TH_OVERVIEW, ...TH_PLANT, ...TH_STRINGS, ...TH_CALENDAR, ...TH_CLAIMS, ...TH_ADMIN, ...TH_LEASE, ...TH_PVSYST, ...TH_KB, ...TH_ROUTE, ...TH_SHARED };
+export const TH: Record<string, string> = { ...TH_CORE, ...TH_CENTER, ...TH_ALARMS, ...TH_OVERVIEW, ...TH_PLANT, ...TH_STRINGS, ...TH_CALENDAR, ...TH_CLAIMS, ...TH_ADMIN, ...TH_LEASE, ...TH_PVSYST, ...TH_KB, ...TH_ROUTE, ...TH_SITE_REGISTER, ...TH_SHARED };

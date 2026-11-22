@@ -530,3 +530,21 @@ def test_busy_blocks_and_my_work_include_team_tasks(api):
     # eng2 sees it in full under their own filter
     mine = client.get(f"/growatt/calendar/tasks?{RANGE}&user_id={ids['eng2']}", headers=eng2).json()
     assert [t["title"] for t in mine["tasks"]] == ["Secret"]
+
+
+def test_round_groups_by_the_site_register_province(api):
+    f, client, ids, admin, eng, eng2 = api
+    from app.db.models import SiteRegister
+
+    with f() as db:
+        db.get(GrowattPlant, P1).city = "Bang Lamung"  # Growatt's city: a district, not the province
+        db.get(GrowattPlant, P3).city = "Chonburi"
+        db.add(SiteRegister(site_code="P1-001", plant_id=P1, name="S1", province="ชลบุรี", imported_by="admin"))
+        db.add(SiteRegister(site_code="P1-003", plant_id=P3, name="S3", province="ชลบุรี", imported_by="admin"))
+        db.commit()
+    q = {"plant_ids": [P1, P2, P3], "start_day": "2026-11-23", "crews": 1, "group_by": "city"}
+    pv = client.post("/growatt/calendar/rounds/preview", headers=admin, json=q).json()
+    assert {x["plant_id"]: x["city"] for x in pv["items"]} == {P1: "ชลบุรี", P2: None, P3: "ชลบุรี"}
+    due = client.get("/growatt/calendar/due?month=2026-11", headers=admin)
+    assert due.status_code == 200, due.text
+    assert {r["plant_id"]: r["city"] for r in due.json()["plants"]} == {P1: "ชลบุรี", P2: None, P3: "ชลบุรี"}

@@ -21,6 +21,8 @@ export interface UnifiedPlantItem {
   phase: number | null;
   name: string;
   location: string;
+  /** province from the O&M site register, else Growatt's plant `city`; null when neither has one */
+  province: string | null;
   /** plant coordinates from Growatt; null when unset (0,0) or implausible */
   latitude: number | null;
   longitude: number | null;

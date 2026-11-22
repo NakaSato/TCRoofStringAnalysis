@@ -1,4 +1,4 @@
-/** Plant directory filter toolbar (name, device type, phase, engineer (admins), status). */
+/** Plant directory filter toolbar (name, province, device type, phase, engineer (admins), status). */
 import React from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import type { FleetDirectory } from "./useFleetDirectory";
 import { useI18n } from "../../i18n";
 
 export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
-  const { cloudNotice, plantNameFilter, setPlantNameFilter, deviceTypeFilter, setDeviceTypeFilter, phaseFilter, setPhaseFilter, statusFilter, setStatusFilter, isAdmin, engineers, engineerFilter, setEngineerFilter, expandedFilters, setExpandedFilters, setCurrentPage, fetchCloudPlants, phaseOptions, handleResetFilters } = d;
+  const { cloudNotice, plantNameFilter, setPlantNameFilter, provinceFilter, setProvinceFilter, provinceOptions, deviceTypeFilter, setDeviceTypeFilter, phaseFilter, setPhaseFilter, statusFilter, setStatusFilter, isAdmin, engineers, engineerFilter, setEngineerFilter, expandedFilters, setExpandedFilters, setCurrentPage, fetchCloudPlants, phaseOptions, handleResetFilters } = d;
   const { t } = useI18n();
   return (
     <div className="border-b border-white/[0.07] bg-ink-900/70 px-4 py-3.5">
@@ -29,6 +29,35 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
               placeholder={t("Plant name")}
               className="h-7 w-28 px-2 text-[11px]"
             />
+          </div>
+
+          {/* Province (O&M site register, Growatt city as fallback) */}
+          <div className="flex items-center gap-1.5">
+            <label className="whitespace-nowrap text-[11px] font-medium text-slate-300">
+              {t("Province")}
+            </label>
+            <Select
+              value={provinceFilter}
+              onValueChange={(v) => {
+                setProvinceFilter(v);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger size="sm" className="w-36 text-[11px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">{t("All provinces")}</SelectItem>
+                {provinceOptions.provinces.map(([name, n]) => (
+                  <SelectItem key={name} value={name}>
+                    {name} ({n})
+                  </SelectItem>
+                ))}
+                {provinceOptions.unset > 0 && (
+                  <SelectItem value="NONE">{t("No province")} ({provinceOptions.unset})</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Device type */}

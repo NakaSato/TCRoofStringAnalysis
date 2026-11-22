@@ -12,6 +12,7 @@ export type * from "./types/legacy";
 export type * from "./types/growatt";
 export type * from "./types/weather";
 export type * from "./types/sensors";
+export type * from "./types/siteRegister";
 export type * from "./types/systemLogs";
 export type * from "./types/assistant";
 export type * from "./types/push";
@@ -76,6 +77,7 @@ import type {
 } from "./types/visitRoute";
 import type { KbArticle, KbArticleBody, KbArticleList, KbArticlePatch, KbArticleQuery, KbDeleteResult, KbRevision, KbRevisionList } from "./types/kb";
 import type { KbDocCatalog, KbDocContext, KbDocCreateMeta, KbDocDetail, KbDocFileLink, KbDocHome, KbDocLinkInput, KbDocList, KbDocPatch, KbDocQuery, KbPlantDocuments, KbSearchResult } from "./types/kbDocs";
+import type { PlantSiteRegister, SiteRegisterImport, SiteRegisterRow } from "./types/siteRegister";
 import type { PwaBilling, PwaImportResult, PwaMeterCoverage, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantBaseline, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
@@ -234,6 +236,20 @@ export const api = {
   listGrowattInverters: (plantId: number) => apiFetch<GrowattInverter[]>(`/growatt/plants/${plantId}/inverters`),
   getGrowattPlantOverview: (plantId: number, day?: string) =>
     apiFetch<GrowattPlantOverview>(`/growatt/plants/${plantId}/overview${day ? `?day=${day}` : ""}`),
+  /** the plant's O&M site register: station data, on-site devices and checks (DB only) */
+  getPlantSiteRegister: (plantId: number) => apiFetch<PlantSiteRegister>(`/growatt/plants/${plantId}/site-register`),
+  /** every station of the site register the user may see, with device counts and checks */
+  listSiteRegister: () => apiFetch<{ sites: SiteRegisterRow[]; kinds: string[] }>("/growatt/site-register"),
+  /** the register as .xlsx in the O&M workbook's layout (engineers: their plants' stations); imports again */
+  exportSiteRegister: () => downloadApiFile("/growatt/site-register/export", "OM-Asset-Network-export.xlsx"),
+  /** admin: the register workbook (.xlsx) or its JSON → preview (apply false) or replace the register (all or nothing) */
+  importSiteRegister: (file: File, apply: boolean) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiFetch<SiteRegisterImport>(`/growatt/site-register/import?apply=${apply ? "true" : "false"}`, { method: "POST", body: form });
+  },
+  /** {plant_id: province} from the site register (plant directory filter) */
+  getSiteRegisterProvinces: () => apiFetch<{ provinces: Record<string, string> }>("/growatt/site-register/provinces"),
   /** every visible plant's as-built / site photo links (Settings → Plant documents) */
   listPlantDocuments: () => apiFetch<{ plants: PlantDocumentRow[]; kinds: PlantDocumentKind[] }>("/growatt/documents"),
   /** admin: set a link by hand (source manual; a Drive re-import keeps it) */

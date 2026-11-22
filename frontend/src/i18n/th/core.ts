@@ -199,6 +199,9 @@ export const TH_CORE: Record<string, string> = {
   // ---- plant directory: filters, table, pager ----
   "Plant name": "ชื่อโรงไฟฟ้า",
   "Country/Region": "ประเทศ/ภูมิภาค",
+  Province: "จังหวัด",
+  "All provinces": "ทุกจังหวัด",
+  "No province": "ไม่ระบุจังหวัด",
   "Device type": "ประเภทอุปกรณ์",
   Phase: "ระยะโครงการ",
   "Phase {n}": "ระยะที่ {n}",

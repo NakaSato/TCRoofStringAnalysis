@@ -30,6 +30,7 @@ from app.db.models import (
     OmTask,
     OmTeam,
     SiteEvent,
+    SiteRegister,
     User,
 )
 from app.services import om_calendar as cal
@@ -422,6 +423,14 @@ def _last_done(db: Session, plant_ids: Optional[Set[int]]) -> Dict[int, Dict[str
     return out
 
 
+def _plant_rows():
+    """(plant_id, name, province, phase) per plant. The province comes from the O&M site register,
+    else Growatt's `city` (often a district or empty; docs/plans/om-asset-network.md)."""
+    return select(
+        GrowattPlant.plant_id, GrowattPlant.name, func.coalesce(SiteRegister.province, GrowattPlant.city), GrowattPlant.phase
+    ).outerjoin(SiteRegister, SiteRegister.plant_id == GrowattPlant.plant_id)
+
+
 def due(db: Session, allowed: Optional[Set[int]], month: date) -> Dict[str, Any]:
     """Every plant the user may see, for the month's plan: last cleaning / PM per type (Site log),
     days since the last cleaning, the earliest open task per type, the month's tasks, overdue work,
@@ -429,7 +438,7 @@ def due(db: Session, allowed: Optional[Set[int]], month: date) -> Dict[str, Any]
     today = cal._today()
     first = month.replace(day=1)
     last = om_planning.add_months(first, 1) - timedelta(days=1)
-    q = select(GrowattPlant.plant_id, GrowattPlant.name, GrowattPlant.city, GrowattPlant.phase).order_by(GrowattPlant.name)
+    q = _plant_rows().order_by(GrowattPlant.name)
     if allowed is not None:
         q = q.where(GrowattPlant.plant_id.in_(allowed or {-1}))
     plants = list(db.execute(q))
@@ -523,7 +532,7 @@ def round_preview(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     if group_by not in ("city", "phase", "none"):
         raise ValueError("group_by must be city, phase or none")
     plants = {r[0]: r for r in db.execute(
-        select(GrowattPlant.plant_id, GrowattPlant.name, GrowattPlant.city, GrowattPlant.phase).where(GrowattPlant.plant_id.in_(ids))
+        _plant_rows().where(GrowattPlant.plant_id.in_(ids))
     )}
     missing = [i for i in ids if i not in plants]
     if missing:
@@ -542,7 +551,7 @@ def round_preview(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     for i in ids:
         lc = last.get(i, {}).get("cleaning")
         s = settings.get(i)
-        group = None if group_by == "none" else str(plants[i][2] if group_by == "city" else plants[i][3] or "")
+        group = None if group_by == "none" else str((plants[i][2] if group_by == "city" else plants[i][3]) or "")
         inputs.append(om_planning.RoundPlant(i, s.cleaning_crew_days if s else None, (today - lc).days if lc else None, group))
     weekdays = om_planning.WORKDAYS + ((5,) if payload.get("include_saturday") else ())
     hol = holidays(db)
