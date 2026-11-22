@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from solar_core.sun import sun_times
 from app.services import epi_fit, growatt_meter, growatt_weather
 from app.db.models import (
     GrowattInverter,
@@ -253,6 +254,18 @@ def _sensor_health(db: Session, plant_id: int, day: Optional[date]) -> Optional[
     return None if v is None else {"ok": v["ok"], "flags": v["flags"], "reasons": v["reasons"]}
 
 
+DEFAULT_SUNRISE = time(6, 0)
+
+
+def _sunrise(plant: GrowattPlant, day: date) -> datetime:
+    """Plant-local sunrise of `day` (NOAA, from the plant's coordinates), else 06:00."""
+    if plant.latitude is not None and plant.longitude is not None:
+        st = sun_times(day, float(plant.latitude), float(plant.longitude), 7.0)
+        if st:
+            return st[0]
+    return datetime.combine(day, DEFAULT_SUNRISE)
+
+
 def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None) -> Dict[str, Any]:
     """Single-plant overview for one day (default: latest day with data)."""
     """Single-plant overview for one day from persisted max_data history.
@@ -272,6 +285,13 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     data_until = _latest_reading(db, sns)
     if day is None and data_until is not None:
         day = data_until.date()
+        # the newest day holds only night records (just after midnight, or the sync stopped
+        # overnight): open the last day with records before it instead of an all-dark day. A day
+        # past sunrise stays, so inverters reading 0 W all morning still show as today's fault.
+        if data_until < _sunrise(plant, day):
+            prev = newest_inverter_ts(db, sns, before=_day_bounds(day)[0])
+            if prev is not None:
+                day, data_until = prev.date(), prev
 
     inv_metrics: Dict[str, Dict[str, Any]] = {}
     latest_mppt: Dict[str, Dict[str, Any]] = {}

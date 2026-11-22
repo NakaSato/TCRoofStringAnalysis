@@ -117,15 +117,17 @@ def _day_bounds(day: date) -> Tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-def newest_inverter_ts(db: Session, sns: Sequence[str]) -> Optional[datetime]:
-    """Newest stored inverter record of these inverters, or None: one primary-key-ordered lookup
-    per inverter. `max(timestamp) WHERE device_sn IN (…)` lets Postgres walk ix_growatt_inv_ts
-    backwards instead, which reads most of the table for an inverter without recent records."""
+def newest_inverter_ts(db: Session, sns: Sequence[str], before: Optional[datetime] = None) -> Optional[datetime]:
+    """Newest stored inverter record of these inverters (strictly before `before` when given), or
+    None: one primary-key-ordered lookup per inverter. `max(timestamp) WHERE device_sn IN (…)` lets
+    Postgres walk ix_growatt_inv_ts backwards instead, which reads most of the table for an
+    inverter without recent records."""
     best: Optional[datetime] = None
     for sn in dict.fromkeys(sns):
-        ts = db.scalar(
-            select(R.timestamp).where(R.device_sn == sn).order_by(R.device_sn.desc(), R.timestamp.desc()).limit(1)
-        )
+        q = select(R.timestamp).where(R.device_sn == sn)
+        if before is not None:
+            q = q.where(R.timestamp < before)
+        ts = db.scalar(q.order_by(R.device_sn.desc(), R.timestamp.desc()).limit(1))
         if ts is not None and (best is None or ts > best):
             best = ts
     return best

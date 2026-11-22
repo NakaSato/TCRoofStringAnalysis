@@ -93,6 +93,31 @@ def test_plants_list_is_db_only_and_uses_last_counter_value(client):
     assert p["current_power_w"] is None and p["status"] is None
 
 
+def _add_readings(tmp_path, rows) -> None:
+    engine = build_engine(f"sqlite:///{tmp_path / 'growatt.db'}")
+    with sessionmaker(bind=engine)() as s:
+        s.add_all(rows)
+        s.commit()
+
+
+def test_overview_default_day_skips_a_night_only_day(client, tmp_path):
+    # the sync stopped overnight: the newest day holds only records before sunrise (no coordinates: 06:00)
+    night = datetime(2026, 11, 12, 1, 30)
+    _add_readings(tmp_path, [GrowattInverterReading(device_sn=SN_A, timestamp=night, pac_w=0, ppv_w=0)])
+    ov = client.get(f"/api/growatt/plants/{PLANT}/overview").json()
+    assert ov["meta"]["day"] == "2026-11-11"
+    # "data until" is the shown day's newest record, not the night one
+    assert ov["meta"]["data_until"].startswith("2026-11-11")
+    # asked for explicitly, the night day is still served
+    assert client.get(f"/api/growatt/plants/{PLANT}/overview?day=2026-11-12").json()["meta"]["day"] == "2026-11-12"
+
+
+def test_overview_default_day_keeps_a_dark_day_after_sunrise(client, tmp_path):
+    # inverters reading 0 W all morning are today's fault, not a reason to show yesterday
+    _add_readings(tmp_path, [GrowattInverterReading(device_sn=SN_A, timestamp=datetime(2026, 11, 12, 9, 0), pac_w=0, ppv_w=0)])
+    assert client.get(f"/api/growatt/plants/{PLANT}/overview").json()["meta"]["day"] == "2026-11-12"
+
+
 def test_overview_day_filter_energy_integration_and_nulls(client):
     ov = client.get(f"/api/growatt/plants/{PLANT}/overview").json()
     assert ov["meta"]["source"] == "db"
