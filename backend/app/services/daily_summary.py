@@ -43,7 +43,7 @@ from sqlalchemy.orm import Session
 
 from app.config import DATA_DIR, settings
 from app.logging_db import setup_logging
-from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PublishedDoc, PublishWriteCount
+from app.db.models import GrowattInverter, GrowattPlant, GrowattStringLayout, PlantDocument, PublishedDoc, PublishWriteCount
 from app.services import check_slots, google_weather
 from app.services.fleet_settings import config_docs
 from app.services.growatt_overview import build_plant_overview, plant_rated_ac_w, plausible_capacity_kwp
@@ -271,33 +271,42 @@ def build_inverter_docs(db: Session, plant_id: Optional[int] = None) -> List[Doc
     return docs
 
 
+def plant_links(db: Session) -> Dict[int, Dict[str, Dict[str, Any]]]:
+    """{plant_id: {kind: {url, title, revision}}}: the as-built PDF and site photo folder links
+    (`plant_documents`), static registry data. Who set a link and when stay in SQL."""
+    out: Dict[int, Dict[str, Dict[str, Any]]] = defaultdict(dict)
+    for d in db.scalars(select(PlantDocument).order_by(PlantDocument.plant_id, PlantDocument.kind)):
+        out[d.plant_id][d.kind] = {"url": d.url, "title": d.title, "revision": d.revision}
+    return out
+
+
 def build_registry_docs(db: Session) -> List[Doc]:
-    """Static plant / inverter fields only — status and power are realtime and stay out."""
+    """Static plant / inverter fields only — status and power are realtime and stay out.
+    `documents` (as-built / site photo links) is left out while a plant has none."""
     docs: List[Doc] = build_inverter_docs(db)
     inv_by_plant: Dict[int, List[str]] = defaultdict(list)
     for _path, doc in docs:
         if not doc.get("not_installed"):
             inv_by_plant[doc["plant_id"]].append(doc["device_sn"])
     rated_ac = plant_rated_ac_w(db)
+    links = plant_links(db)
     for p in db.scalars(select(GrowattPlant).order_by(GrowattPlant.plant_id)):
-        docs.append(
-            (
-                f"plants/{p.plant_id}",
-                {
-                    "schema": SCHEMA_VERSION,
-                    "plant_id": p.plant_id,
-                    "phase": p.phase,
-                    "name": p.name,
-                    "city": p.city,
-                    "country": p.country,
-                    "latitude": p.latitude,
-                    "longitude": p.longitude,
-                    "capacity_kwp": _round2(plausible_capacity_kwp(p.peak_power_kwp, rated_ac.get(p.plant_id))),
-                    "create_date": p.create_date,
-                    "inverters": inv_by_plant.get(p.plant_id, []),
-                },
-            )
-        )
+        doc: Dict[str, Any] = {
+            "schema": SCHEMA_VERSION,
+            "plant_id": p.plant_id,
+            "phase": p.phase,
+            "name": p.name,
+            "city": p.city,
+            "country": p.country,
+            "latitude": p.latitude,
+            "longitude": p.longitude,
+            "capacity_kwp": _round2(plausible_capacity_kwp(p.peak_power_kwp, rated_ac.get(p.plant_id))),
+            "create_date": p.create_date,
+            "inverters": inv_by_plant.get(p.plant_id, []),
+        }
+        if links.get(p.plant_id):
+            doc["documents"] = links[p.plant_id]
+        docs.append((f"plants/{p.plant_id}", doc))
     docs.extend((path, {"schema": SCHEMA_VERSION, **doc}) for path, doc in config_docs(db))
     return docs
 

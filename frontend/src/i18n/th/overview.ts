@@ -82,7 +82,6 @@ export const TH_OVERVIEW: Record<string, string> = {
   "Sent to the grid now, measured by the energy meter · {time}": "ไฟฟ้าที่ส่งออกสู่กริดขณะนี้ ค่าวัดจริงจากมิเตอร์ไฟฟ้า · {time}",
   "PV AC {pv} kW + grid {grid} kW: derived, not measured": "PV AC {pv} kW + กริด {grid} kW: ค่าคำนวณ ไม่ใช่ค่าวัด",
   "Load not available": "ไม่มีค่าโหลด",
-  "Phase {p} power": "กำลังไฟฟ้าเฟส {p}",
   "Phase power": "กำลังไฟฟ้าแต่ละเฟส",
   "Imbalance {pct} % (derived: largest deviation from the phase mean)": "ความไม่สมดุล {pct} % (ค่าคำนวณ: ส่วนต่างสูงสุดจากค่าเฉลี่ยของเฟส)",
   "PV AC power": "กำลังไฟฟ้า PV (AC)",
@@ -94,7 +93,6 @@ export const TH_OVERVIEW: Record<string, string> = {
     "โหลด {load} kW: จาก PV {pv} kW, จากกริด {grid} kW คำนวณจาก AC ของอินเวอร์เตอร์และมิเตอร์ ไม่ใช่ค่าวัด",
   "PV {pv} kW: {site} kW used on site, {grid} kW exported. Derived from inverter AC and the meter, not measured":
     "PV {pv} kW: ใช้ในพื้นที่ {site} kW, ส่งออก {grid} kW คำนวณจาก AC ของอินเวอร์เตอร์และมิเตอร์ ไม่ใช่ค่าวัด",
-  "+ import / − export": "+ ซื้อไฟ / − ขายไฟ",
   "Import counter": "หน่วยซื้อไฟสะสม (Import)",
   "Lifetime import register of the meter": "หน่วยซื้อไฟสะสมทั้งหมดที่มิเตอร์บันทึก",
   "Power factor": "ตัวประกอบกำลัง",

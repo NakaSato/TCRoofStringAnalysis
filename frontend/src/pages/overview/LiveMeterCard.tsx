@@ -26,7 +26,6 @@ import { useI18n } from "../../i18n";
 const todayBkk = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" });
 /** "2026-11-15 22:28:45" → "22:28" today, else "2026-11-15 22:28" */
 const when = (ts: string | null | undefined) => (!ts ? "—" : ts.slice(0, 10) === todayBkk() ? ts.slice(11, 16) : ts.slice(0, 16));
-const kw = (w: number | null | undefined) => (w == null ? null : w / 1000);
 /** below this a flow is drawn as idle (meter / inverter noise) */
 const IDLE_KW = 0.05;
 const IDLE = "rgba(255,255,255,0.09)";
@@ -37,8 +36,6 @@ const IDLE = "rgba(255,255,255,0.09)";
 const FLOW = { pv: "#f5b70a", load: "#5b8cf0", grid: "#a3a7b0" } as const;
 /** rings and bars settle on each poll with a soft spring */
 const SPRING: Transition = { type: "spring", stiffness: 120, damping: 20, mass: 0.9 };
-
-type Meter = NonNullable<ReturnType<typeof useLiveMeter>["res"]>["data"]["meters"][number];
 
 /* ---- geometry (SVG viewBox units; the box keeps this aspect ratio, nodes are HTML on top) ---- */
 const VB = { w: 200, h: 172 };
@@ -235,88 +232,6 @@ const FlowNode: React.FC<{
   );
 };
 
-/** Phase strip shades: one hue per direction, three steps so the phases stay apart */
-const PHASE_ALPHA = ["ff", "b3", "73"] as const;
-
-/**
- * One meter's phases, as reported: a strip of L1 / L2 / L3 as shares of the phases' total (by size;
- * import grey, export gold, as on the flow lanes), each phase's kW under it, the meter's total on the
- * right. Imbalance (derived) is in the strip's tooltip.
- */
-const PhaseStrip: React.FC<{ m: Meter }> = ({ m }) => {
-  const { t } = useI18n();
-  const phases = [
-    { name: "L1", v: kw(m.active_power_l1_w) },
-    { name: "L2", v: kw(m.active_power_l2_w) },
-    { name: "L3", v: kw(m.active_power_l3_w) },
-  ];
-  if (phases.every((p) => p.v == null)) return null;
-  const abs = phases.map((p) => Math.abs(p.v ?? 0));
-  const sum = abs.reduce((a, b) => a + b, 0);
-  const total = kw(m.active_power_w);
-  // imbalance: the largest deviation from the phase mean, when every phase is known and flows the same way
-  const known = phases.every((p) => p.v != null);
-  const sameWay = known && (phases.every((p) => (p.v as number) >= 0) || phases.every((p) => (p.v as number) <= 0));
-  const mean = sum / 3;
-  const imbalance = known && sameWay && mean > 1 ? (Math.max(...abs.map((v) => Math.abs(v - mean))) / mean) * 100 : null;
-  const stripHint = [
-    t("+ import / − export"),
-    imbalance != null ? t("Imbalance {pct} % (derived: largest deviation from the phase mean)", { pct: fmt(imbalance, 1) }) : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] font-medium text-slate-300">{t("Phase power")}</span>
-        <span className="num text-[11px] text-muted-foreground">
-          {t("Total")} <span className="font-semibold text-slate-200">{fmt(total, 1)}</span> kW
-        </span>
-      </div>
-      <Tip label={t("Phase power")} hint={stripHint}>
-        <div tabIndex={0} aria-label={t("Phase power")} className="flex h-2 w-full gap-0.5 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-white/20">
-          {phases.map((p, i) => (
-            <motion.span
-              key={p.name}
-              className="h-full rounded-full"
-              initial={false}
-              animate={{
-                flexGrow: sum > 0 ? abs[i] / sum : 1,
-                backgroundColor: p.v == null ? IDLE : `${(p.v < 0 ? FLOW.pv : FLOW.grid)}${PHASE_ALPHA[i]}`,
-              }}
-              style={{ flexBasis: 0 }}
-              transition={SPRING}
-            />
-          ))}
-        </div>
-      </Tip>
-      <div className="grid grid-cols-3 gap-2">
-        {phases.map((p, i) => (
-          <Tip key={p.name} label={t("Phase {p} power", { p: p.name })} hint={t("+ import / − export")}>
-            <div
-              tabIndex={0}
-              aria-label={`${t("Phase {p} power", { p: p.name })}: ${p.v == null ? "—" : `${fmt(p.v, 2)} kW`}`}
-              className="flex flex-col rounded-md outline-none focus-visible:ring-1 focus-visible:ring-white/20"
-            >
-              <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                <span
-                  className="size-1.5 rounded-full"
-                  style={{ backgroundColor: p.v == null ? IDLE : `${(p.v < 0 ? FLOW.pv : FLOW.grid)}${PHASE_ALPHA[i]}` }}
-                />
-                {p.name}
-              </span>
-              <span className="num text-[13px] font-semibold text-slate-100">
-                <AnimatedNumber value={p.v} digits={1} />
-                {p.v != null && <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">kW</span>}
-              </span>
-            </div>
-          </Tip>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 /** A labelled reading of the meter, as reported: name on top, value + unit under it. */
 const Reading: React.FC<{ label: string; value: number | null | undefined; digits: number; unit?: string; hint?: string }> = ({
   label,
@@ -501,10 +416,9 @@ export const LiveMeterCard: React.FC<{ m: ReturnType<typeof useLiveMeter> }> = (
                 />
               </div>
 
-              {/* one meter: its phases, counter and quality figures, as reported */}
+              {/* one meter: its counter and quality figures, as reported */}
               {one && (
                 <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-3">
-                  <PhaseStrip m={one} />
                   <div className="grid grid-cols-3 gap-1.5">
                     <Reading
                       label={t("Import counter")}

@@ -149,3 +149,21 @@ def test_json_and_firestore_sinks(tmp_path):
 
     with pytest.raises(RuntimeError, match="FIREBASE_CREDENTIALS_FILE"):
         ds.FirestoreSink("")
+
+
+def test_registry_plant_doc_carries_its_drive_links_only_when_it_has_them(db):
+    from app.db.models import PlantDocument
+
+    before = dict(ds.build_registry_docs(db))[f"plants/{PLANT}"]
+    assert "documents" not in before  # no link: the doc is unchanged, so nothing is rewritten
+    db.add(PlantDocument(plant_id=PLANT, kind="asbuilt", drive_id="F1", url="https://drive.google.com/file/d/F1/view",
+                         title="AS BUILT 1.pdf", revision="REV.1", source="matched", match_score=1.0, updated_by="admin"))
+    db.add(PlantDocument(plant_id=PLANT, kind="site_photos", url="https://drive.google.com/drive/folders/D1",
+                         title="1 Site / Picture", source="manual", updated_by="admin"))
+    db.commit()
+    doc = dict(ds.build_registry_docs(db))[f"plants/{PLANT}"]
+    assert doc["documents"] == {
+        "asbuilt": {"url": "https://drive.google.com/file/d/F1/view", "title": "AS BUILT 1.pdf", "revision": "REV.1"},
+        "site_photos": {"url": "https://drive.google.com/drive/folders/D1", "title": "1 Site / Picture", "revision": None},
+    }  # who set a link stays in SQL
+    assert {k: v for k, v in doc.items() if k != "documents"} == before
