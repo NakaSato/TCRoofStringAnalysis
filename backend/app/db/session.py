@@ -127,8 +127,11 @@ def ensure_schema(bind) -> None:
                 conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
     for table, column in _DROPPED_COLUMNS:
         if table in tables and column in {c["name"] for c in insp.get_columns(table)}:
+            # IF EXISTS on Postgres: the API and the worker may both start and both see the
+            # column; SQLite has no IF EXISTS here (one local process)
+            guard = "IF EXISTS " if bind.dialect.name == "postgresql" else ""
             with bind.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
+                conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {guard}{column}"))
 
 
 engine = build_engine()
