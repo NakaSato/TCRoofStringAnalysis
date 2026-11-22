@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     GrowattEnvReading,
+    GrowattInverter,
     GrowattInverterRaw,
     GrowattInverterReading,
     GrowattMeterReading,
@@ -45,9 +46,10 @@ def prune_history(db: Session, today: date, keep_days: int, string_keep_days: Op
     """Delete inverter/string/weather readings older than `keep_days` before `today` (plant-local).
     `string_keep_days` (at most `keep_days`): per-string readings get this shorter retention.
 
-    Deletes one day per transaction, oldest first, so a large first run never holds a huge
-    lock or WAL. Postgres autovacuum then reuses the freed space, which keeps the disk at a
-    steady size instead of growing forever.
+    Deletes one day per transaction, oldest first (string readings: one inverter per
+    transaction), so a large first run never holds a huge lock or WAL. Postgres autovacuum
+    then reuses the freed space, which keeps the disk at a steady size instead of growing
+    forever.
     """
     if keep_days < 1:
         raise ValueError("keep_days must be >= 1")
@@ -57,41 +59,36 @@ def prune_history(db: Session, today: date, keep_days: int, string_keep_days: Op
         raise ValueError("string_keep_days must be >= 1")
     str_cutoff = datetime.combine(today - timedelta(days=str_days), datetime.min.time())
     oldest = db.scalar(select(func.min(GrowattInverterReading.timestamp)))
-    oldest_str = db.scalar(select(func.min(GrowattStringReading.timestamp)))
     oldest_env = db.scalar(select(func.min(GrowattEnvReading.timestamp)))
     oldest_meter = db.scalar(select(func.min(GrowattMeterReading.timestamp)))
-    starts = [t for t in (oldest, oldest_str, oldest_env, oldest_meter) if t is not None]
+    starts = [t for t in (oldest, oldest_env, oldest_meter) if t is not None]
     totals: Dict[str, Any] = {
         "cutoff": cutoff.isoformat(), "string_cutoff": str_cutoff.isoformat(), "inverter_rows": 0, "string_rows": 0, "env_rows": 0, "meter_rows": 0, "days": 0,
     }
-    if not starts:
-        return totals
-    day = datetime.combine(min(starts).date(), datetime.min.time())
-    while day < str_cutoff:
-        end = min(day + timedelta(days=1), str_cutoff)
-        n_str = _rowcount(db.execute(
-            delete(GrowattStringReading).where(GrowattStringReading.timestamp >= day, GrowattStringReading.timestamp < end)
-        ))
-        n_inv = 0
-        if day < cutoff:
-            n_inv = _rowcount(db.execute(
+    # String readings: one inverter per transaction, through the primary key (device_sn, timestamp,
+    # string_no); the table has no timestamp index of its own.
+    S = GrowattStringReading
+    for sn in db.scalars(select(GrowattInverter.device_sn)).all():
+        totals["string_rows"] += _rowcount(db.execute(delete(S).where(S.device_sn == sn, S.timestamp < str_cutoff)))
+        db.commit()
+    if starts:
+        day = datetime.combine(min(starts).date(), datetime.min.time())
+        while day < cutoff:
+            end = min(day + timedelta(days=1), cutoff)
+            totals["inverter_rows"] += _rowcount(db.execute(
                 delete(GrowattInverterReading).where(
                     GrowattInverterReading.timestamp >= day, GrowattInverterReading.timestamp < end
                 )
             ))
-            n_env = _rowcount(db.execute(
+            totals["env_rows"] += _rowcount(db.execute(
                 delete(GrowattEnvReading).where(GrowattEnvReading.timestamp >= day, GrowattEnvReading.timestamp < end)
             ))
-            n_meter = _rowcount(db.execute(
+            totals["meter_rows"] += _rowcount(db.execute(
                 delete(GrowattMeterReading).where(GrowattMeterReading.timestamp >= day, GrowattMeterReading.timestamp < end)
             ))
-            totals["meter_rows"] += n_meter or 0
-            totals["env_rows"] += n_env or 0
-            totals["inverter_rows"] += n_inv or 0
             totals["days"] += 1
-        db.commit()
-        totals["string_rows"] += n_str or 0
-        day = end
+            db.commit()
+            day = end
     log.info(
         "retention: deleted %d inverter / %d weather / %d meter rows before %s, %d string rows before %s",
         totals["inverter_rows"], totals["env_rows"], totals["meter_rows"], cutoff, totals["string_rows"], str_cutoff,

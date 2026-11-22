@@ -200,6 +200,16 @@ def test_ensure_schema_adds_phase_to_an_existing_table(tmp_path):
     assert "ix_growatt_plants_phase" in {i["name"] for i in insp.get_indexes("growatt_plants")}
 
 
+def test_ensure_schema_drops_the_string_timestamp_index(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:  # a database built before Nov 2026 still has it
+        conn.execute(text("CREATE INDEX ix_growatt_str_ts ON growatt_string_readings (timestamp)"))
+    ensure_schema(engine)
+    ensure_schema(engine)  # idempotent
+    assert "ix_growatt_str_ts" not in {i["name"] for i in inspect(engine).get_indexes("growatt_string_readings")}
+
+
 def test_worker_reruns_fleet_while_plants_are_untagged(factory, monkeypatch):
     calls: list = []
 

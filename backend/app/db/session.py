@@ -94,9 +94,14 @@ _ADDED_INDEXES = [
     ("growatt_inverter_readings", "ix_growatt_inv_ts", "CREATE INDEX IF NOT EXISTS ix_growatt_inv_ts ON growatt_inverter_readings (timestamp)"),
 ]
 
+# Indexes no longer in the models, dropped from databases that still have them.
+_DROPPED_INDEXES = [
+    ("growatt_string_readings", "ix_growatt_str_ts"),
+]
+
 
 def ensure_schema(bind) -> None:
-    """create_all + add columns and indexes introduced after the table first shipped."""
+    """create_all + add columns and indexes introduced after the table first shipped, drop retired indexes."""
     Base.metadata.create_all(bind=bind)
     insp = inspect(bind)
     for table, column, ddl, index in _ADDED_COLUMNS:
@@ -110,6 +115,10 @@ def ensure_schema(bind) -> None:
         if table in tables and name not in {i["name"] for i in insp.get_indexes(table)}:
             with bind.begin() as conn:
                 conn.execute(text(ddl))
+    for table, name in _DROPPED_INDEXES:
+        if table in tables and name in {i["name"] for i in insp.get_indexes(table)}:
+            with bind.begin() as conn:
+                conn.execute(text(f"DROP INDEX IF EXISTS {name}"))
 
 
 engine = build_engine()

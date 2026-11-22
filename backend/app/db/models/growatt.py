@@ -197,7 +197,9 @@ class GrowattStringReading(Base):
     energy in 30 days and no current today is not stored."""
 
     __tablename__ = "growatt_string_readings"
-    __table_args__ = (Index("ix_growatt_str_ts", "timestamp"),)
+    # No timestamp index: every read filters by device_sn (the primary key's first column), and
+    # retention deletes per inverter. `ix_growatt_str_ts` (a fifth of the table's size) is dropped
+    # from existing databases by `session._DROPPED_INDEXES`.
 
     device_sn: Mapped[str] = mapped_column(String(64), ForeignKey("growatt_inverters.device_sn", ondelete="CASCADE"), primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)

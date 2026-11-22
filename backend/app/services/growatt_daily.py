@@ -39,7 +39,7 @@ from app.db.models import (
     GrowattStringDaily,
 )
 from app.services import epi_fit
-from app.services.growatt_common import INACTIVE_MAX_A, R, S, _bucket, _day_bounds, _integrate_kwh, capacity_check
+from app.services.growatt_common import INACTIVE_MAX_A, R, S, _bucket, oldest_string_reading, _day_bounds, _integrate_kwh, capacity_check
 from app.services.growatt_layout import load_layout, load_layout_orientations
 from app.services.tariff import Pricer, pricer as load_pricer
 from solar_core.sun import clear_sky_ghi, sun_times
@@ -883,7 +883,7 @@ def stored_days(db: Session) -> Tuple[Optional[date], Optional[date]]:
     oldest per-string reading: those are kept a shorter time (HISTORY_STRING_RETENTION_DAYS),
     and recomputing an older day would replace its stored string daily rows with none."""
     lo, hi = db.execute(select(func.min(R.timestamp), func.max(R.timestamp))).one()
-    lo_str = db.scalar(select(func.min(S.timestamp)))
+    lo_str = oldest_string_reading(db)
     if lo is not None and lo_str is not None:
         lo = max(lo, lo_str)
     return (lo.date() if lo else None, hi.date() if hi else None)

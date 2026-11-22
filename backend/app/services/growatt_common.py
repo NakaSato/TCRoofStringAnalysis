@@ -31,6 +31,17 @@ R = GrowattInverterReading
 S = GrowattStringReading
 
 
+def oldest_string_reading(db: Session) -> Optional[datetime]:
+    """Oldest per-string reading. `growatt_string_readings` has no timestamp index (dropped Nov
+    2026, 145 MB used only by retention), so this is one primary-key lookup per inverter instead
+    of a scan of the whole table."""
+    found = [
+        db.scalar(select(func.min(S.timestamp)).where(S.device_sn == sn))
+        for sn in db.scalars(select(GrowattInverter.device_sn))
+    ]
+    return min((t for t in found if t is not None), default=None)
+
+
 # --------------------------------------------------------------------------- plant capacity
 
 # A plant's DC capacity is never this many times its inverters' rated AC power (real plants
