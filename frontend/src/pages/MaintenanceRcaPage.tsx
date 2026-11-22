@@ -7,6 +7,7 @@ import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,6 +23,7 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
   const [rcaRecords, setRcaRecords] = useState<RCARecord[]>([]);
   const [showRcaForm, setShowRcaForm] = useState<boolean>(false);
   const [showPmForm, setShowPmForm] = useState<boolean>(false);
+  const [cmSyncing, setCmSyncing] = useState(false);
 
   // New PM Task state
   const [newPmId, setNewPmId] = useState("PM-PV-006");
@@ -119,11 +121,14 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
       alert(t("No legacy analysis run to build CM work orders from."));
       return;
     }
+    setCmSyncing(true);
     try {
       const orders = await api.regenerateCmWorkOrders(analysisRun.id);
       setCmOrders(orders);
     } catch (err: any) {
       alert(err.message);
+    } finally {
+      setCmSyncing(false);
     }
   };
 
@@ -352,8 +357,8 @@ export const MaintenanceRcaPage: React.FC<{ top?: React.ReactNode }> = ({ top })
           title={t("Corrective Maintenance (CM) & Troubleshooting Work Orders")}
           subtitle={t("Auto-generated from string fault diagnostics + active Inverter / Switchgear alarms")}
           actions={
-            <Button onClick={handleRegenerateCm} size="sm">
-              <RefreshCw className="h-3.5 w-3.5" />
+            <Button onClick={handleRegenerateCm} size="sm" disabled={cmSyncing}>
+              {cmSyncing ? <Spinner data-icon="inline-start" className="size-3.5" /> : <RefreshCw data-icon="inline-start" className="size-3.5" />}
               {t("Sync from Analysis")}
             </Button>
           }

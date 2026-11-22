@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import { Zap, Gauge, Cpu, Settings, ChevronRight, ChevronUp, Sun, Activity, Coins, Info, AlertCircle, Bell, LayoutGrid, Eye } from "lucide-react";
 import { getLastPlantId } from "../../context/routes";
 import { Led, fmt, fmtInt } from "../ui";
+import { Spinner } from "@/components/ui/spinner";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { MultiSegmentDonut } from "./parts";
 import { useI18n } from "../../i18n";
@@ -21,12 +22,12 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
   const yl = heroMetrics.yieldLive;
   const sweeping = yl.checked < yl.total;
   const kpiFresh = yl.loading || growattLiveStatus.loading
-    ? { level: "off" as const, text: t("Loading…") }
+    ? { level: "off" as const, text: t("Loading…"), busy: true }
     : yl.stale || growattLiveStatus.stale
-      ? { level: "warn" as const, text: `${t("Last sync")}${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` }
+      ? { level: "warn" as const, text: `${t("Last sync")}${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}`, busy: false }
       : sweeping
-        ? { level: "warn" as const, text: t("Checking {n}/{total}", { n: yl.checked, total: yl.total }) }
-        : { level: "ok" as const, text: `${t("Live")}${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}` };
+        ? { level: "warn" as const, text: t("Checking {n}/{total}", { n: yl.checked, total: yl.total }), busy: true }
+        : { level: "ok" as const, text: `${t("Live")}${yl.fetchedAt ? ` · ${hhmmLocal(yl.fetchedAt)}` : ""}`, busy: false };
   const il = heroMetrics.invLive;
   const invHint = t(
     "Live from Growatt (maxs_data, not stored): each inverter's newest record. Normal / waiting / fault = a record from today with that status; offline = no record today{other}. {n} of {total} inverters answered so far.",
@@ -84,7 +85,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold tracking-tight text-white">{t("Plant KPIs")}</h3>
               <span className="num inline-flex items-center gap-1.5 text-[11px] text-slate-400" title={todayHint}>
-                <Led level={kpiFresh.level} pulse={kpiFresh.level === "ok"} />
+                {kpiFresh.busy ? <Spinner className="size-3" /> : <Led level={kpiFresh.level} pulse={kpiFresh.level === "ok"} />}
                 {kpiFresh.text}
               </span>
               <Link
