@@ -492,7 +492,11 @@ export const OverviewPage: React.FC = () => {
                         f: fmt(curt.factor, 3),
                         n: curt.slots,
                         note: meterStoredOnly,
-                      }),
+                      }) + " " + (curt.calibration?.ratio != null
+                        ? t(curt.calibration.status === "plant"
+                            ? "Model scaled to {r} %: how this plant ran when nothing held it back over the 14 days before."
+                            : "Model scaled to {r} %: the fleet's ratio, as this plant had too few free-running slots of its own.", { r: fmt(curt.calibration.ratio * 100, 0) })
+                        : t("Model not checked yet against free running, so it may read high.")),
                     },
                     ] : []),
                   ]}

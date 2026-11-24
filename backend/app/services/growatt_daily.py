@@ -697,6 +697,7 @@ def _plant_day(
     epi = round(meas_kw_sum / mod_kw_sum, 4) if valid_slots >= 6 and mod_kw_sum > 0 else None
     modelled_energy_kwh = round(mod_kw_sum * SLOT_H, 3) if valid_slots >= 6 and mod_kw_sum > 0 else None
     sensor = _sensor_evidence(db, plant, day, wx_by_slot, stale_ts)
+    curt = _curtailment_day(db, plant.plant_id, day)
 
     db.add(
         GrowattPlantDaily(
@@ -720,8 +721,32 @@ def _plant_day(
             clipped_masked_slots=len(clipped_slots_set),
             curtailed_masked_slots=len(curtailed_slots_set),
             **sensor,
+            **curt,
         )
     )
+
+
+def _curtailment_day(db: Session, plant_id: int, day: date) -> Dict[str, Any]:
+    """The day's curtailment estimate and free-running evidence, as the plant's power curve
+    computes them (`growatt_overview.build_plant_power`, calibrated by the days before)."""
+    from app.services.growatt_overview import build_plant_power
+
+    c = build_plant_power(db, plant_id, day).get("curtailment") or {}
+    cal = c.get("calibration") or {}
+    by = c.get("by") or {}
+    judged = c.get("kwh") is not None
+    return {
+        "curtailed_kwh": c.get("kwh"),
+        "curtailed_slots": c.get("slots") if judged else None,
+        "curtail_judged_slots": c.get("judged_slots"),
+        "curtailed_export_kwh": by.get("export_limit", 0.0) if judged else None,
+        "curtailed_limit_kwh": by.get("power_limit", 0.0) if judged else None,
+        "curtail_ratio": cal.get("ratio"),
+        "curtail_ratio_slots": cal.get("slots"),
+        "curtail_ratio_source": cal.get("status") if cal.get("ratio") is not None else None,
+        "free_ratio": c.get("free_ratio"),
+        "free_slots": c.get("free_slots"),
+    }
 
 
 def _sensor_evidence(

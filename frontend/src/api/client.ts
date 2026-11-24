@@ -30,7 +30,7 @@ export type * from "./types/kbDocs";
 export type * from "./types/visitRoute";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
-import type { FleetAlarmDay, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, LiveStringOperating, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, PlantKpiDaily, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, PlantDocument, PlantDocumentKind, PlantDocumentRow, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
+import type { FleetAlarmDay, FleetCurtailment, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, LiveStringOperating, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, PlantKpiDaily, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, PlantDocument, PlantDocumentKind, PlantDocumentRow, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay, FleetRadarRain, PlantRadarRain, RainRadar } from "./types/weather";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
@@ -260,6 +260,9 @@ export const api = {
     apiFetch<PlantDocument>(`/growatt/plants/${plantId}/documents/${kind}`, { method: "PUT", body: JSON.stringify(body) }),
   deletePlantDocument: (plantId: number, kind: PlantDocumentKind) =>
     apiFetch<{ removed: boolean }>(`/growatt/plants/${plantId}/documents/${kind}`, { method: "DELETE" }),
+  /** every visible plant's curtailment over `start`..`end` (≤ 92 days; DB only, estimated) */
+  getFleetCurtailment: (start: string, end: string) =>
+    apiFetch<FleetCurtailment>(`/growatt/curtailment?${new URLSearchParams({ start, end })}`),
   /** `records: "false"`: only Growatt's own figures (curve, daily kWh), no stored records read */
   getGrowattPlantPower: (plantId: number, q: { day: string; end_day?: string | null; start?: string; end?: string; records?: "false" }) =>
     apiFetch<GrowattPlantPower>(

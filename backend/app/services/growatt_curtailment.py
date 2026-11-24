@@ -22,13 +22,29 @@ a sensor spike does not read as curtailment. `curtailed_kw` = available − AC i
 slot judged not curtailed, null where it cannot be judged (no sensor reading, a stale or
 low-irradiance slot, no module temperature, a sum over fewer inverters than the plant has, or no
 inverter record). Nothing is assumed: without a sensor or kWp every value is null.
+
+**Calibration** (Nov 2026). The model alone reads high: with the default factor 0.985, plants
+running freely at midday gave a median 86 % of it (53 never-curtailed plants, 21–23 Nov 2026;
+P2_20: 55–65 %), and on a zero-export plant the EPI fit cannot fix that, since curtailment pulls
+its EPI down too. So each plant's model is scaled by how the plant really runs when nothing holds
+it back: a **free** slot is a judged slot between `FREE_HOURS` with POA ≥ `FREE_MIN_POA_WM2`, the
+plant importing more than `FREE_IMPORT_FRAC` of the model (the load is well above the PV, so a
+zero-export controller lets it run), not at the power limit and not clipped at rated AC.
+`free_ratio` = median AC ÷ model of a day's free slots (stored per day, `growatt_plant_daily`);
+a day's `calibration` = the slot-weighted mean of the plant's daily free ratios over the
+`CALIBRATION_DAYS` before it (never the day itself), used when they hold ≥ `CALIBRATION_MIN_SLOTS`
+free slots (`source: plant`). A plant with fewer (a zero-export plant held back all midday rarely
+runs free then; no meter) takes the fleet's slot-weighted ratio over the same days, from at least
+`FLEET_MIN_PLANTS` plants (`source: fleet`); without either the plain model stays (`not_checked`).
+`available_kw` is then model × ratio (still **modelled**).
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import statistics
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import GrowattInverter, inverter_installed
@@ -41,6 +57,12 @@ MIN_GAP_KW = 1.0
 EXPORT_BAND_KW = 3.0  # |grid| at or under max(this, EXPORT_BAND_FRAC × kWp) = the meter holds ~0
 EXPORT_BAND_FRAC = 0.03
 LIMIT_FRACTION = 0.98  # as growatt_daily.CLIP_FRACTION
+FREE_HOURS = (9, 15)  # plant-local [start, end) hours: the sun angles curtailment happens at
+FREE_MIN_POA_WM2 = 400.0
+FREE_IMPORT_FRAC = 0.30  # import above this share of the model = surely not held back (controller lag included)
+CALIBRATION_DAYS = 14
+CALIBRATION_MIN_SLOTS = 12  # one hour of free running over the window
+FLEET_MIN_PLANTS = 10
 _TS = "%Y-%m-%d %H:%M:%S"
 
 
@@ -70,18 +92,23 @@ def annotate(
     inverter_count: int,
     stale: Iterable[str] = (),
     tmod_fallback: Optional[Dict[str, Optional[float]]] = None,
+    calibration: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Adds `available_kw` (modelled), `curtailed_kw` (estimated) and `curtailed_by`
     (`export_limit` / `power_limit` / None) to each curve row in place, and returns the period's
     summary {kwh, slots, judged_slots, by: {cause: kwh}, reason}. `rows` need `pac_kw`,
     `inverters`, `irradiance_wm2`, `module_temp_c` (optional) and, for `export_limit`,
     `grid_import_kw` / `grid_export_kw`. `tmod_fallback` = {day: the day's measured module
-    temperature}, used where a slot has none. `kwh` is null when no slot could be judged."""
+    temperature}, used where a slot has none. `calibration` = {day: `calibration()`}: the model is
+    scaled by that day's ratio where it has one. `kwh` is null when no slot could be judged.
+    `free_ratio` / `free_slots` are measured against the plain model (stored per day)."""
     stale_set: Set[str] = set(stale)
     fallback = tmod_fallback or {}
     band = max(EXPORT_BAND_KW, EXPORT_BAND_FRAC * kwp) if kwp else EXPORT_BAND_KW
     flagged: Dict[str, str] = {}
     judged = 0
+    cal = calibration or {}
+    free: List[float] = []
     for r in rows:
         r["available_kw"] = None
         r["curtailed_kw"] = None
@@ -97,7 +124,9 @@ def annotate(
             t_mod = fallback.get(ts[:10])
         if t_mod is None:
             continue
-        avail = kwp * (float(g) / 1000.0) * max(0.5, 1.0 + (gamma_pct / 100.0) * (float(t_mod) - 25.0)) * factor
+        model = kwp * (float(g) / 1000.0) * max(0.5, 1.0 + (gamma_pct / 100.0) * (float(t_mod) - 25.0)) * factor
+        ratio = (cal.get(ts[:10]) or {}).get("ratio")
+        avail = model * ratio if ratio else model
         if rated_ac_kw:
             avail = min(avail, rated_ac_kw)
         r["available_kw"] = round(avail, 2)
@@ -105,6 +134,17 @@ def annotate(
             continue
         judged += 1
         r["curtailed_kw"] = 0.0
+        imp = r.get("grid_import_kw")
+        if (
+            FREE_HOURS[0] <= int(ts[11:13]) < FREE_HOURS[1]
+            and g >= FREE_MIN_POA_WM2
+            and imp is not None
+            and model > 0
+            and imp > max(band, FREE_IMPORT_FRAC * model)
+            and not (limit_kw and pac >= LIMIT_FRACTION * limit_kw)
+            and not (rated_ac_kw and (model >= rated_ac_kw or pac >= LIMIT_FRACTION * rated_ac_kw))
+        ):
+            free.append(float(pac) / model)
         gap = avail - float(pac)
         if gap < max(MIN_GAP_KW, MIN_GAP_FRAC * avail):
             continue
@@ -136,6 +176,8 @@ def annotate(
     reason = None
     if not judged:
         reason = "no_capacity" if not kwp else "no_sensor_slots"
+    days = sorted({r["timestamp"][:10] for r in rows if r.get("available_kw") is not None})
+    used = [cal[d] for d in days if (cal.get(d) or {}).get("ratio")]
     return {
         "kwh": round(kwh, 1) if judged else None,
         "slots": slots,
@@ -145,6 +187,144 @@ def annotate(
         "estimated": True,
         "factor": factor,
         "limit_kw": round(limit_kw, 1) if limit_kw else None,
+        # the model's scale of the period's last modelled day: `plant` (its own free slots),
+        # `fleet` (the fleet's ratio) or `not_checked` (plain model); `ratio` = mean over the days
+        "calibration": {
+            "status": (cal.get(days[-1]) or {}).get("source") or "not_checked" if days else "not_checked",
+            "ratio": round(statistics.mean(c["ratio"] for c in used), 3) if used else None,
+            "slots": (cal.get(days[-1]) or {}).get("slots", 0) if days else 0,
+            "days": CALIBRATION_DAYS,
+        },
+        "free_ratio": round(statistics.median(free), 3) if free else None,
+        "free_slots": len(free),
+    }
+
+
+def calibration(db: Session, plant_id: int, days: Sequence[date]) -> Dict[str, Dict[str, Any]]:
+    """{day: {ratio, slots, source}} per day in `days`, from the stored daily free ratios of the
+    CALIBRATION_DAYS before that day (slot-weighted): the plant's own (`plant`, ≥
+    CALIBRATION_MIN_SLOTS free slots), else the fleet's (`fleet`, ≥ FLEET_MIN_PLANTS plants;
+    `slots` = the plant's own), else `ratio` null (`source` null)."""
+    from app.db.models import GrowattPlantDaily as PD
+
+    if not days:
+        return {}
+    lo, hi = min(days) - timedelta(days=CALIBRATION_DAYS), max(days)
+    stored = [
+        (int(p), d, float(r), int(n))
+        for p, d, r, n in db.execute(
+            select(PD.plant_id, PD.day, PD.free_ratio, PD.free_slots).where(
+                PD.day >= lo, PD.day < hi, PD.free_ratio.is_not(None), PD.free_slots > 0
+            )
+        )
+    ]
+    out: Dict[str, Dict[str, Any]] = {}
+    for day in days:
+        win = [(p, r, n) for p, d, r, n in stored if day - timedelta(days=CALIBRATION_DAYS) <= d < day]
+        own = [(r, n) for p, r, n in win if p == plant_id]
+        n_own = sum(n for _, n in own)
+        if n_own >= CALIBRATION_MIN_SLOTS:
+            out[day.isoformat()] = {"ratio": round(sum(r * n for r, n in own) / n_own, 3), "slots": n_own, "source": "plant"}
+            continue
+        n_all = sum(n for _, _, n in win)
+        if len({p for p, _, _ in win}) >= FLEET_MIN_PLANTS and n_all:
+            out[day.isoformat()] = {"ratio": round(sum(r * n for _, r, n in win) / n_all, 3), "slots": n_own, "source": "fleet"}
+            continue
+        out[day.isoformat()] = {"ratio": None, "slots": n_own, "source": None}
+    return out
+
+
+def fleet(db: Session, start: date, end: date, plant_ids: Optional[Iterable[int]] = None) -> Dict[str, Any]:
+    """Curtailment of every plant (`plant_ids` = the user's scope; None = all) over `start`..`end`
+    from the stored daily rows (DB only): per plant the curtailed kWh (estimated), the days with
+    any, produced kWh, the share of produced + curtailed, cause split and its last day's
+    calibration; per day the fleet totals."""
+    from app.db.models import GrowattPlant, GrowattPlantDaily as PD
+
+    q = select(PD).where(PD.day >= start, PD.day <= end)
+    plants_q = select(GrowattPlant)
+    if plant_ids is not None:
+        ids = list(plant_ids)
+        q = q.where(PD.plant_id.in_(ids))
+        plants_q = plants_q.where(GrowattPlant.plant_id.in_(ids))
+    plants = {p.plant_id: p for p in db.scalars(plants_q)}
+    per: Dict[int, Dict[str, Any]] = {}
+    days: Dict[str, Dict[str, Any]] = {}
+    for r in db.scalars(q.order_by(PD.day)):
+        if r.plant_id not in plants:
+            continue
+        p = per.setdefault(r.plant_id, {
+            "kwh": None, "energy_kwh": None, "days": 0, "judged_days": 0, "curtailed_days": 0,
+            "export_limit_kwh": 0.0, "power_limit_kwh": 0.0, "slots": 0, "last": None,
+        })
+        p["days"] += 1
+        if r.energy_kwh is not None:
+            p["energy_kwh"] = (p["energy_kwh"] or 0.0) + float(r.energy_kwh)
+        d = days.setdefault(r.day.isoformat(), {"day": r.day.isoformat(), "kwh": None, "plants": 0, "energy_kwh": None})
+        if r.energy_kwh is not None:
+            d["energy_kwh"] = (d["energy_kwh"] or 0.0) + float(r.energy_kwh)
+        if r.curtailed_kwh is None:
+            continue
+        p["judged_days"] += 1
+        p["kwh"] = (p["kwh"] or 0.0) + float(r.curtailed_kwh)
+        d["kwh"] = (d["kwh"] or 0.0) + float(r.curtailed_kwh)
+        p["slots"] += int(r.curtailed_slots or 0)
+        p["export_limit_kwh"] += float(r.curtailed_export_kwh or 0.0)
+        p["power_limit_kwh"] += float(r.curtailed_limit_kwh or 0.0)
+        p["last"] = r
+        if r.curtailed_kwh > 0:
+            p["curtailed_days"] += 1
+            d["plants"] += 1
+    rows = []
+    for pid, p in per.items():
+        pl, last = plants[pid], p["last"]
+        kwh, e = p["kwh"], p["energy_kwh"]
+        rows.append({
+            "plant_id": pid,
+            "name": pl.name,
+            "phase": pl.phase,
+            "capacity_kwp": last.capacity_kwp if last is not None else None,
+            "curtailed_kwh": round(kwh, 1) if kwh is not None else None,
+            "energy_kwh": round(e, 1) if e is not None else None,
+            # share of what the plant could have given (produced + curtailed)
+            "curtailed_pct": round(kwh / (e + kwh) * 100.0, 1) if kwh and e is not None and e + kwh > 0 else (0.0 if kwh == 0 else None),
+            "days": p["days"],
+            "judged_days": p["judged_days"],
+            "curtailed_days": p["curtailed_days"],
+            "curtailed_slots": p["slots"],
+            "by": {"export_limit": round(p["export_limit_kwh"], 1), "power_limit": round(p["power_limit_kwh"], 1)},
+            "last_curtailed_day": None,
+            "calibration": {
+                "ratio": last.curtail_ratio if last is not None else None,
+                "slots": last.curtail_ratio_slots if last is not None else None,
+                "status": (last.curtail_ratio_source or "not_checked") if last is not None and last.curtail_ratio is not None else "not_checked",
+            },
+        })
+    last_day = {
+        pid: d.isoformat()
+        for pid, d in db.execute(
+            select(PD.plant_id, func.max(PD.day)).where(PD.day >= start, PD.day <= end, PD.curtailed_kwh > 0).group_by(PD.plant_id)
+        )
+    }
+    for r in rows:
+        r["last_curtailed_day"] = last_day.get(r["plant_id"])
+    rows.sort(key=lambda r: (r["curtailed_kwh"] is None, -(r["curtailed_kwh"] or 0.0)))
+    judged = [r for r in rows if r["curtailed_kwh"] is not None]
+    return {
+        "meta": {"source": "db", "start": start.isoformat(), "end": end.isoformat(), "estimated": True,
+                 "calibration_days": CALIBRATION_DAYS, "calibration_min_slots": CALIBRATION_MIN_SLOTS},
+        "summary": {
+            "plants": len(rows),
+            "judged_plants": len(judged),
+            "curtailed_plants": sum(1 for r in judged if (r["curtailed_kwh"] or 0) > 0),
+            "plant_calibrated": sum(1 for r in judged if r["calibration"]["status"] == "plant"),
+            "fleet_calibrated": sum(1 for r in judged if r["calibration"]["status"] == "fleet"),
+            "curtailed_kwh": round(sum(r["curtailed_kwh"] or 0.0 for r in judged), 1) if judged else None,
+            "energy_kwh": round(sum(r["energy_kwh"] or 0.0 for r in rows), 1) if rows else None,
+        },
+        "plants": rows,
+        "days": [{**d, "kwh": round(d["kwh"], 1) if d["kwh"] is not None else None,
+                  "energy_kwh": round(d["energy_kwh"], 1) if d["energy_kwh"] is not None else None} for d in sorted(days.values(), key=lambda x: x["day"])],
     }
 
 

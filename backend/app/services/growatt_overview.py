@@ -581,6 +581,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         inverter_count=len(c_invs),
         stale=growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2"),
         tmod_fallback={day.isoformat(): wk.get("irradiance_weighted_module_temp_c") or wk.get("avg_module_temp_daylight_c")} if day else None,
+        calibration=growatt_curtailment.calibration(db, plant_id, [day]) if day else None,
     )
 
     # Loss waterfall — a modelled breakdown; only built when every input is measured. With a
@@ -867,6 +868,7 @@ def build_plant_power(
         inverter_count=len(c_invs),
         stale=stale,
         tmod_fallback=tmod_day,
+        calibration=growatt_curtailment.calibration(db, plant_id, [day + timedelta(days=i) for i in range((last_day - day).days + 1)]),
     )
     c_days = growatt_curtailment.per_day(curve)
     for row in daily:

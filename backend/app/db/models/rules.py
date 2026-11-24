@@ -121,6 +121,17 @@ class GrowattPlantDaily(Base):
     cloud_midday_pct: Mapped[Optional[float]] = mapped_column(Float)  # Google Weather (modelled) mean cloud cover 10:00–14:00
     sensor_neighbour_ratio: Mapped[Optional[float]] = mapped_column(Float)  # midday irradiance ÷ median of neighbouring plants' sensors
     sensor_neighbours: Mapped[Optional[int]] = mapped_column(Integer)
+    # curtailment of the day (estimated, services/growatt_curtailment.py; null = no slot judged)
+    curtailed_kwh: Mapped[Optional[float]] = mapped_column(Float)
+    curtailed_slots: Mapped[Optional[int]] = mapped_column(Integer)
+    curtail_judged_slots: Mapped[Optional[int]] = mapped_column(Integer)
+    curtailed_export_kwh: Mapped[Optional[float]] = mapped_column(Float)  # zero export: PV followed the load
+    curtailed_limit_kwh: Mapped[Optional[float]] = mapped_column(Float)  # at the power-limit setting
+    curtail_ratio: Mapped[Optional[float]] = mapped_column(Float)  # model scale used (calibration of the 14 days before; null = plain model)
+    curtail_ratio_slots: Mapped[Optional[int]] = mapped_column(Integer)  # the plant's own free slots in that window
+    curtail_ratio_source: Mapped[Optional[str]] = mapped_column(String(8))  # plant | fleet (null = plain model)
+    free_ratio: Mapped[Optional[float]] = mapped_column(Float)  # median AC ÷ plain model over the day's free slots (measured ÷ modelled)
+    free_slots: Mapped[Optional[int]] = mapped_column(Integer)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 

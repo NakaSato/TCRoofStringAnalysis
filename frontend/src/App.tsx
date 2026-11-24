@@ -29,6 +29,7 @@ const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "Growatt
 const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAlarmPage");
 const PlantMapPage = page(() => import("./pages/PlantMapPage"), "PlantMapPage");
 const SensorsPage = page(() => import("./pages/SensorsPage"), "SensorsPage");
+const CurtailmentPage = page(() => import("./pages/CurtailmentPage"), "CurtailmentPage");
 const PlantSensorsPage = page(() => import("./pages/SensorsPage"), "PlantSensorsPage");
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
 const SystemLogsPage = page(() => import("./pages/SystemLogsPage"), "SystemLogsPage");
@@ -157,6 +158,7 @@ export const App: React.FC = () => {
             <Route path="kb/:slug" element={<KbArticlePage />} />
             <Route path="kb/:slug/edit" element={<KbEditorPage />} />
             <Route path="energy-billing" element={<OmCenterPage />} />
+            <Route path="curtailment" element={<CurtailmentPage />} />
             <Route path="center" element={<CenterRedirect />} />
             <Route path="center/*" element={<PwaMeterRedirect />} />
             <Route path="pwa-meter" element={<PwaMeterRedirect />} />

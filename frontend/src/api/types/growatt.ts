@@ -492,6 +492,58 @@ export interface Curtailment {
   /** the EPI system factor in the model */
   factor: number;
   limit_kw: number | null;
+  /** the model's scale (how the plant runs when free, over the 14 days before): `plant` = its own
+   *  free slots, `fleet` = the fleet's ratio, `not_checked` = plain model */
+  calibration?: CurtailCalibration;
+  /** median AC ÷ plain model over this period's free slots (measured ÷ modelled); null = none */
+  free_ratio?: number | null;
+  free_slots?: number;
+}
+
+export type CurtailCalibrationSource = "plant" | "fleet" | "not_checked";
+
+export interface CurtailCalibration {
+  status: CurtailCalibrationSource;
+  /** model × ratio = the available power drawn and judged against; null = plain model */
+  ratio: number | null;
+  /** the plant's own free slots in the window */
+  slots: number | null;
+  days?: number;
+}
+
+/** `/growatt/curtailment`: every visible plant's curtailment over a period (DB only, estimated). */
+export interface FleetCurtailmentPlant {
+  plant_id: number;
+  name: string;
+  phase: number | null;
+  capacity_kwp: number | null;
+  /** null = no day of the period could be judged (no sensor, no kWp) */
+  curtailed_kwh: number | null;
+  energy_kwh: number | null;
+  /** curtailed ÷ (produced + curtailed) */
+  curtailed_pct: number | null;
+  days: number;
+  judged_days: number;
+  curtailed_days: number;
+  curtailed_slots: number;
+  by: Record<CurtailCause, number>;
+  last_curtailed_day: string | null;
+  calibration: CurtailCalibration;
+}
+
+export interface FleetCurtailment {
+  meta: { source: "db"; start: string; end: string; estimated: true; calibration_days: number; calibration_min_slots: number };
+  summary: {
+    plants: number;
+    judged_plants: number;
+    curtailed_plants: number;
+    plant_calibrated: number;
+    fleet_calibrated: number;
+    curtailed_kwh: number | null;
+    energy_kwh: number | null;
+  };
+  plants: FleetCurtailmentPlant[];
+  days: Array<{ day: string; kwh: number | null; plants: number; energy_kwh: number | null }>;
 }
 
 /** The EPI model's system factor in use for a plant (backend services/epi_fit.py). Modelled. */

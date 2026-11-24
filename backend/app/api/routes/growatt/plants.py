@@ -250,3 +250,30 @@ def fleet_alarms(
     out["meta"]["last_run_at"] = last.isoformat() if last else None
     out["meta"]["next_run_at"] = nxt.isoformat() if nxt else None
     return out
+
+
+CURTAILMENT_MAX_DAYS = 92
+
+
+@router.get("/curtailment")
+def fleet_curtailment(
+    start: Optional[date] = Query(None, description="First plant-local day (default: 6 days before `end`)"),
+    end: Optional[date] = Query(None, description="Last plant-local day (default: today)"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Curtailment of every plant the user may see over `start`..`end` (≤ 92 days), from the
+    stored daily rows (DB only; the `rules_*` jobs fill them): curtailed kWh (**estimated**, the
+    model calibrated per plant on how it runs when free), produced kWh, share, cause and the
+    calibration behind it, plus fleet totals per day (services/growatt_curtailment.fleet)."""
+    from datetime import timedelta
+
+    from app.services import growatt_curtailment
+
+    e = end or datetime.now(timezone.utc).astimezone(jobs.PLANT_TZ).date()
+    s = start or e - timedelta(days=6)
+    if s > e:
+        raise HTTPException(status_code=422, detail="start is after end")
+    if (e - s).days + 1 > CURTAILMENT_MAX_DAYS:
+        raise HTTPException(status_code=422, detail=f"A period covers at most {CURTAILMENT_MAX_DAYS} days")
+    return growatt_curtailment.fleet(db, s, e, allowed_plant_ids(db, user))
