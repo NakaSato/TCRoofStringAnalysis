@@ -273,3 +273,16 @@ test("store: migrates v1 installs (unchanged TC LAN seeds removed, current seeds
   await store.seedIfEmpty();
   assert.equal((await store.listProfiles()).length, 3);
 });
+
+test("strings: Thai table covers every English key with the same placeholders", async () => {
+  const { EN, TH, setLang, t, tValue } = await import("../lib/strings.js");
+  const vars = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+  assert.deepEqual(Object.keys(TH).sort(), Object.keys(EN).sort());
+  for (const k of Object.keys(EN)) assert.deepEqual(vars(TH[k]), vars(EN[k]), k);
+  assert.equal(setLang("th"), "th");
+  assert.equal(t("pendingOn", { adapter: "Ethernet", sec: 21 }), "⚠ รอยืนยันที่ Ethernet · 21 วินาที");
+  assert.equal(tValue("st", "Disconnected"), "ไม่ได้เสียบสาย");
+  assert.equal(tValue("st", "Unknown"), "Unknown");
+  assert.equal(setLang("en"), "en");
+  assert.equal(t("keep"), "Keep");
+});

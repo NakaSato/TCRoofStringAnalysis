@@ -1,6 +1,6 @@
 // Options page: profile CRUD, import / export, rollback seconds, helper status, audit log.
 
-import { t, applyStrings } from "./lib/strings.js";
+import { t, applyStrings, setLang, tValue } from "./lib/strings.js";
 import { callHost, requestBadgeRefresh, PROTOCOL_VERSION } from "./lib/host.js";
 import { el, clear, $ } from "./lib/dom.js";
 import { validateProfile, profileSummary, formatConfig } from "./lib/net.js";
@@ -268,11 +268,11 @@ async function loadAudit() {
     el("thead", {}, el("tr", {}, [t("aTime"), t("aAction"), t("aAdapter"), t("aChange"), t("aProfile"), t("aResult")].map((h) => el("th", {}, h)))),
     el("tbody", {}, entries.map((a) => el("tr", { class: a?.result === "error" ? "bad" : "" },
       el("td", { class: "nowrap" }, fmtTime(a?.time)),
-      el("td", {}, String(a?.action ?? ""), a?.source ? el("div", { class: "muted small" }, String(a.source)) : null),
+      el("td", {}, tValue("act", a?.action ?? ""), a?.source ? el("div", { class: "muted small" }, String(a.source)) : null),
       el("td", {}, String(a?.adapter ?? "")),
       el("td", {}, formatConfig(a?.from), el("div", { class: "muted" }, "→ ", formatConfig(a?.to))),
       el("td", {}, String(a?.profile ?? "")),
-      el("td", {}, String(a?.result ?? ""),
+      el("td", {}, tValue("res", a?.result ?? ""),
         a?.test ? el("div", { class: "muted small" }, a.test.ok ? t("pingOk", { host: a.test.host, ms: a.test.rttMs }) : t("pingFail", { host: a.test.host })) : null,
         a?.detail ? el("div", { class: "muted small" }, typeof a.detail === "string" ? a.detail : JSON.stringify(a.detail)) : null)))))));
 }
@@ -284,7 +284,14 @@ function onHash() {
 }
 
 async function init() {
+  try { setLang((await getSettings()).lang); } catch { setLang(""); }
   applyStrings(document);
+  const langSel = $("#lang");
+  langSel.value = (await getSettings()).lang;
+  langSel.addEventListener("change", async () => {
+    await saveSettings({ lang: langSel.value });
+    location.reload();
+  });
   $("#newBtn").addEventListener("click", () => openForm(null));
   $("#importFile").addEventListener("change", onImport);
   $("#exportBtn").addEventListener("click", onExport);
@@ -304,6 +311,7 @@ async function init() {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.profiles) reloadProfiles();
+  if (area === "local" && changes.settings && changes.settings.oldValue?.lang !== changes.settings.newValue?.lang) location.reload();
 });
 
 init();

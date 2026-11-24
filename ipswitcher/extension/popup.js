@@ -1,13 +1,13 @@
 // Popup: adapters, profiles, inline confirm, pending Keep / Revert, custom address, ping (spec §14.2).
 
-import { t, applyStrings } from "./lib/strings.js";
+import { t, applyStrings, setLang, currentLang, tValue } from "./lib/strings.js";
 import { callHost, requestBadgeRefresh, PROTOCOL_VERSION } from "./lib/host.js";
 import { el, clear, $ } from "./lib/dom.js";
 import {
   validateProfile, formatConfig, profileToConfig, profileSummary, findOverlaps, applyArgs,
   parsePrefix, testHostProblem,
 } from "./lib/net.js";
-import { listProfiles, getSettings, saveSettings, saveProfile, seedIfEmpty } from "./lib/store.js";
+import { listProfiles, getSettings, saveSettings, saveProfile, seedIfEmpty, rememberRecent } from "./lib/store.js";
 
 const state = {
   health: null,          // health data, or null
@@ -203,7 +203,7 @@ function renderResult() {
 // ---------- adapters ----------
 
 function liveText(a) {
-  if (a.status !== "Up") return a.status;
+  if (a.status !== "Up") return tValue("st", a.status);
   const mode = a.dhcp ? t("modeDhcp") : t("modeStatic");
   return a.ips?.length ? `${mode} ${a.ips.join(", ")}` : `${mode} · ${t("noAddress")}`;
 }
@@ -226,6 +226,7 @@ function renderAdapters() {
         a.isWifi ? el("span", { class: "chip" }, t("wifi")) : null),
       el("span", { class: "live" }, liveText(a), st ? el("span", { class: "muted" }, ` · ${t("staticFrom", { profile: st.profile || t("customName") })}`) : null)));
   }
+  renderQuick();
 }
 
 function onSelectAdapter(index) {
@@ -263,12 +264,41 @@ function renderProfiles() {
   const q = $("#profileSearch").value.trim();
   $("#profileCount").textContent = q ? t("profileCount", { shown: shown.filter((p) => p.id !== "dhcp").length, total: state.profiles.length - 1 }) : "";
   if (q && !shown.some((p) => p.id !== "dhcp")) box.append(el("p", { class: "muted small" }, t("noMatch", { q })));
-  for (const p of shown) {
+  const row = (p) => {
     const active = state.confirm?.profile?.id === p.id;
-    box.append(el("button", { type: "button", class: `item profile${active ? " sel" : ""}`, onclick: () => openConfirm(p) },
-      el("span", { class: "name" }, "▶ ", p.name),
-      el("span", { class: "live" }, profileSummary(p))));
+    // "P2-055 · สถานีผลิตน้ำหนองกลางดง" → code in bold, the name underneath (no cut-off names).
+    const cut = p.name.indexOf(" · ");
+    const head = cut > 0 ? p.name.slice(0, cut) : p.name;
+    const sub = cut > 0 ? p.name.slice(cut + 3) : "";
+    return el("button", { type: "button", class: `item profile${active ? " sel" : ""}`, onclick: () => openConfirm(p), title: p.note || "" },
+      el("span", { class: "pmain" }, el("span", { class: "phead" }, head), sub ? el("span", { class: "psub" }, sub) : null),
+      el("span", { class: "live" }, profileSummary(p)));
+  };
+  const recentIds = q ? [] : (state.settings?.recent || []);
+  const recent = recentIds.map((id) => state.profiles.find((p) => p.id === id)).filter(Boolean);
+  const dhcp = shown.filter((p) => p.id === "dhcp");
+  const rest = shown.filter((p) => p.id !== "dhcp" && !recent.includes(p));
+  for (const p of dhcp) box.append(row(p));
+  if (recent.length) {
+    box.append(el("div", { class: "group" }, t("recent")));
+    for (const p of recent) box.append(row(p));
+    if (rest.length) box.append(el("div", { class: "group" }, t("allProfiles")));
   }
+  for (const p of rest) box.append(row(p));
+}
+
+// One big "back to automatic" button while the selected adapter is on a static address.
+function renderQuick() {
+  const box = clear($("#quick"));
+  const a = selectedAdapter();
+  const dhcp = state.profiles.find((p) => p.id === "dhcp");
+  if (!a || !dhcp || a.config?.dhcp !== false || state.status.pending || state.confirm?.busy || !canApply()) return;
+  box.append(el("div", { class: "quick" },
+    el("span", { class: "grow small" }, t("onStatic", { adapter: a.name, config: formatConfig(a.config) })),
+    el("button", { type: "button", class: "primary", onclick: () => {
+      openConfirm(dhcp);
+      doApply(false);
+    } }, t("backToAuto"))));
 }
 
 function openConfirm(profile) {
@@ -277,6 +307,7 @@ function openConfirm(profile) {
     const match = state.adapters.find((a) => a.name.toLowerCase().includes(pref));
     if (match) { state.selectedIndex = match.index; renderAdapters(); }
   }
+  if (profile.testHost) $("#pingHost").value = profile.testHost;
   state.confirm = { profile, internetTicked: false, busy: false, hostConfirm: null, invalid: null, error: null };
   state.result = null;
   renderResult();
@@ -320,7 +351,7 @@ function renderConfirm() {
       el("dt", {}, t("next")), el("dd", { class: "strong" }, formatConfig(profileToConfig(p))),
       el("dt", {}, t("test")), el("dd", {}, p.testHost ? t("testPing", { host: p.testHost }) : t("noTest")),
       ...(p.note ? [el("dt", {}, t("devices")), el("dd", { class: "small" }, p.note)] : [])));
-    const sec = state.settings.rollbackSec;
+    const sec = p.mode === "dhcp" ? 0 : state.settings.rollbackSec;
     panel.append(el("p", { class: "muted small" }, sec > 0 ? t("rollbackNote", { sec }) : t("rollbackNone")));
   }
 
@@ -328,7 +359,8 @@ function renderConfirm() {
   if (errList.length) {
     panel.append(el("div", { class: "warn-box err" }, el("strong", {}, t("profileInvalid")), el("ul", {}, errList.map((m) => el("li", {}, m)))));
   }
-  if (a?.isInternet) {
+  // Back to DHCP is the safe direction: no internet-adapter tick needed for it.
+  if (a?.isInternet && p.mode !== "dhcp") {
     panel.append(el("div", { class: "warn-box" },
       el("p", {}, t("warnInternet", { adapter: a.name })),
       el("label", { class: "check" },
@@ -350,7 +382,7 @@ function renderConfirm() {
   if (c.error) panel.append(el("p", { class: "error" }, c.error));
   if (c.busy) panel.append(el("p", { class: "muted" }, el("span", { class: "spin" }), " ", t("working")));
 
-  const blocked = !canApply() || !a || errList.length > 0 || busyOther || c.busy || (a.isInternet && !c.internetTicked);
+  const blocked = !canApply() || !a || errList.length > 0 || busyOther || c.busy || (a.isInternet && p.mode !== "dhcp" && !c.internetTicked);
   const buttons = el("div", { class: "row gap end" },
     el("button", { type: "button", onclick: closeConfirm, disabled: c.busy }, t("cancel")));
   if (c.hostConfirm?.length) {
@@ -366,10 +398,11 @@ async function doApply(anyway) {
   const { a, p, overlaps } = confirmChecks();
   if (!a) return;
   const ack = [];
-  if (a.isInternet && c.internetTicked) ack.push("internet");
+  if (a.isInternet && (c.internetTicked || p.mode === "dhcp")) ack.push("internet");
   if (overlaps.length) ack.push("overlap");
   if (anyway && c.hostConfirm) for (const d of c.hostConfirm) if (d?.code) ack.push(d.code);
-  const args = applyArgs(p, a.index, state.settings.rollbackSec, ack);
+  // Back to DHCP (returning to normal) is kept at once; static changes get the Keep / Revert window.
+  const args = applyArgs(p, a.index, p.mode === "dhcp" ? 0 : state.settings.rollbackSec, ack);
 
   Object.assign(c, { busy: true, error: null, invalid: null });
   renderConfirm();
@@ -377,6 +410,7 @@ async function doApply(anyway) {
     const data = await callHost("apply", args);
     replaceAdapter(data?.adapter);
     rememberAdapter(a);
+    if (state.profiles.some((x) => x.id === p.id)) state.settings = await rememberRecent(p.id);
     const lines = [];
     let head = t("applied");
     const test = data?.test;
@@ -523,7 +557,13 @@ async function openOwnWindow() {
 
 async function init() {
   if (IN_WINDOW) document.documentElement.classList.add("window");
+  try { setLang((await getSettings()).lang); } catch { setLang(""); }
   applyStrings(document);
+  $("#langToggle").addEventListener("click", async () => {
+    // EN ⇄ TH; reload so every string (including rendered lists) switches.
+    await saveSettings({ lang: currentLang() === "th" ? "en" : "th" });
+    location.reload();
+  });
   $("#openWindow").addEventListener("click", openOwnWindow);
   $("#openOptions").addEventListener("click", () => chrome.runtime.openOptionsPage());
   $("#newProfile").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("options.html#new") }));
@@ -551,8 +591,9 @@ async function init() {
   search.hidden = state.profiles.length <= 6;
   if (!search.hidden) search.focus();
   $("#showAll").checked = state.settings.showAll;
-  const firstTest = state.profiles.find((p) => p.testHost)?.testHost;
-  if (firstTest) $("#pingHost").value = firstTest;
+  // Ping box: the test host of the last plant used (not some unrelated profile).
+  const lastUsed = state.profiles.find((p) => p.id === state.settings.recent[0]);
+  if (lastUsed?.testHost) $("#pingHost").value = lastUsed.testHost;
   renderProfiles();
   renderAdapters();
 

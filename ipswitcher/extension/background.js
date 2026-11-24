@@ -2,7 +2,8 @@
 // Badge source is the host's fast `status` command (no PowerShell).
 
 import { callHost } from "./lib/host.js";
-import { seedIfEmpty } from "./lib/store.js";
+import { seedIfEmpty, getSettings } from "./lib/store.js";
+import { t, setLang } from "./lib/strings.js";
 
 const ALARM = "badge-refresh";
 const STATIC_TOO_LONG_MS = 4 * 60 * 60 * 1000;
@@ -23,14 +24,15 @@ async function setBadge(text, color, title) {
 export function badgeFor(status, now = Date.now()) {
   const pending = status?.pending || null;
   const statics = Array.isArray(status?.statics) ? status.statics : [];
-  if (pending) return { text: "!", color: AMBER, title: `Change pending on ${pending.adapter}` };
+  if (pending) return { text: "!", color: AMBER, title: t("badgePending", { adapter: pending.adapter }) };
   const old = statics.find((s) => typeof s.since === "number" && now - s.since > STATIC_TOO_LONG_MS);
-  if (old) return { text: "S", color: AMBER, title: `${old.adapter} has been static for more than 4 h. Switch back to DHCP?` };
-  if (statics.length) return { text: "S", color: BLUE, title: `${statics[0].adapter} is static (${statics[0].profile || "custom"})` };
+  if (old) return { text: "S", color: AMBER, title: t("badgeStaticLong", { adapter: old.adapter }) };
+  if (statics.length) return { text: "S", color: BLUE, title: t("badgeStatic", { adapter: statics[0].adapter, profile: statics[0].profile || t("customName") }) };
   return { text: "", color: BLUE, title: "" };
 }
 
 async function refreshBadge() {
+  try { setLang((await getSettings()).lang); } catch { /* keep the current language */ }
   let status;
   try {
     status = await callHost("status");

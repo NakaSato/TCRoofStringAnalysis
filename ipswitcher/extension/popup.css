@@ -43,8 +43,9 @@ body {
   max-height: 600px;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", "Leelawadee UI", sans-serif;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", "Leelawadee UI", "Thonburi", sans-serif;
 }
+button.lang { font-size: 12px; padding: 2px 8px; }
 /* Own window (desktop shortcut / ⧉): fill the window instead of the 360 px toolbar popup. */
 html.window body { width: auto; max-width: 640px; max-height: none; margin: 0 auto; font-size: 14px; }
 html.window { background: var(--bg); }
@@ -159,3 +160,12 @@ html.window .list.scroll { max-height: 45vh; }
   vertical-align: -1px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Profile rows: plant code bold, the long station name on its own line(s) underneath. */
+.item.profile { align-items: center; }
+.pmain { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; }
+.phead { font-weight: 600; }
+.psub { font-size: 12px; color: var(--muted); line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.group { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 6px 2px 2px; }
+.quick { display: flex; align-items: center; gap: 8px; margin: 8px 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.quick button { white-space: nowrap; }

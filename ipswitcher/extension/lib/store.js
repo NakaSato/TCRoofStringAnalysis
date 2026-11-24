@@ -7,7 +7,7 @@ import { parsePrefix, validateProfile } from "./net.js";
 export const DHCP_ID = "dhcp";
 export const EXPORT_VERSION = 1;
 
-export const DEFAULT_SETTINGS = Object.freeze({ rollbackSec: 30, lastAdapterGuid: "", showAll: false });
+export const DEFAULT_SETTINGS = Object.freeze({ rollbackSec: 30, lastAdapterGuid: "", showAll: false, lang: "", recent: [] });
 
 // First-run profiles. The fixed IDs match the one tools/om_network_to_profiles.py writes, so
 // importing the plant file updates it instead of adding a copy.
@@ -67,6 +67,15 @@ async function readStored() {
 
 async function writeStored(list) {
   await local().set({ profiles: list });
+}
+
+export const RECENT_MAX = 5;
+
+/** Put a profile ID first in the "recent" list (built-in DHCP and unsaved custom ones are not kept). */
+export async function rememberRecent(id) {
+  if (!id || id === DHCP_ID) return getSettings();
+  const cur = await getSettings();
+  return saveSettings({ recent: [id, ...cur.recent.filter((x) => x !== id)].slice(0, RECENT_MAX) });
 }
 
 /** Seed the Growatt Ecosystem and Huawei SmartLogger profiles when nothing is stored yet. Returns true if seeded. */
@@ -146,6 +155,8 @@ export async function getSettings() {
   if (!Number.isInteger(out.rollbackSec) || out.rollbackSec < 0 || out.rollbackSec > 300) out.rollbackSec = DEFAULT_SETTINGS.rollbackSec;
   if (typeof out.lastAdapterGuid !== "string") out.lastAdapterGuid = "";
   out.showAll = out.showAll === true;
+  if (!["", "en", "th"].includes(out.lang)) out.lang = "";
+  out.recent = Array.isArray(out.recent) ? out.recent.filter((x) => typeof x === "string").slice(0, RECENT_MAX) : [];
   return out;
 }
 
