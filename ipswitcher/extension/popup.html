@@ -21,7 +21,7 @@
   <div id="banners"></div>
   <div id="pending"></div>
   <div id="result"></div>
-  <div id="quick"></div>
+  <div id="current"></div>
 
   <section id="adaptersSec">
     <div class="sec-head">
@@ -40,20 +40,19 @@
       data-s-placeholder="searchProfiles" data-s-aria="searchProfiles">
     <div id="profiles" class="list scroll"></div>
     <div id="confirm"></div>
-    <div class="row gap">
-      <button id="newProfile" type="button" data-s="newProfile">+ New</button>
-      <button id="customBtn" type="button" data-s="custom">Custom…</button>
-    </div>
-    <div id="custom" hidden></div>
   </section>
 
   <section id="pingSec">
+    <div class="sec-head">
+      <h2 data-s="pingConsole">Ping</h2>
+      <span id="pingStats" class="small muted"></span>
+    </div>
     <form id="pingForm" class="row gap" novalidate>
-      <label for="pingHost" data-s="ping">Ping</label>
-      <input id="pingHost" class="grow" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="10.100.35.254">
-      <button id="pingGo" type="submit" data-s="go">Go</button>
-      <span id="pingOut" class="ping-out" aria-live="polite"></span>
+      <input id="pingHost" class="grow mono" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="10.100.35.254" data-s-aria="pingConsole">
+      <button id="pingGo" type="submit" class="primary" data-s="pingStart">Start</button>
     </form>
+    <div id="pingChips" class="chips"></div>
+    <div id="pingLog" class="console" role="log" hidden></div>
   </section>
 </body>
 </html>

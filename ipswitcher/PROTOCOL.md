@@ -76,7 +76,7 @@ Reply: `{"id": "<same>", "ok": true, "data": …}` or
 | `revert` | — | `{"adapter": Adapter}`; error `no_pending` |
 | `pending` | — | `Pending` or `null` |
 | `status` | — | `{"pending": Pending \| null, "statics": [Static]}` (fast: no PowerShell) |
-| `ping` | `{"host": "10.100.35.254"}` | `Test` |
+| `ping` | `{"host": "10.100.35.254", "once"?: bool}` | `Test` (up to 2 tries; `once`: 1 try, for the ping console) |
 | `log` | `{"limit"?: 1..500, default 100}` | `[AuditEntry]`, newest first |
 
 `apply` args:

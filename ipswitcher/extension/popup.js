@@ -1,13 +1,13 @@
-// Popup: adapters, profiles, inline confirm, pending Keep / Revert, custom address, ping (spec §14.2).
+// Popup: current IP, adapters, profiles, inline confirm, pending Keep / Revert, ping console (spec §14.2).
 
 import { t, applyStrings, setLang, currentLang, tValue } from "./lib/strings.js";
 import { callHost, requestBadgeRefresh, PROTOCOL_VERSION } from "./lib/host.js";
 import { el, clear, $ } from "./lib/dom.js";
 import {
-  validateProfile, formatConfig, profileToConfig, profileSummary, findOverlaps, applyArgs,
-  parsePrefix, testHostProblem,
+  validateProfile, formatConfig, prefixToMask, profileToConfig, profileSummary, findOverlaps, applyArgs,
+  testHostProblem,
 } from "./lib/net.js";
-import { listProfiles, getSettings, saveSettings, saveProfile, seedIfEmpty, rememberRecent } from "./lib/store.js";
+import { listProfiles, getSettings, saveSettings, seedIfEmpty, rememberRecent } from "./lib/store.js";
 
 const state = {
   health: null,          // health data, or null
@@ -22,7 +22,6 @@ const state = {
   confirm: null,         // {profile, internetTicked, busy, hostConfirm, invalid, error}
   result: null,          // {kind, lines: [string], openUrl}
   pendingBusy: false,
-  customOpen: false,
 };
 
 // ---------- helpers ----------
@@ -226,7 +225,37 @@ function renderAdapters() {
         a.isWifi ? el("span", { class: "chip" }, t("wifi")) : null),
       el("span", { class: "live" }, liveText(a), st ? el("span", { class: "muted" }, ` · ${t("staticFrom", { profile: st.profile || t("customName") })}`) : null)));
   }
-  renderQuick();
+  renderCurrent();
+}
+
+// "This computer's IP": the selected adapter's live address, big, with mask / gateway / DNS / MAC.
+function renderCurrent() {
+  renderPingChips();
+  const box = clear($("#current"));
+  const a = selectedAdapter();
+  if (!a || state.hostErr) return;
+  const mode = a.config?.dhcp === false ? t("modeStatic") : t("modeDhcp");
+  const ips = (a.ips || []).map((x) => { const [ip, pfx] = String(x).split("/"); return { ip, pfx: Number(pfx) }; });
+  const main = ips[0];
+  const copyBtn = main ? el("button", { type: "button", class: "small", onclick: async (ev) => {
+    try { await navigator.clipboard.writeText(main.ip); ev.target.textContent = t("copied"); setTimeout(() => { ev.target.textContent = t("copy"); }, 1500); } catch { /* clipboard blocked */ }
+  } }, t("copy")) : null;
+  const kv = [];
+  const add = (k, v) => { if (v) kv.push(el("dt", {}, k), el("dd", {}, v)); };
+  if (main && main.pfx) add(t("cMask"), `/${main.pfx} · ${prefixToMask(main.pfx)}`);
+  if (ips.length > 1) add("", ips.slice(1).map((x) => `${x.ip}/${x.pfx}`).join(", "));
+  add(t("cGateway"), a.gateway || "—");
+  add(t("cDns"), (a.dns || []).join(", ") || "—");
+  add(t("cMac"), a.mac || "");
+  box.append(el("div", { class: "current" },
+    el("div", { class: "row gap" },
+      el("span", { class: "grow small muted" }, t("currentIp"), " · ", a.name),
+      el("span", { class: "chip" }, a.status === "Up" ? mode : tValue("st", a.status))),
+    el("div", { class: "row gap" },
+      el("span", { class: "bigip grow" }, main ? main.ip : t("cNoIp")),
+      copyBtn),
+    kv.length ? el("dl", { class: "kv small" }, kv) : null,
+    backToAutoButton(a)));
 }
 
 function onSelectAdapter(index) {
@@ -287,18 +316,12 @@ function renderProfiles() {
   for (const p of rest) box.append(row(p));
 }
 
-// One big "back to automatic" button while the selected adapter is on a static address.
-function renderQuick() {
-  const box = clear($("#quick"));
-  const a = selectedAdapter();
+// "Back to automatic (DHCP)" button, shown inside the current-IP card while the selected adapter
+// is static (one click: no confirm, no Keep window; see doApply).
+function backToAutoButton(a) {
   const dhcp = state.profiles.find((p) => p.id === "dhcp");
-  if (!a || !dhcp || a.config?.dhcp !== false || state.status.pending || state.confirm?.busy || !canApply()) return;
-  box.append(el("div", { class: "quick" },
-    el("span", { class: "grow small" }, t("onStatic", { adapter: a.name, config: formatConfig(a.config) })),
-    el("button", { type: "button", class: "primary", onclick: () => {
-      openConfirm(dhcp);
-      doApply(false);
-    } }, t("backToAuto"))));
+  if (!a || !dhcp || a.config?.dhcp !== false || state.status.pending || state.confirm?.busy || !canApply()) return null;
+  return el("button", { type: "button", class: "primary wide", onclick: () => { openConfirm(dhcp); doApply(false); } }, t("backToAuto"));
 }
 
 function openConfirm(profile) {
@@ -308,6 +331,7 @@ function openConfirm(profile) {
     if (match) { state.selectedIndex = match.index; renderAdapters(); }
   }
   if (profile.testHost) $("#pingHost").value = profile.testHost;
+  setTimeout(renderPingChips, 0);
   state.confirm = { profile, internetTicked: false, busy: false, hostConfirm: null, invalid: null, error: null };
   state.result = null;
   renderResult();
@@ -334,6 +358,21 @@ function confirmChecks() {
   return { a, p, errors, overlaps, busyOther };
 }
 
+// "DHCP" or "10.100.200.250/24" for the "now" line.
+function shortConfig(c) {
+  if (!c || c.dhcp) return t("modeDhcp");
+  return c.addrs?.[0] || t("noAddress");
+}
+
+// Plant notes look like "Router 10.1.1.254 · ShineMaster 10.1.1.100 · Meter 10.1.1.1, 10.1.1.2":
+// split them into rows. Anything else (free text) returns null and is shown as a paragraph.
+function noteDevices(note) {
+  if (!note) return null;
+  const parts = String(note).split(" · ").map((x) => x.trim()).filter(Boolean);
+  const rows = parts.map((x) => /^(\S+)\s+(\d{1,3}(\.\d{1,3}){3}(,\s*\d{1,3}(\.\d{1,3}){3})*)$/.exec(x)).map((m) => m && [m[1], m[2]]);
+  return rows.length && rows.every(Boolean) ? rows : null;
+}
+
 function renderConfirm() {
   const box = clear($("#confirm"));
   const c = state.confirm;
@@ -342,17 +381,33 @@ function renderConfirm() {
   const panel = el("div", { class: "panel" });
   box.append(panel);
 
-  panel.append(el("h3", {}, t("applyTitle", { profile: p.name, adapter: a ? a.name : "—" })));
+  // Clean, IP-first layout: plant title, the new IP big, everything else one short muted line.
+  const cut = p.name.indexOf(" · ");
+  panel.append(el("div", { class: "c-head" },
+    el("span", { class: "c-title" }, cut > 0 ? p.name.slice(0, cut) : p.name),
+    cut > 0 ? el("span", { class: "c-sub" }, p.name.slice(cut + 3)) : null));
   if (!a) {
     panel.append(el("p", { class: "error" }, t("selectAdapter")));
   } else {
-    panel.append(el("dl", { class: "kv" },
-      el("dt", {}, t("now")), el("dd", {}, formatConfig(a.config)),
-      el("dt", {}, t("next")), el("dd", { class: "strong" }, formatConfig(profileToConfig(p))),
-      el("dt", {}, t("test")), el("dd", {}, p.testHost ? t("testPing", { host: p.testHost }) : t("noTest")),
-      ...(p.note ? [el("dt", {}, t("devices")), el("dd", { class: "small" }, p.note)] : [])));
+    const next = profileToConfig(p);
+    const [ip, pfx] = String(next.addrs?.[0] || "").split("/");
+    panel.append(el("div", { class: "c-hero" },
+      el("div", { class: "c-label" }, t("newIp")),
+      el("div", { class: "c-big" }, next.dhcp ? t("modeDhcp") : ip),
+      el("div", { class: "c-small" }, next.dhcp ? t("autoAddr")
+        : [`/${pfx} · ${prefixToMask(Number(pfx))}`, next.gateway ? `GW ${next.gateway}` : t("noGateway")].join(" · ")),
+      el("div", { class: "c-now" }, t("nowOn", { adapter: a.name, config: shortConfig(a.config) }))));
     const sec = p.mode === "dhcp" ? 0 : state.settings.rollbackSec;
-    panel.append(el("p", { class: "muted small" }, sec > 0 ? t("rollbackNote", { sec }) : t("rollbackNone")));
+    const facts = [p.testHost ? t("factPing", { host: p.testHost }) : null, sec > 0 ? t("factUndo", { sec }) : t("factKept")].filter(Boolean);
+    panel.append(el("p", { class: "c-facts" }, facts.join(" · ")));
+    const devs = noteDevices(p.note);
+    if (devs) {
+      panel.append(el("details", { class: "c-devs" },
+        el("summary", {}, t("devices"), el("span", { class: "muted" }, ` · ${devs.map(([k]) => k).join(", ")}`)),
+        el("dl", { class: "kv small" }, devs.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]))));
+    } else if (p.note) {
+      panel.append(el("p", { class: "c-facts" }, p.note));
+    }
   }
 
   const errList = Object.values(errors);
@@ -383,7 +438,7 @@ function renderConfirm() {
   if (c.busy) panel.append(el("p", { class: "muted" }, el("span", { class: "spin" }), " ", t("working")));
 
   const blocked = !canApply() || !a || errList.length > 0 || busyOther || c.busy || (a.isInternet && p.mode !== "dhcp" && !c.internetTicked);
-  const buttons = el("div", { class: "row gap end" },
+  const buttons = el("div", { class: "row gap end c-buttons" },
     el("button", { type: "button", onclick: closeConfirm, disabled: c.busy }, t("cancel")));
   if (c.hostConfirm?.length) {
     buttons.append(el("button", { type: "button", class: "primary danger", disabled: !canApply() || !a || errList.length > 0 || busyOther || c.busy, onclick: () => doApply(true) }, t("applyAnyway")));
@@ -439,100 +494,101 @@ async function doApply(anyway) {
   }
 }
 
-// ---------- custom ----------
 
-const customVals = { name: "", ip: "", prefix: "24", gateway: "", dns1: "", dns2: "", testHost: "" };
 
-function customProfile(name) {
-  return {
-    name, mode: "static", ip: customVals.ip.trim(), prefix: customVals.prefix.trim(),
-    gateway: customVals.gateway.trim(), dns: [customVals.dns1, customVals.dns2].map((s) => s.trim()).filter(Boolean),
-    testHost: customVals.testHost.trim(),
-  };
-}
-
-function renderCustom() {
-  const box = clear($("#custom"));
-  box.hidden = !state.customOpen;
-  if (!state.customOpen) return;
-  const errs = {};
-  const field = (key, label, ph, errKey = key) => {
-    const err = el("span", { class: "ferr", "aria-live": "polite" });
-    errs[errKey] = errs[errKey] || [];
-    errs[errKey].push(err);
-    return el("label", { class: "field" },
-      el("span", {}, label),
-      el("input", { value: customVals[key], placeholder: ph, inputmode: key === "name" ? null : "decimal", autocomplete: "off", spellcheck: "false",
-        oninput: (ev) => { customVals[key] = ev.target.value; validate(); } }),
-      err);
-  };
-  const status = el("p", { class: "small" });
-  const applyBtn = el("button", { type: "button", class: "primary", onclick: () => {
-    const p = { ...customProfile(t("customName")), id: "custom" };
-    p.prefix = parsePrefix(p.prefix);
-    openConfirm(p);
-  } }, t("apply"));
-  const saveBtn = el("button", { type: "button", onclick: async () => {
-    if (!customVals.name.trim()) { status.textContent = t("nameForSave"); status.className = "small error"; return; }
-    try {
-      await saveProfile(customProfile(customVals.name.trim()));
-      state.profiles = await listProfiles();
-      renderProfiles();
-      status.textContent = t("saved");
-      status.className = "small ok";
-    } catch (e) {
-      status.textContent = e.errors ? Object.values(e.errors).join(" · ") : errText(e);
-      status.className = "small error";
-    }
-  } }, t("saveAsProfile"));
-
-  box.append(el("div", { class: "panel" },
-    el("h3", {}, t("customTitle")),
-    el("div", { class: "grid" },
-      field("ip", t("fIp"), "10.100.35.1"),
-      field("prefix", t("fPrefix"), "24 / 255.255.255.0"),
-      field("gateway", `${t("fGateway")} (${t("optional")})`, "10.100.35.254"),
-      field("testHost", `${t("fTestHost")} (${t("optional")})`, "10.100.35.254"),
-      field("dns1", `${t("fDns1")} (${t("optional")})`, "", "dns"),
-      field("dns2", `${t("fDns2")} (${t("optional")})`, "", "dns"),
-      field("name", `${t("fName")} (${t("saveAsProfile").toLowerCase()})`, "Inverter LAN")),
-    el("div", { class: "row gap end" }, saveBtn, applyBtn),
-    status));
-
-  function validate() {
-    const e = validateProfile(customProfile(customVals.name.trim() || t("customName")));
-    for (const [k, nodes] of Object.entries(errs)) {
-      // Show DNS errors once (under DNS 1).
-      nodes.forEach((n, i) => { n.textContent = i === 0 && e[k] ? e[k] : ""; });
-    }
-    if (!customVals.ip.trim()) errs.ip[0].textContent = "";
-    const bad = Object.keys(e).length > 0;
-    applyBtn.disabled = bad || !canApply();
-    saveBtn.disabled = bad;
-  }
-  validate();
-}
 
 // ---------- ping ----------
 
-async function onPing(ev) {
-  ev.preventDefault();
-  const out = $("#pingOut");
-  const host = $("#pingHost").value.trim();
+// ---------- ping console (continuous, one try a second, like `ping -t`) ----------
+
+const PING_EVERY_MS = 1000;
+const PING_MAX_LINES = 300;
+const ping = { running: false, host: "", sent: 0, recv: 0, min: Infinity, max: 0, sum: 0 };
+
+function pingLine(cls, text) {
+  const log = $("#pingLog");
+  log.hidden = false;
+  const now = new Date().toLocaleTimeString([], { hour12: false });
+  log.append(el("div", { class: `pl ${cls}` }, el("span", { class: "pt" }, now), " ", text));
+  while (log.childElementCount > PING_MAX_LINES) log.firstElementChild.remove();
+  log.scrollTop = log.scrollHeight;
+}
+
+function pingStatsText() {
+  if (!ping.sent) return "";
+  const loss = Math.round(((ping.sent - ping.recv) / ping.sent) * 100);
+  let s = t("pingStats", { sent: ping.sent, recv: ping.recv, loss });
+  if (ping.recv) s += " · " + t("pingRtt", { min: ping.min, avg: Math.round(ping.sum / ping.recv), max: ping.max });
+  return s;
+}
+
+function setPingButton() {
+  const b = $("#pingGo");
+  b.textContent = ping.running ? t("pingStop") : t("pingStart");
+  b.className = ping.running ? "danger" : "primary";
+}
+
+function stopPing() {
+  ping.running = false;
+  setPingButton();
+}
+
+async function startPing(host) {
   const err = testHostProblem(host);
-  if (err) { out.textContent = err; out.className = "ping-out error"; return; }
-  out.textContent = "…";
-  out.className = "ping-out muted";
-  $("#pingGo").disabled = true;
-  try {
-    const r = await callHost("ping", { host });
-    out.textContent = r?.ok ? t("pingOkShort", { ms: r.rttMs }) : t("pingFailShort");
-    out.className = `ping-out ${r?.ok ? "ok" : "error"}`;
-  } catch (e) {
-    out.textContent = errText(e);
-    out.className = "ping-out error";
+  if (err) { pingLine("err", err); return; }
+  Object.assign(ping, { running: true, host, sent: 0, recv: 0, min: Infinity, max: 0, sum: 0 });
+  clear($("#pingLog"));
+  $("#pingStats").textContent = "";
+  setPingButton();
+  while (ping.running && ping.host === host) {
+    const started = Date.now();
+    try {
+      const r = await callHost("ping", { host, once: true });
+      if (!ping.running || ping.host !== host) break;
+      ping.sent++;
+      if (r?.ok) {
+        ping.recv++;
+        ping.min = Math.min(ping.min, r.rttMs);
+        ping.max = Math.max(ping.max, r.rttMs);
+        ping.sum += r.rttMs;
+        pingLine("ok", t("pingReply", { host, ms: r.rttMs }));
+      } else {
+        pingLine("bad", t("pingTimeout", { host }));
+      }
+      $("#pingStats").textContent = pingStatsText();
+    } catch (e) {
+      pingLine("err", errText(e));
+      stopPing();
+      break;
+    }
+    const wait = PING_EVERY_MS - (Date.now() - started);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   }
-  $("#pingGo").disabled = false;
+}
+
+function onPing(ev) {
+  ev.preventDefault();
+  if (ping.running) { stopPing(); return; }
+  startPing($("#pingHost").value.trim());
+}
+
+// Quick targets: the selected adapter's gateway and the devices of the plant last picked.
+function renderPingChips() {
+  const box = clear($("#pingChips"));
+  const a = selectedAdapter();
+  const items = [];
+  const add = (label, ip) => { if (ip && !items.some((x) => x[1] === ip)) items.push([label, ip]); };
+  if (a?.gateway) add(t("pingGateway"), a.gateway);
+  const p = state.confirm?.profile || state.profiles.find((x) => x.id === state.settings?.recent?.[0]);
+  for (const [label, ips] of noteDevices(p?.note) || []) for (const ip of ips.split(/,\s*/)) add(label, ip);
+  if (p?.testHost) add(t("test"), p.testHost);
+  for (const [label, ip] of items.slice(0, 8)) {
+    box.append(el("button", { type: "button", class: "chip-btn", title: ip, onclick: () => {
+      $("#pingHost").value = ip;
+      stopPing();
+      startPing(ip);
+    } }, el("span", { class: "muted" }, label), " ", ip));
+  }
 }
 
 // ---------- init ----------
@@ -566,9 +622,8 @@ async function init() {
   });
   $("#openWindow").addEventListener("click", openOwnWindow);
   $("#openOptions").addEventListener("click", () => chrome.runtime.openOptionsPage());
-  $("#newProfile").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("options.html#new") }));
-  $("#customBtn").addEventListener("click", () => { state.customOpen = !state.customOpen; renderCustom(); });
   $("#pingForm").addEventListener("submit", onPing);
+  $("#pingHost").addEventListener("input", () => { if (ping.running) stopPing(); });
   const search = $("#profileSearch");
   search.addEventListener("input", renderProfiles);
   search.addEventListener("keydown", (ev) => {
@@ -603,7 +658,6 @@ async function init() {
     state.hostErr = e;
   }
   renderBanners();
-  renderCustom();
   if (state.hostErr) {
     state.adaptersLoading = false;
     renderAdapters();

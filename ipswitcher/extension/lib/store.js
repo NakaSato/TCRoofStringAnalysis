@@ -20,7 +20,7 @@ const SEED = [{
 }, {
   id: HUAWEI_SMARTLOGGER_ID, name: "Huawei SmartLogger · 192.168.0.10", mode: "static", ip: "192.168.0.250",
   prefix: 24, gateway: "", dns: [], testHost: "192.168.0.10", openUrl: "https://192.168.0.10/", preferredAdapter: "",
-  note: "Huawei SmartLogger at 192.168.0.10 (direct link, no gateway). Web UI: https://192.168.0.10/",
+  note: "SmartLogger 192.168.0.10",
 }];
 
 const local = () => globalThis.chrome.storage.local;

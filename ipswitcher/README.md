@@ -108,8 +108,20 @@ ones most likely to need a fix:
   for `CREATE_BREAKAWAY_FROM_JOB` and falls back to without it; RunOnce + start-up check are the backstop).
 - The ping via `IcmpSendEcho`.
 
-Developer mode on a Mac: `IPSWITCHER_FAKE=1` makes the helper use a fake adapter set stored in its data
-folder, for trying the protocol without Windows.
+## macOS
+
+The helper also runs on a Mac: the adapters are the Mac's network services (System Settings →
+Network), read and set with `networksetup`; administrator accounts need no password. Install (builds
+from source, needs Go; per user, registers Chrome and Edge):
+
+```bash
+ipswitcher/installer/install-mac.sh                     # real mode
+IPSWITCHER_FAKE=1 ipswitcher/installer/install-mac.sh   # demo: pretend adapters, changes nothing
+```
+
+Not on macOS: a second IP on one adapter, and the reboot fail-safe (the next helper start reverts an
+overdue change instead). Verified on macOS: reading the services, static ↔ DHCP, no-gateway, the
+watchdog auto undo.
 
 ## Next phases (spec §16)
 

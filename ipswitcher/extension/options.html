@@ -4,70 +4,117 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IP Switcher settings</title>
+  <link rel="icon" href="icons/icon-32.png">
   <link rel="stylesheet" href="options.css">
   <script type="module" src="options.js"></script>
 </head>
 <body>
-  <main>
-    <h1 data-s="optionsTitle">IP Switcher settings</h1>
+  <header class="top">
+    <div class="top-inner">
+      <img src="icons/icon-48.png" alt="" width="28" height="28">
+      <h1 data-s="optionsTitle">IP Switcher settings</h1>
+    </div>
+    <nav class="tabs" role="tablist">
+      <a href="#profiles" role="tab" data-tab="profiles"><span data-s="profiles">Profiles</span> <span id="tabCount" class="count"></span></a>
+      <a href="#import" role="tab" data-tab="import" data-s="importExport">Import / export</a>
+      <a href="#general" role="tab" data-tab="general" data-s="tabGeneral">General</a>
+      <a href="#helper" role="tab" data-tab="helper" data-s="tabHelper">Helper &amp; log</a>
+    </nav>
+  </header>
 
-    <section id="profilesSec">
-      <div class="sec-head">
-        <h2 data-s="profiles">Profiles</h2>
+  <main>
+    <!-- Profiles -->
+    <section id="tab-profiles" class="tab" role="tabpanel">
+      <div class="toolbar">
+        <input id="search" type="search" class="search" autocomplete="off" spellcheck="false"
+          data-s-placeholder="searchProfiles" data-s-aria="searchProfiles">
+        <span id="listCount" class="muted small nowrap"></span>
         <button id="newBtn" type="button" class="primary" data-s="newProfile">+ New</button>
       </div>
-      <div id="profileForm"></div>
-      <table class="tbl">
-        <tbody id="profileList"></tbody>
-      </table>
+      <div class="card list-card">
+        <table class="tbl profiles">
+          <colgroup><col class="c-name"><col class="c-ip"><col class="c-gw"><col class="c-test"><col class="c-act"></colgroup>
+          <thead>
+            <tr>
+              <th data-s="fName">Name</th>
+              <th>IP</th>
+              <th data-s="fGateway">Gateway</th>
+              <th data-s="test">Test</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="profileList"></tbody>
+        </table>
+        <p id="noMatch" class="muted empty" hidden></p>
+      </div>
+      <div class="center"><button id="moreBtn" type="button" hidden></button></div>
     </section>
 
-    <section>
-      <h2 data-s="importExport">Import / export</h2>
-      <div class="row gap">
-        <label class="btn" for="importFile"><span data-s="importBtn">Import JSON…</span></label>
+    <!-- Import / export -->
+    <section id="tab-import" class="tab" role="tabpanel" hidden>
+      <div class="card">
+        <h2 data-s="importTitle">Import profiles</h2>
+        <label id="drop" class="drop" for="importFile">
+          <span class="drop-icon" aria-hidden="true">⇩</span>
+          <strong data-s="dropHere">Drop a profiles JSON file here</strong>
+          <span class="link" data-s="orChoose">or choose a file…</span>
+        </label>
         <input id="importFile" type="file" accept="application/json,.json" hidden>
+        <p id="importOut" class="result" aria-live="polite" hidden></p>
+        <p class="muted small" data-s="importNote"></p>
+      </div>
+      <div class="card">
+        <h2 data-s="exportTitle">Back up / copy to another laptop</h2>
+        <p class="muted small" data-s="exportNote"></p>
         <button id="exportBtn" type="button" data-s="exportBtn">Export JSON</button>
-        <span id="importOut" aria-live="polite"></span>
       </div>
-      <p class="muted small" data-s="importNote"></p>
     </section>
 
-    <section>
-      <h2 data-s="language">Language</h2>
-      <select id="lang" data-s-aria="language">
-        <option value="" data-s="langAuto"></option>
-        <option value="en">English</option>
-        <option value="th">ไทย</option>
-      </select>
-    </section>
-
-    <section>
-      <h2 data-s="rollbackTitle">Automatic undo</h2>
-      <form id="rollbackForm" class="row gap" novalidate>
-        <label for="rollbackSec" data-s="rollbackLabel"></label>
-        <input id="rollbackSec" type="number" min="0" max="300" step="1" class="num">
-        <button type="submit" data-s="save">Save</button>
-        <span id="rollbackOut" aria-live="polite"></span>
-      </form>
-      <p class="muted small" data-s="rollbackNote0"></p>
-    </section>
-
-    <section>
-      <div class="sec-head">
-        <h2 data-s="helperTitle">Helper status</h2>
-        <button id="recheckBtn" type="button" data-s="recheck">Check again</button>
+    <!-- General -->
+    <section id="tab-general" class="tab" role="tabpanel" hidden>
+      <div class="card">
+        <h2 data-s="language">Language</h2>
+        <div id="langSeg" class="seg" role="radiogroup" data-s-aria="language">
+          <button type="button" role="radio" data-lang="" data-s="langAutoShort"></button>
+          <button type="button" role="radio" data-lang="en">English</button>
+          <button type="button" role="radio" data-lang="th">ไทย</button>
+        </div>
+        <p class="muted small" data-s="langHelp"></p>
       </div>
-      <div id="helper"></div>
+      <div class="card">
+        <h2 data-s="rollbackTitle">Automatic undo</h2>
+        <p class="small" data-s="rollbackLabel"></p>
+        <div class="row gap">
+          <div id="undoSeg" class="seg" role="radiogroup" data-s-aria="rollbackTitle"></div>
+          <label class="custom-sec">
+            <span class="muted small" data-s="customSec">Other</span>
+            <input id="rollbackSec" type="number" min="0" max="300" step="1" class="num">
+          </label>
+          <span id="rollbackOut" class="small" aria-live="polite"></span>
+        </div>
+        <p class="muted small" data-s="rollbackNote0"></p>
+      </div>
     </section>
 
-    <section>
-      <div class="sec-head">
-        <h2 data-s="auditTitle">Audit log</h2>
-        <button id="auditBtn" type="button" data-s="recheck">Check again</button>
+    <!-- Helper & log -->
+    <section id="tab-helper" class="tab" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h2 data-s="helperTitle">Helper status</h2>
+          <button id="recheckBtn" type="button" data-s="recheck">Check again</button>
+        </div>
+        <div id="helper"></div>
       </div>
-      <div id="audit"></div>
+      <div class="card">
+        <div class="card-head">
+          <h2 data-s="auditTitle">Audit log</h2>
+          <button id="auditBtn" type="button" data-s="recheck">Check again</button>
+        </div>
+        <div id="audit"></div>
+      </div>
     </section>
   </main>
+
+  <dialog id="editor" aria-labelledby="editorTitle"></dialog>
 </body>
 </html>

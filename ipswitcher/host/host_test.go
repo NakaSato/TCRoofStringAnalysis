@@ -426,6 +426,10 @@ func TestErrors(t *testing.T) {
 	if tst.OK || tst.Tries != 2 {
 		t.Errorf("ping unreachable = %+v", tst)
 	}
+	th.mustOK("ping", map[string]any{"host": "8.8.8.8", "once": true}, &tst)
+	if tst.OK || tst.Tries != 1 {
+		t.Errorf("ping once unreachable = %+v", tst)
+	}
 
 	no := false
 	st, _ := th.fake.load()

@@ -180,6 +180,7 @@ func (h *host) dispatch(cmd string, raw json.RawMessage) (any, *hostError) {
 	case "ping":
 		var a struct {
 			Host *string `json:"host"`
+			Once bool    `json:"once"` // one try (ping console), else up to 2
 		}
 		if e := decodeArgs(raw, &a); e != nil {
 			return nil, e
@@ -191,8 +192,15 @@ func (h *host) dispatch(cmd string, raw json.RawMessage) (any, *hostError) {
 		if msg != "" {
 			return nil, herr("invalid", msg, []fieldError{{Field: "host", Message: msg}})
 		}
-		t := h.pingTest(addr)
-		return t, nil
+		if a.Once {
+			ok, rtt, err := h.sys.ping(addr, time.Second)
+			t := Test{Host: addr.String(), Tries: 1}
+			if err == nil && ok {
+				t.OK, t.RttMs = true, rtt
+			}
+			return t, nil
+		}
+		return h.pingTest(addr), nil
 	case "log":
 		var a struct {
 			Limit *int `json:"limit"`
