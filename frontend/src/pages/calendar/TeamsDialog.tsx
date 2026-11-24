@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -139,17 +140,17 @@ export const TeamsDialog: React.FC<{ open: boolean; onClose: () => void; onChang
             <div className="space-y-1.5">
               <Label>{tr("Colour")}</Label>
               <div className="flex flex-wrap items-center gap-2">
-                {COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-label={tr("Colour {c}", { c })}
-                    aria-pressed={draft.color === c}
-                    onClick={() => set({ color: c })}
-                    className={cn("size-6 rounded-full border-2 transition", draft.color === c ? "border-white" : "border-transparent opacity-70 hover:opacity-100")}
-                    style={{ background: c }}
-                  />
-                ))}
+                <ToggleGroup type="single" spacing={2} className="flex-wrap" aria-label={tr("Colour")} value={draft.color ?? ""} onValueChange={(v) => set({ color: v || null })}>
+                  {COLORS.map((c) => (
+                    <ToggleGroupItem
+                      key={c}
+                      value={c}
+                      aria-label={tr("Colour {c}", { c })}
+                      className="size-6 min-w-0 rounded-full border-2 border-transparent p-0 opacity-70 hover:opacity-100 data-[state=on]:border-white data-[state=on]:opacity-100"
+                      style={{ background: c }}
+                    />
+                  ))}
+                </ToggleGroup>
                 <Button variant="ghost" size="sm" onClick={() => set({ color: null })} disabled={draft.color == null}>
                   {tr("None")}
                 </Button>

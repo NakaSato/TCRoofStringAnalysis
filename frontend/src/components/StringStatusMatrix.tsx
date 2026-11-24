@@ -4,7 +4,9 @@ import { useAppContext } from "../context/AppContext";
 import { inverterStatusLevel } from "../context/PlantContext";
 import { Panel, Led, Meter, statusLevel, fmt } from "./ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "../i18n";
 
 /**
@@ -161,12 +163,7 @@ export const StringStatusMatrix: React.FC = () => {
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-300">
-            <input
-              type="checkbox"
-              checked={groupByInverter}
-              onChange={(e) => setGroupByInverter(e.target.checked)}
-              className="accent-sky-400"
-            />
+            <Checkbox checked={groupByInverter} onCheckedChange={(v) => setGroupByInverter(v === true)} />
             {t("Group by inverter")}
           </label>
           <Select value={selectedInverterSn} onValueChange={(v) => setSelectedInverterSn(v)}>
@@ -206,14 +203,16 @@ export const StringStatusMatrix: React.FC = () => {
                   ) : (
                     <Led level={lvl} />
                   )}
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="xs"
                     onClick={() => setSelectedInverterSn(selectedInverterSn === inv.device_sn ? "ALL" : inv.device_sn)}
-                    className="num font-bold text-white hover:text-sky-300"
+                    className="num h-auto rounded-none p-0 text-[length:inherit] font-bold text-white hover:bg-transparent hover:text-sky-300"
                     title={t("Show only this inverter")}
                   >
                     {inv.device_sn}
-                  </button>
+                  </Button>
                   <span className="num text-slate-500">{inv.model}</span>
                   {offline ? (
                     <span className="text-red-300" title={t("Growatt has no record of this inverter today")}>

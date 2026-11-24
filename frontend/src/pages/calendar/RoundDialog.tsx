@@ -258,9 +258,9 @@ export const RoundDialog: React.FC<{ plantIds: number[] | null; onClose: () => v
             {dropped.size > 0 && (
               <p className="text-[11px] text-muted-foreground">
                 {t("{n} left out (their days stay free; preview again to close the gaps).", { n: dropped.size })}{" "}
-                <button type="button" className="underline" onClick={() => setDropped(new Set())}>
+                <Button type="button" variant="link" size="xs" className="h-auto rounded-none p-0 align-baseline text-[length:inherit] font-normal text-current underline" onClick={() => setDropped(new Set())}>
                   {t("Put them back")}
-                </button>
+                </Button>
               </p>
             )}
           </div>

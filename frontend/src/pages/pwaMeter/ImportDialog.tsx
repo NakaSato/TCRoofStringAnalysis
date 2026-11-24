@@ -10,10 +10,12 @@ import { AlertTriangle, Check, CheckCircle2, ChevronDown, FileSpreadsheet, Minus
 import { api } from "../../api/client";
 import type { PwaImportResult, PwaImportSheet } from "../../api/client";
 import { fmtInt } from "../../components/ui";
+import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -151,9 +153,12 @@ const Totals: React.FC<{ r: PwaImportResult }> = ({ r }) => {
         }
         sub={
           pct == null ? undefined : (
-            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-white/10" title={tr("{pct} % matched a site", { pct: pct.toFixed(1) })}>
-              <span className={cn("block h-full", t.unmatched ? "bg-amber-400" : "bg-emerald-400")} style={{ width: `${pct}%` }} />
-            </span>
+            <Progress
+              value={pct}
+              className="mt-1 h-1 bg-white/10"
+              indicatorClassName={cn("rounded-none duration-150", t.unmatched ? "bg-amber-400" : "bg-emerald-400")}
+              title={tr("{pct} % matched a site", { pct: pct.toFixed(1) })}
+            />
           )
         }
         tone={t.unmatched ? "text-amber-300" : undefined}
@@ -243,12 +248,12 @@ const SheetRow: React.FC<{
           {details === 0 ? (
             <span className="text-muted-foreground">—</span>
           ) : (
-            <button type="button" className="flex items-center gap-1 text-left" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+            <Button type="button" variant="ghost" size="xs" className="h-auto gap-1 p-0 hover:bg-transparent" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
               {s.errors.length > 0 && <Badge variant="crit">{plural(s.errors.length, "problem")}</Badge>}
               {s.warnings.length > 0 && <Badge variant="warn">{plural(s.warnings.length, "note")}</Badge>}
               {s.unmatched.length > 0 && !s.errors.length && !s.warnings.length && <Badge variant="warn">{t("{n} unmatched", { n: fmtInt(s.unmatched.length) })}</Badge>}
               <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
-            </button>
+            </Button>
           )}
         </TableCell>
         <TableCell className="text-center">
@@ -473,30 +478,27 @@ export const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onImpo
               )}
 
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="inline-flex rounded-lg border border-white/[0.07] bg-ink-900/80 p-0.5" role="tablist" aria-label={tr("Sheets shown")}>
+                <ToggleGroup
+                  type="single"
+                  className="gap-0 rounded-lg border border-white/[0.07] bg-ink-900/80 p-0.5"
+                  aria-label={tr("Sheets shown")}
+                  value={showAll || !attention.length ? "all" : "attention"}
+                  onValueChange={(v) => v && setShowAll(v === "all")}
+                >
                   {[
                     { all: false, label: "Needs a look", n: attention.length },
                     { all: true, label: "All sheets", n: sheets.length },
-                  ].map((o) => {
-                    const on = o.all ? showAll || !attention.length : !showAll && attention.length > 0;
-                    return (
-                      <button
+                  ].map((o) => (
+                      <ToggleGroupItem
                         key={o.label}
-                        type="button"
-                        role="tab"
-                        aria-selected={on}
+                        value={o.all ? "all" : "attention"}
                         disabled={!o.all && !attention.length}
-                        onClick={() => setShowAll(o.all)}
-                        className={cn(
-                          "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40",
-                          on ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
-                        )}
+                        className="h-auto rounded-md px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground disabled:opacity-40 data-[state=on]:border-transparent data-[state=on]:bg-white/10 data-[state=on]:font-medium data-[state=on]:text-foreground"
                       >
                         {tr(o.label)} <span className="num ml-0.5 text-muted-foreground">{o.n}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                      </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
                 <span className="text-[11px] text-muted-foreground">{tr('Problems first · "needs a look" = problems, notes, new or changed days')}</span>
               </div>
 

@@ -5,7 +5,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Download, FileUp, Network, Search, TriangleAlert } from "lucide-react";
+import { ChevronRight, Download, FileUp, Network, Search, TriangleAlert } from "lucide-react";
 import { ApiError, api } from "../../api/client";
 import type { SiteRegisterImport, SiteRegisterRow } from "../../api/client";
 import { useAppContext } from "../../context/AppContext";
@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -159,14 +160,19 @@ const ImportDialog: React.FC<{ open: boolean; onClose: () => void; onDone: () =>
               </div>
             )}
             {preview.warnings.length > 0 && (
-              <details>
-                <summary className="cursor-pointer text-muted-foreground">{t("{n} notes from the file", { n: preview.warnings.length })}</summary>
-                <ul className="mt-1 list-disc pl-4 text-muted-foreground">
-                  {preview.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </details>
+              <Collapsible>
+                <CollapsibleTrigger className="group flex cursor-pointer items-center gap-1 text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground">
+                  <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
+                  {t("{n} notes from the file", { n: preview.warnings.length })}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <ul className="mt-1 list-disc pl-4 text-muted-foreground">
+                    {preview.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                </CollapsibleContent>
+              </Collapsible>
             )}
           </div>
         )}

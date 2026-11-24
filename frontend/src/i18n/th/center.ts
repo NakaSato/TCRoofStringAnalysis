@@ -251,7 +251,7 @@ export const TH_CENTER: Record<string, string> = {
   "Mean of the last 3 days the issue fired.": "ค่าเฉลี่ย 3 วันล่าสุดที่ปัญหาเกิด",
   "฿ / day": "฿ / วัน",
   "฿ so far": "฿ ถึงตอนนี้",
-  Age: "เปิดมาแล้ว",
+  "Open for": "เปิดมาแล้ว",
   "Next visit": "เข้าหน้างานครั้งถัดไป",
   "฿ / day × days until the plant's next planned visit (Calendar). An estimate.":
     "฿ / วัน × จำนวนวันจนถึงการเข้าหน้างานครั้งถัดไปที่วางแผนไว้ (ปฏิทิน) เป็นค่าประมาณ",

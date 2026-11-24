@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { TablePager, pageBounds } from "../../components/TablePager";
 
 /** events per page of the Site log */
@@ -303,7 +304,7 @@ const EventDialog: React.FC<{
             </Select>
             {chosen && (
               <label className="flex items-center gap-2 text-xs text-slate-300">
-                <input type="checkbox" checked={d.close_issue} onChange={(e) => set({ close_issue: e.target.checked })} />
+                <Checkbox checked={d.close_issue} onCheckedChange={(v) => set({ close_issue: v === true })} />
                 {t("Resolve this issue as a confirmed fault")}
               </label>
             )}

@@ -32,12 +32,18 @@ import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { StringStatusMatrix } from "../components/StringStatusMatrix";
 import { LiveOperatingCard } from "../components/stringDetail/LiveOperatingCard";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TablePager, pageBounds } from "../components/TablePager";
 import { useI18n } from "../i18n";
+
+/** filter chip look (inverter / status rows) */
+const CHIP =
+  "h-auto rounded-lg px-2.5 py-1 text-xs font-semibold bg-white/[0.04] text-slate-400 hover:bg-white/[0.04] hover:text-white data-[state=on]:border-transparent data-[state=on]:ring-1";
+const CHIP_SKY = "data-[state=on]:bg-sky-500/20 data-[state=on]:text-sky-200 data-[state=on]:ring-sky-400/40";
 
 const STATUS_FILTERS = ["ALL", "Healthy", "Warning", "Critical"] as const;
 const PAGE_SIZES = [25, 50, 100] as const;
@@ -246,45 +252,26 @@ export const StringAnalysisPage: React.FC = () => {
               <SlidersHorizontal className="h-3.5 w-3.5 text-sky-400" />
               {t("Inverter:")}
             </span>
-            <button
-              onClick={() => setSelectedInverterSn("ALL")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                selectedInverterSn === "ALL"
-                  ? "bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/40"
-                  : "bg-white/[0.04] text-slate-400 hover:text-white"
-              }`}
-            >
-              {t("All ({n})", { n: inverters.length })}
-            </button>
-            {inverters.map((inv) => (
-              <button
-                key={inv.device_sn}
-                onClick={() => setSelectedInverterSn(inv.device_sn)}
-                className={`num rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                  selectedInverterSn === inv.device_sn
-                    ? "bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/40"
-                    : "bg-white/[0.04] text-slate-400 hover:text-white"
-                }`}
-              >
-                {inv.device_sn} ({inv.string_count})
-              </button>
-            ))}
+            <ToggleGroup type="single" className="flex-wrap" value={selectedInverterSn} onValueChange={(v) => v && setSelectedInverterSn(v)}>
+              <ToggleGroupItem value="ALL" className={`${CHIP} ${CHIP_SKY}`}>
+                {t("All ({n})", { n: inverters.length })}
+              </ToggleGroupItem>
+              {inverters.map((inv) => (
+                <ToggleGroupItem key={inv.device_sn} value={inv.device_sn} className={`num ${CHIP} ${CHIP_SKY}`}>
+                  {inv.device_sn} ({inv.string_count})
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {(["ALL", "Healthy", "Warning", "Critical"] as const).map((st) => (
-              <button
-                key={st}
-                onClick={() => setStatusFilter(st)}
-                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                  statusFilter === st
-                    ? "bg-solar-400/20 text-solar-300 ring-1 ring-solar-400/40"
-                    : "bg-white/[0.04] text-slate-400 hover:text-white"
-                }`}
-              >
-                {t(st === "ALL" ? "All" : st)}
-              </button>
-            ))}
+            <ToggleGroup type="single" className="flex-wrap" value={statusFilter} onValueChange={(v) => v && setStatusFilter(v as (typeof STATUS_FILTERS)[number])}>
+              {(["ALL", "Healthy", "Warning", "Critical"] as const).map((st) => (
+                <ToggleGroupItem key={st} value={st} className={`${CHIP} data-[state=on]:bg-solar-400/20 data-[state=on]:text-solar-300 data-[state=on]:ring-solar-400/40`}>
+                  {t(st === "ALL" ? "All" : st)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
               <Input
@@ -425,15 +412,17 @@ export const StringAnalysisPage: React.FC = () => {
                       className="whitespace-nowrap"
                       aria-sort={active ? (tableDesc ? "descending" : "ascending") : undefined}
                     >
-                      <button
+                      <Button
                         type="button"
                         onClick={() => toggleTableSort(c.key)}
                         title={t("Sort by {col}", { col: t(c.label) })}
-                        className={`inline-flex items-center gap-1 hover:text-slate-100 ${active ? "text-slate-100" : ""}`}
+                        variant="ghost"
+                        size="xs"
+                        className={`h-auto gap-1 rounded-none p-0 font-semibold tracking-[inherit] text-inherit hover:bg-transparent hover:text-slate-100 ${active ? "text-slate-100" : ""}`}
                       >
                         {t(c.label)}
                         {active ? <Arrow className="size-3" /> : <ArrowUpDown className="size-3 opacity-40" />}
-                      </button>
+                      </Button>
                     </TableHead>
                   );
                 })}
@@ -505,16 +494,18 @@ export const StringAnalysisPage: React.FC = () => {
                       {s.diagnosis}
                     </TableCell>
                     <TableCell className="text-right">
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
+                        size="xs"
                         onClick={(e) => {
                           e.stopPropagation();
                           setInspectedStringId(s.string_id);
                         }}
-                        className="rounded border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/20"
+                        className="h-auto rounded border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-300 hover:border-sky-400/30 hover:bg-sky-500/20"
                       >
                         {t("Inspect Drawer")}
-                      </button>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );

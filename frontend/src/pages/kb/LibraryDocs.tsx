@@ -17,6 +17,7 @@ import { useI18n } from "../../i18n";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -314,14 +315,22 @@ export const LibraryDocs: React.FC<{ user: UserProfile | null; onUpload: () => v
                   <SelectItem value="title">{t("Sort: title")}</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="flex rounded-md border border-white/10" role="group" aria-label={t("View")}>
-                <Button variant={view === "list" ? "secondary" : "ghost"} size="icon-sm" aria-pressed={view === "list"} aria-label={t("List view")} onClick={() => setUrl({ view: null })}>
+              <ToggleGroup
+                type="single"
+                size="icon-sm"
+                spacing={0}
+                className="rounded-md border border-white/10"
+                aria-label={t("View")}
+                value={view}
+                onValueChange={(v) => v && setUrl({ view: v === "grid" ? "grid" : null })}
+              >
+                <ToggleGroupItem value="list" aria-label={t("List view")}>
                   <List />
-                </Button>
-                <Button variant={view === "grid" ? "secondary" : "ghost"} size="icon-sm" aria-pressed={view === "grid"} aria-label={t("Grid view")} onClick={() => setUrl({ view: "grid" })}>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="grid" aria-label={t("Grid view")}>
                   <LayoutGrid />
-                </Button>
-              </div>
+                </ToggleGroupItem>
+              </ToggleGroup>
             </div>
           </CardContent>
           <Suspended busy={list.refreshing} label={t("Loading documents…")}>
@@ -366,7 +375,7 @@ export const LibraryDocs: React.FC<{ user: UserProfile | null; onUpload: () => v
                 <Table containerClassName="table-wrap hidden md:block">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-32">{t("No.")}</TableHead>
+                      <TableHead className="w-32">{t("Number")}</TableHead>
                       <TableHead>{t("Title")}</TableHead>
                       <TableHead className="w-36">{t("Type")}</TableHead>
                       <TableHead className="w-28">{t("Rev")}</TableHead>

@@ -159,9 +159,9 @@ export const InverterCard: React.FC<{
             <AlertDescription>
               <span>
                 {t("Codes are Growatt's own, from the record of {t}.", { t: hhmm(rec?.timestamp) })}{" "}
-                <button type="button" className="underline underline-offset-2 hover:text-white" onClick={() => onTab("grid")}>
+                <Button type="button" variant="link" size="xs" className="h-auto p-0 text-[length:inherit] font-[inherit] text-inherit underline underline-offset-2 hover:text-white" onClick={() => onTab("grid")}>
                   {t("Grid & faults")}
-                </button>
+                </Button>
               </span>
             </AlertDescription>
           </Alert>
@@ -189,9 +189,9 @@ export const InverterCard: React.FC<{
                   .join(" · ")}
                 {anomalies.length > 3 ? ` · ${t("+{n} more", { n: anomalies.length - 3 })}` : ""}
                 {anomalies.length ? ". " : ""}
-                <button type="button" className="underline underline-offset-2 hover:text-white" onClick={() => onTab("strings")}>
+                <Button type="button" variant="link" size="xs" className="h-auto p-0 text-[length:inherit] font-[inherit] text-inherit underline underline-offset-2 hover:text-white" onClick={() => onTab("strings")}>
                   {t("Strings")}
-                </button>
+                </Button>
               </span>
             </AlertDescription>
           </Alert>

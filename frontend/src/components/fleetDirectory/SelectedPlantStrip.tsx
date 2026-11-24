@@ -2,6 +2,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Cpu, ArrowUpRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { plantPath } from "../../context/routes";
 import { Led, fmt } from "../ui";
 import type { StatusLevel } from "../ui";
@@ -31,12 +32,14 @@ export const SelectedPlantStrip: React.FC<{ d: FleetDirectory }> = ({ d }) => {
               >
                 {t("Full String Diagnostics")} <ArrowUpRight className="h-3 w-3" />
               </Link>
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={() => setShowInspectorDrawer(false)}
-                className="text-[11px] text-slate-500 hover:text-slate-300"
+                className="h-auto rounded-none p-0 text-[11px] font-normal text-slate-500 hover:bg-transparent hover:text-slate-300"
               >
                 {t("Hide")}
-              </button>
+              </Button>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">

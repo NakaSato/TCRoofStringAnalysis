@@ -27,10 +27,12 @@ const Copyable: React.FC<{ value: string | null }> = ({ value }) => {
   return (
     <span className="inline-flex items-center gap-1">
       <span className="num">{value}</span>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-xs"
         aria-label={t("Copy")}
-        className="text-slate-500 transition hover:text-slate-200"
+        className="size-auto rounded-sm text-slate-500 hover:bg-transparent hover:text-slate-200"
         onClick={() =>
           void navigator.clipboard?.writeText(value).then(() => {
             setDone(true);
@@ -39,7 +41,7 @@ const Copyable: React.FC<{ value: string | null }> = ({ value }) => {
         }
       >
         {done ? <Check className="size-3" /> : <Copy className="size-3" />}
-      </button>
+      </Button>
     </span>
   );
 };

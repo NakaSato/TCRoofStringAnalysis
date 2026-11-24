@@ -5,7 +5,7 @@ import type { SystemLogEntry, SystemLogLevel, SystemLogPage, SystemLogSource, Sy
 import { EmptyState, LoadingState, PageHeader, Panel, Suspended, fmtInt } from "../components/ui";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { Button } from "@/components/ui/button";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { LogHealthStrip } from "./systemLogs/LogHealthStrip";
@@ -234,23 +234,25 @@ export const SystemLogsPage: React.FC = () => {
             <InputGroupInput value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder={t("Text in message")} aria-label={t("Search messages")} maxLength={200} />
             {qInput && (
               <InputGroupAddon align="inline-end">
-                <button type="button" onClick={() => setQInput("")} aria-label={t("Clear search")}>
+                <InputGroupButton size="icon-xs" onClick={() => setQInput("")} aria-label={t("Clear search")}>
                   <X className="size-3.5" />
-                </button>
+                </InputGroupButton>
               </InputGroupAddon>
             )}
           </InputGroup>
           {chips.map((c) => (
-            <button
+            <Button
               key={c.label}
               type="button"
+              variant="outline"
+              size="xs"
               onClick={c.clear}
-              className="inline-flex items-center gap-1 rounded-full border border-solar-400/30 bg-solar-500/10 px-2 py-0.5 text-[11px] text-solar-200 transition hover:bg-solar-500/20"
+              className="h-auto gap-1 rounded-full border-solar-400/30 bg-solar-500/10 px-2 py-0.5 text-[11px] font-normal text-solar-200 hover:border-solar-400/30 hover:bg-solar-500/20"
               title={t("Remove this filter")}
             >
               {c.label}
               <X className="size-3" />
-            </button>
+            </Button>
           ))}
           {anyFilter && (
             <Button variant="ghost" size="xs" className="ml-auto" onClick={() => setUrl({ level: null, source: null, range: null, job: null, run: null, q: null })}>

@@ -14,6 +14,7 @@ import { Link } from "react-router-dom";
 import { ImageOff } from "lucide-react";
 import { appHref } from "../../components/assistant/Markdown";
 import { cn } from "@/lib/utils";
+import { Separator } from "@/components/ui/separator";
 import { useI18n } from "../../i18n";
 
 const LINK = "text-solar-300 underline decoration-solar-400/40 underline-offset-2 hover:text-solar-200 break-words";
@@ -51,7 +52,7 @@ const components: Components = {
   ol: ({ node: _n, className, ...p }) => <ol className={cn("my-2.5 list-decimal space-y-1 pl-5 marker:text-slate-500", className)} {...p} />,
   li: ({ node: _n, ...p }) => <li className="leading-relaxed [&>input]:mr-1.5 [&>input]:align-middle" {...p} />,
   strong: ({ node: _n, ...p }) => <strong className="font-semibold text-slate-100" {...p} />,
-  hr: () => <hr className="my-5 border-white/[0.08]" />,
+  hr: () => <Separator className="my-5 bg-white/[0.08]" />,
   blockquote: ({ node: _n, children, ...p }) => {
     const warn = textOf(children).trimStart().startsWith("⚠");
     return (

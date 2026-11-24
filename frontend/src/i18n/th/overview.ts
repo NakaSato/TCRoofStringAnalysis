@@ -23,7 +23,6 @@ export const TH_OVERVIEW: Record<string, string> = {
   "Generation details": "รายละเอียดการผลิตไฟฟ้า",
   "No stored records for {period} yet (the worker stores them every 10 min)":
     "ยังไม่มีค่าที่บันทึกของ {period} (ระบบบันทึกทุก 10 นาที)",
-  "No stored records for {period}": "ไม่มีค่าที่บันทึกของ {period}",
   "Load (derived)": "โหลด (ค่าคำนวณ)",
   "Site consumption for {period}: PV AC + grid, derived from the energy meter, not measured{note}":
     "การใช้ไฟฟ้าของไซต์ช่วง {period}: PV AC + กริด เป็นค่าคำนวณจากมิเตอร์ไฟฟ้า ไม่ใช่ค่าวัด{note}",
@@ -153,7 +152,6 @@ export const TH_OVERVIEW: Record<string, string> = {
   ID: "รหัส",
   Thailand: "ประเทศไทย",
   "DC capacity: PV modules connected to the inverters": "กำลังการผลิตติดตั้ง DC: แผง PV ที่ต่อเข้าอินเวอร์เตอร์",
-  "DC capacity": "กำลังการผลิตติดตั้ง DC",
   "Lifetime yield reported by the inverters": "พลังงานผลิตสะสมตามที่อินเวอร์เตอร์รายงาน",
   "Lifetime yield": "พลังงานผลิตสะสม",
   "Grid Connected: {date}": "วันเชื่อมต่อกริด: {date}",

@@ -21,6 +21,7 @@ import { canAccessPath } from "../auth/access";
 import { StatusBadge, Led, statusLevel, fmt } from "./ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Kbd } from "@/components/ui/kbd";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "../i18n";
 
@@ -217,9 +218,7 @@ export const CommandPaletteModal: React.FC<{
             placeholder={t("Jump to any PV string (STR-06), inverter, alarm, or module…")}
             className="w-full bg-transparent text-xs text-slate-100 placeholder:text-slate-500 outline-none"
           />
-          <kbd className="num rounded border border-white/10 bg-ink-850 px-1.5 py-0.5 text-[11px] text-slate-400">
-            ESC
-          </kbd>
+          <Kbd>ESC</Kbd>
         </div>
 
         {/* Results */}
@@ -416,14 +415,16 @@ export const AlarmCenterDrawer: React.FC<{
                   </div>
 
                   <div className="mt-2.5 flex items-center justify-between gap-2">
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       onClick={() =>
                         setAckedIds((prev) => ({ ...prev, [a._idx]: !prev[a._idx] }))
                       }
-                      className="text-[11px] font-medium text-slate-400 hover:text-slate-200 cursor-pointer"
+                      className="h-auto rounded-none p-0 text-[11px] font-medium text-slate-400 hover:bg-transparent hover:text-slate-200"
                     >
                       {acked ? t("Unacknowledge") : t("✓ Acknowledge")}
-                    </button>
+                    </Button>
                     <div className="flex items-center gap-1.5">
                       <Button
                         size="sm"

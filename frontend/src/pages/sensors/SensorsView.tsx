@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -84,10 +84,10 @@ const SortHead: React.FC<{
   children: React.ReactNode;
 }> = ({ id, sort, desc, onSort, className, children }) => (
   <TableHead className={className} aria-sort={sort === id ? (desc ? "descending" : "ascending") : undefined}>
-    <button type="button" className="inline-flex items-center gap-1 hover:text-white" onClick={() => onSort(id)}>
+    <Button type="button" variant="ghost" size="xs" className="h-auto gap-1 rounded-none p-0 font-semibold tracking-[inherit] text-inherit hover:bg-transparent hover:text-white" onClick={() => onSort(id)}>
       {children}
       {sort === id && (desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
-    </button>
+    </Button>
   </TableHead>
 );
 
@@ -392,9 +392,9 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                   <InputGroupInput value={query} onChange={(e) => setUrl({ q: e.target.value })} placeholder={one ? t("Sensor") : t("Plant or sensor")} aria-label={t("Search sensors")} />
                   {query && (
                     <InputGroupAddon align="inline-end">
-                      <button type="button" onClick={() => setUrl({ q: null })} aria-label={t("Clear search")}>
+                      <InputGroupButton size="icon-xs" onClick={() => setUrl({ q: null })} aria-label={t("Clear search")}>
                         <X className="size-3.5" />
-                      </button>
+                      </InputGroupButton>
                     </InputGroupAddon>
                   )}
                 </InputGroup>

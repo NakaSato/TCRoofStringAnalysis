@@ -23,6 +23,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
 import { useI18n } from "../i18n";
 
 type IngestMode = "api" | "upload" | "simulate";
@@ -304,12 +306,7 @@ export const IngestionPage: React.FC = () => {
 
               {provider !== "generic_rest" && (
                 <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={useSandbox}
-                    onChange={(e) => setUseSandbox(e.target.checked)}
-                    className="rounded"
-                  />
+                  <Checkbox checked={useSandbox} onCheckedChange={(v) => setUseSandbox(v === true)} />
                   <span>{t("Use API Sandbox Simulator if endpoint is unreachable / offline")}</span>
                 </label>
               )}
@@ -429,30 +426,16 @@ export const IngestionPage: React.FC = () => {
             </div>
             <div className="grid grid-cols-1 gap-4 text-xs md:grid-cols-3">
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">
+                <Label id="sim-days" className="mb-2 block text-[11px] font-medium text-slate-400">
                   {t("Simulation Duration:")} <strong className="num text-solar-400">{t("{n} Days", { n: simDays })}</strong>
                 </Label>
-                <input
-                  type="range"
-                  min={2}
-                  max={30}
-                  value={simDays}
-                  onChange={(e) => setSimDays(Number(e.target.value))}
-                  className="w-full"
-                />
+                <Slider min={2} max={30} value={[simDays]} onValueChange={([v]) => setSimDays(v)} aria-labelledby="sim-days" />
               </div>
               <div>
-                <Label className="mb-1 block text-[11px] font-medium text-slate-400">
+                <Label id="sim-strings" className="mb-2 block text-[11px] font-medium text-slate-400">
                   {t("Number of PV Strings:")} <strong className="num text-energy-400">{t("{n} Strings", { n: simStrings })}</strong>
                 </Label>
-                <input
-                  type="range"
-                  min={4}
-                  max={16}
-                  value={simStrings}
-                  onChange={(e) => setSimStrings(Number(e.target.value))}
-                  className="w-full"
-                />
+                <Slider min={4} max={16} value={[simStrings]} onValueChange={([v]) => setSimStrings(v)} aria-labelledby="sim-strings" />
               </div>
               <div>
                 <Label className="mb-1 block text-[11px] font-medium text-slate-400">{t("Sampling Interval (Minutes)")}</Label>

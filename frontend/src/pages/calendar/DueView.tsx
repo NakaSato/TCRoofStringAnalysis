@@ -274,13 +274,13 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
                   </TableCell>
                   <TableCell className="num whitespace-nowrap text-xs">
                     {admin ? (
-                      <button type="button" className="hover:underline" onClick={() => setEditing(r)}>
+                      <Button type="button" variant="link" size="xs" className="h-auto rounded-none p-0 align-baseline text-[length:inherit] font-normal text-current underline-offset-auto" onClick={() => setEditing(r)}>
                         {st.cleaning_crew_days == null && st.cleaning_cost_thb == null ? (
                           <span className="text-muted-foreground">{t("Not entered")}</span>
                         ) : (
                           `${t("{n} d", { n: st.cleaning_crew_days ?? "—" })} · ${st.cleaning_cost_thb == null ? "—" : `฿${fmtInt(st.cleaning_cost_thb)}`}`
                         )}
-                      </button>
+                      </Button>
                     ) : st.cleaning_crew_days == null && st.cleaning_cost_thb == null ? (
                       <span className="text-muted-foreground">{t("Not entered")}</span>
                     ) : (

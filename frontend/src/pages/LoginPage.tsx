@@ -85,14 +85,16 @@ export const LoginPage: React.FC = () => {
                 className="pr-9"
                 required
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-slate-500 hover:text-slate-300"
+                className="absolute inset-y-0 right-0 h-auto w-9 rounded-none text-slate-500 hover:bg-transparent hover:text-slate-300"
                 aria-label={showPassword ? t("Hide password") : t("Show password")}
               >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
             </div>
           </div>
 

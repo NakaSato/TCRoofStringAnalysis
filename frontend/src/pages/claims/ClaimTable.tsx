@@ -6,6 +6,7 @@ import type { Claim } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "../../i18n";
 import { CAUSE, STATUS, TYPE, ageStart, daysBetween, fmtDay, isOpen, relDays, whatText } from "./format";
@@ -22,10 +23,10 @@ const SortHead: React.FC<{ k: SortKey; label: string; sort: SortKey; desc: boole
   className,
 }) => (
   <TableHead className={className} aria-sort={sort === k ? (desc ? "descending" : "ascending") : undefined}>
-    <button type="button" onClick={() => onSort(k)} className="inline-flex items-center gap-1 hover:text-foreground">
+    <Button type="button" variant="ghost" size="xs" onClick={() => onSort(k)} className="h-auto gap-1 rounded-none p-0 text-[length:inherit] font-[inherit] text-current hover:bg-transparent hover:text-foreground">
       {label}
       {sort === k && (desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
-    </button>
+    </Button>
   </TableHead>
 );
 

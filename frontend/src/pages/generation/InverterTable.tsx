@@ -9,6 +9,7 @@ import { fmt } from "../../components/ui";
 import { usePlantHref } from "../../context/AppContext";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,18 +85,20 @@ export const InverterTable: React.FC<{ inverters: OverviewInverter[]; target: nu
                     className={cn("whitespace-nowrap", c.key !== "name" && "text-right")}
                     aria-sort={active ? (desc ? "descending" : "ascending") : undefined}
                   >
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="xs"
                       onClick={() => toggle(c.key)}
                       className={cn(
-                        "inline-flex items-center gap-1 hover:text-slate-100",
+                        "h-auto gap-1 rounded-none p-0 font-semibold tracking-[inherit] text-inherit hover:bg-transparent hover:text-slate-100",
                         c.key !== "name" && "flex-row-reverse",
                         active && "text-slate-100"
                       )}
                     >
                       {t(c.label)}
                       {active && <Arrow className="size-3" />}
-                    </button>
+                    </Button>
                   </TableHead>
                 );
               })}

@@ -160,17 +160,19 @@ export const LogTable: React.FC<{
                 </Badge>
               </TableCell>
               <TableCell>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="xs"
                   title={`${t("Show only {source}", { source: r.source })}${r.host ? t(" · host {host}", { host: r.host }) : ""}`}
-                  className="rounded-md px-1.5 py-0.5 text-[11px] text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-slate-200"
+                  className="h-auto rounded-md px-1.5 py-0.5 text-[11px] font-normal text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
                   onClick={(e) => {
                     e.stopPropagation();
                     onSource(r.source);
                   }}
                 >
                   {r.source === "api" ? "API" : r.source === "cli" ? "CLI" : "Worker"}
-                </button>
+                </Button>
               </TableCell>
               <TableCell className="min-w-0">
                 <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500">
@@ -192,9 +194,11 @@ export const LogTable: React.FC<{
               </TableCell>
               <TableCell className="text-right whitespace-nowrap">
                 {r.run_id != null ? (
-                  <button
+                  <Button
                     type="button"
-                    className="num inline-flex max-w-full items-center gap-1 truncate rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[11px] text-slate-300 transition-colors hover:border-solar-400/40 hover:bg-solar-500/10 hover:text-solar-200"
+                    variant="outline"
+                    size="xs"
+                    className="num h-auto max-w-full justify-start gap-1 truncate rounded-md bg-white/[0.04] px-1.5 py-0.5 text-[11px] font-normal text-slate-300 hover:border-solar-400/40 hover:bg-solar-500/10 hover:text-solar-200"
                     title={t("Show only this job run")}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -203,7 +207,7 @@ export const LogTable: React.FC<{
                   >
                     <span className="truncate">{r.job ?? t("run")}</span>
                     <span className="text-slate-500">#{r.run_id}</span>
-                  </button>
+                  </Button>
                 ) : (
                   <span className="text-slate-600">—</span>
                 )}

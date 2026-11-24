@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useI18n } from "../i18n";
 import { notify } from "@/lib/notify";
 
@@ -348,7 +349,7 @@ const PlantAssignmentPanel: React.FC<{
                 chosen.has(p.plant_id) ? "border-solar-400/40 bg-solar-500/10" : "border-white/[0.06] hover:bg-white/[0.03]"
               }`}
             >
-              <input type="checkbox" checked={chosen.has(p.plant_id)} onChange={() => toggle(p.plant_id)} />
+              <Checkbox checked={chosen.has(p.plant_id)} onCheckedChange={() => toggle(p.plant_id)} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium text-slate-200">{p.name}</span>
                 <span className="block truncate text-[11px] text-slate-500">

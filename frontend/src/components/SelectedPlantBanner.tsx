@@ -221,14 +221,16 @@ export const SelectedPlantBanner: React.FC = () => {
               className="h-7 w-36 pl-8 pr-7 text-xs border-white/10 bg-ink-950/90 placeholder:text-slate-500 focus:border-sky-400/40 focus:ring-1 focus:ring-sky-400/20 sm:w-44"
             />
             {plantSearch && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setPlantSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute right-2 top-1/2 size-auto -translate-y-1/2 rounded-none p-0 text-slate-500 hover:bg-transparent hover:text-slate-300 active:not-aria-[haspopup]:-translate-y-1/2"
                 title={t("Clear search")}
               >
-                <X className="h-3 w-3" />
-              </button>
+                <X className="size-3" />
+              </Button>
             )}
           </div>
           <Select

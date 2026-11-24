@@ -326,9 +326,9 @@ const ModelPicker: React.FC<{ catalog: KbDocCatalog | null; value: string[]; onC
       {value.map((m) => (
         <span key={m} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 py-0.5 pr-1 pl-2 text-[11px] text-slate-200">
           {m}
-          <button type="button" className="rounded-full p-0.5 hover:bg-white/10" aria-label={t("Remove {name}", { name: m })} onClick={() => onChange(value.filter((x) => x !== m))}>
+          <Button type="button" variant="ghost" size="icon-xs" className="size-auto rounded-full p-0.5 text-slate-200 hover:bg-white/10 hover:text-slate-200" aria-label={t("Remove {name}", { name: m })} onClick={() => onChange(value.filter((x) => x !== m))}>
             <Trash2 className="size-3" />
-          </button>
+          </Button>
         </span>
       ))}
       <Select value="" onValueChange={(v) => v && onChange([...value, v])} disabled={!catalog || left.length === 0}>
@@ -806,7 +806,7 @@ export const WithdrawDialog: React.FC<{ doc: KbDocDetail; open: boolean; onOpenC
           </Button>
           <Button variant="destructive" size="sm" onClick={submit} disabled={busy}>
             {busy && <Spinner data-icon="inline-start" className="size-3" />}
-            {t("Withdraw")}
+            {t("Withdraw {number}", { number: doc.number })}
           </Button>
         </DialogFooter>
       </DialogContent>

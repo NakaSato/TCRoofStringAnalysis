@@ -24,6 +24,10 @@ import { LoadingState, Panel, Suspended, fmt } from "../ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "../../i18n";
 
 /** A ratio (0.968) as a percentage of the reference ("96.8%"); "—" when there is none. */
@@ -329,20 +333,22 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
                 <span className="text-[11px] text-slate-400">{t("Sweep duration (ms)")}</span>
                 <Input type="number" step="1" min="1" value={sweepMs} onChange={(e) => setSweepMs(e.target.value)} placeholder={t("optional")} className="num h-8 text-xs" />
               </label>
-              <label className="space-y-1">
-                <span className="text-[11px] text-slate-400">{t("Cell technology")}</span>
-                <select
-                  value={cellTech}
-                  onChange={(e) => setCellTech(e.target.value as IvCellTechnology | "")}
-                  className="h-8 w-full rounded-md border border-white/10 bg-ink-900 px-2 text-xs text-white focus:outline-none"
-                >
-                  <option value="">{t("Not given")}</option>
-                  <option value="perc">PERC</option>
-                  <option value="topcon">TOPCon</option>
-                  <option value="hjt">HJT</option>
-                  <option value="ibc">IBC</option>
-                </select>
-              </label>
+              <div className="space-y-1">
+                <span id="iv-cell-tech" className="block text-[11px] text-slate-400">{t("Cell technology")}</span>
+                {/* Radix Select can't hold "" as a value: "none" stands for "Not given" */}
+                <Select value={cellTech || "none"} onValueChange={(v) => setCellTech(v === "none" ? "" : (v as IvCellTechnology))}>
+                  <SelectTrigger size="sm" className="h-8 w-full text-xs" aria-labelledby="iv-cell-tech">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t("Not given")}</SelectItem>
+                    <SelectItem value="perc">PERC</SelectItem>
+                    <SelectItem value="topcon">TOPCon</SelectItem>
+                    <SelectItem value="hjt">HJT</SelectItem>
+                    <SelectItem value="ibc">IBC</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <label className="space-y-1">
                 <span className="text-[11px] text-slate-400">{t("Sensor uncertainty (±%, k=2)")}</span>
                 <Input type="number" step="0.1" min="0.1" value={sensorUncPct} onChange={(e) => setSensorUncPct(e.target.value)} placeholder={t("optional")} className="num h-8 text-xs" />
@@ -358,18 +364,18 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
             </div>
             <label className="block space-y-1">
               <span className="text-[11px] text-slate-400">{t("Curve points (one V, I pair per line, e.g. `0, 13.8` ... `820, 0`)")}</span>
-              <textarea
+              <Textarea
                 rows={4}
                 value={csvText}
                 onChange={(e) => setCsvText(e.target.value)}
                 placeholder={"0.0, 13.85\n200.0, 13.80\n650.0, 13.10\n780.0, 0.0"}
-                className="num w-full rounded-md border border-white/10 bg-ink-900 px-2.5 py-1.5 text-xs text-white focus:outline-none"
+                className="num text-xs"
                 required
               />
             </label>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="inline-flex items-center gap-2 text-slate-300">
-                <input type="checkbox" checked={irConfirmed} onChange={(e) => setIrConfirmed(e.target.checked)} />
+                <Checkbox checked={irConfirmed} onCheckedChange={(v) => setIrConfirmed(v === true)} />
                 {t("Confirmed by IR thermography (drone / handheld IR)")}
               </label>
               <Button type="submit" size="xs" disabled={submitting}>
@@ -395,22 +401,24 @@ export const StringIvSweepPanel: React.FC<{ plantId: number; sn: string; stringN
             <Suspended busy={loading} label={t("Loading stored I-V sweeps…")} pill={false} contentClassName="space-y-4">
               {/* Sweep selector + conditions bar */}
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-1.5">
+                <ToggleGroup
+                  type="single"
+                  spacing={1.5}
+                  value={String(active.id)}
+                  // Clicking the pressed sweep again gives "": keep it selected.
+                  onValueChange={(v) => v && setSelectedId(Number(v))}
+                  className="flex-wrap"
+                >
                   {sweeps.map((sw) => (
-                    <button
+                    <ToggleGroupItem
                       key={sw.id}
-                      type="button"
-                      onClick={() => setSelectedId(sw.id)}
-                      className={`num rounded-md border px-2.5 py-1 text-[11px] font-medium transition ${
-                        sw.id === active.id
-                          ? "border-solar-400/60 bg-solar-500/20 text-solar-300"
-                          : "border-white/[0.08] bg-ink-850 text-slate-400 hover:text-white"
-                      }`}
+                      value={String(sw.id)}
+                      className="num h-auto rounded-md border-white/[0.08] bg-ink-850 px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:bg-ink-850 hover:text-white data-[state=on]:border-solar-400/60 data-[state=on]:bg-solar-500/20 data-[state=on]:font-medium data-[state=on]:text-solar-300"
                     >
                       {sw.swept_at.replace("T", " ").slice(0, 16)} · {fmt(sw.irradiance_wm2, 0)} W/m² · {fmt(sw.module_temp_c, 1)} °C
-                    </button>
+                    </ToggleGroupItem>
                   ))}
-                </div>
+                </ToggleGroup>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <Badge variant={active.quality_gate_passed ? "ok" : "warn"}>
                     {active.quality_gate_passed

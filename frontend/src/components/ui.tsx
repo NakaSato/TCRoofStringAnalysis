@@ -7,6 +7,7 @@ import React from "react";
 import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -210,11 +211,7 @@ export const Meter: React.FC<{ value: number; max?: number; tone?: Tone; classNa
       : tone === "info"
       ? "bg-sky-400"
       : "bg-solar-400";
-  return (
-    <div className={`h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06] ${className}`}>
-      <div className={`h-full rounded-full ${bar} transition-all duration-700`} style={{ width: `${pct}%` }} />
-    </div>
-  );
+  return <Progress value={pct} className={className} indicatorClassName={bar} />;
 };
 
 /* -------------------------------------------------------------------------- */

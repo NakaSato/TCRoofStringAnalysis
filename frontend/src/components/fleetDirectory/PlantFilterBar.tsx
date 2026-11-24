@@ -3,6 +3,7 @@ import React from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { useI18n } from "../../i18n";
@@ -142,27 +143,30 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           )}
 
           {/* Expand toggle */}
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             onClick={() => setExpandedFilters((v) => !v)}
-            className="inline-flex items-center gap-0.5 px-1 text-[11px] font-medium text-sky-400 transition hover:text-sky-300"
+            className="h-auto gap-0.5 rounded-none px-1 py-0 text-[11px] font-medium text-sky-400 hover:bg-transparent hover:text-sky-300"
           >
             {expandedFilters ? t("Collapse") : t("Expand")}
             {expandedFilters ? (
-              <ChevronUp className="h-3.5 w-3.5" />
+              <ChevronUp className="size-3.5" />
             ) : (
-              <ChevronDown className="h-3.5 w-3.5" />
+              <ChevronDown className="size-3.5" />
             )}
-          </button>
+          </Button>
 
           {/* Search & Reset buttons */}
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => fetchCloudPlants(false)}
-            className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-sky-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-sky-500"
+            className="h-auto rounded-md border-transparent bg-sky-600 px-3 py-1 text-white shadow-sm hover:border-transparent hover:bg-sky-500"
           >
             {t("Search")}
-          </button>
+          </Button>
           <Button
             type="button"
             onClick={handleResetFilters}
@@ -177,22 +181,28 @@ export const PlantFilterBar: React.FC<{ d: FleetDirectory }> = ({ d }) => {
       {expandedFilters && (
         <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-3 text-xs">
           <span className="text-slate-400">{t("Plant Status")}:</span>
-          {(["ALL", "Normal", "Faulty", "Disconnected"] as const).map((st) => (
-            <button
-              key={st}
-              onClick={() => {
-                setStatusFilter(st);
-                setCurrentPage(1);
-              }}
-              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
-                statusFilter === st
-                  ? "bg-sky-500/20 text-sky-300 ring-1 ring-sky-400/40"
-                  : "bg-white/5 text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              {st === "ALL" ? t("All Statuses") : t(st)}
-            </button>
-          ))}
+          <ToggleGroup
+            type="single"
+            size="sm"
+            spacing={3}
+            value={statusFilter}
+            onValueChange={(v) => {
+              // Clicking the pressed chip again gives "": keep it selected, as before.
+              setStatusFilter((v || statusFilter) as typeof statusFilter);
+              setCurrentPage(1);
+            }}
+            className="flex-wrap"
+          >
+            {(["ALL", "Normal", "Faulty", "Disconnected"] as const).map((st) => (
+              <ToggleGroupItem
+                key={st}
+                value={st}
+                className="h-auto rounded-md bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-400 hover:bg-white/5 hover:text-slate-200 data-[state=on]:border-transparent data-[state=on]:bg-sky-500/20 data-[state=on]:text-sky-300 data-[state=on]:ring-1 data-[state=on]:ring-sky-400/40"
+              >
+                {st === "ALL" ? t("All Statuses") : t(st)}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
           {cloudNotice && (
             <span className="ml-auto text-[11px] text-amber-300/90">
               {t("Cloud API status")}: {cloudNotice}

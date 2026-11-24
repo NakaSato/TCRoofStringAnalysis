@@ -285,7 +285,6 @@ export const TH_CALENDAR: Record<string, string> = {
   History: "ประวัติ",
   Skip: "ข้าม",
   "Cancel task": "ยกเลิกงาน",
-  Reopen: "เปิดงานใหม่",
 
   // ---- teams ----
   "New team": "ทีมใหม่",

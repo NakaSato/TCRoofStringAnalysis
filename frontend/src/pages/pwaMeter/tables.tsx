@@ -7,6 +7,7 @@ import type { PwaMeterCheck, PwaMeterPhaseSummary, PwaMeterSiteSummary, PwaOutag
 import { fmt, fmtInt } from "../../components/ui";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MODELLED, fmtDay, issueTone } from "./format";
 import { useI18n } from "../../i18n";
@@ -37,10 +38,10 @@ export function SortHead<K extends string>({
 }) {
   return (
     <TableHead className={cn("whitespace-nowrap", className)} aria-sort={sort === k ? (desc ? "descending" : "ascending") : undefined} title={title}>
-      <button type="button" onClick={() => onSort(k)} className="inline-flex items-center gap-1 hover:text-foreground">
+      <Button type="button" onClick={() => onSort(k)} variant="ghost" size="xs" className="h-auto gap-1 rounded-none p-0 font-semibold tracking-[inherit] text-inherit hover:bg-transparent hover:text-foreground">
         {label}
         {sort === k && (desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
-      </button>
+      </Button>
     </TableHead>
   );
 }

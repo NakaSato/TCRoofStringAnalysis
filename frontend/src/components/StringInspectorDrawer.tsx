@@ -373,21 +373,23 @@ export const StringInspectorDrawer: React.FC = () => {
                   const active = id === inspectedStringId;
                   const pLvl = statusLevel(p.status);
                   return (
-                    <button
+                    <Button
                       key={id}
                       type="button"
+                      variant="outline"
+                      size="xs"
                       onClick={() => show(id)}
                       aria-current={active ? "true" : undefined}
                       title={`${id} · ${p.status ? t(String(p.status)) : ""}`}
-                      className={`num inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${
+                      className={`num h-auto gap-1.5 rounded-md px-2 py-1 text-[11px] ${
                         active
-                          ? "border-solar-400/60 bg-solar-500/20 text-solar-300"
-                          : "border-white/[0.07] bg-ink-850 text-slate-400 hover:border-white/20 hover:text-slate-200"
+                          ? "border-solar-400/60 bg-solar-500/20 text-solar-300 hover:border-solar-400/60 hover:bg-solar-500/20"
+                          : "border-white/[0.07] bg-ink-850 text-slate-400 hover:border-white/20 hover:bg-ink-850 hover:text-slate-200"
                       }`}
                     >
                       <Led level={pLvl === "info" || pLvl === "neutral" ? "ok" : pLvl} />
                       {String(p.short_label || p.string_id).replace(/^.*·\s*/, "")}
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -425,13 +427,15 @@ export const StringInspectorDrawer: React.FC = () => {
                     </>
                   )}
                   {t(", compared with the mean of the other strings. Diagnosis, status and health are computed for the whole of")}{" "}
-                  <button
+                  <Button
                     type="button"
-                    className="num font-semibold text-sky-300 hover:underline"
+                    variant="link"
+                    size="xs"
+                    className="num h-auto rounded-none p-0 align-baseline text-[length:inherit] font-semibold text-sky-300"
                     onClick={() => setPeriod({ ...NEWEST, day: ovDay })}
                   >
                     {ovDay}
-                  </button>{" "}
+                  </Button>{" "}
                   {t("only.")}
                 </div>
               ) : (

@@ -16,7 +16,6 @@ import { useAppContext } from "../context/AppContext";
 import { isAdmin } from "../auth/access";
 import { useI18n } from "../i18n";
 import { pick, useUrlState } from "@/lib/useUrlState";
-import { cn } from "@/lib/utils";
 import { SkeletonRows, Suspended, fmtInt } from "../components/ui";
 import { TablePager, pageBounds } from "../components/TablePager";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -25,10 +24,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CATEGORIES, CATEGORY_KEYS, STATUS, STATUS_KEYS, articlePath, categoryOf, fmtDateTime, searchWords, updatedText } from "./kb/format";
 import { useArticleList } from "./kb/useKb";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { LibraryDocs } from "./kb/LibraryDocs";
 import { UploadDocDialog } from "./kb/DocDialogs";
 import { docPath, searchPath } from "./kb/docFormat";
@@ -73,15 +74,17 @@ const ArticleRow: React.FC<{ a: KbArticleListItem; onTag: (tag: string) => void 
         {a.tags.length > 0 && (
           <span className="relative z-10 flex flex-wrap gap-1">
             {a.tags.map((tag) => (
-              <button
+              <Button
                 key={tag}
                 type="button"
+                variant="ghost"
+                size="xs"
                 onClick={() => onTag(tag)}
-                className="rounded-full border border-white/10 bg-white/5 px-1.5 py-px text-[10px] text-slate-300 hover:border-solar-400/40 hover:text-solar-200"
+                className="h-auto rounded-full border-white/10 bg-white/5 px-1.5 py-px text-[10px] font-normal text-slate-300 hover:border-solar-400/40 hover:bg-white/5 hover:text-solar-200"
                 title={t("Show articles tagged {tag}", { tag })}
               >
                 #{tag}
-              </button>
+              </Button>
             ))}
           </span>
         )}
@@ -172,26 +175,26 @@ const ArticlesTab: React.FC<{ user: UserProfile | null }> = ({ user }) => {
               }}
               aria-label={t("Search manuals")}
             />
-            <kbd className="num pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 rounded border border-white/10 px-1.5 text-[10px] text-slate-500 sm:block">/</kbd>
+            <Kbd className="absolute top-1/2 right-2.5 hidden -translate-y-1/2 bg-transparent text-slate-500 sm:inline-flex">/</Kbd>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("Category")}>
-            <Button size="sm" variant={cat === ALL ? "secondary" : "ghost"} aria-pressed={cat === ALL} onClick={() => setUrl({ cat: null })}>
-              {t("All")}
-            </Button>
+          {/* clicking the selected category again (value "") goes back to All */}
+          <ToggleGroup
+            type="single"
+            size="sm"
+            spacing={1.5}
+            className="flex-wrap"
+            aria-label={t("Category")}
+            value={cat}
+            onValueChange={(v) => setUrl({ cat: v && v !== ALL ? v : null })}
+          >
+            <ToggleGroupItem value={ALL}>{t("All")}</ToggleGroupItem>
             {CATEGORIES.map((c) => (
-              <Button
-                key={c.value}
-                size="sm"
-                variant={cat === c.value ? "secondary" : "ghost"}
-                aria-pressed={cat === c.value}
-                className={cn(cat === c.value && "text-solar-200")}
-                onClick={() => setUrl({ cat: cat === c.value ? null : c.value })}
-              >
+              <ToggleGroupItem key={c.value} value={c.value} className="data-[state=on]:text-solar-200">
                 <c.icon data-icon="inline-start" />
                 {t(c.label)}
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={tag || ALL} onValueChange={(v) => setUrl({ tag: v === ALL ? null : v })}>
               <SelectTrigger size="sm" className="w-48 max-w-full" aria-label={t("Filter by tag")}>

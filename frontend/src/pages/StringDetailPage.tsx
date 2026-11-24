@@ -217,15 +217,17 @@ export const StringDetailPage: React.FC = () => {
             <div className="num mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="xs"
                     onClick={copySn}
                     aria-label={t("Copy inverter SN {sn}", { sn })}
-                    className="group -mx-1 inline-flex items-center gap-1 rounded px-1 font-medium text-slate-200 hover:bg-white/[0.06]"
+                    className="group -mx-1 h-auto gap-1 rounded px-1 text-[length:inherit] font-medium text-slate-200 hover:bg-white/[0.06] hover:text-slate-200"
                   >
                     {sn}
                     {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3 text-slate-500 opacity-60 group-hover:opacity-100" />}
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{copied ? t("Copied") : t("Click to copy the inverter SN")}</TooltipContent>
               </Tooltip>
@@ -283,23 +285,25 @@ export const StringDetailPage: React.FC = () => {
               const active = p.string_no === stringNo;
               const pl = statusLevel(p.status);
               return (
-                <button
+                <Button
                   key={p.string_id}
                   type="button"
+                  variant="outline"
+                  size="xs"
                   role="listitem"
                   onClick={() => go(p.device_sn, p.string_no)}
                   aria-current={active ? "true" : undefined}
                   title={`${p.string_id} · ${t(p.status)} (${ovDay ?? t("overview day")}) · ${t("I mismatch")} ${signed(p.current_mismatch_pct)}%`}
                   className={cn(
-                    "num inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition",
+                    "num h-auto shrink-0 gap-1.5 rounded-md px-2 py-1 text-[11px]",
                     active
                       ? "border-solar-400/60 bg-solar-500/15 text-solar-300"
-                      : "border-white/[0.06] bg-ink-900 text-slate-400 hover:border-white/20 hover:text-slate-200"
+                      : "border-white/[0.06] bg-ink-900 text-slate-400 hover:border-white/20 hover:bg-ink-900 hover:text-slate-200"
                   )}
                 >
                   <Led level={pl === "info" || pl === "neutral" ? "ok" : pl} />
                   {String(p.string_no).padStart(2, "0")}
-                </button>
+                </Button>
               );
             })}
             {peers.length === 0 && <span className="text-[11px] text-slate-500">{plantOverviewLoading ? t("Loading the overview…") : "—"}</span>}

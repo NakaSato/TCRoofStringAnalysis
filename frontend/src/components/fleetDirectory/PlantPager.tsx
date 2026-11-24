@@ -1,5 +1,6 @@
 /** Plant directory footer: total, page buttons and page size. */
 import React from "react";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { useI18n } from "../../i18n";
@@ -15,39 +16,45 @@ export const PlantPager: React.FC<{ d: FleetDirectory }> = ({ d }) => {
       </div>
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
             disabled={safePage <= 1}
-            className="rounded px-2 py-1 text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-500"
+            className="h-auto rounded px-2 py-1 text-xs font-normal text-slate-300 hover:bg-white/10 hover:text-slate-300 disabled:cursor-not-allowed disabled:text-slate-500 disabled:opacity-100"
           >
             ‹
-          </button>
+          </Button>
           {pageWindow(safePage, totalPages).map((pg, i) =>
             pg === null ? (
               <span key={`gap-${i}`} className="px-1 text-slate-500">
                 …
               </span>
             ) : (
-            <button
+            <Button
               key={pg}
+              variant="ghost"
+              size="xs"
               onClick={() => setCurrentPage(pg)}
-              className={`num rounded px-2.5 py-0.5 text-xs font-semibold transition ${
+              className={`num h-auto rounded px-2.5 py-0.5 text-xs font-semibold ${
                 pg === safePage
-                  ? "bg-sky-500/20 text-sky-300 ring-1 ring-sky-400/30"
+                  ? "bg-sky-500/20 text-sky-300 ring-1 ring-sky-400/30 hover:bg-sky-500/20 hover:text-sky-300"
                   : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
               }`}
             >
               {pg}
-            </button>
+            </Button>
             )
           )}
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
             disabled={safePage >= totalPages}
-            className="rounded px-2 py-1 text-slate-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:text-slate-500"
+            className="h-auto rounded px-2 py-1 text-xs font-normal text-slate-300 hover:bg-white/10 hover:text-slate-300 disabled:cursor-not-allowed disabled:text-slate-500 disabled:opacity-100"
           >
             ›
-          </button>
+          </Button>
         </div>
         <Select
           value={String(pageSize)}

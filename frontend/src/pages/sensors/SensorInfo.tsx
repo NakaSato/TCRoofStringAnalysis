@@ -1,7 +1,7 @@
 /** Sensors Info view: one sensor's live state, newest reading, stored data and the plant's alarms by hour. */
 import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { CloudOff, Code, Database, Gauge, Info, Sun } from "lucide-react";
+import { ChevronRight, CloudOff, Code, Database, Gauge, Info, Sun } from "lucide-react";
 import type { GrowattWeatherField } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { EmptyState, LoadingState, Meter, Panel, StatusBadge, fmt, fmtInt } from "../../components/ui";
@@ -11,6 +11,7 @@ import { PanelChart } from "../../components/PanelChart";
 import { alarmHourSpec, inverterEvents } from "../../components/alarmEvents";
 import { plantToday, useAlarmLog } from "../../context/alarmLogStore";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FIELD_UNIT, FIELDS, hhmm, minutesBetween, fmtAge, coverageTone, compass, DIGITS } from "./format";
 import { useSensorDetail } from "./useSensorDetail";
@@ -232,21 +233,26 @@ export const SensorInfo: React.FC<{
 
       {raw && (
         <Panel icon={Code} title={t("Raw record")} subtitle={t("Admin only · every field of the newest record as Growatt reported it")}>
-          <details>
-            <summary className="cursor-pointer text-xs text-slate-400 hover:text-white">{t("Show {n} fields", { n: Object.keys(raw).length })}</summary>
-            <div className="mt-2 grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
-              {Object.entries(raw)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([k, v]) => (
-                  <Row key={k} label={k}>
-                    {v == null ? "null" : String(v)}
-                  </Row>
-                ))}
-            </div>
-            <p className="mt-2 text-[11px] text-slate-500">
-              {t("Only irradiance, temperatures, humidity and wind are used; the other fields are always 0 at these plants.")}
-            </p>
-          </details>
+          <Collapsible>
+            <CollapsibleTrigger className="group flex cursor-pointer items-center gap-1 text-xs text-slate-400 outline-none hover:text-white focus-visible:text-white">
+              <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
+              {t("Show {n} fields", { n: Object.keys(raw).length })}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-2 grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
+                {Object.entries(raw)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([k, v]) => (
+                    <Row key={k} label={k}>
+                      {v == null ? "null" : String(v)}
+                    </Row>
+                  ))}
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                {t("Only irradiance, temperatures, humidity and wind are used; the other fields are always 0 at these plants.")}
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
         </Panel>
       )}
     </div>

@@ -33,6 +33,16 @@ import { isAdmin } from "../../auth/access";
 import { useI18n } from "../../i18n";
 import { notify } from "@/lib/notify";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -134,7 +144,7 @@ export const KbDocumentPage: React.FC = () => {
   const { docId } = useParams();
   const id = docId && /^\d+$/.test(docId) ? Number(docId) : null;
   const doc = useLoad<KbDocDetail>(id != null ? `doc:${id}` : null, () => api.getKbDoc(id!), { keepOnKeyChange: false });
-  const [dialog, setDialog] = useState<null | "details" | "links" | "revision" | "withdraw" | "supersede">(null);
+  const [dialog, setDialog] = useState<null | "details" | "links" | "revision" | "withdraw" | "supersede" | "delete">(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   if (id == null) return <EmptyState icon={FileText} title={t("Document not found")} />;
@@ -203,7 +213,6 @@ export const KbDocumentPage: React.FC = () => {
       doc.setData({ ...d, pinned: r.pinned });
     });
   const del = async () => {
-    if (!window.confirm(d.released_at ? t("Withdraw {number}? It was released, so it is withdrawn, not deleted.", { number: d.number }) : t("Delete the draft {number} and its files?", { number: d.number }))) return;
     setBusy("delete");
     try {
       const r = await api.deleteKbDoc(d.id);
@@ -308,10 +317,10 @@ export const KbDocumentPage: React.FC = () => {
                     {d.status !== "withdrawn" && (
                       <DropdownMenuItem onSelect={() => setDialog("withdraw")}>
                         <XCircle />
-                        {t("Withdraw")}
+                        {t("Withdraw…")}
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onSelect={del} className="text-red-300">
+                    <DropdownMenuItem onSelect={() => setDialog("delete")} className="text-red-300">
                       <Trash2 />
                       {d.released_at ? t("Delete (withdraws)") : t("Delete draft")}
                     </DropdownMenuItem>
@@ -529,6 +538,24 @@ export const KbDocumentPage: React.FC = () => {
         <>
           <WithdrawDialog doc={d} open={dialog === "withdraw"} onOpenChange={(v) => setDialog(v ? "withdraw" : null)} onDone={done} />
           <SupersedeDialog doc={d} open={dialog === "supersede"} onOpenChange={(v) => setDialog(v ? "supersede" : null)} onDone={done} />
+          <AlertDialog open={dialog === "delete"} onOpenChange={(v) => setDialog(v ? "delete" : null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{d.released_at ? t("Withdraw {number}", { number: d.number }) : t("Delete draft")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {d.released_at
+                    ? t("Withdraw {number}? It was released, so it is withdrawn, not deleted.", { number: d.number })
+                    : t("Delete the draft {number} and its files?", { number: d.number })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel variant="ghost">{t("Cancel")}</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={() => void del()}>
+                  {d.released_at ? t("Delete (withdraws)") : t("Delete")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
     </div>

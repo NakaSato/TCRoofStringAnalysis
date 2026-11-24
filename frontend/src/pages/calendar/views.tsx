@@ -133,16 +133,18 @@ export const MonthGrid: React.FC<{
                 <Chip key={x.id} task={x} onOpen={onOpen} draggable={!!onMove} />
               ))}
               {here.length > MAX_CHIPS && (
-                <button
+                <Button
                   type="button"
-                  className="text-left text-[11px] text-muted-foreground hover:text-foreground"
+                  variant="ghost"
+                  size="xs"
+                  className="h-auto justify-start rounded-none p-0 text-left text-[11px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
                   onClick={(e) => {
                     e.stopPropagation();
                     onShowDay(day);
                   }}
                 >
                   {t("+{n} more", { n: here.length - MAX_CHIPS })}
-                </button>
+                </Button>
               )}
             </div>
           );

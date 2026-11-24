@@ -667,9 +667,9 @@ export const KbDocViewerPage: React.FC = () => {
           <AlertTitle className="text-xs">{t("Older revision")}</AlertTitle>
           <AlertDescription className="text-xs">
             {t("You are reading {rev}; the current one is {cur}.", { rev: revText(shownRev), cur: revText(d.current_revision) })}{" "}
-            <button type="button" className="text-solar-200 underline" onClick={() => navigate(`/kb/doc/${id}/view`)}>
+            <Button type="button" variant="link" size="xs" className="h-auto rounded-none p-0 align-baseline text-[length:inherit] font-normal text-solar-200 underline" onClick={() => navigate(`/kb/doc/${id}/view`)}>
               {t("Open current")}
-            </button>
+            </Button>
           </AlertDescription>
         </Alert>
       )}

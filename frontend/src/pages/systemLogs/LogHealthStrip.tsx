@@ -4,6 +4,7 @@ import { fmtInt } from "../../components/ui";
 import type { StatusLevel } from "../../components/ui";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { SOURCE_VIEW, bkk, shortLogger } from "./shared";
 import { useI18n } from "../../i18n";
 
@@ -116,27 +117,19 @@ export const LogHealthStrip: React.FC<{
                 )
               : null}
           </div>
-          <div className="flex flex-wrap gap-1">
-            {SOURCE_VIEW.map((s) => {
-              const active = source === s.key;
-              return (
-                <button
+          <ToggleGroup type="single" className="flex-wrap gap-1" value={source} onValueChange={(v) => onSource((v || "all") as SystemLogSource | "all")}>
+            {SOURCE_VIEW.map((s) => (
+                <ToggleGroupItem
                   key={s.key}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => onSource(active ? "all" : s.key)}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-slate-200",
-                    active && "bg-white/[0.06] text-slate-100 ring-1 ring-white/10",
-                  )}
+                  value={s.key}
+                  className="h-auto min-w-0 gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-normal text-slate-400 transition-colors hover:bg-white/[0.05] hover:text-slate-200 data-[state=on]:border-transparent data-[state=on]:bg-white/[0.06] data-[state=on]:font-normal data-[state=on]:text-slate-100 data-[state=on]:ring-1 data-[state=on]:ring-white/10"
                 >
                   <span className={cn("h-1.5 w-1.5 rounded-full", s.dot)} />
                   {t(s.label)}
                   <span className="num font-semibold text-slate-200">{fmtInt(summary ? summary.by_source[s.key] : null)}</span>
-                </button>
-              );
-            })}
-          </div>
+                </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </div>
       </div>
 

@@ -10,7 +10,9 @@ import type { GrowattPlant } from "../api/client";
 import { Led, LoadingState, LOADING_STATUS, PageHeader, StatusBadge, fmt, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -424,23 +426,24 @@ export const PlantMapPage: React.FC = () => {
           />
 
           {/* status filter */}
-          <div className="absolute left-14 top-3 z-[400] flex flex-wrap gap-1 rounded-lg border border-white/[0.08] bg-ink-950/85 p-1 backdrop-blur">
+          <ToggleGroup
+            type="single"
+            className="absolute left-14 top-3 z-[400] flex-wrap gap-1 rounded-lg border border-white/[0.08] bg-ink-950/85 p-1 backdrop-blur"
+            value={statusFilter}
+            onValueChange={(v) => v && set({ status: v === "all" ? null : v })}
+          >
             {chips.map((c) => (
-              <button
+              <ToggleGroupItem
                 key={c.key}
-                type="button"
-                onClick={() => set({ status: c.key === "all" ? null : c.key })}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-slate-300 transition",
-                  statusFilter === c.key ? "bg-white/10 text-white ring-1 ring-white/15" : "hover:bg-white/5"
-                )}
+                value={c.key}
+                className="h-auto gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-white/5 hover:text-slate-300 data-[state=on]:border-transparent data-[state=on]:bg-white/10 data-[state=on]:text-white data-[state=on]:ring-1 data-[state=on]:ring-white/15"
               >
                 {c.key !== "all" && <Led level={c.level} />}
                 {c.label}
                 <span className="num text-slate-400">{c.n}</span>
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
 
           {/* map tools */}
           <div className="absolute right-3 top-3 z-[400] flex flex-col gap-1.5">
@@ -646,9 +649,7 @@ export const PlantMapPage: React.FC = () => {
                   <X className="h-3.5 w-3.5" />
                 </Button>
               ) : (
-                <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-white/10 px-1.5 text-[10px] text-slate-500">
-                  /
-                </kbd>
+                <Kbd className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent text-slate-500">/</Kbd>
               )}
               <span id="plant-search-hint" className="sr-only">
                 {t("Every word must match. Enter opens the first result, Escape clears.")}
@@ -701,16 +702,18 @@ export const PlantMapPage: React.FC = () => {
             {activeFilters.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1" aria-label={t("Active filters")}>
                 {activeFilters.map((f) => (
-                  <button
+                  <Button
                     key={f.key}
                     type="button"
+                    variant="outline"
+                    size="xs"
                     onClick={f.clear}
-                    className="flex max-w-full items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] py-0.5 pr-1.5 pl-2 text-[11px] text-slate-300 hover:bg-white/10"
+                    className="h-auto max-w-full gap-1 rounded-full bg-white/[0.04] py-0.5 pr-1.5 pl-2 text-[11px] font-normal text-slate-300 hover:border-white/10 hover:bg-white/10"
                     aria-label={t("Remove filter {label}", { label: f.label })}
                   >
                     <span className="truncate">{f.label}</span>
                     <X className="h-3 w-3 shrink-0 text-slate-500" />
-                  </button>
+                  </Button>
                 ))}
                 {activeFilters.length > 1 && (
                   <Button type="button" variant="ghost" size="xs" onClick={clearFilters}>

@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { translate as tr, useI18n } from "../../i18n";
@@ -343,23 +344,28 @@ export const LiveOperatingCard: React.FC<{
           <CardContent className="flex flex-col gap-4 px-4 py-4 sm:px-5">
             {/* verdicts: each one filters the list */}
             <div className="flex flex-wrap items-center gap-2">
-              {VERDICTS.map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  title={t(v.hint)}
-                  disabled={!counts[v.key]}
-                  onClick={() => setShow(show === v.key ? "all" : v.key)}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-40",
-                    show === v.key ? "border-solar-400/50 bg-solar-400/10" : "border-white/[0.07] hover:border-white/[0.15]"
-                  )}
-                >
-                  <span className={cn("size-2 rounded-full", VERDICT_TONE[v.key])} aria-hidden />
-                  <span className="text-slate-300">{t(v.label)}</span>
-                  <span className={cn("num font-semibold", v.tone)}>{counts[v.key]}</span>
-                </button>
-              ))}
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={show === "all" ? "" : show}
+                // Clicking the pressed verdict again gives "": back to all strings.
+                onValueChange={(v) => setShow((v || "all") as Verdict | "all")}
+                className="flex-wrap"
+              >
+                {VERDICTS.map((v) => (
+                  <ToggleGroupItem
+                    key={v.key}
+                    value={v.key}
+                    title={t(v.hint)}
+                    disabled={!counts[v.key]}
+                    className="h-auto gap-2 rounded-md border-white/[0.07] px-2.5 py-1.5 text-xs font-normal hover:border-white/[0.15] hover:bg-transparent disabled:opacity-40 data-[state=on]:border-solar-400/50 data-[state=on]:bg-solar-400/10 data-[state=on]:font-normal"
+                  >
+                    <span className={cn("size-2 rounded-full", VERDICT_TONE[v.key])} aria-hidden />
+                    <span className="text-slate-300">{t(v.label)}</span>
+                    <span className={cn("num font-semibold", v.tone)}>{counts[v.key]}</span>
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
               {spec && (
                 <Tabs className="ml-auto" value={range} onValueChange={(v) => setRange(v as "near" | "full")}>
                   <TabsList>

@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import { cn } from "@/lib/utils";
 import { SkeletonRows, fmtInt } from "../../components/ui";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { FleetPicker } from "./FleetPicker";
 import { ReasonBadges } from "./ReasonBadges";
@@ -125,16 +126,24 @@ export const CandidatesPanel: React.FC<{
           onPick={(id) => onAdd([id])}
         />
         {kinds.length > 0 && (
-          <div className="flex flex-wrap gap-1" role="group" aria-label={t("Reason")}>
-            <Button size="xs" variant={filter === "all" ? "secondary" : "ghost"} aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
+          <ToggleGroup
+            type="single"
+            size="xs"
+            spacing={1}
+            className="flex-wrap"
+            aria-label={t("Reason")}
+            value={filter}
+            onValueChange={(v) => setFilter((v || "all") as Filter)}
+          >
+            <ToggleGroupItem value="all">
               {t("All")} <span className="num opacity-70">{fmtInt(list.length)}</span>
-            </Button>
+            </ToggleGroupItem>
             {kinds.map((k) => (
-              <Button key={k} size="xs" variant={filter === k ? "secondary" : "ghost"} aria-pressed={filter === k} onClick={() => setFilter(filter === k ? "all" : k)}>
+              <ToggleGroupItem key={k} value={k}>
                 {t(REASON_LABEL[k] ?? k)} <span className="num opacity-70">{fmtInt(counts[k])}</span>
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         )}
       </div>
       {d.candLoading && !d.cands ? (

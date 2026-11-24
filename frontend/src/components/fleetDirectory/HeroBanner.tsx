@@ -10,6 +10,7 @@ import { Zap, Gauge, Cpu, Settings, ChevronRight, ChevronUp, Sun, Activity, Coin
 import { getLastPlantId } from "../../context/routes";
 import { Led, fmt, fmtInt } from "../ui";
 import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { MultiSegmentDonut } from "./parts";
 import { useI18n } from "../../i18n";
@@ -239,13 +240,15 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
         <div className="min-w-0 p-5 xl:col-span-4 xl:p-6">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-sm font-semibold tracking-tight text-white">{t("Plant Status")}</h3>
-            <button
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={() => setStatusFilter("ALL")}
               title={t("Show all plants")}
-              className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
+              className="size-auto gap-0.5 rounded-none text-xs text-slate-300/80 hover:bg-transparent hover:text-white"
             >
-              <ChevronRight className="h-4 w-4" />
-            </button>
+              <ChevronRight className="size-4" />
+            </Button>
           </div>
 
           <div className="flex items-center justify-center gap-8 pt-1">
@@ -315,10 +318,12 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
           <div className="mb-3 flex items-center justify-between">
             <div className="flex min-w-0 items-center gap-2">
               <h3 className="text-sm font-semibold tracking-tight text-white">{t("Active Alarms")}</h3>
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 onClick={() => setStatusFilter(statusFilter === "Faulty" ? "ALL" : "Faulty")}
                 title={t("Plants Growatt reports as faulty right now (live plant status); click to list them")}
-                className={`num inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] transition ${
+                className={`num h-auto gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-normal hover:text-current ${
                   statusFilter === "Faulty" ? "bg-white/10 ring-1 ring-red-400/40" : "hover:bg-white/5"
                 } ${heroMetrics.faultyPlants > 0 ? "text-red-300" : "text-slate-400"}`}
               >
@@ -327,7 +332,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   pulse={!growattLiveStatus.loading && !growattLiveStatus.stale}
                 />
                 {growattLiveStatus.loading ? `${t("Live")} …` : t("{n} faulty now", { n: heroMetrics.faultyPlants })}
-              </button>
+              </Button>
             </div>
             <Link
               to="/alarms"
@@ -380,33 +385,39 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
 
       {/* Floating Right-Edge Quick Mode Toolbar (matches FusionSolar right dock) */}
       <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 flex-col gap-1 rounded-lg border border-white/15 bg-ink-900/90 p-1 shadow-xl backdrop-blur md:flex">
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={() => setShowInspectorDrawer((v) => !v)}
           title={t("Toggle Selected Plant String Inspector Strip")}
-          className={`rounded p-1.5 transition ${
-            showInspectorDrawer ? "bg-sky-500/20 text-sky-300" : "text-slate-400 hover:bg-white/10 hover:text-white"
+          className={`size-auto rounded p-1.5 ${
+            showInspectorDrawer ? "bg-sky-500/20 text-sky-300 hover:bg-sky-500/20 hover:text-sky-300" : "text-slate-400 hover:bg-white/10 hover:text-white"
           }`}
         >
-          <LayoutGrid className="h-3.5 w-3.5" />
-        </button>
-        <button
+          <LayoutGrid className="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={() => {
             const last = getLastPlantId();
             if (last != null) selectGrowattPlant(last);
           }}
           disabled={getLastPlantId() == null}
           title={t("Open the last plant you viewed")}
-          className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+          className="size-auto rounded p-1.5 text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-40"
         >
-          <Eye className="h-3.5 w-3.5" />
-        </button>
-        <button
+          <Eye className="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           title={t("Scroll to top")}
-          className="rounded p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+          className="size-auto rounded p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
         >
-          <ChevronUp className="h-3.5 w-3.5" />
-        </button>
+          <ChevronUp className="size-3.5" />
+        </Button>
       </div>
     </section>
   );

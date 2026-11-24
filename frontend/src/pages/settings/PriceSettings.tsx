@@ -6,6 +6,7 @@ import { api, PlantRate, Tariff, TariffOut } from "../../api/client";
 import { LoadingState, fmt } from "../../components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -255,25 +256,23 @@ export const PriceSettings: React.FC = () => {
             </div>
             <div className="space-y-1.5">
               <div className={label}>{t("On-peak days")}</div>
-              <div className="flex flex-wrap gap-1" role="group" aria-label={t("On-peak days")}>
-                {DAYS.map((d, i) => {
-                  const on = draft.days.includes(i);
-                  return (
-                    <Button
-                      key={d}
-                      type="button"
-                      size="xs"
-                      variant={on ? "accent" : "outline"}
-                      className="w-10"
-                      disabled={!canEdit}
-                      aria-pressed={on}
-                      onClick={() => patch({ days: on ? draft.days.filter((x) => x !== i) : [...draft.days, i].sort() })}
-                    >
-                      {t(d)}
-                    </Button>
-                  );
-                })}
-              </div>
+              <ToggleGroup
+                type="multiple"
+                variant="accent"
+                size="xs"
+                spacing={1}
+                className="flex-wrap"
+                aria-label={t("On-peak days")}
+                disabled={!canEdit}
+                value={draft.days.map(String)}
+                onValueChange={(v) => patch({ days: v.map(Number).sort((a, b) => a - b) })}
+              >
+                {DAYS.map((d, i) => (
+                  <ToggleGroupItem key={d} value={String(i)} className="w-10">
+                    {t(d)}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
             </div>
           </div>
         </CardContent>
@@ -294,14 +293,16 @@ export const PriceSettings: React.FC = () => {
                 <Badge key={d} variant="neutral" className="num gap-1 pr-1">
                   {d}
                   {canEdit && (
-                    <button
+                    <Button
                       type="button"
-                      className="rounded-sm p-0.5 text-muted-foreground hover:bg-white/10 hover:text-white"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="size-auto rounded-sm p-0.5 text-muted-foreground hover:bg-white/10 hover:text-white"
                       aria-label={t("Remove {day}", { day: d })}
                       onClick={() => patch({ holidays: draft.holidays.filter((x) => x !== d) })}
                     >
                       <X className="size-3" />
-                    </button>
+                    </Button>
                   )}
                 </Badge>
               ))}

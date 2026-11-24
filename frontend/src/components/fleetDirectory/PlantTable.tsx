@@ -4,6 +4,8 @@ import { Building2, MapPin, ArrowUpRight, ArrowUpDown } from "lucide-react";
 import { StatusBadge, fmt, LOADING_STATUS } from "../ui";
 import type { FleetDirectory } from "./useFleetDirectory";
 import { PlantThumbnail } from "./parts";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import { useI18n } from "../../i18n";
 
 export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
@@ -15,89 +17,109 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
         <thead>
           <tr className="bg-ink-850 text-[11px] tracking-wider text-slate-400">
             <th className="whitespace-nowrap px-2.5 py-2.5 font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("statusRank")}
                 title={t("Sort by status (faulty first)")}
-                className="inline-flex items-center gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-start gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Status")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Status")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 font-semibold">{t("Plant Image")}</th>
             <th className="whitespace-nowrap px-2.5 py-2.5 font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("name")}
-                className="inline-flex items-center gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-start gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Plant Name")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Plant Name")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("location")}
-                className="inline-flex items-center gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-start gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Country/Region")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Country/Region")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("createdDate")}
-                className="inline-flex items-center gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-start gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Grid Connecti...")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Grid Connecti...")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("capacityKwp")}
                 title={t("Total String Capacity (kWp)")}
-                className="inline-flex items-center justify-end gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-end gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("String Cap (kWp)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("String Cap (kWp)")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("stringsCount")}
-                className="inline-flex items-center justify-end gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-end gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Inverters")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Inverters")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 font-semibold">{t("Battery")}</th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("currentPowerKw")}
-                className="inline-flex items-center justify-end gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-end gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Current Power (kW)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Current Power (kW)")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("specificEnergyKwhPerKwp")}
                 title={t("Specific Energy (kWh/kWp)")}
-                className="inline-flex items-center justify-end gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-end gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Specific Energy")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Specific Energy")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2 py-2.5 text-right font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("yieldTodayKwh")}
-                className="inline-flex items-center justify-end gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-end gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Yield Today (kWh)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Yield Today (kWh)")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
             <th className="whitespace-nowrap px-2.5 py-2.5 text-right font-semibold">
-              <button
+              <Button
                 onClick={() => handleSort("totalEnergyKwh")}
-                className="inline-flex items-center justify-end gap-1 font-semibold tracking-wider text-slate-400 hover:text-white"
+                variant="ghost"
+                size="xs"
+                className="h-auto justify-end gap-1 rounded-none p-0 text-[11px] font-semibold tracking-wider text-slate-400 hover:bg-transparent hover:text-white"
               >
-                {t("Total Yield (kWh)")} <ArrowUpDown className="h-2.5 w-2.5 opacity-60" />
-              </button>
+                {t("Total Yield (kWh)")} <ArrowUpDown className="size-2.5 opacity-60" />
+              </Button>
             </th>
           </tr>
         </thead>
@@ -231,12 +253,7 @@ export const PlantTable: React.FC<{ d: FleetDirectory }> = ({ d }) => {
                   {/* 9. Current Power (kW) */}
                   <td className="num whitespace-nowrap px-2 py-2.5 text-right">
                     <div className="font-semibold text-energy-300">{fmt(p.currentPowerKw, 2)}</div>
-                    <div className="ml-auto mt-1 h-1 w-14 overflow-hidden rounded-full bg-white/[0.07]">
-                      <div
-                        className="h-full rounded-full bg-sky-400"
-                        style={{ width: `${loadPct}%` }}
-                      />
-                    </div>
+                    <Progress value={loadPct} className="ml-auto mt-1 h-1 w-14" indicatorClassName="bg-sky-400 duration-150" />
                   </td>
 
                   {/* 10. Specific Energy (kWh/kWp) */}

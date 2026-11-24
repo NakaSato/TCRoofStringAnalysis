@@ -220,7 +220,6 @@ export const TH_CORE: Record<string, string> = {
   "Add Plant": "เพิ่มโรงไฟฟ้า",
   "All Statuses": "ทุกสถานะ",
   "Cloud API status": "สถานะ Cloud API",
-  Total: "ทั้งหมด",
   "{n} / page": "{n} / หน้า",
   "Sort by status (faulty first)": "เรียงตามสถานะ (ผิดปกติก่อน)",
   Status: "สถานะ",

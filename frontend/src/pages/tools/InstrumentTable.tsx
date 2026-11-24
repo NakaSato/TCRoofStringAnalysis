@@ -7,6 +7,7 @@ import type { DueItem, Instrument } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useI18n } from "../../i18n";
@@ -24,10 +25,10 @@ const SortHead: React.FC<{ k: SortKey; label: string; sort: SortKey; desc: boole
   className,
 }) => (
   <TableHead className={className} aria-sort={sort === k ? (desc ? "descending" : "ascending") : undefined}>
-    <button type="button" onClick={() => onSort(k)} className="inline-flex items-center gap-1 hover:text-foreground">
+    <Button type="button" onClick={() => onSort(k)} variant="ghost" size="xs" className="h-auto gap-1 rounded-none p-0 font-semibold tracking-[inherit] text-inherit hover:bg-transparent hover:text-foreground">
       {label}
       {sort === k && (desc ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />)}
-    </button>
+    </Button>
   </TableHead>
 );
 

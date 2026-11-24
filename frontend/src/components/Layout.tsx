@@ -34,6 +34,8 @@ import { PushToggle } from "./PushToggle";
 import { parsePlantPath } from "../context/routes";
 import type { PlantPage } from "../context/routes";
 import { Led, LoadingState, fmt, fmtInt } from "./ui";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StringInspectorDrawer } from "./StringInspectorDrawer";
@@ -81,6 +83,10 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
 ];
 
 /** localStorage key: "1" = desktop sidebar collapsed to icons (key name kept so saved choices carry over). */
+/** The signed-in user's initials circle in the sidebar footer. */
+const AVATAR_CLS = "ring-1 ring-energy-400/30 after:hidden";
+const AVATAR_FALLBACK_CLS = "bg-energy-500/20 text-energy-300";
+
 const NAV_COLLAPSED_KEY = "tcroof.navCollapsed";
 
 /** Fleet pages not in the sidebar (reached by links, e.g. from Active Alarm or Weather Station).
@@ -387,12 +393,9 @@ export const Layout: React.FC = () => {
         {compact ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-energy-500/20 text-[11px] font-bold text-energy-300 ring-1 ring-energy-400/30"
-                aria-label={user?.full_name}
-              >
-                {initials}
-              </div>
+              <Avatar className={AVATAR_CLS} aria-label={user?.full_name}>
+                <AvatarFallback className={AVATAR_FALLBACK_CLS}>{initials}</AvatarFallback>
+              </Avatar>
             </TooltipTrigger>
             <TooltipContent side="right">
               <div className="font-semibold">{user?.full_name}</div>
@@ -401,9 +404,9 @@ export const Layout: React.FC = () => {
           </Tooltip>
         ) : (
           <>
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-energy-500/20 text-[11px] font-bold text-energy-300 ring-1 ring-energy-400/30">
-              {initials}
-            </div>
+            <Avatar className={AVATAR_CLS}>
+              <AvatarFallback className={AVATAR_FALLBACK_CLS}>{initials}</AvatarFallback>
+            </Avatar>
             <div className="min-w-0 flex-1">
               <div className="truncate text-xs font-semibold text-slate-100">{user?.full_name}</div>
               <div className="truncate text-[11px] uppercase tracking-wider text-slate-500">
@@ -462,15 +465,19 @@ export const Layout: React.FC = () => {
             </Tooltip>
 
             <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] text-slate-500">
-                <span className="hidden min-w-0 truncate sm:inline">
-                  {shownPlantName ?? t("Solar Fleet")}
-                </span>
-                <span className="hidden sm:inline text-slate-700">/</span>
-                <span className="min-w-0 truncate font-semibold text-slate-200" title={t(current?.label || "Monitoring")}>
-                  {t(current?.label || "Monitoring")}
-                </span>
-              </div>
+              <Breadcrumb>
+                <BreadcrumbList className="flex-nowrap gap-2 whitespace-nowrap">
+                  <BreadcrumbItem className="hidden min-w-0 sm:inline-flex">
+                    <span className="truncate">{shownPlantName ?? t("Solar Fleet")}</span>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator className="hidden sm:block">/</BreadcrumbSeparator>
+                  <BreadcrumbItem className="min-w-0">
+                    <BreadcrumbPage className="truncate" title={t(current?.label || "Monitoring")}>
+                      {t(current?.label || "Monitoring")}
+                    </BreadcrumbPage>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
               {current?.description && (
                 <div className="hidden truncate text-[11px] text-slate-500 md:block">{t(current.description)}</div>
               )}

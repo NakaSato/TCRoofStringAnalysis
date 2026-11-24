@@ -241,7 +241,6 @@ export const TH_KB: Record<string, string> = {
   View: "มุมมอง",
   "List view": "มุมมองรายการ",
   "Grid view": "มุมมองตาราง",
-  "No.": "เลขที่",
   Rev: "Rev",
   Updated: "แก้ไขล่าสุด",
   Pinned: "ปักหมุดแล้ว",
@@ -312,6 +311,8 @@ export const TH_KB: Record<string, string> = {
   "Links saved": "บันทึกการเชื่อมโยงแล้ว",
   "Save links": "บันทึกการเชื่อมโยง",
   "Withdraw {number}": "ยกเลิกใช้ {number}",
+  // not "Withdraw": that key is the claims page's (ถอนเคลม) and the dictionaries share one namespace
+  "Withdraw…": "ยกเลิกใช้…",
   "Engineers no longer see it, and alarm rows stop linking to it. Admins can release it again.": "วิศวกรจะไม่เห็นเอกสารนี้ และแถวอลาร์มจะไม่ลิงก์มาอีก ผู้ดูแลประกาศใช้ใหม่ได้",
   "Give a reason.": "ระบุเหตุผล",
   "Supersede {number}": "แทนที่ {number}",

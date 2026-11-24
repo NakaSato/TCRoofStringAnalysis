@@ -318,7 +318,6 @@ export const TH_ALARMS: Record<string, string> = {
   "The worker has not stored anything for this sensor yet, and Growatt has not been asked.":
     "ระบบเบื้องหลังยังไม่ได้บันทึกข้อมูลของเซนเซอร์นี้ และยังไม่ได้สอบถาม Growatt",
   "Growatt's sensor list is checked a few dataloggers at a time.": "รายการเซนเซอร์ของ Growatt ตรวจทีละไม่กี่ดาต้าล็อกเกอร์",
-  "Peak irradiance": "ค่ารังสีอาทิตย์สูงสุด",
   "Max module": "อุณหภูมิแผงสูงสุด",
   "Avg module (day)": "อุณหภูมิแผงเฉลี่ย (กลางวัน)",
   "Max ambient": "อุณหภูมิแวดล้อมสูงสุด",

@@ -36,7 +36,7 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
         <TableHead>{t("Issue")}</TableHead>
         <TableHead>{t("Plant")}</TableHead>
         <TableHead>{t("Where")}</TableHead>
-        <TableHead className="text-right">{t("Age")}</TableHead>
+        <TableHead className="text-right">{t("Open for")}</TableHead>
         <TableHead>{t("Acknowledged")}</TableHead>
         <TableHead>{t("Next visit")}</TableHead>
         <TableHead className="w-8">
@@ -169,9 +169,9 @@ export const PlantsTable: React.FC<{
                 const site = sites.get(r.plant_id);
                 if (!site) return <span className="text-muted-foreground" title={t("Not in the PWA meter report")}>—</span>;
                 return (
-                  <button type="button" onClick={() => onOpenSite(site.site_id)} className={`hover:underline ${contractTone(site.vs_contract_pct)}`}>
+                  <Button type="button" variant="link" size="xs" onClick={() => onOpenSite(site.site_id)} className={`h-auto rounded-none p-0 align-baseline text-[length:inherit] font-normal text-current underline-offset-auto ${contractTone(site.vs_contract_pct)}`}>
                     {site.vs_contract_pct == null ? "—" : `${fmt(site.vs_contract_pct, 1)} %`}
-                  </button>
+                  </Button>
                 );
               })()}
             </TableCell>

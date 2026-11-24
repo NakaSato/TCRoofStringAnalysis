@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { KIND_ICON, KIND_LABEL, KINDS } from "./kinds";
 
 type TextField = Exclude<keyof SiteDevice, "kind" | "seq">;
@@ -239,28 +240,29 @@ export const DeviceEditDialog: React.FC<{
                 <Label className="text-[10px] text-muted-foreground" id="dev-kind-label">
                   {t("Device")}
                 </Label>
-                <div role="radiogroup" aria-labelledby="dev-kind-label" className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                {/* single choice: Radix gives the items role="radio"; clicking the chosen kind again ("") keeps it */}
+                <ToggleGroup
+                  type="single"
+                  spacing={1.5}
+                  aria-labelledby="dev-kind-label"
+                  className="grid w-full grid-cols-3 sm:grid-cols-6"
+                  value={d.kind}
+                  onValueChange={(v) => v && setKind(v as SiteDeviceKind)}
+                >
                   {KINDS.map((k) => {
                     const KIcon = KIND_ICON[k];
-                    const on = d.kind === k;
                     return (
-                      <button
+                      <ToggleGroupItem
                         key={k}
-                        type="button"
-                        role="radio"
-                        aria-checked={on}
-                        onClick={() => setKind(k)}
-                        className={cn(
-                          "flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-[11px] transition outline-none focus-visible:ring-3 focus-visible:ring-ring/30",
-                          on ? "border-sky-400/50 bg-sky-400/10 text-sky-100" : "border-white/[0.06] bg-white/[0.02] text-slate-400 hover:bg-white/5 hover:text-slate-200",
-                        )}
+                        value={k}
+                        className="h-auto min-w-0 flex-col border-white/[0.06] bg-white/[0.02] px-2 py-2 text-[11px] font-normal hover:text-slate-200 data-[state=on]:border-sky-400/50 data-[state=on]:bg-sky-400/10 data-[state=on]:font-normal data-[state=on]:text-sky-100"
                       >
                         <KIcon className="size-4" aria-hidden />
                         <span className="truncate">{t(KIND_LABEL[k])}</span>
-                      </button>
+                      </ToggleGroupItem>
                     );
                   })}
-                </div>
+                </ToggleGroup>
                 <div className="flex flex-wrap items-center gap-2">
                   <Label htmlFor="dev-seq" className="text-[10px] text-muted-foreground">
                     {t("No.")}
@@ -337,15 +339,17 @@ export const DeviceEditDialog: React.FC<{
               })}
 
               {(hiddenCount > 0 || showAll) && (
-                <button
+                <Button
                   type="button"
+                  variant="link"
+                  size="xs"
                   onClick={() => setShowAll((x) => !x)}
-                  className="flex items-center gap-1 self-start text-[11px] text-sky-300 hover:text-sky-200"
+                  className="h-auto gap-1 self-start p-0 text-[11px] font-normal text-sky-300 hover:text-sky-200 hover:no-underline"
                   aria-expanded={showAll}
                 >
                   <ChevronDown className={cn("size-3.5 transition", showAll && "rotate-180")} aria-hidden />
                   {showAll ? t("Fewer fields") : t("More fields ({n})", { n: hiddenCount })}
-                </button>
+                </Button>
               )}
 
               <div className="flex flex-col gap-1">

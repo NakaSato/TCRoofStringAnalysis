@@ -28,7 +28,6 @@ export const TH_SITE_REGISTER: Record<string, string> = {
   "on site": "หน้างาน",
   Copy: "คัดลอก",
   "Growatt reports logger {sn}": "Growatt รายงาน Data logger {sn}",
-  "DC capacity": "กำลังผลิต DC",
   "PEA connection": "การเชื่อมต่อ กฟภ.",
   "PEA zone": "เขต กฟภ.",
   "PWA site": "ไซต์ กปภ.",

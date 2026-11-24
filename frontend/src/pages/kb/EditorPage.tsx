@@ -73,14 +73,16 @@ const TagsInput: React.FC<{ id: string; tags: string[]; onChange: (t: string[]) 
       {tags.map((tag) => (
         <span key={tag} className="inline-flex items-center gap-0.5 rounded-full border border-white/10 bg-white/5 py-px pr-0.5 pl-2 text-[11px] text-slate-200">
           #{tag}
-          <button
+          <Button
             type="button"
-            className="rounded-full p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-200"
+            variant="ghost"
+            size="icon-xs"
+            className="size-auto rounded-full p-0.5 text-slate-500 hover:bg-white/10 hover:text-slate-200"
             aria-label={t("Remove tag {tag}", { tag })}
             onClick={() => onChange(tags.filter((x) => x !== tag))}
           >
             <X className="size-3" />
-          </button>
+          </Button>
         </span>
       ))}
       <input

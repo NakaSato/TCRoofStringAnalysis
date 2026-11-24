@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { TH } from "./th";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 /**
  * UI language. Thai is the default; English is the other choice. The key of every string is its
@@ -86,26 +87,27 @@ export const LanguageToggle: React.FC<{ className?: string; compact?: boolean }>
     { v: "en", label: "EN" },
   ];
   return (
-    <div
-      role="group"
+    <ToggleGroup
+      type="single"
+      size="xs"
+      value={lang}
+      // Clicking the pressed language again gives "": keep it.
+      onValueChange={(v) => v && setLang(v as Lang)}
+      orientation={compact ? "vertical" : "horizontal"}
       aria-label={t("Language")}
-      className={`inline-flex shrink-0 rounded-md border border-white/[0.08] bg-ink-900/80 p-0.5 text-[11px] font-semibold ${
+      className={`inline-flex shrink-0 gap-0 rounded-md border border-white/[0.08] bg-ink-900/80 p-0.5 text-[11px] font-semibold ${
         compact ? "flex-col" : ""
       } ${className}`}
     >
       {opts.map((o) => (
-        <button
+        <ToggleGroupItem
           key={o.v}
-          type="button"
-          onClick={() => setLang(o.v)}
-          aria-pressed={lang === o.v}
-          className={`rounded px-1.5 py-0.5 transition ${
-            lang === o.v ? "bg-white/[0.1] text-white" : "text-slate-500 hover:text-slate-200"
-          }`}
+          value={o.v}
+          className="h-auto min-w-0 rounded border-0 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 hover:bg-transparent hover:text-slate-200 data-[state=on]:bg-white/[0.1] data-[state=on]:text-white"
         >
           {o.label}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 };
