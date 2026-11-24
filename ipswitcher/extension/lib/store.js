@@ -9,13 +9,19 @@ export const EXPORT_VERSION = 1;
 
 export const DEFAULT_SETTINGS = Object.freeze({ rollbackSec: 30, lastAdapterGuid: "", showAll: false });
 
-const SEED = [
-  { name: "TC LAN · 10.100.35.1", ip: "10.100.35.1" },
-  { name: "TC LAN · 10.100.35.2", ip: "10.100.35.2" },
-].map((s) => ({
-  name: s.name, mode: "static", ip: s.ip, prefix: 24, gateway: "10.100.35.254", dns: [],
-  testHost: "10.100.35.254", openUrl: "", preferredAdapter: "", note: "",
-}));
+// First-run profiles. The fixed IDs match the one tools/om_network_to_profiles.py writes, so
+// importing the plant file updates it instead of adding a copy.
+export const GROWATT_ECOSYSTEM_ID = "4d50c8e9-0d58-5b61-9c2c-c41342824379";
+export const HUAWEI_SMARTLOGGER_ID = "f053ed22-5c76-5a11-9cc1-97891e6ab401";
+const SEED = [{
+  id: GROWATT_ECOSYSTEM_ID, name: "Growatt Ecosystem · 192.168.10.x", mode: "static", ip: "192.168.10.250",
+  prefix: 24, gateway: "", dns: [], testHost: "", openUrl: "", preferredAdapter: "",
+  note: "Laptop on the Growatt devices' local network 192.168.10.0/24 (direct link, no gateway).",
+}, {
+  id: HUAWEI_SMARTLOGGER_ID, name: "Huawei SmartLogger · 192.168.0.10", mode: "static", ip: "192.168.0.250",
+  prefix: 24, gateway: "", dns: [], testHost: "192.168.0.10", openUrl: "https://192.168.0.10/", preferredAdapter: "",
+  note: "Huawei SmartLogger at 192.168.0.10 (direct link, no gateway). Web UI: https://192.168.0.10/",
+}];
 
 const local = () => globalThis.chrome.storage.local;
 
@@ -63,12 +69,33 @@ async function writeStored(list) {
   await local().set({ profiles: list });
 }
 
-/** Seed the user's two TC LAN profiles when nothing is stored yet. Returns true if seeded. */
+/** Seed the Growatt Ecosystem and Huawei SmartLogger profiles when nothing is stored yet. Returns true if seeded. */
 export async function seedIfEmpty() {
   const got = await local().get("profiles");
-  if (Array.isArray(got.profiles)) return false;
-  await writeStored(SEED.map((p) => ({ ...p, id: crypto.randomUUID() })));
+  if (Array.isArray(got.profiles)) {
+    await migrateSeeds();
+    return false;
+  }
+  await writeStored(SEED.map((p) => ({ ...p })));
+  await local().set({ seedVersion: SEED_VERSION });
   return true;
+}
+
+// v1 seeded "TC LAN · 10.100.35.1 / .2": those are the revenue meters' IPs at plant P2-055, so a
+// laptop on them clashes with the meters. Once per install: remove them if still unchanged and add
+// the current first-run profiles that are missing. Profiles the user edited are left alone.
+const SEED_VERSION = 2;
+const LEGACY_SEEDS = [["TC LAN · 10.100.35.1", "10.100.35.1"], ["TC LAN · 10.100.35.2", "10.100.35.2"]];
+
+async function migrateSeeds() {
+  const { seedVersion } = await local().get("seedVersion");
+  if ((seedVersion || 1) >= SEED_VERSION) return;
+  let list = await readStored();
+  list = list.filter((p) => !LEGACY_SEEDS.some(([name, ip]) =>
+    p.name === name && p.ip === ip && p.gateway === "10.100.35.254" && Number(p.prefix) === 24));
+  for (const seed of SEED) if (!list.some((p) => p.id === seed.id)) list.push({ ...seed });
+  await writeStored(list);
+  await local().set({ seedVersion: SEED_VERSION });
 }
 
 /** Built-in DHCP first, then the stored profiles in order. */

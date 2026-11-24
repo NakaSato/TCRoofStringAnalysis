@@ -30,8 +30,13 @@
   </section>
 
   <section id="profilesSec">
-    <h2 data-s="profiles">Profiles</h2>
-    <div id="profiles" class="list"></div>
+    <div class="sec-head">
+      <h2 data-s="profiles">Profiles</h2>
+      <span id="profileCount" class="small muted"></span>
+    </div>
+    <input id="profileSearch" type="search" class="search" autocomplete="off" spellcheck="false"
+      data-s-placeholder="searchProfiles" data-s-aria="searchProfiles">
+    <div id="profiles" class="list scroll"></div>
     <div id="confirm"></div>
     <div class="row gap">
       <button id="newProfile" type="button" data-s="newProfile">+ New</button>

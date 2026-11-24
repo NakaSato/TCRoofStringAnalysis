@@ -239,9 +239,31 @@ function onSelectAdapter(index) {
 
 // ---------- profiles ----------
 
+// Search: every word must appear in the name, IPs or note ("p2-055", "p2055", "หนองกลางดง",
+// "10.100.35"). The built-in DHCP profile always stays at the top.
+const fold = (s) => String(s || "").toLowerCase();
+const squash = (s) => s.replace(/[-\s·]/g, "");
+function matchesSearch(p, words) {
+  if (!words.length || p.id === "dhcp") return true;
+  const hay = fold([p.name, p.ip, p.gateway, p.testHost, p.note].join(" "));
+  const hay2 = squash(hay);
+  return words.every((w) => hay.includes(w) || hay2.includes(squash(w)));
+}
+function searchWords() {
+  return fold($("#profileSearch").value).split(/\s+/).filter(Boolean);
+}
+function filteredProfiles() {
+  const words = searchWords();
+  return state.profiles.filter((p) => matchesSearch(p, words));
+}
+
 function renderProfiles() {
   const box = clear($("#profiles"));
-  for (const p of state.profiles) {
+  const shown = filteredProfiles();
+  const q = $("#profileSearch").value.trim();
+  $("#profileCount").textContent = q ? t("profileCount", { shown: shown.filter((p) => p.id !== "dhcp").length, total: state.profiles.length - 1 }) : "";
+  if (q && !shown.some((p) => p.id !== "dhcp")) box.append(el("p", { class: "muted small" }, t("noMatch", { q })));
+  for (const p of shown) {
     const active = state.confirm?.profile?.id === p.id;
     box.append(el("button", { type: "button", class: `item profile${active ? " sel" : ""}`, onclick: () => openConfirm(p) },
       el("span", { class: "name" }, "▶ ", p.name),
@@ -296,7 +318,8 @@ function renderConfirm() {
     panel.append(el("dl", { class: "kv" },
       el("dt", {}, t("now")), el("dd", {}, formatConfig(a.config)),
       el("dt", {}, t("next")), el("dd", { class: "strong" }, formatConfig(profileToConfig(p))),
-      el("dt", {}, t("test")), el("dd", {}, p.testHost ? t("testPing", { host: p.testHost }) : t("noTest"))));
+      el("dt", {}, t("test")), el("dd", {}, p.testHost ? t("testPing", { host: p.testHost }) : t("noTest")),
+      ...(p.note ? [el("dt", {}, t("devices")), el("dd", { class: "small" }, p.note)] : [])));
     const sec = state.settings.rollbackSec;
     panel.append(el("p", { class: "muted small" }, sec > 0 ? t("rollbackNote", { sec }) : t("rollbackNone")));
   }
@@ -506,6 +529,17 @@ async function init() {
   $("#newProfile").addEventListener("click", () => chrome.tabs.create({ url: chrome.runtime.getURL("options.html#new") }));
   $("#customBtn").addEventListener("click", () => { state.customOpen = !state.customOpen; renderCustom(); });
   $("#pingForm").addEventListener("submit", onPing);
+  const search = $("#profileSearch");
+  search.addEventListener("input", renderProfiles);
+  search.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      // Enter opens the first matching plant profile (not the DHCP one).
+      const first = filteredProfiles().find((p) => p.id !== "dhcp");
+      if (first && searchWords().length) { ev.preventDefault(); openConfirm(first); }
+    } else if (ev.key === "Escape" && search.value) {
+      ev.preventDefault(); ev.stopPropagation(); search.value = ""; renderProfiles();
+    }
+  });
   $("#showAll").addEventListener("change", async (ev) => {
     state.settings = await saveSettings({ showAll: ev.target.checked });
     loadAdapters();
@@ -514,6 +548,8 @@ async function init() {
   try { await seedIfEmpty(); } catch { /* storage unavailable */ }
   state.settings = await getSettings();
   state.profiles = await listProfiles();
+  search.hidden = state.profiles.length <= 6;
+  if (!search.hidden) search.focus();
   $("#showAll").checked = state.settings.showAll;
   const firstTest = state.profiles.find((p) => p.testHost)?.testHost;
   if (firstTest) $("#pingHost").value = firstTest;
@@ -547,7 +583,11 @@ async function init() {
 // Keep the popup in step with changes made from the options page.
 chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== "local") return;
-  if (changes.profiles) { state.profiles = await listProfiles(); renderProfiles(); }
+  if (changes.profiles) {
+    state.profiles = await listProfiles();
+    $("#profileSearch").hidden = state.profiles.length <= 6;
+    renderProfiles();
+  }
   if (changes.settings) state.settings = await getSettings();
 });
 

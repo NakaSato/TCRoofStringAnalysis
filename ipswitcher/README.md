@@ -10,8 +10,22 @@ automatic undo. Design: `specs/ip-switcher-design-spec.md` (Rev B). Contract bet
 | Helper (native host) | `host/` | `ipswitch-host.exe` (Go, standard library only): reads adapters, runs `netsh`, rollback watchdog, ping, audit log |
 | Installer | `installer/` | Per-user (HKCU) install for Chrome and Edge. No admin |
 
-Preloaded profiles: **Automatic (DHCP)**, **TC LAN · 10.100.35.1** and **TC LAN · 10.100.35.2**
-(both 255.255.255.0, gateway 10.100.35.254, test ping to the gateway).
+Preloaded profiles: **Automatic (DHCP)**, **Growatt Ecosystem · 192.168.10.x** (laptop
+192.168.10.250/24, no gateway) and **Huawei SmartLogger · 192.168.0.10** (laptop 192.168.0.250/24, ping
+and web page 192.168.0.10). Installs from before this remove the old "TC LAN · 10.100.35.1 / .2"
+profiles once (those are plant P2-055's meter IPs) if they were never edited.
+
+## Plant profiles from the O&M register
+
+```bash
+uv run --with openpyxl python ipswitcher/tools/om_network_to_profiles.py "data/OM-Asset & Network.xlsx"
+```
+
+Writes `data/ipswitcher-profiles.json` (gitignored: site IPs): the two profiles above plus one per
+plant: laptop `<router subnet>.250/24`, gateway and test ping = the plant's Teltonika router, device
+IPs (router, ShineMaster, PQM, meters) in the note. Import it in ⚙ Settings → Import; importing a newer
+file updates the same profiles (stable IDs per plant code). The popup's search box finds a plant by code
+(`P2-055`, `p2055`), name or IP; Enter opens the first match.
 
 ## Requirements on the laptop
 
@@ -67,7 +81,7 @@ Uninstall: `helper\uninstall.cmd` (keeps `audit.log`; `-All` removes it too).
 
 ## Use
 
-Click the toolbar icon → pick the adapter (e.g. Ethernet) → pick **TC LAN · 10.100.35.1** → Apply.
+Click the toolbar icon → pick the adapter (e.g. Ethernet) → type the plant code in the search box (e.g. `P2-055`) → Enter → Apply.
 The helper saves the current settings, applies the profile, pings the test host and starts a 30 s
 window: press **Keep**, or it puts the old settings back by itself (also if the browser is closed).
 **Automatic (DHCP)** switches back. Badge: amber `!` = waiting for Keep, blue `S` = an adapter is on a

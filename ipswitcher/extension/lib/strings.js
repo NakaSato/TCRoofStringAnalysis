@@ -49,6 +49,10 @@ export const EN = {
 
   // Profiles
   profiles: "Profiles",
+  searchProfiles: "Search plant code, name or IP",
+  profileCount: "{shown} of {total}",
+  noMatch: "No profile matches “{q}”.",
+  devices: "Devices",
   newProfile: "+ New",
   custom: "Custom…",
   dhcpProfileName: "Automatic (DHCP)",

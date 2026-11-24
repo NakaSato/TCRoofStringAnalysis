@@ -103,6 +103,13 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); ou
 .extid { display: block; margin-top: 6px; padding: 4px 6px; background: var(--bg); border-radius: 4px; user-select: all; word-break: break-all; }
 
 .list { display: flex; flex-direction: column; gap: 2px; }
+.list.scroll { max-height: 230px; overflow-y: auto; }
+html.window .list.scroll { max-height: 45vh; }
+.search {
+  width: 100%; margin: 0 0 6px; padding: 6px 8px; font: inherit;
+  color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+}
+.search:focus { outline: 2px solid var(--info-line, #3b82f6); outline-offset: -1px; }
 .item {
   display: flex;
   align-items: center;

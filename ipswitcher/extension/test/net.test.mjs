@@ -173,19 +173,26 @@ test("applyArgs builds PROTOCOL.md apply args", () => {
 
 // ---------- store ----------
 
-test("store: seeds the two TC LAN profiles once, DHCP built-in first", async () => {
+test("store: seeds the Growatt Ecosystem and Huawei SmartLogger profiles once, DHCP built-in first", async () => {
   mem = {};
   assert.equal(await store.seedIfEmpty(), true);
   assert.equal(await store.seedIfEmpty(), false);
   const list = await store.listProfiles();
-  assert.deepEqual(list.map((p) => p.name), ["Automatic (DHCP)", "TC LAN · 10.100.35.1", "TC LAN · 10.100.35.2"]);
+  assert.deepEqual(list.map((p) => p.name), ["Automatic (DHCP)", "Growatt Ecosystem · 192.168.10.x", "Huawei SmartLogger · 192.168.0.10"]);
   assert.equal(list[0].id, "dhcp");
-  for (const p of list.slice(1)) {
-    assert.deepEqual(validateProfile(p), {});
-    assert.equal(p.gateway, "10.100.35.254");
-    assert.equal(p.testHost, "10.100.35.254");
-    assert.deepEqual(p.dns, []);
-  }
+  const g = list[1];
+  assert.deepEqual(validateProfile(g), {});
+  assert.equal(g.id, store.GROWATT_ECOSYSTEM_ID);
+  assert.equal(g.ip, "192.168.10.250");
+  assert.equal(g.prefix, 24);
+  assert.equal(g.gateway, "");
+  assert.deepEqual(g.dns, []);
+  const h = list[2];
+  assert.deepEqual(validateProfile(h), {});
+  assert.equal(h.id, store.HUAWEI_SMARTLOGGER_ID);
+  assert.equal(h.ip, "192.168.0.250");
+  assert.equal(h.testHost, "192.168.0.10");
+  assert.equal(h.gateway, "");
   // Deleting everything does not re-seed.
   for (const p of list.slice(1)) await store.deleteProfile(p.id);
   assert.equal(await store.seedIfEmpty(), false);
@@ -215,7 +222,7 @@ test("store: importJSON skips invalid profiles and reports counts", async () => 
   const r = await store.importJSON(JSON.stringify(doc));
   assert.deepEqual(r, { added: 4, skipped: 6 });
   const after = await store.listProfiles();
-  assert.deepEqual(after.map((p) => p.name), ["Automatic (DHCP)", "Renamed seed", "TC LAN · 10.100.35.2", "Inverter LAN", "Mask input", "DHCP copy"]);
+  assert.deepEqual(after.map((p) => p.name), ["Automatic (DHCP)", "Renamed seed", "Huawei SmartLogger · 192.168.0.10", "Inverter LAN", "Mask input", "DHCP copy"]);
   assert.equal(after.find((p) => p.name === "Mask input").prefix, 24);
   assert.ok(after.every((p, i) => i === 0 || /^[0-9a-f-]{36}$/.test(p.id)));
 
@@ -251,4 +258,18 @@ test("store: saveProfile validates, moveProfile keeps DHCP first, settings bound
   await assert.rejects(store.saveSettings({ rollbackSec: 1.5 }));
   await store.saveSettings({ lastAdapterGuid: "{abc}" });
   assert.equal((await store.getSettings()).lastAdapterGuid, "{abc}");
+});
+
+test("store: migrates v1 installs (unchanged TC LAN seeds removed, current seeds added once)", async () => {
+  const old = (ip, name = `TC LAN · ${ip}`) => ({ id: crypto.randomUUID(), name, mode: "static", ip, prefix: 24,
+    gateway: "10.100.35.254", dns: [], testHost: "10.100.35.254", openUrl: "", preferredAdapter: "", note: "" });
+  const edited = old("10.100.35.2", "My meter LAN");
+  mem = { profiles: [old("10.100.35.1"), edited, old("10.100.35.2")] };
+  assert.equal(await store.seedIfEmpty(), false);
+  const names = (await store.listProfiles()).map((p) => p.name);
+  assert.deepEqual(names, ["Automatic (DHCP)", "My meter LAN", "Growatt Ecosystem · 192.168.10.x", "Huawei SmartLogger · 192.168.0.10"]);
+  // Runs once: deleting a seed afterwards does not bring it back.
+  await store.deleteProfile(store.GROWATT_ECOSYSTEM_ID);
+  await store.seedIfEmpty();
+  assert.equal((await store.listProfiles()).length, 3);
 });
