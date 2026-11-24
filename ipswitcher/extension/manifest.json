@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "IP Switcher",
+  "version": "0.1.0",
+  "description": "Switch this Windows PC's IPv4 address between saved profiles, with automatic rollback.",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqd5NoV+Ell0PMePUA0TFVgQn8trcO30bwrqf2W7+OmjH10Iw3DX2CYL8yhTME9SM5YovIAls437dI9yFY54Xv3eA8Pk4OttKJRfWgi4u0fkPjp0nleVfNG85EnGKiU0vbSq00LGXJzrkOtalM6M0MeRsbybeXwFrcih8jILdkf0VOT4cGaT1wiBZpM0osccAKrYxL7EvCvgovMQUdyUhr/L+aMV8m90f7yFt9YuNy7nSG94xgLDa+FCYyxchGTCnunxk79bmvCFiwl/kqK4QE0fo0o1NxSKIUDsFK5GGhMIi7Z8dkYEwZY5yqyN3A6gpbdZ3Ll1R0Z6IBAATl4AUrQIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "IP Switcher",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "options_page": "options.html"
+}

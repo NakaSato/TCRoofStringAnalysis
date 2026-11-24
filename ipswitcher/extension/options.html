@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IP Switcher settings</title>
+  <link rel="stylesheet" href="options.css">
+  <script type="module" src="options.js"></script>
+</head>
+<body>
+  <main>
+    <h1 data-s="optionsTitle">IP Switcher settings</h1>
+
+    <section id="profilesSec">
+      <div class="sec-head">
+        <h2 data-s="profiles">Profiles</h2>
+        <button id="newBtn" type="button" class="primary" data-s="newProfile">+ New</button>
+      </div>
+      <div id="profileForm"></div>
+      <table class="tbl">
+        <tbody id="profileList"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 data-s="importExport">Import / export</h2>
+      <div class="row gap">
+        <label class="btn" for="importFile"><span data-s="importBtn">Import JSON…</span></label>
+        <input id="importFile" type="file" accept="application/json,.json" hidden>
+        <button id="exportBtn" type="button" data-s="exportBtn">Export JSON</button>
+        <span id="importOut" aria-live="polite"></span>
+      </div>
+      <p class="muted small" data-s="importNote"></p>
+    </section>
+
+    <section>
+      <h2 data-s="rollbackTitle">Automatic undo</h2>
+      <form id="rollbackForm" class="row gap" novalidate>
+        <label for="rollbackSec" data-s="rollbackLabel"></label>
+        <input id="rollbackSec" type="number" min="0" max="300" step="1" class="num">
+        <button type="submit" data-s="save">Save</button>
+        <span id="rollbackOut" aria-live="polite"></span>
+      </form>
+      <p class="muted small" data-s="rollbackNote0"></p>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2 data-s="helperTitle">Helper status</h2>
+        <button id="recheckBtn" type="button" data-s="recheck">Check again</button>
+      </div>
+      <div id="helper"></div>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2 data-s="auditTitle">Audit log</h2>
+        <button id="auditBtn" type="button" data-s="recheck">Check again</button>
+      </div>
+      <div id="audit"></div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IP Switcher</title>
+  <link rel="icon" href="icons/icon-32.png">
+  <link rel="stylesheet" href="popup.css">
+  <script type="module" src="popup.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1 data-s="appName">IP Switcher</h1>
+    <div class="row gap">
+      <button id="openWindow" class="icon" type="button" data-s-title="openWindow" data-s-aria="openWindow">⧉</button>
+      <button id="openOptions" class="icon" type="button" data-s-title="settings" data-s-aria="settings">⚙</button>
+    </div>
+  </header>
+
+  <div id="banners"></div>
+  <div id="pending"></div>
+  <div id="result"></div>
+
+  <section id="adaptersSec">
+    <div class="sec-head">
+      <h2 data-s="adapters">Adapters</h2>
+      <label class="small"><input type="checkbox" id="showAll"> <span data-s="showVirtual">Show virtual adapters</span></label>
+    </div>
+    <div id="adapters" class="list" role="radiogroup"></div>
+  </section>
+
+  <section id="profilesSec">
+    <h2 data-s="profiles">Profiles</h2>
+    <div id="profiles" class="list"></div>
+    <div id="confirm"></div>
+    <div class="row gap">
+      <button id="newProfile" type="button" data-s="newProfile">+ New</button>
+      <button id="customBtn" type="button" data-s="custom">Custom…</button>
+    </div>
+    <div id="custom" hidden></div>
+  </section>
+
+  <section id="pingSec">
+    <form id="pingForm" class="row gap" novalidate>
+      <label for="pingHost" data-s="ping">Ping</label>
+      <input id="pingHost" class="grow" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="10.100.35.254">
+      <button id="pingGo" type="submit" data-s="go">Go</button>
+      <span id="pingOut" class="ping-out" aria-live="polite"></span>
+    </form>
+  </section>
+</body>
+</html>
