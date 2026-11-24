@@ -34,9 +34,18 @@ def _night_standby(r: Dict[str, Any]) -> bool:
     )
 
 
-def _kept(inv_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Inverter rows as stored: night standby records left out (`_night_standby`)."""
-    return [r for r in inv_rows if not _night_standby(r)]
+def _kept(
+    inv_rows: List[Dict[str, Any]], str_rows: List[Dict[str, Any]]
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Inverter and string rows as stored: night standby records (`_night_standby`) left out,
+    with their string rows (0 A at the open-circuit night voltage)."""
+    dropped = {(r["device_sn"], r["timestamp"]) for r in inv_rows if _night_standby(r)}
+    if not dropped:
+        return inv_rows, str_rows
+    return (
+        [r for r in inv_rows if (r["device_sn"], r["timestamp"]) not in dropped],
+        [r for r in str_rows if (r["device_sn"], r["timestamp"]) not in dropped],
+    )
 
 
 def store_string_rows(db: Session, rows: Sequence[Dict[str, Any]]) -> int:
@@ -139,7 +148,7 @@ def sync_inverter_history(
             inv_rows = [r for r in inv_rows if r["timestamp"] >= stop_before]
             str_rows = [r for r in str_rows if r["timestamp"] >= stop_before]
         str_rows = _wired_only(db, str_rows)
-        inv_rows = _kept(inv_rows)
+        inv_rows, str_rows = _kept(inv_rows, str_rows)
         _upsert(db, GrowattInverterReading, inv_rows)
         store_string_rows(db, str_rows)
         _store_raw(db, inverter.device_sn, records, stop_before)
@@ -265,8 +274,10 @@ def _store_today(
     if not times or min(times) > stored:
         return None
     since = stored - overlap
-    inv_rows = _kept([r for r in inv_rows if r["timestamp"] >= since])
-    str_rows = _wired_only(db, [r for r in str_rows if r["timestamp"] >= since])
+    inv_rows, str_rows = _kept(
+        [r for r in inv_rows if r["timestamp"] >= since],
+        _wired_only(db, [r for r in str_rows if r["timestamp"] >= since]),
+    )
     _upsert(db, GrowattInverterReading, inv_rows)
     store_string_rows(db, str_rows)
     _store_raw(db, inv.device_sn, records, since)
@@ -338,7 +349,7 @@ def sync_latest_records(
                 str_rows += b
                 _store_raw(db, sn, [rec])
             str_rows = _wired_only(db, str_rows)
-            inv_rows = _kept(inv_rows)
+            inv_rows, str_rows = _kept(inv_rows, str_rows)
             _upsert(db, GrowattInverterReading, inv_rows)
             store_string_rows(db, str_rows)
             db.commit()

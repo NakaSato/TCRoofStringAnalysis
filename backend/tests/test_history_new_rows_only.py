@@ -128,7 +128,7 @@ class _NightAcct:
 
     def max_history(self, sn, start, end, stop_before=None):
         self.stop_before.append(stop_before)
-        return [{"time": t, "ppv": 0.0, **r} for t, r in self.PAGE]
+        return [{"time": t, "ppv": 4.0, "vString1": 60.0, "currentString1": 0.02, **r} for t, r in self.PAGE]
 
 
 def test_night_standby_records_are_not_stored_but_the_marker_moves_on(tmp_path):
@@ -144,5 +144,8 @@ def test_night_standby_records_are_not_stored_but_the_marker_moves_on(tmp_path):
     stored = [t.strftime("%H:%M") for t in db.scalars(select(GrowattInverterReading.timestamp).order_by(GrowattInverterReading.timestamp))]
     assert stored == ["18:55", "23:40", "23:45", "23:50"]  # producing, fault, warning; daytime standby
     assert out["inverter_rows"] == 4
+    # their string rows go with them
+    strings = [t.strftime("%H:%M") for t in db.scalars(select(GrowattStringReading.timestamp).order_by(GrowattStringReading.timestamp))]
+    assert strings == stored
     # the marker is the newest record read (23:55), not the newest stored: the night is not read again
     assert db.get(GrowattInverter, "A").history_synced_until == datetime(2026, 11, 20, 23, 55)
