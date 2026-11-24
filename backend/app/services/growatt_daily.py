@@ -666,6 +666,12 @@ def _plant_day(
         except ValueError:
             continue
 
+    # curtailment of the day (estimated): its held-back slots are masked from EPI like the
+    # power-limit ones, so a zero-export plant following its load does not read as underperforming
+    # (nor drag down the factor epi_fit fits on these rows)
+    curt, held_back = _curtailment_day(db, plant.plant_id, day)
+    curtailed_slots_set |= held_back
+
     valid_slots = 0
     meas_kw_sum = 0.0
     mod_kw_sum = 0.0
@@ -697,7 +703,6 @@ def _plant_day(
     epi = round(meas_kw_sum / mod_kw_sum, 4) if valid_slots >= 6 and mod_kw_sum > 0 else None
     modelled_energy_kwh = round(mod_kw_sum * SLOT_H, 3) if valid_slots >= 6 and mod_kw_sum > 0 else None
     sensor = _sensor_evidence(db, plant, day, wx_by_slot, stale_ts)
-    curt = _curtailment_day(db, plant.plant_id, day)
 
     db.add(
         GrowattPlantDaily(
@@ -726,12 +731,15 @@ def _plant_day(
     )
 
 
-def _curtailment_day(db: Session, plant_id: int, day: date) -> Dict[str, Any]:
+def _curtailment_day(db: Session, plant_id: int, day: date) -> Tuple[Dict[str, Any], Set[datetime]]:
     """The day's curtailment estimate and free-running evidence, as the plant's power curve
-    computes them (`growatt_overview.build_plant_power`, calibrated by the days before)."""
+    computes them (`growatt_overview.build_plant_power`, calibrated by the days before), and
+    the 5-min slots it judged held back."""
     from app.services.growatt_overview import build_plant_power
 
-    c = build_plant_power(db, plant_id, day).get("curtailment") or {}
+    res = build_plant_power(db, plant_id, day)
+    held = {datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S") for r in res.get("timeseries") or [] if r.get("curtailed_by")}
+    c = res.get("curtailment") or {}
     cal = c.get("calibration") or {}
     by = c.get("by") or {}
     judged = c.get("kwh") is not None
@@ -746,7 +754,7 @@ def _curtailment_day(db: Session, plant_id: int, day: date) -> Dict[str, Any]:
         "curtail_ratio_source": cal.get("status") if cal.get("ratio") is not None else None,
         "free_ratio": c.get("free_ratio"),
         "free_slots": c.get("free_slots"),
-    }
+    }, held
 
 
 def _sensor_evidence(

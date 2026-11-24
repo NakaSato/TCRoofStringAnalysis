@@ -109,3 +109,40 @@ def test_backfill_without_cut_off_still_rewrites_the_whole_range(tmp_path):
     out = growatt_sync.sync_all_history(db, _Acct(), TODAY, TODAY, pause_s=0, phase=1)  # type: ignore[arg-type]
     assert out["inverter_rows"] == 4
     assert db.get(GrowattInverterReading, ("A", OLD)).pac_w == 999.0
+
+
+class _NightAcct:
+    """A night page, newest first: standby records, one with a warning, one fault, one producing."""
+
+    PAGE = [
+        ("2026-11-20 23:55:00", {"status": 0, "pac": 0.0}),
+        ("2026-11-20 23:50:00", {"status": "0", "pac": 0.0, "warnCode": 7}),
+        ("2026-11-20 23:45:00", {"status": 3, "pac": 0.0, "faultType": 117}),
+        ("2026-11-20 23:40:00", {"status": 0, "pac": 12.0}),
+        ("2026-11-20 23:35:00", {"status": 0, "pac": 0.0}),
+        ("2026-11-20 18:55:00", {"status": 0, "pac": 0.0}),  # daytime hours: kept even in standby
+    ]
+
+    def __init__(self) -> None:
+        self.stop_before: list = []
+
+    def max_history(self, sn, start, end, stop_before=None):
+        self.stop_before.append(stop_before)
+        return [{"time": t, "ppv": 0.0, **r} for t, r in self.PAGE]
+
+
+def test_night_standby_records_are_not_stored_but_the_marker_moves_on(tmp_path):
+    engine = build_engine(f"sqlite:///{tmp_path / 'n.db'}")
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine, expire_on_commit=False)()
+    db.add(GrowattPlant(plant_id=1, name="P1", phase=1))
+    db.commit()
+    db.add(GrowattInverter(device_sn="A", plant_id=1, history_synced_until=datetime(2026, 11, 20, 18, 50)))
+    db.commit()
+    acct = _NightAcct()
+    out = growatt_sync.sync_incremental(db, acct, TODAY, pause_s=0, phase=1)  # type: ignore[arg-type]
+    stored = [t.strftime("%H:%M") for t in db.scalars(select(GrowattInverterReading.timestamp).order_by(GrowattInverterReading.timestamp))]
+    assert stored == ["18:55", "23:40", "23:45", "23:50"]  # producing, fault, warning; daytime standby
+    assert out["inverter_rows"] == 4
+    # the marker is the newest record read (23:55), not the newest stored: the night is not read again
+    assert db.get(GrowattInverter, "A").history_synced_until == datetime(2026, 11, 20, 23, 55)

@@ -530,10 +530,27 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
     )
     wk = weather["kpis"]
 
-    # EPI (Energy Performance Index = measured AC energy / modelled AC energy from POA & T_mod)
-    # over POA-filtered (200-1200 W/m²), non-stale, non-clipped slots.
-    epi: Optional[float] = None
     epi_factor = epi_fit.factor_info(db, plant_id)  # the plant's fitted model factor, else the default
+    # Curtailment per slot (estimated): the modelled available power where the AC is held below
+    # it by a zero-export meter or the power-limit setting (services/growatt_curtailment.py)
+    c_invs = growatt_curtailment.inverters(db, plant_id)
+    curtailment = growatt_curtailment.annotate(
+        timeseries,
+        kwp=cap_kwp,
+        rated_ac_kw=(plant_rated_ac_w(db, [plant_id]).get(plant_id) or 0.0) / 1000.0 or None,
+        limit_kw=growatt_curtailment.plant_limit_kw(c_invs),
+        gamma_pct=gamma_pct,
+        factor=float(epi_factor["factor"]),
+        inverter_count=len(c_invs),
+        stale=growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2"),
+        tmod_fallback={day.isoformat(): wk.get("irradiance_weighted_module_temp_c") or wk.get("avg_module_temp_daylight_c")} if day else None,
+        calibration=growatt_curtailment.calibration(db, plant_id, [day]) if day else None,
+    )
+
+    # EPI (Energy Performance Index = measured AC energy / modelled AC energy from POA & T_mod)
+    # over POA-filtered (200-1200 W/m²), non-stale, non-clipped slots the plant was not held back in
+    # (curtailed above: a zero-export plant following its load is not underperforming)
+    epi: Optional[float] = None
     if pr["pr_pct"] is not None and cap_kwp:
         stale_ts = growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2")
         rated_ac_kw = (plant_rated_ac_w(db, [plant_id]).get(plant_id) or 0.0) / 1000.0
@@ -551,6 +568,7 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
                 or ts_str in stale_ts
                 or not (growatt_weather.POA_FILTER_MIN_WM2 <= g <= growatt_weather.POA_FILTER_MAX_WM2)
                 or (rated_ac_kw > 0 and pac_kw >= 0.98 * rated_ac_kw)
+                or r.get("curtailed_by")
             ):
                 continue
             t_mod = r.get("module_temp_c")
@@ -567,22 +585,6 @@ def build_plant_overview(db: Session, plant_id: int, day: Optional[date] = None)
         if valid_epi_slots >= 3 and mod_kw_sum > 0:
             epi = round(meas_kw_sum / mod_kw_sum, 3)
     pr["epi"] = epi
-
-    # Curtailment per slot (estimated): the modelled available power where the AC is held below
-    # it by a zero-export meter or the power-limit setting (services/growatt_curtailment.py)
-    c_invs = growatt_curtailment.inverters(db, plant_id)
-    curtailment = growatt_curtailment.annotate(
-        timeseries,
-        kwp=cap_kwp,
-        rated_ac_kw=(plant_rated_ac_w(db, [plant_id]).get(plant_id) or 0.0) / 1000.0 or None,
-        limit_kw=growatt_curtailment.plant_limit_kw(c_invs),
-        gamma_pct=gamma_pct,
-        factor=float(epi_factor["factor"]),
-        inverter_count=len(c_invs),
-        stale=growatt_weather._stale_timestamps(weather["series"], "irradiance_wm2"),
-        tmod_fallback={day.isoformat(): wk.get("irradiance_weighted_module_temp_c") or wk.get("avg_module_temp_daylight_c")} if day else None,
-        calibration=growatt_curtailment.calibration(db, plant_id, [day]) if day else None,
-    )
 
     # Loss waterfall — a modelled breakdown; only built when every input is measured. With a
     # weather sensor the reference is the measured POA insolation × kWp (IEC reference yield)

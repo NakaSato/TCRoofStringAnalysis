@@ -15,6 +15,30 @@ from app.db.models import GrowattInverter, GrowattInverterRaw, GrowattInverterRe
 from solar_core.growatt import GrowattAPIError, GrowattClient, parse_max_raw, parse_max_records
 from app.services.growatt_sync.common import RATE_LIMIT_CODE, _date_chunks, _inverters_query, _retry, _upsert, log
 
+# Night standby records are not stored (Nov 2026: 38 % of the inverter rows). Outside
+# [STANDBY_DAY_START_H, STANDBY_DAY_END_H) plant-local, a record with status 0 (waiting), no AC power and
+# no fault / warning code says only "asleep"; a fault, a warning or any AC power at night is kept.
+# Daytime records are all kept (an inverter in standby all day is a finding: "reports but 0 kW").
+STANDBY_DAY_START_H = 5
+STANDBY_DAY_END_H = 19
+
+
+def _night_standby(r: Dict[str, Any]) -> bool:
+    h = r["timestamp"].hour
+    return (
+        not (STANDBY_DAY_START_H <= h < STANDBY_DAY_END_H)
+        and r.get("status") in (0, "0")
+        and not (r.get("pac_w") or 0)
+        and not r.get("fault_code")
+        and not r.get("warn_code")
+    )
+
+
+def _kept(inv_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Inverter rows as stored: night standby records left out (`_night_standby`)."""
+    return [r for r in inv_rows if not _night_standby(r)]
+
+
 def store_string_rows(db: Session, rows: Sequence[Dict[str, Any]]) -> int:
     """Upsert per-string rows (`device_sn`, `timestamp`, `string_no`, `mppt_no`, `voltage_v`,
     `current_a`; other keys such as `power_w` are ignored) into `growatt_string_records`, one row
@@ -100,6 +124,7 @@ def sync_inverter_history(
     page Growatt answers holds up to 100 records, most of them stored by earlier runs, and
     rewriting them made `history` write ~30x more rows than it added (Nov 2026)."""
     n_inv = n_str = 0
+    seen: Optional[datetime] = None  # newest record Growatt answered, stored or not
     for a, b in _date_chunks(start, end):
         records: List[Dict[str, Any]] = _retry(
             lambda: client.max_history(inverter.device_sn, a, b, stop_before=stop_before),
@@ -107,10 +132,14 @@ def sync_inverter_history(
             retries,
         )
         inv_rows, str_rows = parse_max_records(inverter.device_sn, records)
+        if inv_rows:
+            newest = max(r["timestamp"] for r in inv_rows)
+            seen = newest if seen is None or newest > seen else seen
         if stop_before is not None:
             inv_rows = [r for r in inv_rows if r["timestamp"] >= stop_before]
             str_rows = [r for r in str_rows if r["timestamp"] >= stop_before]
         str_rows = _wired_only(db, str_rows)
+        inv_rows = _kept(inv_rows)
         _upsert(db, GrowattInverterReading, inv_rows)
         store_string_rows(db, str_rows)
         _store_raw(db, inverter.device_sn, records, stop_before)
@@ -123,7 +152,10 @@ def sync_inverter_history(
         .order_by(GrowattInverterReading.device_sn.desc(), GrowattInverterReading.timestamp.desc())
         .limit(1)
     )
-    inverter.history_synced_until = latest
+    # the newest record read, stored or not: a night of standby records left out is not read again
+    # on every run (`sync_incremental` starts from here)
+    marks = [t for t in (latest, seen, inverter.history_synced_until) if t is not None]
+    inverter.history_synced_until = max(marks) if marks else None
     db.commit()
     return n_inv, n_str
 
@@ -233,7 +265,7 @@ def _store_today(
     if not times or min(times) > stored:
         return None
     since = stored - overlap
-    inv_rows = [r for r in inv_rows if r["timestamp"] >= since]
+    inv_rows = _kept([r for r in inv_rows if r["timestamp"] >= since])
     str_rows = _wired_only(db, [r for r in str_rows if r["timestamp"] >= since])
     _upsert(db, GrowattInverterReading, inv_rows)
     store_string_rows(db, str_rows)
@@ -306,6 +338,7 @@ def sync_latest_records(
                 str_rows += b
                 _store_raw(db, sn, [rec])
             str_rows = _wired_only(db, str_rows)
+            inv_rows = _kept(inv_rows)
             _upsert(db, GrowattInverterReading, inv_rows)
             store_string_rows(db, str_rows)
             db.commit()

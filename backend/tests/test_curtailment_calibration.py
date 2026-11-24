@@ -138,3 +138,52 @@ def test_fleet_route_scopes_engineers_and_checks_the_period(tmp_path):
     h = login("admin", "admin123")
     assert c.get("/growatt/curtailment?start=2026-11-21&end=2026-11-20", headers=h).status_code == 422
     assert c.get("/growatt/curtailment?start=2026-01-01&end=2026-11-20", headers=h).status_code == 422
+
+
+def _day_with_zero_export(db, day, hold_kw=None):
+    """06:00–18:00 at 90 % of clear sky; the plant gives 70 % of 100 kWp × POA. With `hold_kw`, a
+    zero-export controller holds the AC at that from 10:00 to 14:00 while the meter reads ~0 kW."""
+    from datetime import datetime, timedelta
+
+    from app.db.models import GrowattEnvReading, GrowattEnvSensor, GrowattInverter, GrowattInverterReading, GrowattMeter, GrowattMeterReading
+    from solar_core.sun import clear_sky_ghi
+
+    if db.get(GrowattInverter, "INV9") is None:
+        db.add(GrowattPlant(plant_id=9, name="Zero export", latitude=13.75, longitude=100.5, peak_power_kwp=100.0))
+        db.flush()
+        db.add(GrowattInverter(device_sn="INV9", plant_id=9, nominal_power_w=100000.0))
+        db.add(GrowattEnvSensor(datalogger_sn="DL9", address=1, plant_id=9, device_name="POA"))
+        db.add(GrowattMeter(datalogger_sn="DL9", address=36, plant_id=9, device_name="CHNT_THREE"))
+        db.flush()
+    eac = 0.0
+    t = datetime.combine(day, datetime.min.time()) + timedelta(hours=6)
+    while t.hour < 18:
+        irr = round(0.9 * clear_sky_ghi(day, 13.75, 100.5, t.hour * 60 + t.minute + 2.5), 1)
+        free_w = 100.0 * min(irr, 1000.0) * 0.7
+        held = hold_kw is not None and 10 <= t.hour < 14 and free_w > hold_kw * 1000
+        pac_w = hold_kw * 1000.0 if held else free_w
+        eac += pac_w * (5 / 60) / 1000
+        db.add(GrowattEnvReading(datalogger_sn="DL9", address=1, timestamp=t, irradiance_wm2=irr, module_temp_c=50.0, ambient_temp_c=33.0))
+        db.add(GrowattInverterReading(device_sn="INV9", timestamp=t, status=1, pac_w=pac_w, ppv_w=pac_w / 0.97, eac_today_kwh=round(eac, 3)))
+        # held: the meter holds ~0; free: the site buys a steady 40 kW on top of the PV
+        db.add(GrowattMeterReading(datalogger_sn="DL9", address=36, timestamp=t, active_power_w=300.0 if held else 40000.0))
+        t += timedelta(minutes=5)
+    db.commit()
+
+
+def test_held_back_slots_are_masked_from_epi(db):
+    from app.services import growatt_daily, growatt_overview
+
+    free_day, held_day = date(2026, 11, 18), date(2026, 11, 19)
+    _day_with_zero_export(db, free_day)
+    _day_with_zero_export(db, held_day, hold_kw=30.0)
+    growatt_daily.compute_day(db, free_day)
+    growatt_daily.compute_day(db, held_day)
+    db.expire_all()
+    free, held = db.get(GrowattPlantDaily, (9, free_day)), db.get(GrowattPlantDaily, (9, held_day))
+    assert held.curtailed_kwh and held.curtailed_kwh > 50 and held.curtailed_masked_slots >= 40
+    # the slots following the load do not pull EPI down: the day reads as the free day does
+    assert held.epi == pytest.approx(free.epi, abs=0.02)
+    ov = growatt_overview.build_plant_overview(db, 9, held_day)
+    assert ov["kpis"]["curtailment"]["kwh"] and ov["kpis"]["curtailment"]["kwh"] > 50
+    assert ov["kpis"]["epi"] == pytest.approx(free.epi, abs=0.03)
