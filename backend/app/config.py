@@ -118,8 +118,8 @@ class Settings(BaseSettings):
     # Raw 1–5 min Growatt readings older than this are deleted daily (`retention` job). Daily
     # summaries in Firestore are kept. ~0.35–0.5 MB per inverter-day: 629 inverters x 90 days ≈ 30–45 GB.
     history_retention_days: int = 90
-    # Per-string 5-min readings (`growatt_string_readings`, one row per string per record: the
-    # largest computed table) are kept this many days (capped at history_retention_days). The
+    # Per-string 5-min readings (`growatt_string_records`, one row per inverter record holding its
+    # strings; read per string through the view `growatt_string_readings`) are kept this many days (capped at history_retention_days). The
     # daily string rows (`growatt_string_daily`) and everything computed from them stay for
     # history_retention_days; only the 5-min string curves of older days are gone.
     history_string_retention_days: int = 30

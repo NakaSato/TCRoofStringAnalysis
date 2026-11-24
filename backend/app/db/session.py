@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Generator
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -13,10 +14,20 @@ class Base(DeclarativeBase):
     """Base class for all SQLAlchemy ORM models."""
 
 
+class ViewBase(DeclarativeBase):
+    """Models mapped onto SQL views (created by DDL, never by `create_all`)."""
+
+
+def _compact_json(obj) -> str:
+    return json.dumps(obj, separators=(",", ":"))
+
+
 def build_engine(database_url: str | None = None):
     url = database_url or settings.database_url
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    eng = create_engine(url, connect_args=connect_args, future=True)
+    # JSON columns without the spaces after "," and ":" (json.dumps' default): a few % of every
+    # JSON value, which adds up over the readings tables
+    eng = create_engine(url, connect_args=connect_args, future=True, json_serializer=_compact_json)
     if url.startswith("sqlite"):
         @event.listens_for(eng, "connect")
         def _set_sqlite_pragma(dbapi_connection, connection_record):
@@ -94,21 +105,47 @@ _ADDED_INDEXES = [
     ("growatt_inverter_readings", "ix_growatt_inv_ts", "CREATE INDEX IF NOT EXISTS ix_growatt_inv_ts ON growatt_inverter_readings (timestamp)"),
 ]
 
-# Columns no longer in the models, dropped from databases that still have them. String power
-# is V × I (a hybrid property now); the column was about a tenth of the string table.
-_DROPPED_COLUMNS = [
-    ("growatt_string_readings", "power_w"),
-]
+# Columns no longer in the models, dropped from databases that still have them. (The string
+# table's `power_w` and `ix_growatt_str_ts` went with the table itself:
+# `_convert_string_readings`.)
+_DROPPED_COLUMNS: list = []
 
 # Indexes no longer in the models, dropped from databases that still have them.
-_DROPPED_INDEXES = [
-    ("growatt_string_readings", "ix_growatt_str_ts"),
-]
+_DROPPED_INDEXES: list = []
+
+
+def _convert_string_readings(bind) -> None:
+    """One-off (Nov 2026): the per-string table `growatt_string_readings` → one row per inverter
+    record in `growatt_string_records`, then the view of the same name. Idempotent; on Postgres
+    an advisory lock keeps the API and the worker from both converting."""
+    from app.db.models.growatt import STRING_VIEW, create_string_view
+
+    if STRING_VIEW not in inspect(bind).get_table_names():
+        return
+    pg = bind.dialect.name == "postgresql"
+    with bind.begin() as conn:
+        if pg:
+            conn.execute(text("SELECT pg_advisory_xact_lock(7461902)"))
+            if STRING_VIEW not in inspect(conn).get_table_names():
+                return
+            agg = "json_agg(json_build_array(string_no, mppt_no, voltage_v, current_a) ORDER BY string_no)"
+            src = "growatt_string_readings"
+        else:
+            agg = "json_group_array(json_array(string_no, mppt_no, voltage_v, current_a))"
+            src = "(SELECT * FROM growatt_string_readings ORDER BY device_sn, timestamp, string_no)"
+        conn.execute(text(
+            "INSERT INTO growatt_string_records (device_sn, timestamp, strings) "
+            f"SELECT device_sn, timestamp, {agg} FROM {src} AS s GROUP BY device_sn, timestamp"
+        ))
+        conn.execute(text("DROP TABLE growatt_string_readings"))
+        create_string_view(conn)
 
 
 def ensure_schema(bind) -> None:
-    """create_all + add columns and indexes introduced after the table first shipped, drop retired indexes and columns."""
+    """create_all + add columns and indexes introduced after the table first shipped, drop retired
+    indexes and columns, convert the per-string readings table to records + view."""
     Base.metadata.create_all(bind=bind)
+    _convert_string_readings(bind)
     insp = inspect(bind)
     for table, column, ddl, index in _ADDED_COLUMNS:
         if table in insp.get_table_names() and column not in {c["name"] for c in insp.get_columns(table)}:

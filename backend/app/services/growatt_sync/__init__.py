@@ -91,6 +91,7 @@ from app.services.growatt_sync.inverters import (
     sync_all_history,
     sync_incremental,
     sync_inverter_history,
+    store_string_rows,
     sync_latest_records,
 )
 from app.services.growatt_sync.retention import (

@@ -14,7 +14,7 @@ from app.db.models import (
     GrowattInverterRaw,
     GrowattInverterReading,
     GrowattMeterReading,
-    GrowattStringReading,
+    GrowattStringRecord,
 )
 from app.services.growatt_sync.common import log
 
@@ -63,13 +63,13 @@ def prune_history(db: Session, today: date, keep_days: int, string_keep_days: Op
     oldest_meter = db.scalar(select(func.min(GrowattMeterReading.timestamp)))
     starts = [t for t in (oldest, oldest_env, oldest_meter) if t is not None]
     totals: Dict[str, Any] = {
-        "cutoff": cutoff.isoformat(), "string_cutoff": str_cutoff.isoformat(), "inverter_rows": 0, "string_rows": 0, "env_rows": 0, "meter_rows": 0, "days": 0,
+        "cutoff": cutoff.isoformat(), "string_cutoff": str_cutoff.isoformat(), "inverter_rows": 0, "string_records": 0, "env_rows": 0, "meter_rows": 0, "days": 0,
     }
-    # String readings: one inverter per transaction, through the primary key (device_sn, timestamp,
-    # string_no); the table has no timestamp index of its own.
-    S = GrowattStringReading
+    # String records (one row per inverter record, all its strings): one inverter per transaction,
+    # through the primary key (device_sn, timestamp); the table has no timestamp index of its own.
+    R = GrowattStringRecord
     for sn in db.scalars(select(GrowattInverter.device_sn)).all():
-        totals["string_rows"] += _rowcount(db.execute(delete(S).where(S.device_sn == sn, S.timestamp < str_cutoff)))
+        totals["string_records"] += _rowcount(db.execute(delete(R).where(R.device_sn == sn, R.timestamp < str_cutoff)))
         db.commit()
     if starts:
         day = datetime.combine(min(starts).date(), datetime.min.time())
@@ -90,7 +90,7 @@ def prune_history(db: Session, today: date, keep_days: int, string_keep_days: Op
             db.commit()
             day = end
     log.info(
-        "retention: deleted %d inverter / %d weather / %d meter rows before %s, %d string rows before %s",
-        totals["inverter_rows"], totals["env_rows"], totals["meter_rows"], cutoff, totals["string_rows"], str_cutoff,
+        "retention: deleted %d inverter / %d weather / %d meter rows before %s, %d string records before %s",
+        totals["inverter_rows"], totals["env_rows"], totals["meter_rows"], cutoff, totals["string_records"], str_cutoff,
     )
     return totals

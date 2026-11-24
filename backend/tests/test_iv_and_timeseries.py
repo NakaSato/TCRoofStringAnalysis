@@ -26,6 +26,7 @@ from app.db.models import (
     GrowattStringLayout,
     GrowattStringReading,
 )
+from app.services.growatt_sync import store_string_rows
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
@@ -675,16 +676,14 @@ def test_r4_voltage_limit_enforced_and_r6_pid_and_r10_epi_and_r11_ya_yf(tmp_path
                 db.add(GrowattInverterReading(device_sn="INV1", timestamp=ts, status=1, pac_w=24000.0, ppv_w=24800.0, eac_today_kwh=20.0))
                 for sno in (1, 3, 4, 5):
                     v = 500.0 * (0.98 if sno in (1, 3) else 1.0)
-                    db.add(
-                        GrowattStringReading(
+                    store_string_rows(db, [dict(
                             device_sn="INV1",
                             timestamp=ts,
                             string_no=sno,
                             mppt_no=(sno + 1) // 2,
                             voltage_v=v,
                             current_a=10.0,
-                        )
-                    )
+                        )])
             db.commit()
             growatt_daily.compute_day(db, d)
 

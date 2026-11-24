@@ -11,13 +11,36 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.models import GrowattInverter, GrowattInverterRaw, GrowattInverterReading, GrowattStringReading
+from app.db.models import GrowattInverter, GrowattInverterRaw, GrowattInverterReading, GrowattStringReading, GrowattStringRecord
 from solar_core.growatt import GrowattAPIError, GrowattClient, parse_max_raw, parse_max_records
 from app.services.growatt_sync.common import RATE_LIMIT_CODE, _date_chunks, _inverters_query, _retry, _upsert, log
 
-def _stored(str_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """String rows as stored: `power_w` (V × I) is derived by the model, not a column."""
-    return [{k: v for k, v in r.items() if k != "power_w"} for r in str_rows]
+def store_string_rows(db: Session, rows: Sequence[Dict[str, Any]]) -> int:
+    """Upsert per-string rows (`device_sn`, `timestamp`, `string_no`, `mppt_no`, `voltage_v`,
+    `current_a`; other keys such as `power_w` are ignored) into `growatt_string_records`, one row
+    per inverter record. Strings already stored for a record and not in `rows` are kept, as with
+    the former per-string upsert. Returns the number of string rows written."""
+    if not rows:
+        return 0
+    db.flush()
+    R = GrowattStringRecord
+    by: Dict[Tuple[str, datetime], Dict[int, List[Any]]] = {}
+    for r in rows:
+        n = int(r["string_no"])
+        by.setdefault((r["device_sn"], r["timestamp"]), {})[n] = [n, int(r["mppt_no"]), float(r["voltage_v"]), float(r["current_a"])]
+    per_sn: Dict[str, List[datetime]] = {}
+    for sn, ts in by:
+        per_sn.setdefault(sn, []).append(ts)
+    for sn, times in per_sn.items():
+        for i in range(0, len(times), 500):
+            for ts, strings in db.execute(select(R.timestamp, R.strings).where(R.device_sn == sn, R.timestamp.in_(times[i : i + 500]))):
+                new = by.get((sn, ts))
+                if new is None:
+                    continue
+                for old in strings or []:
+                    new.setdefault(int(old[0]), list(old))
+    _upsert(db, R, [{"device_sn": sn, "timestamp": ts, "strings": [v[n] for n in sorted(v)]} for (sn, ts), v in by.items()])
+    return len(rows)
 
 
 def _wired_only(db: Session, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -89,7 +112,7 @@ def sync_inverter_history(
             str_rows = [r for r in str_rows if r["timestamp"] >= stop_before]
         str_rows = _wired_only(db, str_rows)
         _upsert(db, GrowattInverterReading, inv_rows)
-        _upsert(db, GrowattStringReading, _stored(str_rows))
+        store_string_rows(db, str_rows)
         _store_raw(db, inverter.device_sn, records, stop_before)
         n_inv += len(inv_rows)
         n_str += len(str_rows)
@@ -213,7 +236,7 @@ def _store_today(
     inv_rows = [r for r in inv_rows if r["timestamp"] >= since]
     str_rows = _wired_only(db, [r for r in str_rows if r["timestamp"] >= since])
     _upsert(db, GrowattInverterReading, inv_rows)
-    _upsert(db, GrowattStringReading, _stored(str_rows))
+    store_string_rows(db, str_rows)
     _store_raw(db, inv.device_sn, records, since)
     inv.history_synced_until = max(stored, max(times))
     db.commit()
@@ -284,7 +307,7 @@ def sync_latest_records(
                 _store_raw(db, sn, [rec])
             str_rows = _wired_only(db, str_rows)
             _upsert(db, GrowattInverterReading, inv_rows)
-            _upsert(db, GrowattStringReading, _stored(str_rows))
+            store_string_rows(db, str_rows)
             db.commit()
         except Exception as exc:  # keep going with the next chunk; report at the end
             db.rollback()

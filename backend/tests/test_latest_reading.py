@@ -5,7 +5,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import Base, GrowattInverter, GrowattInverterReading, GrowattPlant, GrowattStringReading
+from app.db.models import Base, GrowattInverter, GrowattInverterReading, GrowattPlant
+from app.services.growatt_sync import store_string_rows
 from app.db.session import build_engine
 from app.services.growatt_overview import newest_inverter_ts, newest_string_ts
 
@@ -27,12 +28,9 @@ def test_newest_ts_over_inverters(tmp_path):
         [
             GrowattInverterReading(device_sn="A", timestamp=datetime(2026, 11, 13, 9, 0)),
             GrowattInverterReading(device_sn="B", timestamp=datetime(2026, 11, 13, 9, 5)),
-            GrowattStringReading(
-                device_sn="A", timestamp=datetime(2026, 11, 12, 17, 0), string_no=1, mppt_no=1,
-                voltage_v=600.0, current_a=5.0,
-            ),
         ]
     )
+    store_string_rows(db, [dict(device_sn="A", timestamp=datetime(2026, 11, 12, 17, 0), string_no=1, mppt_no=1, voltage_v=600.0, current_a=5.0)])
     db.commit()
 
     assert newest_inverter_ts(db, ["A", "B", "C"]) == datetime(2026, 11, 13, 9, 5)

@@ -49,6 +49,7 @@ from app.db.models.growatt import (  # noqa: F401
     GrowattPlantPower,
     GrowattStringLayout,
     GrowattStringReading,
+    GrowattStringRecord,
     GrowattStringRemoved,
 )
 from app.db.models.rules import (  # noqa: F401

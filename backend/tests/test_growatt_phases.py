@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
-from app.db.models import GrowattInverter, GrowattPlant
+from app.db.models import GrowattInverter, GrowattPlant, GrowattStringReading
 from app.db.session import Base, build_engine, ensure_schema
 from app.services import growatt_sync, jobs
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable
@@ -200,17 +201,46 @@ def test_ensure_schema_adds_phase_to_an_existing_table(tmp_path):
     assert "ix_growatt_plants_phase" in {i["name"] for i in insp.get_indexes("growatt_plants")}
 
 
-def test_ensure_schema_drops_the_string_timestamp_index_and_power_column(tmp_path):
+def test_ensure_schema_converts_the_per_string_table_to_records_and_a_view(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
     Base.metadata.create_all(bind=engine)
-    with engine.begin() as conn:  # a database built before Nov 2026 still has both
+    with engine.begin() as conn:  # a database built before Nov 2026: one row per string
+        conn.execute(text("DROP VIEW growatt_string_readings"))
+        conn.execute(text(
+            "CREATE TABLE growatt_string_readings (device_sn VARCHAR(64) NOT NULL, timestamp DATETIME NOT NULL, "
+            "string_no INTEGER NOT NULL, mppt_no INTEGER NOT NULL, voltage_v FLOAT NOT NULL, current_a FLOAT NOT NULL, "
+            "power_w FLOAT NOT NULL DEFAULT 0, PRIMARY KEY (device_sn, timestamp, string_no))"
+        ))
         conn.execute(text("CREATE INDEX ix_growatt_str_ts ON growatt_string_readings (timestamp)"))
-        conn.execute(text("ALTER TABLE growatt_string_readings ADD COLUMN power_w FLOAT NOT NULL DEFAULT 0"))
+        conn.execute(text("INSERT INTO growatt_plants (plant_id, name, synced_at) VALUES (1, 'P', '2026-11-12 00:00:00')"))
+        conn.execute(text("INSERT INTO growatt_inverters (device_sn, plant_id, synced_at) VALUES ('I', 1, '2026-11-12 00:00:00')"))
+        for ts, no, v, a in [
+            ("2026-11-12 09:00:00.000000", 2, 610.0, 8.5),
+            ("2026-11-12 09:00:00.000000", 1, 600.0, 9.0),
+            ("2026-11-12 09:05:00.000000", 1, 601.5, 9.25),
+        ]:
+            conn.execute(text(
+                "INSERT INTO growatt_string_readings VALUES ('I', :ts, :no, 1, :v, :a, 0)"
+            ), {"ts": ts, "no": no, "v": v, "a": a})
     ensure_schema(engine)
     ensure_schema(engine)  # idempotent
     insp = inspect(engine)
-    assert "ix_growatt_str_ts" not in {i["name"] for i in insp.get_indexes("growatt_string_readings")}
-    assert "power_w" not in {c["name"] for c in insp.get_columns("growatt_string_readings")}
+    assert "growatt_string_readings" not in insp.get_table_names()
+    assert "growatt_string_readings" in insp.get_view_names()
+    with engine.connect() as conn:
+        recs = conn.execute(text("SELECT timestamp, strings FROM growatt_string_records ORDER BY timestamp")).all()
+        assert [(str(t), json.loads(j)) for t, j in recs] == [
+            ("2026-11-12 09:00:00.000000", [[1, 1, 600.0, 9.0], [2, 1, 610.0, 8.5]]),
+            ("2026-11-12 09:05:00.000000", [[1, 1, 601.5, 9.25]]),
+        ]
+    S = GrowattStringReading
+    with Session(engine) as db:
+        rows = db.execute(select(S.timestamp, S.string_no, S.voltage_v, S.current_a, S.power_w).order_by(S.timestamp, S.string_no)).all()
+    assert [tuple(r) for r in rows] == [
+        (datetime(2026, 11, 12, 9, 0), 1, 600.0, 9.0, 5400.0),
+        (datetime(2026, 11, 12, 9, 0), 2, 610.0, 8.5, 5185.0),
+        (datetime(2026, 11, 12, 9, 5), 1, 601.5, 9.25, 5563.875),
+    ]
 
 
 def test_worker_reruns_fleet_while_plants_are_untagged(factory, monkeypatch):

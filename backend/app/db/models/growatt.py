@@ -6,11 +6,12 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, String, select
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, ForeignKeyConstraint, Index, Integer, JSON, String, event, inspect, select, text
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.session import Base
+from app.db.session import Base, ViewBase
 from app.db.models.base import _utcnow
 
 
@@ -115,6 +116,28 @@ def not_installed_sns():
     return select(GrowattInverter.device_sn).where(GrowattInverter.not_installed_at.is_not(None))
 
 
+_MPPT_KEYS = ("mppt", "v", "i", "p")
+
+
+class CompactMppt(TypeDecorator):
+    """MPPT list stored as `[[n, v, i, p], ...]` instead of `[{"mppt": n, "v": .., ...}, ...]`
+    (Nov 2026: the key names were over half of an inverter reading). Code sees the dict form
+    either way; rows stored before the change are read as they are."""
+
+    impl = JSON
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if not value:
+            return value
+        return [[m.get(k) for k in _MPPT_KEYS] if isinstance(m, dict) else m for m in value]
+
+    def process_result_value(self, value, dialect):
+        if not value:
+            return value
+        return [dict(zip(_MPPT_KEYS, m)) if isinstance(m, list) else m for m in value]
+
+
 class GrowattInverterReading(Base):
     """Inverter-level 5-minute record from `device/max/max_data` (timestamp is plant-local time)."""
 
@@ -131,7 +154,7 @@ class GrowattInverterReading(Base):
     eac_total_kwh: Mapped[Optional[float]] = mapped_column(Float)
     temperature_c: Mapped[Optional[float]] = mapped_column(Float)
     fac_hz: Mapped[Optional[float]] = mapped_column(Float)
-    mppt_json: Mapped[Optional[Any]] = mapped_column(JSON)  # [{"mppt": n, "v": .., "i": .., "p": ..}]
+    mppt_json: Mapped[Optional[Any]] = mapped_column(CompactMppt)  # [{"mppt": n, "v": .., "i": .., "p": ..}]; stored compact
     # the record's `faultType` / `warnCode` (null = none, or stored before these were kept)
     fault_code: Mapped[Optional[int]] = mapped_column(Integer)
     warn_code: Mapped[Optional[int]] = mapped_column(Integer)
@@ -191,26 +214,39 @@ class GrowattPlantPower(Base):
     power_w: Mapped[float] = mapped_column(Float, nullable=False)
 
 
-class GrowattStringReading(Base):
-    """Per-string 5-minute record (`vString{n}` / `currentString{n}`), stored only while the inverter
-    produces (ppv > 0) and only for wired inputs (`growatt_sync.inverters._wired_only`, the daily
-    open-string check's definition): an input with no current now, no String Layout row, no daily
-    energy in 30 days and no current today is not stored."""
+class GrowattStringRecord(Base):
+    """Per-string 5-minute readings (`vString{n}` / `currentString{n}`), one row per inverter
+    record: `strings` = `[[string_no, mppt_no, voltage_v, current_a], ...]`, stored only while the
+    inverter produces (ppv > 0) and only for wired inputs (`growatt_sync.inverters._wired_only`,
+    the daily open-string check's definition). Written by `growatt_sync.store_string_rows`; read
+    one row per string through the view `growatt_string_readings` (`GrowattStringReading`).
 
-    __tablename__ = "growatt_string_readings"
-    # No timestamp index: every read filters by device_sn (the primary key's first column), and
-    # retention deletes per inverter. `ix_growatt_str_ts` (a fifth of the table's size) is dropped
-    # from existing databases by `session._DROPPED_INDEXES`.
+    One row per record instead of per string (Nov 2026): the key (serial, time) and its index
+    were repeated for every string, about 170 bytes for 2 numbers; a record holds ~19 strings."""
+
+    __tablename__ = "growatt_string_records"
 
     device_sn: Mapped[str] = mapped_column(String(64), ForeignKey("growatt_inverters.device_sn", ondelete="CASCADE"), primary_key=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    strings: Mapped[Any] = mapped_column(JSON, nullable=False)
+
+
+class GrowattStringReading(ViewBase):
+    """Read-only view of `growatt_string_records`, one row per string per record (plant-local
+    timestamp), so queries filter, group and aggregate per string as before. Filters on
+    `device_sn` / `timestamp` go to the records table's primary key. Write with
+    `growatt_sync.store_string_rows`, prune the records table."""
+
+    __tablename__ = "growatt_string_readings"
+
+    device_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
     string_no: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     mppt_no: Mapped[int] = mapped_column(Integer, nullable=False)
     voltage_v: Mapped[float] = mapped_column(Float, nullable=False)
     current_a: Mapped[float] = mapped_column(Float, nullable=False)
 
-    # String power is V × I, so it is derived, not stored (the column was dropped Nov 2026;
-    # `session._DROPPED_COLUMNS`). In a query `S.power_w` is `voltage_v * current_a`.
+    # String power is V × I, so it is derived, not stored. In a query `S.power_w` is `voltage_v * current_a`.
     @hybrid_property
     def power_w(self) -> float:
         return round(self.voltage_v * self.current_a, 1)
@@ -219,6 +255,38 @@ class GrowattStringReading(Base):
     @classmethod
     def _power_w_expression(cls):
         return (cls.voltage_v * cls.current_a).label("power_w")
+
+
+STRING_VIEW = "growatt_string_readings"
+_STRING_VIEW_SQL = {
+    "sqlite": (
+        "CREATE VIEW IF NOT EXISTS growatt_string_readings AS SELECT r.device_sn AS device_sn, "
+        "r.timestamp AS timestamp, CAST(json_extract(j.value, '$[0]') AS INTEGER) AS string_no, "
+        "CAST(json_extract(j.value, '$[1]') AS INTEGER) AS mppt_no, "
+        "CAST(json_extract(j.value, '$[2]') AS REAL) AS voltage_v, "
+        "CAST(json_extract(j.value, '$[3]') AS REAL) AS current_a "
+        "FROM growatt_string_records AS r, json_each(r.strings) AS j"
+    ),
+    "postgresql": (
+        "CREATE OR REPLACE VIEW growatt_string_readings AS SELECT r.device_sn AS device_sn, "
+        "r.timestamp AS timestamp, (e ->> 0)::integer AS string_no, (e ->> 1)::integer AS mppt_no, "
+        "(e ->> 2)::double precision AS voltage_v, (e ->> 3)::double precision AS current_a "
+        "FROM growatt_string_records AS r CROSS JOIN LATERAL json_array_elements(r.strings) AS e"
+    ),
+}
+
+
+def create_string_view(conn) -> None:
+    """Create the per-string view unless `growatt_string_readings` is still the old table
+    (`session.ensure_schema` converts that one first)."""
+    if STRING_VIEW in inspect(conn).get_table_names():
+        return
+    conn.execute(text(_STRING_VIEW_SQL[conn.dialect.name]))
+
+
+@event.listens_for(Base.metadata, "after_create")
+def _after_create(target, connection, **kw) -> None:
+    create_string_view(connection)
 
 
 class GrowattEnvSensor(Base):

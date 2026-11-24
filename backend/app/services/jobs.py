@@ -356,7 +356,8 @@ def job_publish_yesterday(db: Session) -> Tuple[str, Dict[str, Any]]:
 def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Delete raw readings and alarm logs older than HISTORY_RETENTION_DAYS (daily summaries are
     kept), per-string readings older than HISTORY_STRING_RETENTION_DAYS, whole max_data records
-    older than HISTORY_RAW_RETENTION_DAYS, and app logs older than LOG_RETENTION_DAYS or beyond LOG_MAX_ROWS."""
+    older than HISTORY_RAW_RETENTION_DAYS, app logs older than LOG_RETENTION_DAYS or beyond LOG_MAX_ROWS,
+    and job runs older than HISTORY_RETENTION_DAYS (each job's newest run is kept)."""
     from app.services.system_logs import prune_logs
     from app.services import google_weather
     from app.services.growatt_alarms import prune_alarms
@@ -378,6 +379,7 @@ def job_retention(db: Session) -> Tuple[str, Dict[str, Any]]:
 
     detail["om_push_marks"] = om_reminders.prune(db, _today())
     detail["log_rows"] = prune_logs(db, datetime.now(timezone.utc), settings.log_retention_days, settings.log_max_rows)
+    detail["sync_runs"] = prune_runs(db, datetime.now(timezone.utc), settings.history_retention_days)
     return "ok", detail
 
 
@@ -620,7 +622,7 @@ def execute(session_factory: sessionmaker, run_id: int) -> SyncRun:
                 db.rollback()
                 run = db.get(SyncRun, run_id)
                 assert run is not None
-                run.status, run.error = "failed", f"{type(exc).__name__}: {exc}"
+                run.status, run.error = "failed", _clip(f"{type(exc).__name__}: {exc}", 2000)
                 log.exception("job %s failed", run.job)
             run.finished_at = datetime.now(timezone.utc)
             db.commit()
@@ -687,6 +689,15 @@ def run_out(run: SyncRun) -> Dict[str, Any]:
     }
 
 
+# Longest text kept from a job's detail / error. A failed insert's message carries the whole SQL
+# statement: one bad run once stored 54 MB in `sync_runs` (Nov 2026).
+RUN_TEXT_MAX = 500
+
+
+def _clip(s: str, limit: int = RUN_TEXT_MAX) -> str:
+    return s if len(s) <= limit else s[:limit] + f"… ({len(s) - limit} more characters)"
+
+
 def _jsonable(v: Any) -> Any:
     if isinstance(v, dict):
         return {str(k): _jsonable(x) for k, x in v.items()}
@@ -694,4 +705,24 @@ def _jsonable(v: Any) -> Any:
         return [_jsonable(x) for x in v]
     if isinstance(v, (datetime, date)):
         return v.isoformat()
+    if isinstance(v, str):
+        return _clip(v)
     return v
+
+
+def prune_runs(db: Session, now: datetime, keep_days: int) -> int:
+    """Delete finished job runs started more than `keep_days` ago, keeping each job's newest run
+    (the status page and the job locks read it)."""
+    from sqlalchemy import delete, func
+
+    cutoff = now - timedelta(days=keep_days)
+    newest = select(func.max(SyncRun.id)).group_by(SyncRun.job)
+    res = db.execute(
+        delete(SyncRun).where(
+            SyncRun.started_at < cutoff,
+            SyncRun.status.not_in(("running", "queued")),
+            SyncRun.id.not_in(newest),
+        )
+    )
+    db.commit()
+    return int(res.rowcount or 0)

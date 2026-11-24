@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import GrowattInverter, GrowattPlant, SyncRun
+from app.services.growatt_sync import store_string_rows
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
@@ -362,13 +363,13 @@ def test_prune_history_deletes_only_readings_older_than_keep_days(factory):
         db.flush()
         for ts in (datetime(2026, 8, 1, 12), datetime(2026, 8, 13, 23, 59), datetime(2026, 8, 14, 0, 0), datetime(2026, 11, 12, 9)):
             db.add(GrowattInverterReading(device_sn="I", timestamp=ts, ppv_w=1.0))
-            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1))
+            store_string_rows(db, [dict(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1)])
         db.commit()
 
         t = prune_history(db, today, 90)  # cutoff 2026-08-14 00:00
         left = sorted(db.scalars(select(GrowattInverterReading.timestamp)))
         left_str = sorted(db.scalars(select(GrowattStringReading.timestamp)))
-    assert t["inverter_rows"] == 2 and t["string_rows"] == 2 and t["cutoff"] == "2026-08-14T00:00:00"
+    assert t["inverter_rows"] == 2 and t["string_records"] == 2 and t["cutoff"] == "2026-08-14T00:00:00"
     assert left == left_str == [datetime(2026, 8, 14, 0, 0), datetime(2026, 11, 12, 9)]
     with factory() as db:
         assert prune_history(db, today, 90)["inverter_rows"] == 0  # idempotent
@@ -387,18 +388,18 @@ def test_prune_history_keeps_string_readings_a_shorter_time(factory):
         db.flush()
         for ts in (datetime(2026, 9, 1, 12), datetime(2026, 10, 12, 23, 59), datetime(2026, 10, 13, 0, 0), datetime(2026, 11, 12, 9)):
             db.add(GrowattInverterReading(device_sn="I", timestamp=ts, ppv_w=1.0))
-            db.add(GrowattStringReading(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1))
+            store_string_rows(db, [dict(device_sn="I", timestamp=ts, string_no=1, mppt_no=1, voltage_v=1, current_a=1)])
         db.commit()
 
         t = prune_history(db, today, 90, 30)  # strings: cutoff 2026-10-13; inverters: 2026-08-14
         left = sorted(db.scalars(select(GrowattInverterReading.timestamp)))
         left_str = sorted(db.scalars(select(GrowattStringReading.timestamp)))
-        assert t["inverter_rows"] == 0 and t["string_rows"] == 2 and t["string_cutoff"] == "2026-10-13T00:00:00"
+        assert t["inverter_rows"] == 0 and t["string_records"] == 2 and t["string_cutoff"] == "2026-10-13T00:00:00"
         assert len(left) == 4
         assert left_str == [datetime(2026, 10, 13, 0, 0), datetime(2026, 11, 12, 9)]
         # a recompute must not start on a day whose string readings are gone
         assert growatt_daily.stored_days(db) == (date(2026, 10, 13), date(2026, 11, 12))
-        assert prune_history(db, today, 90, 30)["string_rows"] == 0  # idempotent
+        assert prune_history(db, today, 90, 30)["string_records"] == 0  # idempotent
         assert prune_history(db, today, 90, 120)["string_cutoff"] == t["cutoff"]  # capped at keep_days
 
 
@@ -421,7 +422,7 @@ def test_unwired_string_inputs_are_not_stored(factory):
         # 3: a daily row with energy 10 days ago (a weak string, never above 0.15 A, counts too)
         db.add(GrowattStringDaily(device_sn="I", string_no=3, day=date(2026, 11, 2), plant_id=1, energy_kwh=0.06))
         # 6: carried current earlier today (stored); 7: only a daily row older than 30 days
-        db.add(GrowattStringReading(**row(6, 5.0, datetime(2026, 11, 12, 8, 0))))
+        store_string_rows(db, [dict(**row(6, 5.0, datetime(2026, 11, 12, 8, 0)))])
         db.add(GrowattStringDaily(device_sn="I", string_no=7, day=date(2026, 10, 1), plant_id=1, energy_kwh=5.0))
         db.commit()
         batch = [row(1, 8.1), row(2, 0.0), row(3, 0.0), row(4, 0.0), row(5, 0.02), row(6, 0.0), row(7, 0.0),

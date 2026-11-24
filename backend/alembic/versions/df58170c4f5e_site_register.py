@@ -4,7 +4,7 @@ Station data and on-site communication devices imported from the O&M workbook
 (docs/plans/om-asset-network.md). `app.db.session.ensure_schema` creates the same tables at
 startup, so this skips the ones present.
 
-Revision ID: b7c1d2e3f4a5
+Revision ID: df58170c4f5e
 Revises: a385f9d720b6
 Create Date: 2026-11-22 23:00:00
 
@@ -15,7 +15,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "b7c1d2e3f4a5"
+revision: str = "df58170c4f5e"
 down_revision: Union[str, None] = "a385f9d720b6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

@@ -20,6 +20,7 @@ from app.db.models import (
     GrowattStringDaily,
     GrowattStringReading,
 )
+from app.services.growatt_sync import store_string_rows
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
@@ -78,8 +79,8 @@ def _seed_day(
             for s, i in currents.items():
                 if i is None:
                     continue
-                db.add(GrowattStringReading(device_sn=sn, timestamp=t, string_no=s, mppt_no=(s + 1) // 2,
-                                            voltage_v=V, current_a=i))
+                store_string_rows(db, [dict(device_sn=sn, timestamp=t, string_no=s, mppt_no=(s + 1) // 2,
+                                            voltage_v=V, current_a=i)])
         t += timedelta(minutes=5)
     db.commit()
 
