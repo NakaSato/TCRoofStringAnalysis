@@ -108,8 +108,9 @@ Read the full diff of the target work (`git diff HEAD` if uncommitted, or `git s
 
 Git hooks (`post-commit` and `post-merge` in `.git/hooks/`) automatically invoke [`scripts/on-main-change.sh`](./scripts/on-main-change.sh) in the background whenever a commit or merge lands on `main`:
 
-1. Runs `scripts/check.sh HEAD~1` (which runs static/architecture checks, `pyright`, `pytest`, `bun run lint`, `bun run build`, and opens/updates a GitHub Issue on `[FAIL]`).
-2. Calls **Gemini** via the Antigravity CLI (`agy --print --dangerously-skip-permissions`) with this skill (`review-agent-changes`) to inspect `git diff HEAD~1..HEAD` for deeper domain/architectural violations and post any additional findings to GitHub Issues.
+0. Audits run **one at a time** (a `mkdir` lock in `/tmp/tcroof_audit_locks/run.lock`, taken over when its holder is gone): `check.sh` runs `pytest` and `bun run build` in this working tree, and parallel builds share `frontend/dist`. A run that gets the lock waits until `HEAD` has been quiet for 15 s, then audits **from the last audited commit (`/tmp/tcroof_audit_locks/last_audited`) to `HEAD`**, so commits pushed together get one audit of their combined diff; a `HEAD` already audited is skipped (no log).
+1. Runs `scripts/check.sh <last audited>` (`HEAD~1` when there is no record; static/architecture checks, `pyright`, `pytest`, `bun run lint`, `bun run build`, and opens/updates a GitHub Issue on `[FAIL]`).
+2. Calls **Gemini** via the Antigravity CLI (`agy --print --dangerously-skip-permissions`) with this skill (`review-agent-changes`) to inspect `git diff <last audited>..HEAD` for deeper domain/architectural violations and post any additional findings to GitHub Issues.
 3. Writes execution logs to `.agents/skills/review-agent-changes/logs/audit-<sha>-<timestamp>.log` (gitignored).
 
 To install or re-install the Git hooks on a clone:
