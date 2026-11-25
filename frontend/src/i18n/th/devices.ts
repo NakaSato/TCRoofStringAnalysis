@@ -21,7 +21,7 @@ export const TH_DEVICES: Record<string, string> = {
   "Show inverters in fault": "แสดงอินเวอร์เตอร์ที่ฟอลต์",
   "Show offline inverters": "แสดงอินเวอร์เตอร์ที่ออฟไลน์",
   "Show inverters not checked": "แสดงอินเวอร์เตอร์ที่ยังไม่ได้ตรวจสอบ",
-  "Open device checks": "รายการตรวจอุปกรณ์ที่ค้างอยู่",
+  "Open device checks": "การตรวจที่ค้างอยู่",
   "{warn} warn · {info} info": "เตือน {warn} · ข้อมูล {info}",
   "Checks unavailable": "ไม่มีผลการตรวจ",
 

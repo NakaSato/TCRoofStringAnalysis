@@ -94,4 +94,28 @@ export const TH_DEVICES_TABS: Record<string, string> = {
   "The weather sensor reports no value for one of its probes.": "เซนเซอร์สภาพอากาศไม่รายงานค่าของหัววัดตัวใดตัวหนึ่ง",
   "Irradiance zero in daylight": "ค่าแสงเป็นศูนย์ช่วงกลางวัน",
   "The sensor reported zero irradiance through daylight hours.": "เซนเซอร์รายงานค่าแสงเป็นศูนย์ตลอดช่วงกลางวัน",
+  "No record stored since it was added to Growatt on {day} ({n} days ago): mark it not installed, or check it on site":
+    "ไม่มีข้อมูลที่เก็บไว้เลยตั้งแต่เพิ่มใน Growatt เมื่อ {day} ({n} วันก่อน): ทำเครื่องหมายว่าไม่ได้ติดตั้ง หรือตรวจที่หน้างาน",
+  "No record stored, and Growatt gives no create date to tell how long it has been listed":
+    "ไม่มีข้อมูลที่เก็บไว้ และ Growatt ไม่มีวันที่สร้าง จึงบอกไม่ได้ว่าอยู่ในรายการมานานเท่าไร",
+  "Newest stored record {last}, {h} h behind the plant's other inverters (newest {ref}); more than {limit} h":
+    "ข้อมูลล่าสุดที่เก็บไว้ {last} ช้ากว่าอินเวอร์เตอร์อื่นของโรงไฟฟ้า {h} ชม. (ล่าสุด {ref}) เกิน {limit} ชม.",
+  "Switched off in its settings (on/off = 0)": "ถูกปิดในค่าตั้ง (on/off = 0)",
+  "Active power limit set to {pct} % (configured)": "ตั้งค่าจำกัดกำลังไฟฟ้าจริงไว้ {pct} % (ค่าที่ตั้งไว้)",
+  "No rated power from Growatt (nominal and model rating both missing): rated AC kW and the clipping checks are off":
+    "Growatt ไม่มีกำลังพิกัด (ไม่มีทั้งค่า nominal และพิกัดของรุ่น): จึงไม่มี kW AC พิกัดและปิดการตรวจ clipping",
+  "Inverter info last read {at} (refresh every {n} h)": "อ่านข้อมูลอินเวอร์เตอร์ล่าสุด {at} (อ่านใหม่ทุก {n} ชม.)",
+  "Inverter info never read (refresh every {n} h)": "ยังไม่เคยอ่านข้อมูลอินเวอร์เตอร์ (อ่านใหม่ทุก {n} ชม.)",
+  "Model parameters last read {at} (refresh every {n} days)": "อ่านพารามิเตอร์รุ่นล่าสุด {at} (อ่านใหม่ทุก {n} วัน)",
+  "Model parameters never read (refresh every {n} days)": "ยังไม่เคยอ่านพารามิเตอร์รุ่น (อ่านใหม่ทุก {n} วัน)",
+  "Firmware {fw}, while {n} of {total} {model} inverters run {major}": "เฟิร์มแวร์ {fw} ขณะที่อินเวอร์เตอร์ {model} {n} จาก {total} เครื่องใช้ {major}",
+  "{n} of {total} installed inverters have no String Layout ({sns}): voltage per module and per-kWp peer checks stay off":
+    "อินเวอร์เตอร์ที่ติดตั้ง {n} จาก {total} เครื่องยังไม่มี String Layout ({sns}): การตรวจแรงดันต่อแผงและการเทียบต่อ kWp จึงปิดอยู่",
+  "{n} installed inverters in the registry ({total} with those marked not installed), {gc} entered in Growatt":
+    "ทะเบียนมีอินเวอร์เตอร์ที่ติดตั้ง {n} เครื่อง ({total} เครื่องรวมที่ทำเครื่องหมายว่าไม่ได้ติดตั้ง) แต่ใน Growatt กรอกไว้ {gc} เครื่อง",
+  "{n} installed inverters in the registry, {gc} entered in Growatt": "ทะเบียนมีอินเวอร์เตอร์ที่ติดตั้ง {n} เครื่อง แต่ใน Growatt กรอกไว้ {gc} เครื่อง",
+  "Logger SN {sn} in the site register {site}, {sns} in Growatt": "SN ล็อกเกอร์ในทะเบียนไซต์ {site} คือ {sn} แต่ใน Growatt คือ {sns}",
+  "No energy meter registered in Growatt: grid import / export are not measured": "ไม่มีมิเตอร์ไฟฟ้าลงทะเบียนใน Growatt: จึงไม่ได้วัดการซื้อ / ขายไฟกับกริด",
+  "Newest stored meter record {last}, {h} h before {ref}; more than {limit} h": "ข้อมูลมิเตอร์ล่าสุดที่เก็บไว้ {last} ก่อน {ref} อยู่ {h} ชม. เกิน {limit} ชม.",
+  "No meter record ever stored since it was registered": "ไม่เคยมีข้อมูลมิเตอร์ที่เก็บไว้ตั้งแต่ลงทะเบียน",
 };

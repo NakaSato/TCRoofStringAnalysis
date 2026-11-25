@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { downloadCsv } from "../pwaMeter/format";
 import { useI18n } from "../../i18n";
 import { PlantLink, RefreshButton, SyncedLine, TABS_PAGE } from "./tabsShared";
+import { checkReason } from "./checkReason";
 
 /** every check code in display order, with its title and a one-line explanation (English keys, Thai in i18n) */
 const CHECKS: Record<DeviceCheckCode, { title: string; about: string }> = {
@@ -51,7 +52,7 @@ export const ChecksTab: React.FC<{ data: DeviceCheckList | null; error: string |
   loading,
   refresh,
 }) => {
-  const { t } = useI18n();
+  const { t, lang, locale } = useI18n();
   const [url, setUrl] = useUrlState();
   const query = url.get("cq") ?? "";
   const code = pick<DeviceCheckCode | "">(url.get("ccode"), CODES, "");
@@ -70,7 +71,10 @@ export const ChecksTab: React.FC<{ data: DeviceCheckList | null; error: string |
         (!code || c.code === code) &&
         (sev === "all" || c.severity === sev) &&
         (!plant || String(c.plant_id) === plant) &&
-        (!q || [c.plant_name, String(c.plant_id), c.device_key, c.device_label, c.reason, c.code].some((v) => v != null && v.toLowerCase().includes(q)))
+        (!q ||
+          [c.plant_name, String(c.plant_id), c.device_key, c.device_label, c.reason, checkReason(c, lang, locale), c.code].some(
+            (v) => v != null && v.toLowerCase().includes(q)
+          ))
     );
     // warn first, then by check, then plant and device
     return [...list].sort(
@@ -80,7 +84,7 @@ export const ChecksTab: React.FC<{ data: DeviceCheckList | null; error: string |
         a.plant_name.localeCompare(b.plant_name) ||
         (a.device_label ?? a.device_key ?? "").localeCompare(b.device_label ?? b.device_key ?? "")
     );
-  }, [data, code, sev, plant, query]);
+  }, [data, code, sev, plant, query, lang, locale]);
 
   // the chips list every code that fired, in display order, with the backend's counts
   const chips = useMemo(() => {
@@ -279,7 +283,7 @@ const GroupRow: React.FC<{ check: DeviceCheck; count: number }> = ({ check, coun
 };
 
 const CheckRow: React.FC<{ check: DeviceCheck }> = ({ check: c }) => {
-  const { t } = useI18n();
+  const { t, lang, locale } = useI18n();
   const fix = appPath(c.fix_path);
   return (
     <TableRow>
@@ -298,10 +302,8 @@ const CheckRow: React.FC<{ check: DeviceCheck }> = ({ check: c }) => {
           </span>
         </span>
       </TableCell>
-      {/* backend text, kept in English */}
-      <TableCell className="min-w-[260px] whitespace-normal text-xs" lang="en">
-        {c.reason}
-      </TableCell>
+      {/* written in the UI language from `params`; the CSV keeps the backend's English `reason` */}
+      <TableCell className="min-w-[260px] whitespace-normal text-xs">{checkReason(c, lang, locale)}</TableCell>
       <TableCell className="pr-4 text-right">
         {fix ? (
           <Button variant="outline" size="xs" asChild>
