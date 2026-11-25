@@ -59,6 +59,9 @@ def remove_blocked_plants(db: Session, plant_ids: Iterable[int]) -> List[int]:
     found = list(db.scalars(select(GrowattPlant.plant_id).where(GrowattPlant.plant_id.in_(ids))))
     if found:
         db.execute(delete(GrowattIssue).where(GrowattIssue.plant_id.in_(found)))
+        from app.services import om_suggestions  # local, like om_plans below
+
+        om_suggestions.delete_plant_rows(db, found)  # accepted / dismissed cleaning suggestions (before their tasks)
         db.execute(delete(OmTask).where(OmTask.plant_id.in_(found)))  # assignees + history cascade
         from app.services import om_plans  # local: keeps the sync package free of the calendar's imports
 

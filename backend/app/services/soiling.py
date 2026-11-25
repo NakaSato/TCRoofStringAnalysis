@@ -640,10 +640,30 @@ def wallet(
     return out
 
 
+def crossed_day(
+    pid: int, w: Dict[str, Any], events: Sequence[SiteEvent], rain: Rain, energy: Dict[date, Optional[float]],
+    rate: Optional[Tuple[float, str]], cost: Optional[Tuple[float, str]], pricer: Any, cfg: Dict[str, Any],
+) -> Optional[date]:
+    """The first day since the wallet's reset on which the wallet (estimated) reached the cost, or
+    None (not judged, no cost, or not reached). The wallet only grows between resets, so this is the
+    first day `wallet()` on the same inputs gives wallet ≥ cost."""
+    if w.get("status") != "ok" or cost is None or w.get("wallet_thb") is None or w["wallet_thb"] < cost[0]:
+        return None
+    reset, day = date.fromisoformat(w["reset_day"]), date.fromisoformat(w["day"])
+    for n in range(1, (day - reset).days + 1):
+        d = reset + timedelta(days=n)
+        x = wallet(pid, d, events, rain, energy, rate, cost, pricer, cfg)
+        if x["status"] == "ok" and x["wallet_thb"] is not None and x["wallet_thb"] >= cost[0]:
+            return d
+    return day
+
+
 def wallets(
-    db: Session, day: date, plant_ids: Optional[Sequence[int]], cfg: Dict[str, Any], pricer: Any
+    db: Session, day: date, plant_ids: Optional[Sequence[int]], cfg: Dict[str, Any], pricer: Any,
+    crossing: bool = False,
 ) -> Dict[int, Dict[str, Any]]:
-    """{plant: wallet on `day`} of the plants with a stored daily row that day."""
+    """{plant: wallet on `day`} of the plants with a stored daily row that day. With `crossing`, a
+    judged wallet at or over its cost also gets `crossed_day` (else null)."""
     PD = GrowattPlantDaily
     q = select(PD.plant_id).where(PD.day == day)
     if plant_ids is not None:
@@ -665,7 +685,11 @@ def wallets(
     out: Dict[int, Dict[str, Any]] = {}
     for pid in ids:
         rate = (rates[pid], "plant") if pid in rates else ((fleet, "fleet") if fleet is not None else None)
-        out[pid] = wallet(pid, day, evs.get(pid, []), rain.get(pid, {}), energy.get(pid, {}), rate, costs.get(pid), pricer, cfg)
+        w = wallet(pid, day, evs.get(pid, []), rain.get(pid, {}), energy.get(pid, {}), rate, costs.get(pid), pricer, cfg)
+        if crossing:
+            x = crossed_day(pid, w, evs.get(pid, []), rain.get(pid, {}), energy.get(pid, {}), rate, costs.get(pid), pricer, cfg)
+            w["crossed_day"] = x.isoformat() if x else None
+        out[pid] = w
     return out
 
 

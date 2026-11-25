@@ -178,3 +178,21 @@ class OmIcsFeed(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class OmCleaningSuggestionMark(Base):
+    """Phase 4: an admin's answer to a data-driven cleaning suggestion (R12 soiling wallet), keyed on
+    the wallet's reset (the last plant-wide cleaning or heavy rain). While the wallet still counts
+    from that reset the suggestion stays hidden; the next cleaning (or heavy rain) starts a new
+    wallet and so a new suggestion. `accepted` links the cleaning task it created."""
+
+    __tablename__ = "om_cleaning_suggestion_marks"
+
+    plant_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    reset_day: Mapped[date] = mapped_column(Date, primary_key=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)  # accepted | dismissed
+    task_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("om_tasks.id", ondelete="SET NULL"))
+    wallet_thb: Mapped[Optional[float]] = mapped_column(Float)  # estimated, at the time of the answer
+    cost_thb: Mapped[Optional[float]] = mapped_column(Float)
+    by: Mapped[Optional[str]] = mapped_column(String(64))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

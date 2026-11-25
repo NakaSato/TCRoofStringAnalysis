@@ -23,9 +23,10 @@ from app.schemas.api_schemas import (
     OmTaskPatch,
     OmTeamBody,
     OmTeamPatch,
+    OmSuggestionAccept,
 )
 from app.services import om_calendar as cal
-from app.services import om_ics, om_plans
+from app.services import om_ics, om_plans, om_suggestions
 from app.services.growatt_common import GrowattNotFound
 from app.api.routes.growatt._common import audit
 
@@ -306,6 +307,43 @@ def put_plant_om_settings(
     except _HANDLED as exc:
         raise _errors(exc) from exc
     audit.info("%s set O&M figures of plant %s", cal._who(user), plant_id)
+    return out
+
+
+# --------------------------------------------------------------------------- cleaning suggestions (Phase 4)
+
+
+@router.get("/calendar/suggestions")
+def calendar_cleaning_suggestions(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Per visible plant: the R12 soiling wallet since the last cleaning / heavy rain (estimated)
+    against the cleaning cost (entered), the day it crossed it, and whether a cleaning is suggested
+    (and why not). Hidden from engineers while R12 is in shadow mode; nothing is stored."""
+    return om_suggestions.suggestions(db, user, allowed_plant_ids(db, user))
+
+
+@router.post("/plants/{plant_id}/cleaning-suggestion/accept", status_code=201)
+def accept_cleaning_suggestion(
+    plant_id: int, payload: OmSuggestionAccept, db: Session = Depends(get_db), user: User = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Turn the plant's cleaning suggestion into a planned cleaning task (409 when none is suggested)."""
+    try:
+        out = om_suggestions.accept(db, user, plant_id, payload.model_dump())
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+    audit.info("%s accepted the cleaning suggestion for plant %s (task #%s)", cal._who(user), plant_id, out["task"]["id"])
+    return out
+
+
+@router.post("/plants/{plant_id}/cleaning-suggestion/dismiss")
+def dismiss_cleaning_suggestion(
+    plant_id: int, db: Session = Depends(get_db), user: User = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Hide the plant's cleaning suggestion until the next cleaning or heavy rain (409 when none)."""
+    try:
+        out = om_suggestions.dismiss(db, user, plant_id)
+    except _HANDLED as exc:
+        raise _errors(exc) from exc
+    audit.info("%s dismissed the cleaning suggestion for plant %s", cal._who(user), plant_id)
     return out
 
 
