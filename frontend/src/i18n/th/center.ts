@@ -166,8 +166,8 @@ export const TH_CENTER: Record<string, string> = {
   "Measured: each inverter's day energy, summed over the period": "ค่าวัดจริง: พลังงานรายวันของอินเวอร์เตอร์แต่ละเครื่อง รวมทั้งช่วง",
   "Measured, inverters": "ค่าวัดจริง, อินเวอร์เตอร์",
   "Tick = 99 %": "ขีด = 99 %",
-  "Inverter minutes not in fault / off / standby ÷ daylight minutes with data. Power limiting is not downtime.":
-    "นาทีที่อินเวอร์เตอร์ไม่อยู่ในสถานะฟอลต์ / ปิด / สแตนด์บาย ÷ นาทีช่วงกลางวันที่มีข้อมูล การจำกัดกำลังผลิตไม่นับเป็นเวลาหยุดผลิต",
+  "Inverter minutes not in fault / off / standby / daylight minutes with data. Power limiting is not downtime.":
+    "นาทีที่อินเวอร์เตอร์ไม่อยู่ในสถานะฟอลต์ / ปิด / สแตนด์บาย / นาทีช่วงกลางวันที่มีข้อมูล การจำกัดกำลังผลิตไม่นับเป็นเวลาหยุดผลิต",
   "Time based": "คิดตามเวลา",
   "{n} h limited": "จำกัดกำลัง {n} ชม.",
   "O&M spend": "ค่าใช้จ่าย O&M",
@@ -205,7 +205,7 @@ export const TH_CENTER: Record<string, string> = {
   "Fleet by day: daily specific yield of the fleet (kWh/kWp)": "ผลผลิตจำเพาะรายวันของทุกโรงไฟฟ้า (kWh/kWp)",
   "Loss by region": "การสูญเสียแยกตามเขต",
   "Daily heatmap: site × day (kWh/kWp)": "ฮีตแมปรายวัน: สถานี × วัน (kWh/kWp)",
-  "Meter kWh ÷ kWp per report day": "kWh มิเตอร์ ÷ kWp ต่อวันในรายงาน",
+  "Meter kWh / kWp per report day": "kWh มิเตอร์ / kWp ต่อวันในรายงาน",
   "One row per site, largest loss first · hover for the value, click a row to open the site":
     "1 แถว = 1 สถานี เรียงตามมูลค่าที่สูญเสียจากมากไปน้อย · ชี้เพื่อดูค่า คลิกแถวเพื่อเปิดหน้ารายสถานี",
   "Plants losing the most": "โรงไฟฟ้าที่สูญเสียมากที่สุด",
@@ -217,7 +217,7 @@ export const TH_CENTER: Record<string, string> = {
   "Estimated loss (THB per day)": "การสูญเสียโดยประมาณ (บาทต่อวัน)",
   "Specific yield (kWh/kWp per day; bold = 7-day mean)": "ผลผลิตจำเพาะ (kWh/kWp ต่อวัน; เส้นหนา = เฉลี่ย 7 วัน)",
   "Specific yield (kWh/kWp per day)": "ผลผลิตจำเพาะ (kWh/kWp ต่อวัน)",
-  "Meter ÷ contract energy (%)": "มิเตอร์ ÷ พลังงานตามสัญญา (%)",
+  "Meter / contract energy (%)": "มิเตอร์ / พลังงานตามสัญญา (%)",
   "Sites with a reading": "สถานีที่มีค่าอ่าน",
   "Estimated lost energy (MWh)": "พลังงานที่สูญเสียโดยประมาณ (MWh)",
   "Per kWp": "ต่อ kWp",
@@ -232,8 +232,8 @@ export const TH_CENTER: Record<string, string> = {
   "Billed, phase {n}": "เรียกเก็บ, ระยะที่ {n}",
   "Billed (meter)": "เรียกเก็บ (มิเตอร์)",
   "Billed energy (MWh)": "พลังงานที่เรียกเก็บ (MWh)",
-  "Billed ÷ contract (%)": "เรียกเก็บ ÷ สัญญา (%)",
-  "Billed ÷ contract": "เรียกเก็บ ÷ สัญญา",
+  "Billed / contract (%)": "เรียกเก็บ / สัญญา (%)",
+  "Billed / contract": "เรียกเก็บ / สัญญา",
   Billed: "เรียกเก็บ",
   "Days without a reading": "วันที่ไม่มีค่าอ่าน",
   "Shortfall vs contract and its causes (MWh)": "ส่วนที่ขาดจากสัญญาและสาเหตุ (MWh)",
@@ -261,18 +261,18 @@ export const TH_CENTER: Record<string, string> = {
   "None planned": "ยังไม่ได้วางแผน",
   "฿ lost": "฿ ที่สูญเสีย",
   "Loss share": "สัดส่วนการสูญเสีย",
-  "Lost kWh ÷ (produced + lost kWh) in the period": "kWh ที่สูญเสีย ÷ (kWh ที่ผลิตได้ + สูญเสีย) ในช่วงนี้",
+  "Lost kWh / (produced + lost kWh) in the period": "kWh ที่สูญเสีย / (kWh ที่ผลิตได้ + สูญเสีย) ในช่วงนี้",
   "฿ / day now": "฿ / วัน ขณะนี้",
   "Active issues, mean of the last 3 days each fired": "ปัญหาที่เปิดอยู่ ค่าเฉลี่ย 3 วันล่าสุดที่แต่ละปัญหาเกิด",
-  "Inverter minutes not in fault / off / standby ÷ daylight minutes with data":
-    "นาทีที่อินเวอร์เตอร์ไม่อยู่ในสถานะฟอลต์ / ปิด / สแตนด์บาย ÷ นาทีช่วงกลางวันที่มีข้อมูล",
-  "Median of the period: measured ÷ modelled energy (modelled). Days with a suspect sensor left out.":
-    "ค่ามัธยฐานของช่วง: พลังงานวัดจริง ÷ พลังงานจากแบบจำลอง (แบบจำลอง) ไม่นับวันที่ค่าเซนเซอร์น่าสงสัย",
+  "Inverter minutes not in fault / off / standby / daylight minutes with data":
+    "นาทีที่อินเวอร์เตอร์ไม่อยู่ในสถานะฟอลต์ / ปิด / สแตนด์บาย / นาทีช่วงกลางวันที่มีข้อมูล",
+  "Median of the period: measured / modelled energy (modelled). Days with a suspect sensor left out.":
+    "ค่ามัธยฐานของช่วง: พลังงานวัดจริง / พลังงานจากแบบจำลอง (แบบจำลอง) ไม่นับวันที่ค่าเซนเซอร์น่าสงสัย",
   "Median temperature-corrected PR of the period. Days with a suspect sensor left out.":
     "ค่ามัธยฐานของ PR ที่ปรับแก้อุณหภูมิในช่วงนี้ ไม่นับวันที่ค่าเซนเซอร์น่าสงสัย",
   "Meter vs contract": "มิเตอร์เทียบสัญญา",
-  "PWA meter report: billed meter energy ÷ the contract's expected energy (modelled), for the report days in the period. Opens the site's days.":
-    "รายงานมิเตอร์ PWA: พลังงานมิเตอร์ที่เรียกเก็บ ÷ พลังงานคาดหวังตามสัญญา (แบบจำลอง) สำหรับวันในรายงานของช่วงนี้ คลิกเพื่อดูรายวันของสถานี",
+  "PWA meter report: billed meter energy / the contract's expected energy (modelled), for the report days in the period. Opens the site's days.":
+    "รายงานมิเตอร์ PWA: พลังงานมิเตอร์ที่เรียกเก็บ / พลังงานคาดหวังตามสัญญา (แบบจำลอง) สำหรับวันในรายงานของช่วงนี้ คลิกเพื่อดูรายวันของสถานี",
   "Days since the last cleaning in the Site log": "จำนวนวันนับจากการล้างแผงครั้งล่าสุดในบันทึกหน้างาน",
   "no energy stored": "ไม่มีข้อมูลพลังงานที่บันทึกไว้",
   "Not in the PWA meter report": "ไม่อยู่ในรายงานมิเตอร์ PWA",
@@ -311,8 +311,8 @@ export const TH_CENTER: Record<string, string> = {
   "Consecutive outage days of a site (meter and inverter both < 1 kWh). Cause = first keyword group in the notes.":
     "วันที่ระบบหยุดผลิตต่อเนื่องของสถานี (มิเตอร์และอินเวอร์เตอร์ < 1 kWh ทั้งคู่) สาเหตุ = กลุ่มคำสำคัญแรกในหมายเหตุ",
   "Red = {n} days or more.": "สีแดง = {n} วันขึ้นไป",
-  "Meter ÷ inverter per site, judged on productive days. The gap is the energy the meter may have missed (estimated).":
-    "มิเตอร์ ÷ อินเวอร์เตอร์ ต่อสถานี ประเมินในวันที่ผลิตไฟ ส่วนต่างคือพลังงานที่มิเตอร์อาจอ่านขาด (ประมาณ)",
+  "Meter / inverter per site, judged on productive days. The gap is the energy the meter may have missed (estimated).":
+    "มิเตอร์ / อินเวอร์เตอร์ ต่อสถานี ประเมินในวันที่ผลิตไฟ ส่วนต่างคือพลังงานที่มิเตอร์อาจอ่านขาด (ประมาณ)",
   "Phase totals are for admins: they include plants you are not assigned. Losses still compare each site with every site of its phase.":
     "ยอดรวมรายระยะโครงการสำหรับผู้ดูแลระบบเท่านั้น เพราะรวมโรงไฟฟ้าที่ไม่ได้มอบหมายให้คุณ การสูญเสียยังเทียบแต่ละสถานีกับทุกสถานีในระยะโครงการเดียวกัน",
   "The {n} most urgent of {total}.": "{n} รายการเร่งด่วนที่สุดจาก {total}",
@@ -328,7 +328,7 @@ export const TH_CENTER: Record<string, string> = {
   "Output limited to PWA's own load: a PM / contract matter, not recoverable by O&M":
     "กำลังผลิตถูกจำกัดตามโหลดของ PWA: เป็นเรื่องของ PM / สัญญา O&M กู้คืนไม่ได้",
   "{thb} at the book price; negative = above contract": "{thb} ตามราคาในสัญญา; ติดลบ = เกินสัญญา",
-  "Billed ÷ contract energy on the days with a contract figure.": "เรียกเก็บ ÷ พลังงานตามสัญญา ในวันที่มีค่าตามสัญญา",
+  "Billed / contract energy on the days with a contract figure.": "เรียกเก็บ / พลังงานตามสัญญา ในวันที่มีค่าตามสัญญา",
   "Calendar month (the period's first and last months may be partial)": "เดือนปฏิทิน (เดือนแรกและเดือนสุดท้ายของช่วงอาจไม่เต็มเดือน)",
   "Read d": "วันที่มีค่าอ่าน",
   "Days with a billed reading; red = days without one since the site's first report day":
@@ -351,7 +351,7 @@ export const TH_CENTER: Record<string, string> = {
 
   // ---- meter tables ----
   "Meter MWh": "มิเตอร์ MWh",
-  "Pooled meter ÷ PVsyst on producing days of the sites that are not curtailed": "มิเตอร์รวม ÷ PVsyst ในวันที่ผลิตไฟ ของสถานีที่ไม่ถูกจำกัดกำลังผลิต",
+  "Pooled meter / PVsyst on producing days of the sites that are not curtailed": "มิเตอร์รวม / PVsyst ในวันที่ผลิตไฟ ของสถานีที่ไม่ถูกจำกัดกำลังผลิต",
   "Share of site-days that were not an outage": "สัดส่วนสถานี-วันที่ระบบไม่หยุดผลิต",
   "Share of site-days with both readings": "สัดส่วนสถานี-วันที่มีค่าอ่านทั้งสองฝั่ง",
   "Data avail.": "ความครบของข้อมูล",
@@ -362,9 +362,9 @@ export const TH_CENTER: Record<string, string> = {
   "Fee ฿": "ค่าไฟ ฿",
   "({n} sites)": "({n} สถานี)",
   "Rank by estimated loss ฿": "อันดับตาม ฿ ที่สูญเสียโดยประมาณ",
-  "Meter ÷ contract expected energy.": "มิเตอร์ ÷ พลังงานคาดหวังตามสัญญา",
-  "Meter ÷ PVsyst P50 on producing days (PI_PVsyst).": "มิเตอร์ ÷ PVsyst P50 ในวันที่ผลิตไฟ (PI_PVsyst)",
-  "Meter energy ÷ contract kWp": "พลังงานมิเตอร์ ÷ kWp ตามสัญญา",
+  "Meter / contract expected energy.": "มิเตอร์ / พลังงานคาดหวังตามสัญญา",
+  "Meter / PVsyst P50 on producing days (PI_PVsyst).": "มิเตอร์ / PVsyst P50 ในวันที่ผลิตไฟ (PI_PVsyst)",
+  "Meter energy / contract kWp": "พลังงานมิเตอร์ / kWp ตามสัญญา",
   "Outage d": "วันที่หยุดผลิต",
   "Gap d": "วันที่ข้อมูลขาด",
   "Days with the meter or the inverter reading missing": "วันที่ค่าอ่านมิเตอร์หรืออินเวอร์เตอร์ขาด",
@@ -408,8 +408,8 @@ export const TH_CENTER: Record<string, string> = {
   "Energy (kWh/day)": "พลังงาน (kWh/วัน)",
   "Meter (billed)": "มิเตอร์ (เรียกเก็บ)",
   "Inverter (report)": "อินเวอร์เตอร์ (รายงาน)",
-  "Meter ÷ inverter (%)": "มิเตอร์ ÷ อินเวอร์เตอร์ (%)",
-  "Meter ÷ inverter": "มิเตอร์ ÷ อินเวอร์เตอร์",
+  "Meter / inverter (%)": "มิเตอร์ / อินเวอร์เตอร์ (%)",
+  "Meter / inverter": "มิเตอร์ / อินเวอร์เตอร์",
   "Site median {v} %": "มัธยฐานของสถานี {v} %",
   "Contract kWp": "kWp ตามสัญญา",
   "Differs from the contract kWp by more than 1 %: fix it in the Growatt registry": "ต่างจาก kWp ตามสัญญาเกิน 1 %: แก้ไขในข้อมูลทะเบียน Growatt",
@@ -509,7 +509,7 @@ export const TH_CENTER: Record<string, string> = {
   "Stored Growatt data · decision rules": "ข้อมูล Growatt ที่บันทึกไว้ · กฎการตัดสินใจ",
   "PWA meter report and its criteria file": "รายงานมิเตอร์ PWA และไฟล์เกณฑ์",
   "Sites with a meter vs inverter flag": "สถานีที่มีข้อสังเกตมิเตอร์เทียบอินเวอร์เตอร์",
-  "Meter ÷ inverter, productive days": "มิเตอร์ ÷ อินเวอร์เตอร์ วันที่ผลิตไฟ",
+  "Meter / inverter, productive days": "มิเตอร์ / อินเวอร์เตอร์ วันที่ผลิตไฟ",
   "Active issues of the decision rules on the stored data: safety first, then tier. Next visit = the plant's next planned task in the Calendar.":
     "ปัญหาที่เปิดอยู่ตามกฎการตัดสินใจจากข้อมูลที่บันทึกไว้: เรียงความปลอดภัยก่อน แล้วตามระดับ เข้าหน้างานครั้งถัดไป = งานถัดไปของโรงไฟฟ้าที่วางแผนไว้ในปฏิทิน",
   "Inverter side, stored data. EPI and PR′ are modelled medians of the period. Meter vs contract comes from the PWA meter report and opens the site's days.":
@@ -518,7 +518,7 @@ export const TH_CENTER: Record<string, string> = {
     "การเรียกเก็บ 1 แถวต่อสถานีต่อเดือน (เดือนแรกและเดือนสุดท้ายของช่วงอาจไม่เต็มเดือน) เรียกเก็บ = kWh มิเตอร์ Cewe ตามราคาในสัญญา; − สีแดง = วันที่ไม่มีค่าอ่านนับตั้งแต่วันแรกที่สถานีมีในรายงาน ส่วนที่ขาด = สัญญา (แบบจำลอง) − เรียกเก็บ คลิกแถวเพื่อดูรายวันของสถานี",
   "PWA meter report. Contract and PVsyst are modelled. Lowest yield first. A site's row opens its days.":
     "รายงานมิเตอร์ PWA ค่าตามสัญญาและ PVsyst เป็นแบบจำลอง เรียงผลผลิตต่ำสุดก่อน คลิกแถวเพื่อดูรายวันของสถานี",
-  "Meter ÷ inverter per site, judged on productive days.": "มิเตอร์ ÷ อินเวอร์เตอร์ ต่อสถานี ประเมินในวันที่ผลิตไฟ",
+  "Meter / inverter per site, judged on productive days.": "มิเตอร์ / อินเวอร์เตอร์ ต่อสถานี ประเมินในวันที่ผลิตไฟ",
   "Phase totals are for admins: they include plants you are not assigned.": "ยอดรวมรายระยะโครงการสำหรับผู้ดูแลระบบเท่านั้น เพราะรวมโรงไฟฟ้าที่ไม่ได้มอบหมายให้คุณ",
   "One row per site, lowest yield first · hover for the value, click a row to open the site":
     "1 แถว = 1 สถานี เรียงผลผลิตต่ำสุดก่อน · ชี้เพื่อดูค่า คลิกแถวเพื่อเปิดหน้ารายสถานี",
@@ -534,7 +534,7 @@ export const TH_CENTER: Record<string, string> = {
   "Site log costs of the report sites' Growatt plants, in the report's months.": "ค่าใช้จ่ายในบันทึกหน้างานของโรงไฟฟ้า Growatt ที่ผูกกับสถานีในรายงาน ในเดือนที่รายงานครอบคลุม",
   "{n} of {total} events have a cost": "{n} จาก {total} เหตุการณ์มีค่าใช้จ่าย",
   "{n} of {total} have a cost": "{n} จาก {total} มีค่าใช้จ่าย",
-  "Spend ÷ billed": "ค่าใช้จ่าย ÷ เรียกเก็บ",
+  "Spend / billed": "ค่าใช้จ่าย / เรียกเก็บ",
   "{n} sites with a cost": "{n} สถานีมีค่าใช้จ่าย",
   "O&M ฿ / MWh": "O&M ฿ / MWh",
   "Book price ฿{v} / MWh": "ราคาในสัญญา ฿{v} / MWh",
@@ -546,18 +546,18 @@ export const TH_CENTER: Record<string, string> = {
   "Billing vs O&M spend by month": "การเรียกเก็บเทียบค่าใช้จ่าย O&M รายเดือน",
   "PWA meter · Site log": "มิเตอร์ PWA · บันทึกหน้างาน",
   "Measured · entered": "ค่าวัดจริง · กรอกเอง",
-  "Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend ÷ billed. Months without a priced event have no spend bar.":
-    "บน: มูลค่าที่เรียกเก็บรายเดือน กลาง: ค่าใช้จ่าย O&M ที่กรอกในบันทึกหน้างานของโรงไฟฟ้าที่ผูกกับสถานีในรายงาน แยกตามประเภทงาน ล่าง: ค่าใช้จ่าย ÷ เรียกเก็บ เดือนที่ไม่มีเหตุการณ์ที่มีค่าใช้จ่ายจะไม่มีแท่งค่าใช้จ่าย",
+  "Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend / billed. Months without a priced event have no spend bar.":
+    "บน: มูลค่าที่เรียกเก็บรายเดือน กลาง: ค่าใช้จ่าย O&M ที่กรอกในบันทึกหน้างานของโรงไฟฟ้าที่ผูกกับสถานีในรายงาน แยกตามประเภทงาน ล่าง: ค่าใช้จ่าย / เรียกเก็บ เดือนที่ไม่มีเหตุการณ์ที่มีค่าใช้จ่ายจะไม่มีแท่งค่าใช้จ่าย",
   "Billed value (฿, meter × book price)": "มูลค่าที่เรียกเก็บ (฿, มิเตอร์ × ราคาในสัญญา)",
   "O&M spend (฿, entered)": "ค่าใช้จ่าย O&M (฿, กรอกเอง)",
-  "O&M spend ÷ billed (%)": "ค่าใช้จ่าย O&M ÷ เรียกเก็บ (%)",
+  "O&M spend / billed (%)": "ค่าใช้จ่าย O&M / เรียกเก็บ (%)",
   "No cost entered": "ไม่ได้บันทึกค่าใช้จ่าย",
   "Site log events": "รายการในบันทึกหน้างาน",
   "O&M spend ฿": "ค่าใช้จ่าย O&M ฿",
   "Site log costs of the site's Growatt plant in the report's months.": "ค่าใช้จ่ายในบันทึกหน้างานของโรงไฟฟ้า Growatt ที่ผูกกับสถานี ในเดือนที่รายงานครอบคลุม",
   "Site log events with a cost / all events": "รายการในบันทึกหน้างานที่มีค่าใช้จ่าย / ทั้งหมด",
-  "O&M spend ÷ billed value": "ค่าใช้จ่าย O&M ÷ มูลค่าที่เรียกเก็บ",
-  "O&M spend ÷ the contract kWp": "ค่าใช้จ่าย O&M ÷ kWp ตามสัญญา",
+  "O&M spend / billed value": "ค่าใช้จ่าย O&M / มูลค่าที่เรียกเก็บ",
+  "O&M spend / the contract kWp": "ค่าใช้จ่าย O&M / kWp ตามสัญญา",
   "Finance, per report site over the report's months: billed value (Cewe meter kWh × book price, measured) against the Site log costs of the site's Growatt plant (entered; events without a cost are counted, not priced). Nothing estimated. A row opens the site's days.":
     "การเงิน ต่อสถานีในรายงาน ตลอดเดือนที่รายงานครอบคลุม: มูลค่าที่เรียกเก็บ (kWh มิเตอร์ Cewe × ราคาในสัญญา, ค่าวัดจริง) เทียบค่าใช้จ่ายในบันทึกหน้างานของโรงไฟฟ้า Growatt ที่ผูกกับสถานี (กรอกเอง; เหตุการณ์ที่ไม่มีค่าใช้จ่ายนับจำนวนแต่ไม่คิดเงิน) ไม่มีค่าประมาณ คลิกแถวเพื่อดูรายวันของสถานี",
   "Outside the report (other plants or months): {thb} in {n} events.": "นอกรายงาน (โรงไฟฟ้าหรือเดือนอื่น): {thb} ใน {n} เหตุการณ์",
@@ -576,19 +576,19 @@ export const TH_CENTER: Record<string, string> = {
   "Meter vs Growatt by day": "มิเตอร์เทียบ Growatt รายวัน",
   "PWA meter · Growatt plant/energy": "มิเตอร์ PWA · Growatt plant/energy",
   "No day with both a meter reading and a Growatt day energy in this period": "ไม่มีวันที่มีทั้งค่ามิเตอร์และพลังงานรายวันของ Growatt ในช่วงนี้",
-  "Summed per day over the sites with both readings (the phase above applies); an empty day had no site to compare. Middle: meter ÷ Growatt on an axis fitted to the period; a day outside 90–104 % is drawn on the edge in red. Bottom: how many sites were compared, so a step in the energy is sites joining or leaving.":
+  "Summed per day over the sites with both readings (the phase above applies); an empty day had no site to compare. Middle: meter / Growatt on an axis fitted to the period; a day outside 90–104 % is drawn on the edge in red. Bottom: how many sites were compared, so a step in the energy is sites joining or leaving.":
     "รวมต่อวันของสถานีที่มีค่าทั้งสอง (ตามระยะโครงการที่เลือกด้านบน) วันที่ว่างคือวันที่ไม่มีสถานีให้เทียบ กลาง: สัดส่วนมิเตอร์ต่อ Growatt บนแกนที่ปรับตามช่วงเวลา วันที่อยู่นอก 90–104 % แสดงที่ขอบเป็นสีแดง ล่าง: จำนวนสถานีที่เทียบ พลังงานที่ขึ้นลงเป็นขั้นจึงมาจากสถานีที่เข้าหรือออกจากการเทียบ",
-  "Meter ÷ Growatt (%) · period {v} %": "มิเตอร์ ÷ Growatt (%) · ทั้งช่วง {v} %",
+  "Meter / Growatt (%) · period {v} %": "มิเตอร์ / Growatt (%) · ทั้งช่วง {v} %",
   "Period {v} %": "ทั้งช่วง {v} %",
   "None (no site with both readings)": "ไม่มี (ไม่มีสถานีที่มีค่าทั้งสอง)",
   "Growatt − meter (derived)": "Growatt − มิเตอร์ (ค่าคำนวณ)",
-  "Sites by meter ÷ Growatt": "สถานีตามสัดส่วนมิเตอร์ต่อ Growatt",
+  "Sites by meter / Growatt": "สถานีตามสัดส่วนมิเตอร์ต่อ Growatt",
   "Median of each site's days": "ค่ามัธยฐานรายวันของแต่ละสถานี",
   "No site with both a meter reading and a Growatt day energy in this period": "ไม่มีสถานีที่มีทั้งค่ามิเตอร์และพลังงานรายวันของ Growatt ในช่วงนี้",
-  "How many sites have their median daily meter ÷ Growatt in each half-point step (the phase above applies). The normal range comes from the criteria file; hover a bar for its sites, or open the Meter vs Growatt list below.":
+  "How many sites have their median daily meter / Growatt in each half-point step (the phase above applies). The normal range comes from the criteria file; hover a bar for its sites, or open the Meter vs Growatt list below.":
     "จำนวนสถานีตามค่ามัธยฐานของสัดส่วนมิเตอร์ต่อ Growatt รายวัน ช่วงละ 0.5 จุดเปอร์เซ็นต์ (ตามระยะโครงการที่เลือกด้านบน) ช่วงปกติมาจากไฟล์เกณฑ์ ชี้ที่แท่งเพื่อดูรายชื่อสถานี หรือเปิดรายการมิเตอร์เทียบ Growatt ด้านล่าง",
   "Site median {range}": "ค่ามัธยฐานของสถานี {range}",
-  "Site median meter ÷ Growatt (%, bin start)": "ค่ามัธยฐานมิเตอร์เทียบ Growatt ของสถานี (%, ต้นช่วง)",
+  "Site median meter / Growatt (%, bin start)": "ค่ามัธยฐานมิเตอร์เทียบ Growatt ของสถานี (%, ต้นช่วง)",
   "Normal {lo}–{hi} %": "ปกติ {lo}–{hi} %",
   "Outside the normal range": "นอกช่วงปกติ",
   "and {n} more": "และอีก {n} สถานี",
@@ -610,7 +610,7 @@ export const TH_CENTER: Record<string, string> = {
     "วันที่มิเตอร์อ่านได้แต่ไม่มีค่ารายวันของ Growatt (นับเฉพาะวันที่มีค่า Growatt ของโรงไฟฟ้าอื่นเก็บไว้) ในวงเล็บ = วันที่ตัดค่าผิดปกติออก",
   "Growatt days withheld as impossible figures": "วันที่ตัดค่า Growatt ออกเพราะเป็นค่าที่เป็นไปไม่ได้",
   "No Growatt plant": "ไม่มีโรงไฟฟ้า Growatt",
-  "Cewe meter (PWA report) ÷ Growatt's own day energy of the site's plant, per site on the days both read > 0; both measured. About 98.5–99 % is normal (AC losses to the grid-point meter). A Growatt day above 10 kWh/kWp is withheld. A row opens the site's days.":
+  "Cewe meter (PWA report) / Growatt's own day energy of the site's plant, per site on the days both read > 0; both measured. About 98.5–99 % is normal (AC losses to the grid-point meter). A Growatt day above 10 kWh/kWp is withheld. A row opens the site's days.":
     "สัดส่วนมิเตอร์ Cewe (รายงาน PWA) ต่อพลังงานรายวันที่ Growatt รายงานเองของโรงไฟฟ้าที่ผูกกับสถานี คิดรายสถานีในวันที่ทั้งสองฝั่งอ่านได้ > 0 ค่าวัดจริงทั้งคู่ ปกติประมาณ 98.5–99 % (การสูญเสียฝั่ง AC ก่อนถึงมิเตอร์จุดเชื่อมต่อ) วันที่ Growatt เกิน 10 kWh/kWp ถูกตัดออก คลิกแถวเพื่อดูรายวันของสถานี",
   "Growatt day energy stored {from} – {to}.": "มีพลังงานรายวันของ Growatt เก็บไว้ {from} – {to}",
   "No Growatt day energy stored for this period.": "ไม่มีพลังงานรายวันของ Growatt เก็บไว้ในช่วงนี้",
@@ -623,11 +623,11 @@ export const TH_CENTER: Record<string, string> = {
   "Value: billed meter energy of the PWA report sites (measured, the primary figure). Footer: each inverter's day energy summed over every plant in scope (Growatt, measured). Different meters and plant sets: shown side by side, never added.": "ค่าหลัก: พลังงานตามมิเตอร์ที่เรียกเก็บของสถานีในรายงาน PWA (ค่าวัดจริง) บรรทัดล่าง: พลังงานรายวันของอินเวอร์เตอร์ทุกเครื่องในขอบเขต (Growatt, ค่าวัดจริง) คนละมิเตอร์และคนละชุดโรงไฟฟ้า จึงแสดงคู่กัน ไม่นำมารวมกัน",
   // ---- region roll-up, weather impact, curtailment marks (22 Nov 2026)
   "Billed vs contract by region": "การเรียกเก็บเทียบสัญญา รายเขต กปภ.",
-  "Bars = billed meter energy of the period per PWA region (a segment per phase); diamonds = the contract's energy (modelled). Bottom: billed ÷ contract on the days with a contract figure, with the criteria file's watch (amber) and red lines.":
-    "แท่ง = พลังงานตามมิเตอร์ที่เรียกเก็บในช่วงเวลา แยกตามเขต กปภ. (แบ่งส่วนตามระยะโครงการ) ข้าวหลามตัด = พลังงานตามสัญญา (แบบจำลอง) ด้านล่าง: เรียกเก็บ ÷ สัญญา ในวันที่มีตัวเลขสัญญา พร้อมเส้นเฝ้าระวัง (สีเหลือง) และเส้นสีแดงจากไฟล์เกณฑ์",
+  "Bars = billed meter energy of the period per PWA region (a segment per phase); diamonds = the contract's energy (modelled). Bottom: billed / contract on the days with a contract figure, with the criteria file's watch (amber) and red lines.":
+    "แท่ง = พลังงานตามมิเตอร์ที่เรียกเก็บในช่วงเวลา แยกตามเขต กปภ. (แบ่งส่วนตามระยะโครงการ) ข้าวหลามตัด = พลังงานตามสัญญา (แบบจำลอง) ด้านล่าง: เรียกเก็บ / สัญญา ในวันที่มีตัวเลขสัญญา พร้อมเส้นเฝ้าระวัง (สีเหลือง) และเส้นสีแดงจากไฟล์เกณฑ์",
   "Billed per kWp": "เรียกเก็บต่อ kWp",
   "Weather impact: specific yield by weather": "ผลกระทบจากสภาพอากาศ: ผลผลิตจำเพาะตามสภาพอากาศ",
-  "Meter kWh ÷ kWp per report day; the weather is the word the site wrote in the report": "kWh ตามมิเตอร์ ÷ kWp ต่อวันที่มีรายงาน สภาพอากาศคือคำที่สถานีเขียนในรายงาน",
+  "Meter kWh / kWp per report day; the weather is the word the site wrote in the report": "kWh ตามมิเตอร์ / kWp ต่อวันที่มีรายงาน สภาพอากาศคือคำที่สถานีเขียนในรายงาน",
   "No producing report day with a weather word in this period": "ไม่มีวันที่ผลิตไฟและระบุสภาพอากาศในช่วงเวลานี้",
   "One box per weather and phase over the sites' producing days (the phase above applies): the box is the middle half, the white line the median, the whiskers P5–P95. Outage days, days with a missing reading or no weather word, and days the report marks as curtailed are left out.":
     "หนึ่งกล่องต่อสภาพอากาศและระยะโครงการ จากวันที่สถานีผลิตไฟ (ใช้ระยะโครงการที่เลือกด้านบน): กล่องคือครึ่งกลาง เส้นขาวคือค่ามัธยฐาน หนวดคือ P5–P95 ไม่นับวันที่ระบบหยุดผลิต วันที่ไม่มีค่าอ่านหรือไม่ระบุสภาพอากาศ และวันที่รายงานระบุว่าจำกัดกำลังผลิต",
@@ -642,8 +642,8 @@ export const TH_CENTER: Record<string, string> = {
   // ---- lowest sites, yield by month, cumulative (22 Nov 2026)
   "Lowest sites: billed vs contract": "สถานีที่ต่ำที่สุด: เรียกเก็บเทียบสัญญา",
   "No site with a contract figure in this period": "ไม่มีสถานีที่มีตัวเลขสัญญาในช่วงเวลานี้",
-  "The {n} sites lowest in billed ÷ contract over the period, of {total} with a contract figure (the phase above applies), on the days with a contract figure; a day without a reading counts 0 (grey value with *). Hover for the energy and those days, click to open the site.":
-    "{n} สถานีที่มีสัดส่วนเรียกเก็บ ÷ สัญญาต่ำที่สุดในช่วงเวลา จาก {total} สถานีที่มีตัวเลขสัญญา (ใช้ระยะโครงการที่เลือกด้านบน) คิดในวันที่มีตัวเลขสัญญา วันที่ไม่มีค่าอ่านนับเป็น 0 (ค่าสีเทาพร้อม *) ชี้เพื่อดูพลังงานและจำนวนวันดังกล่าว คลิกเพื่อเปิดสถานี",
+  "The {n} sites lowest in billed / contract over the period, of {total} with a contract figure (the phase above applies), on the days with a contract figure; a day without a reading counts 0 (grey value with *). Hover for the energy and those days, click to open the site.":
+    "{n} สถานีที่มีสัดส่วนเรียกเก็บ / สัญญาต่ำที่สุดในช่วงเวลา จาก {total} สถานีที่มีตัวเลขสัญญา (ใช้ระยะโครงการที่เลือกด้านบน) คิดในวันที่มีตัวเลขสัญญา วันที่ไม่มีค่าอ่านนับเป็น 0 (ค่าสีเทาพร้อม *) ชี้เพื่อดูพลังงานและจำนวนวันดังกล่าว คลิกเพื่อเปิดสถานี",
   "Sites lowest against the contract": "สถานีที่ต่ำที่สุดเมื่อเทียบสัญญา",
   "Region": "เขต",
   "Outage days": "วันที่ระบบหยุดผลิต",
@@ -658,7 +658,7 @@ export const TH_CENTER: Record<string, string> = {
     "รวมสะสมตั้งแต่วันแรกที่มีรายงานในช่วงเวลา จากสถานีที่มีตัวเลขสัญญา (ใช้ระยะโครงการที่เลือกด้านบน) สถานีที่ไม่มีค่าอ่านนับเป็น 0 ส่วนต่างเทียบกับตัวเลขแบบจำลอง ไม่ใช่การสูญเสียที่วัดได้",
   "Cumulative energy (MWh)": "พลังงานสะสม (MWh)",
   "Meter (measured)": "มิเตอร์ (ค่าวัดจริง)",
-  "Meter ÷ contract to date (%)": "มิเตอร์ ÷ สัญญา ถึงวันนั้น (%)",
-  "Meter ÷ contract to date": "มิเตอร์ ÷ สัญญา ถึงวันนั้น",
+  "Meter / contract to date (%)": "มิเตอร์ / สัญญา ถึงวันนั้น (%)",
+  "Meter / contract to date": "มิเตอร์ / สัญญา ถึงวันนั้น",
   "Meter − contract to date (contract modelled)": "มิเตอร์ − สัญญา ถึงวันนั้น (สัญญาเป็นแบบจำลอง)",
 };

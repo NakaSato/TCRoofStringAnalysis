@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Clock, Search, ServerCrash, X } from "lucide-react";
+import { Clock, RefreshCw, Search, X } from "lucide-react";
 import { api } from "../api/client";
 import type { SystemLogEntry, SystemLogLevel, SystemLogPage, SystemLogSource, SystemLogSummary } from "../api/client";
-import { EmptyState, LoadingState, PageHeader, Panel, Suspended, fmtInt } from "../components/ui";
+import { LoadingState, Suspended, fmtInt } from "../components/ui";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
@@ -154,16 +157,27 @@ export const SystemLogsPage: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        eyebrow={t("System")}
-        title={t("Logs")}
-      />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <h1 className="text-lg font-semibold">{t("Logs")}</h1>
+          <p className="text-xs text-muted-foreground">
+            {t("API and worker records, newest first, times in Bangkok")}
+            {meta ? t(" · kept {days} days, stored from {level}", { days: meta.retention_days, level: meta.level }) : ""}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          {loading ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
+          {t("Refresh")}
+        </Button>
+      </div>
 
       {meta && !meta.enabled && (
-        <div className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-2.5 text-xs text-amber-200">
-          {t("Database logging is switched off ({setting}): no new records are stored. Older ones are shown until retention removes them.", { setting: "LOG_DB_ENABLED=false" })}
-        </div>
+        <Alert variant="warn">
+          <AlertDescription>
+            {t("Database logging is switched off ({setting}): no new records are stored. Older ones are shown until retention removes them.", { setting: "LOG_DB_ENABLED=false" })}
+          </AlertDescription>
+        </Alert>
       )}
 
       <LogHealthStrip
@@ -174,11 +188,17 @@ export const SystemLogsPage: React.FC = () => {
         onSource={(src) => setUrl({ source: src === "all" ? null : src })}
       />
 
-      <Panel
-        title={t("Log records")}
-        subtitle={`${t("{n} shown · newest first · times in Bangkok", { n: fmtInt(items.length) })}${meta ? t(" · kept {days} days, stored from {level}", { days: meta.retention_days, level: meta.level }) : ""}${error ? t(" · failed: {error}", { error }) : ""}`}
-        bodyClassName="p-0"
-      >
+      <Card className="gap-0 py-0">
+        <CardHeader className="border-b border-white/[0.06] px-4 py-3">
+          <CardTitle>{t("Log records")}</CardTitle>
+          <CardDescription>{t("{n} shown · newest first · times in Bangkok", { n: fmtInt(items.length) })}</CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
+        {error && items.length > 0 && (
+          <Alert variant="destructive" className="mx-4 mt-3 w-auto">
+            <AlertDescription>{t("Refresh failed: {error}", { error })}</AlertDescription>
+          </Alert>
+        )}
         <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] px-4 py-3">
           <Select value={level} onValueChange={(v) => setUrl({ level: v === "INFO" ? null : v })}>
             <SelectTrigger size="sm" className="w-32" aria-label={t("Minimum level")}>
@@ -264,14 +284,19 @@ export const SystemLogsPage: React.FC = () => {
         {loading && !items.length ? (
           <LoadingState label={t("Loading log records…")} shape="table" />
         ) : error && !items.length ? (
-          <EmptyState icon={ServerCrash} title={t("Logs unavailable")} description={error} />
+          <Alert variant="destructive" className="m-4 w-auto">
+            <AlertTitle>{t("Logs unavailable")}</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : !items.length ? (
-          <EmptyState
-            icon={Check}
-            title={anyFilter ? t("No matching records") : t("No records")}
-            description={anyFilter ? t("Change or clear the filters to see more.") : t("Nothing at {level} or above in the last {range}.", { level, range })}
-            className="py-10"
-          />
+          <Empty className="py-10">
+            <EmptyHeader>
+              <EmptyTitle>{anyFilter ? t("No matching records") : t("No records")}</EmptyTitle>
+              <EmptyDescription>
+                {anyFilter ? t("Change or clear the filters to see more.") : t("Nothing at {level} or above in the last {range}.", { level, range })}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <Suspended busy={loading} label={t("Loading log records…")}>
             <LogTable
@@ -281,7 +306,7 @@ export const SystemLogsPage: React.FC = () => {
               onRun={(r) => setUrl({ run: r.run_id, job: null, range: null })}
               onSource={(src) => setUrl({ source: src })}
             />
-            <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2.5 text-[11px] text-slate-500">
+            <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] px-4 py-2.5 text-[11px] text-muted-foreground">
               <span className="flex items-center gap-2">
                 <Clock className="size-3" />
                 {olderLoaded ? t("Older rows loaded: new records are not added") : t("Newest first · new records appear every 15 s")}
@@ -302,7 +327,8 @@ export const SystemLogsPage: React.FC = () => {
             </div>
           </Suspended>
         )}
-      </Panel>
+        </CardContent>
+      </Card>
     </div>
   );
 };

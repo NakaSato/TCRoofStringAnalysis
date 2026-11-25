@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Users, UserPlus, MapPin, Save, Search, KeyRound, AlertTriangle } from "lucide-react";
+import { UserPlus, MapPin, Save, Search, KeyRound } from "lucide-react";
 import { api, UserProfile, UserRole } from "../api/client";
 import { useAppContext } from "../context/AppContext";
-import { PageHeader, Panel, EmptyState, LoadingState, fmt } from "../components/ui";
+import { SkeletonRows, fmt } from "../components/ui";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Spinner } from "@/components/ui/spinner";
+import { Field } from "./tools/dialogs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -30,6 +36,8 @@ export const UsersPage: React.FC = () => {
   // action outcomes are toasts; only a failed load is shown on the page
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [pwFor, setPwFor] = useState<UserProfile | null>(null);
 
   const load = () =>
     api
@@ -57,54 +65,57 @@ export const UsersPage: React.FC = () => {
     run(() => api.updateUser(u.id, { role }), t("{user} is now {role}.", { user: u.username, role: t(role) }));
   const toggleActive = (u: UserProfile) =>
     run(() => api.updateUser(u.id, { is_active: !u.is_active }), u.is_active ? t("{user} disabled.", { user: u.username }) : t("{user} enabled.", { user: u.username }));
-  const resetPassword = (u: UserProfile) => {
-    const pw = window.prompt(t("New password for {user} (at least 8 characters):", { user: u.username }));
-    if (pw == null) return;
-    if (pw.length < 8) {
-      notify("crit", t("Password must be at least 8 characters."));
-      return;
-    }
+  const resetPassword = (u: UserProfile, pw: string) =>
     run(() => api.updateUser(u.id, { password: pw }), t("Password for {user} changed.", { user: u.username }));
-  };
+  const admins = users?.filter((u) => u.role === "admin" && u.is_active).length ?? 0;
+  const engineers = users?.filter((u) => u.role === "engineer" && u.is_active).length ?? 0;
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        icon={Users}
-        eyebrow={t("System · Access Control")}
-        title={t("Users & Access")}
-        description={t("Admins see and manage everything. Engineers see and work on only the plants assigned to them here.")}
-      />
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <h1 className="text-lg font-semibold">{t("Users & Access")}</h1>
+          <p className="text-xs text-muted-foreground">
+            {t("Admins see and manage everything. Engineers see and work on only the plants assigned to them here.")}
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setAdding(true)}>
+          <UserPlus data-icon="inline-start" />
+          {t("Add user")}
+        </Button>
+      </div>
 
       {loadError && (
-        <div className="callout-crit flex items-center gap-2 font-medium">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>{loadError}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
       )}
 
-      <CreateUserPanel
-        onCreated={(u) => {
-          setUsers((list) => [...(list ?? []), u]);
-          if (u.role === "engineer") setSelectedId(u.id);
-          notify("ok", t("User {user} created.", { user: u.username }));
-        }}
-        onError={(text) => notify("crit", text)}
-      />
-
-      <Panel icon={Users} title={t("Accounts")} subtitle={t("Accounts are disabled, never deleted")} bodyClassName="">
+      <Card className="gap-3">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {t("Accounts")}
+            {users && (
+              <span className="num text-xs font-normal text-muted-foreground">
+                {t("{admins} admin · {engineers} engineer active", { admins, engineers })}
+              </span>
+            )}
+          </CardTitle>
+          <CardDescription>{t("Accounts are disabled, never deleted")}</CardDescription>
+        </CardHeader>
+        <CardContent className="px-0">
         {!users ? (
-          <LoadingState label={t("Loading users…")} shape="table" />
+          <SkeletonRows rows={5} className="px-4" />
         ) : (
           <Table containerClassName="table-wrap">
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("Username")}</TableHead>
+                  <TableHead className="pl-4">{t("Username")}</TableHead>
                   <TableHead>{t("Name")}</TableHead>
                   <TableHead>{t("Role")}</TableHead>
                   <TableHead>{t("Plants")}</TableHead>
                   <TableHead>{t("Status")}</TableHead>
-                  <TableHead className="text-right">{t("Actions")}</TableHead>
+                  <TableHead className="pr-4 text-right">{t("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -112,7 +123,7 @@ export const UsersPage: React.FC = () => {
                   const self = u.id === me?.id;
                   return (
                     <TableRow key={u.id} className={selectedId === u.id ? "bg-solar-500/10" : ""}>
-                      <TableCell className="font-mono text-xs">{u.username ?? u.email}</TableCell>
+                      <TableCell className="pl-4 font-mono text-xs">{u.username ?? u.email}</TableCell>
                       <TableCell>{u.full_name}</TableCell>
                       <TableCell>
                         <Select value={u.role} disabled={self} onValueChange={(v) => changeRole(u, v as UserRole)}>
@@ -133,7 +144,7 @@ export const UsersPage: React.FC = () => {
                         {u.role === "admin" ? (
                           <Badge variant="info">{t("All plants")}</Badge>
                         ) : (
-                          <Button size="sm" onClick={() => setSelectedId(u.id)}>
+                          <Button size="sm" variant={selectedId === u.id ? "accent" : "secondary"} onClick={() => setSelectedId(u.id)}>
                             <MapPin className="size-3.5" />
                             {t("{n} assigned", { n: u.plant_ids?.length ?? 0 })}
                           </Button>
@@ -144,11 +155,11 @@ export const UsersPage: React.FC = () => {
                           {u.is_active ? t("Active") : t("Disabled")}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="pr-4 text-right">
                         <div className="inline-flex gap-1.5">
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <Button size="icon-sm" onClick={() => resetPassword(u)} aria-label={t("Reset password")}>
+                              <Button size="icon-sm" onClick={() => setPwFor(u)} aria-label={t("Reset password")}>
                                 <KeyRound className="size-3.5" />
                               </Button>
                             </TooltipTrigger>
@@ -167,7 +178,8 @@ export const UsersPage: React.FC = () => {
               </TableBody>
           </Table>
         )}
-      </Panel>
+        </CardContent>
+      </Card>
 
       {selected && selected.role === "engineer" && (
         <PlantAssignmentPanel
@@ -181,75 +193,151 @@ export const UsersPage: React.FC = () => {
           onError={(text) => notify("crit", text)}
         />
       )}
+
+      <CreateUserDialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        onCreated={(u) => {
+          setAdding(false);
+          setUsers((list) => [...(list ?? []), u]);
+          if (u.role === "engineer") setSelectedId(u.id);
+          notify("ok", t("User {user} created.", { user: u.username }));
+        }}
+      />
+      <PasswordDialog
+        user={pwFor}
+        onClose={() => setPwFor(null)}
+        onSave={async (pw) => {
+          if (pwFor) await resetPassword(pwFor, pw);
+          setPwFor(null);
+        }}
+      />
     </div>
   );
 };
 
-const CreateUserPanel: React.FC<{ onCreated: (u: UserProfile) => void; onError: (text: string) => void }> = ({
-  onCreated,
-  onError,
-}) => {
+/** Reset another user's password (was `window.prompt`). */
+const PasswordDialog: React.FC<{ user: UserProfile | null; onClose: () => void; onSave: (pw: string) => Promise<void> }> = ({ user, onClose, onSave }) => {
+  const { t } = useI18n();
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setPw(""), [user]);
+  const ok = pw.length >= 8;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await onSave(pw);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={user != null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>{t("Reset password")}</DialogTitle>
+            <DialogDescription>{t("New password for {user} (at least 8 characters):", { user: user?.username ?? "" })}</DialogDescription>
+          </DialogHeader>
+          <Field id="pw-new" label={t("Password")} hint={pw && !ok ? t("Password must be at least 8 characters.") : undefined}>
+            <Input id="pw-new" type="password" autoComplete="new-password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} />
+          </Field>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+              {t("Cancel")}
+            </Button>
+            <Button type="submit" variant="default" disabled={!ok || busy}>
+              {busy && <Spinner data-icon="inline-start" className="size-3" />}
+              {t("Save")}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const CreateUserDialog: React.FC<{ open: boolean; onClose: () => void; onCreated: (u: UserProfile) => void }> = ({ open, onClose, onCreated }) => {
   const empty = { username: "", full_name: "", email: "", password: "", role: "engineer" as UserRole };
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
   const set = (k: keyof typeof empty, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  useEffect(() => {
+    if (open) {
+      setForm(empty);
+      setError(null);
+    }
+  }, [open]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setError(null);
     try {
-      const u = await api.createUser({ ...form, email: form.email.trim() || null, plant_ids: [] });
-      setForm(empty);
-      onCreated(u);
+      onCreated(await api.createUser({ ...form, email: form.email.trim() || null, plant_ids: [] }));
     } catch (err) {
-      onError(errText(err));
+      setError(errText(err));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Panel icon={UserPlus} title={t("Add user")} subtitle={t("New engineers start with no plants; assign them below")}>
-      <form onSubmit={submit} className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-6">
-        <div>
-          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-username">{t("Username")}</Label>
-          <Input id="nu-username" required minLength={2} pattern="[A-Za-z0-9._\-]+"
-            autoCapitalize="none" spellCheck={false} value={form.username} onChange={(e) => set("username", e.target.value)} />
-        </div>
-        <div className="lg:col-span-2">
-          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-name">{t("Full name")}</Label>
-          <Input id="nu-name" required value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
-        </div>
-        <div>
-          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-email">{t("Email (optional)")}</Label>
-          <Input id="nu-email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
-        </div>
-        <div>
-          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-password">{t("Password")}</Label>
-          <Input id="nu-password" type="password" autoComplete="new-password" required minLength={8}
-            value={form.password} onChange={(e) => set("password", e.target.value)} />
-        </div>
-        <div>
-          <Label className="mb-1 block text-[11px] font-medium text-slate-400" htmlFor="nu-role">{t("Role")}</Label>
-          <div className="flex gap-2">
-            <Select value={form.role} onValueChange={(v) => set("role", v)}>
-              <SelectTrigger id="nu-role" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="engineer">{t("engineer")}</SelectItem>
-                <SelectItem value="admin">{t("admin")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button type="submit" variant="default" className="shrink-0" disabled={saving}>
-              <UserPlus className="size-4" />
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>{t("Add user")}</DialogTitle>
+            <DialogDescription>{t("New engineers start with no plants; assign them below")}</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field id="nu-username" label={t("Username")}>
+              <Input id="nu-username" required minLength={2} pattern="[A-Za-z0-9._\-]+" autoCapitalize="none" spellCheck={false} autoFocus
+                value={form.username} onChange={(e) => set("username", e.target.value)} />
+            </Field>
+            <Field id="nu-role" label={t("Role")}>
+              <Select value={form.role} onValueChange={(v) => set("role", v)}>
+                <SelectTrigger id="nu-role" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="engineer">{t("engineer")}</SelectItem>
+                  <SelectItem value="admin">{t("admin")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field id="nu-name" label={t("Full name")} wide>
+              <Input id="nu-name" required value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
+            </Field>
+            <Field id="nu-email" label={t("Email (optional)")}>
+              <Input id="nu-email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
+            </Field>
+            <Field id="nu-password" label={t("Password")}>
+              <Input id="nu-password" type="password" autoComplete="new-password" required minLength={8}
+                value={form.password} onChange={(e) => set("password", e.target.value)} />
+            </Field>
+          </div>
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
+              {t("Cancel")}
+            </Button>
+            <Button type="submit" variant="default" disabled={saving}>
+              {saving ? <Spinner data-icon="inline-start" className="size-3" /> : <UserPlus data-icon="inline-start" />}
               {saving ? t("Adding…") : t("Add")}
             </Button>
-          </div>
-        </div>
-      </form>
-    </Panel>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 };
 
@@ -306,24 +394,27 @@ const PlantAssignmentPanel: React.FC<{
   };
 
   return (
-    <Panel
-      icon={MapPin}
-      title={t("Plants assigned to {user}", { user: user.username ?? user.email })}
-      subtitle={t("{n} of {total} plants selected", { n: chosen.size, total: plants.length })}
-      actions={
-        <Button variant="default" onClick={save} disabled={!dirty || saving}>
-          <Save className="size-4" />
+    <Card className="gap-3">
+      <CardHeader className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <CardTitle>{t("Plants assigned to {user}", { user: user.username ?? user.email })}</CardTitle>
+          <CardDescription>{t("{n} of {total} plants selected", { n: chosen.size, total: plants.length })}</CardDescription>
+        </div>
+        <Button size="sm" variant="default" onClick={save} disabled={!dirty || saving}>
+          {saving ? <Spinner data-icon="inline-start" className="size-3" /> : <Save data-icon="inline-start" />}
           {saving ? t("Saving…") : t("Save assignments")}
         </Button>
-      }
-    >
+      </CardHeader>
+      <CardContent>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-          <Input className="pl-8" placeholder={t("Search plant name, id or city")} value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
+        <InputGroup className="h-8 min-w-[200px] flex-1">
+          <InputGroupAddon>
+            <Search />
+          </InputGroupAddon>
+          <InputGroupInput placeholder={t("Search plant name, id or city")} value={query} onChange={(e) => setQuery(e.target.value)} />
+        </InputGroup>
         <Select value={phase} onValueChange={setPhase}>
-          <SelectTrigger className="w-36" aria-label={t("Phase")}>
+          <SelectTrigger size="sm" className="w-36" aria-label={t("Phase")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -339,7 +430,12 @@ const PlantAssignmentPanel: React.FC<{
         <Button size="sm" onClick={() => setVisible(false)}>{t("Clear shown")}</Button>
       </div>
       {plants.length === 0 ? (
-        <EmptyState icon={MapPin} title={t("No Growatt plants in the registry yet")} description={t("Run the fleet sync first.")} />
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>{t("No Growatt plants in the registry yet")}</EmptyTitle>
+            <EmptyDescription>{t("Run the fleet sync first.")}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((p) => (
@@ -351,8 +447,8 @@ const PlantAssignmentPanel: React.FC<{
             >
               <Checkbox checked={chosen.has(p.plant_id)} onCheckedChange={() => toggle(p.plant_id)} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-slate-200">{p.name}</span>
-                <span className="block truncate text-[11px] text-slate-500">
+                <span className="block truncate font-medium text-foreground">{p.name}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
                   #{p.plant_id} · {p.phase != null ? t("Phase {n}", { n: p.phase }) : t("Untagged")}
                   {p.city ? ` · ${p.city}` : ""} · {p.peak_power_kwp != null ? `${fmt(p.peak_power_kwp, 1)} kWp` : "—"}
                 </span>
@@ -361,6 +457,7 @@ const PlantAssignmentPanel: React.FC<{
           ))}
         </div>
       )}
-    </Panel>
+      </CardContent>
+    </Card>
   );
 };

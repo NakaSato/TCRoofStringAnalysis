@@ -20,7 +20,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { useI18n } from "../i18n";
-import { PageHeader, fmtInt } from "../components/ui";
+import { fmtInt } from "../components/ui";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -120,7 +120,10 @@ export const VisitRoutePage: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-3 lg:h-[calc(100vh-6.5rem)] lg:min-h-[640px]">
-      <PageHeader title={t("Visit Route")} description={t("Pick plants, get the best order and drive times. Nothing is saved yet.")} />
+      <div className="flex flex-col">
+        <h1 className="text-lg font-semibold">{t("Visit Route")}</h1>
+        <p className="text-xs text-muted-foreground">{t("Pick plants, get the best order and drive times. Nothing is saved yet.")}</p>
+      </div>
 
       <RouteSettingsBar
         d={d}

@@ -407,7 +407,7 @@ export const LiveOperatingCard: React.FC<{
                   <TableHead className="text-right">{t("Modules")}</TableHead>
                   <TableHead className="text-right">V</TableHead>
                   <TableHead className="text-right">I</TableHead>
-                  <TableHead className="w-40" title={t("Current ÷ the modelled Imp")}>{t("I vs model")}</TableHead>
+                  <TableHead className="w-40" title={t("Current / the modelled Imp")}>{t("I vs model")}</TableHead>
                   <TableHead className="text-right">{t("vs peers")}</TableHead>
                   <TableHead>{t("Point")}</TableHead>
                   <TableHead>{t("Live check")}</TableHead>

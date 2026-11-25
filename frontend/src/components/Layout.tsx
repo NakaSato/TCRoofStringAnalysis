@@ -62,7 +62,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     title: "Operations",
     items: [
       { to: "/energy-billing", label: "Energy & Billing", icon: Banknote, description: "Billed meter energy, finance and the meter / inverter checks of one period" },
-      { to: "/curtailment", label: "Curtailment", icon: Gauge, description: "Energy each plant held back: zero export following the load, or the power limit (estimated)" },
+      { to: "/curtailment", label: "Curtailment", icon: Gauge },
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
       { to: "/route", label: "Visit Route", icon: RouteIcon, description: "Plan a day of site visits: best order, drive times, Google Maps" },

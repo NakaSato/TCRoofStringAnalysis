@@ -4,10 +4,13 @@
  * no question or answer text is stored anywhere).
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { api } from "../api/client";
 import type { AssistantUsage } from "../api/client";
-import { EmptyState, KpiTile, LoadingState, Meter, PageHeader, Suspended, fmt, fmtInt } from "../components/ui";
+import { Meter, SkeletonKpis, Suspended, fmt, fmtInt } from "../components/ui";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { StatTile } from "./overview/StatTile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,11 +57,27 @@ export const AiUsagePage: React.FC = () => {
     </Button>
   );
 
+  const header = (subtitle: string) => (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col">
+        <h1 className="text-lg font-semibold">{t("AI Usage")}</h1>
+        <p className="text-xs text-muted-foreground">{subtitle}</p>
+      </div>
+      {refresh}
+    </div>
+  );
+
   if (!data) {
     return (
-      <div className="space-y-4">
-        <PageHeader icon={Sparkles} eyebrow={t("System")} title={t("AI Usage")} actions={refresh} />
-        {error ? <div className="callout-crit">{error}</div> : <LoadingState label={t("Loading AI usage…")} shape="kpis" />}
+      <div className="flex flex-col gap-4">
+        {header(t("AI Assistant spend against the monthly cap"))}
+        {error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : (
+          <SkeletonKpis count={3} />
+        )}
       </div>
     );
   }
@@ -71,41 +90,35 @@ export const AiUsagePage: React.FC = () => {
   const avg = data.questions ? data.spent_usd / data.questions : null;
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        icon={Sparkles}
-        eyebrow={t("System")}
-        title={t("AI Usage")}
-        description={t("{month} (Bangkok) · {model} · resets on {day}", { month: data.month, model: data.model, day: data.resets_on })}
-        actions={refresh}
-      />
-      <Suspended busy={loading} label={t("Loading AI usage…")} contentClassName="space-y-4">
-      {error && <div className="callout-warn">{t("Refresh failed: {error}", { error })}</div>}
+    <div className="flex flex-col gap-4">
+      {header(t("{month} (Bangkok) · {model} · resets on {day}", { month: data.month, model: data.model, day: data.resets_on }))}
+      <Suspended busy={loading} label={t("Loading AI usage…")} contentClassName="flex flex-col gap-4">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{t("Refresh failed: {error}", { error })}</AlertDescription>
+        </Alert>
+      )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Card className="col-span-2 gap-2 p-4">
-          <div className="flex items-baseline justify-between gap-2">
-            <div className="eyebrow">{t("Spent this month")}</div>
-            <Badge variant={tone === "neutral" ? "neutral" : tone}>{pct == null ? t("no cap") : t("{pct} % of cap", { pct: fmt(pct, 0) })}</Badge>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="num text-2xl font-bold text-white">{usd(data.spent_usd, 3)}</span>
-            <span className="text-xs text-slate-500">{t("of {total}", { total: usd(data.budget_usd) })}</span>
-          </div>
-          <Meter value={data.spent_usd} max={data.budget_usd} tone={tone === "neutral" ? "solar" : tone} />
-          <div className="text-[11px] text-slate-500">
-            {t('At the cap the assistant answers "budget used up" until {day}.', { day: data.resets_on })}
-          </div>
-        </Card>
-        <KpiTile label={t("Questions")} value={fmtInt(data.questions)} hint={t("≈ {cost} each", { cost: usd(avg, 4) })} accentBar={false} />
-        <KpiTile
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <div className="col-span-2 lg:col-span-1">
+          <StatTile
+            label={t("Spent this month")}
+            tag={pct == null ? t("no cap") : t("{pct} % of cap", { pct: fmt(pct, 0) })}
+            tagWarn={tone === "warn" || tone === "crit"}
+            value={usd(data.spent_usd, 3)}
+            unit={t("of {total}", { total: usd(data.budget_usd) })}
+            tone={tone === "crit" ? "text-red-300" : tone === "warn" ? "text-amber-300" : undefined}
+            meter={<Meter value={data.spent_usd} max={data.budget_usd} tone={tone === "neutral" ? "solar" : tone} />}
+            footer={t('At the cap the assistant answers "budget used up" until {day}.', { day: data.resets_on })}
+          />
+        </div>
+        <StatTile label={t("Questions")} value={fmtInt(data.questions)} footer={t("≈ {cost} each", { cost: usd(avg, 4) })} />
+        <StatTile
           label={t("Not answered")}
           value={fmtInt(failed)}
           unit={data.questions ? `${fmt((failed / data.questions) * 100, 0)} %` : undefined}
-          hint={t("errors, time-outs, stopped")}
-          hintTone={failed ? "warn" : "neutral"}
-          tone={failed ? "warn" : "neutral"}
-          accentBar={false}
+          tone={failed ? "text-amber-300" : undefined}
+          footer={t("errors, time-outs, stopped")}
         />
       </div>
 
@@ -116,7 +129,12 @@ export const AiUsagePage: React.FC = () => {
           </CardHeader>
           <CardContent>
             {data.users.length === 0 ? (
-              <EmptyState title={t("No questions this month")} description={t("Usage appears here after the first question.")} />
+              <Empty>
+                <EmptyHeader>
+                  <EmptyTitle>{t("No questions this month")}</EmptyTitle>
+                  <EmptyDescription>{t("Usage appears here after the first question.")}</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <Table containerClassName="table-wrap">
                 <TableHeader>
@@ -154,17 +172,17 @@ export const AiUsagePage: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-3 text-xs">
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-              <dt className="text-slate-500">{t("Monthly cap")}</dt>
-              <dd className="num text-right text-slate-200">{usd(data.budget_usd)}</dd>
-              <dt className="text-slate-500">{t("Per user per day")}</dt>
-              <dd className="num text-right text-slate-200">{t("{n} questions (admins exempt)", { n: fmtInt(data.user_daily_questions) })}</dd>
-              <dt className="text-slate-500">{t("Enabled for")}</dt>
-              <dd className="text-right text-slate-200">{data.enabled_roles.map((r) => t(r)).join(", ") || t("nobody")}</dd>
+              <dt className="text-muted-foreground">{t("Monthly cap")}</dt>
+              <dd className="num text-right">{usd(data.budget_usd)}</dd>
+              <dt className="text-muted-foreground">{t("Per user per day")}</dt>
+              <dd className="num text-right">{t("{n} questions (admins exempt)", { n: fmtInt(data.user_daily_questions) })}</dd>
+              <dt className="text-muted-foreground">{t("Enabled for")}</dt>
+              <dd className="text-right">{data.enabled_roles.map((r) => t(r)).join(", ") || t("nobody")}</dd>
             </dl>
             <div className="border-t border-white/[0.06] pt-3">
               <div className="eyebrow mb-2">{t("Outcomes")}</div>
               {Object.keys(data.by_status).length === 0 ? (
-                <div className="text-slate-500">—</div>
+                <div className="text-muted-foreground">—</div>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(data.by_status)
@@ -177,7 +195,7 @@ export const AiUsagePage: React.FC = () => {
                 </div>
               )}
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-muted-foreground">
               {t("Only token counts and cost are stored; no question or answer text. Set a spending limit in the Qwen Model Studio console as well.")}
             </p>
           </CardContent>

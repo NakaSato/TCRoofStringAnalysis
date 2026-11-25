@@ -43,6 +43,8 @@ import { LiveMeterCard } from "./overview/LiveMeterCard";
 import { useLiveMeter } from "./overview/useLiveMeter";
 import { usePlantBaseline } from "./overview/usePlantBaseline";
 import { SensorTodayCard } from "./overview/SensorTodayCard";
+import { SensorDayCard } from "./overview/SensorDayCard";
+import { RadarRainCard } from "./overview/RadarRainCard";
 import { InvertersOnlineTile, StringHealthTile } from "./overview/SummaryCards";
 import { Meter, StatTile } from "./overview/StatTile";
 import { dateLocale, useI18n } from "../i18n";
@@ -149,26 +151,28 @@ const baselineFacts = (
     },
     {
       icon: Percent,
-      label: open ? t("Yield ÷ baseline (so far)") : t("Yield ÷ baseline"),
+      label: open ? t("Yield / baseline (so far)") : t("Yield / baseline"),
       value: fmt(pct, 1),
       unit: "%",
       hint: gap,
       tip: open
-        ? t("Yield so far ÷ the whole period's contract baseline: today is not finished")
-        : t("The period's yield ÷ its contract baseline (modelled)"),
+        ? t("Yield so far / the whole period's contract baseline: today is not finished")
+        : t("The period's yield / its contract baseline (modelled)"),
       href,
     },
   ];
 };
 
-/** The PV items of the facts strip for the chart's period: energy, specific yield, peak (with its
- * time) and Growatt's own figure beside ours (never instead of it). */
+/** The headline items for the chart's period: energy, specific yield, grid import / export (energy
+ * meter, measured), peak (with its time) and Growatt's own figure beside ours (never instead of it). */
 const periodFacts = (
   f: PeriodFigures,
   pp: { label: string; multi: boolean; mode: "own" | "day" | "curve"; day: string | null; today: string },
   t: (k: string, v?: Record<string, string | number>) => string
 ) => {
   const open = pp.day === pp.today && !pp.multi;
+  // today: the chart's live tail shows live meter values, but the kWh figures cover the stored records only
+  const storedOnly = pp.day === pp.today ? t(" (stored records only, the chart's live tail is not counted)") : "";
   const peakAt = f.peakAt ? `${pp.multi ? `${shortDay(f.peakAt.slice(0, 10))} ` : ""}${hhmm(f.peakAt)}` : null;
   const items: Array<{ icon: LucideIcon; label: string; value: string; unit: string; hint?: string; tip?: string }> = [
     {
@@ -186,8 +190,27 @@ const periodFacts = (
       label: t("Specific yield"),
       value: fmt(f.specificKwhKwp, 2),
       unit: "kWh/kWp",
-      tip: t("Energy ÷ the plant's DC capacity for {period}", { period: pp.label }),
+      tip: t("Energy / the plant's DC capacity for {period}", { period: pp.label }),
     },
+    // the energy meter (measured), when the period has meter readings
+    ...(f.gridImportKwh != null || f.gridExportKwh != null
+      ? [
+          {
+            icon: ArrowDownToLine,
+            label: t("Grid import"),
+            value: fmt(f.gridImportKwh, 1),
+            unit: "kWh",
+            tip: t("Bought from the grid for {period}, measured by the energy meter{note}", { period: pp.label, note: storedOnly }),
+          },
+          {
+            icon: ArrowUpFromLine,
+            label: t("Grid export"),
+            value: fmt(f.gridExportKwh, 1),
+            unit: "kWh",
+            tip: t("Sent to the grid for {period}, measured by the energy meter{note}", { period: pp.label, note: storedOnly }),
+          },
+        ]
+      : []),
     {
       icon: Mountain,
       label: t("Peak power"),
@@ -466,20 +489,6 @@ export const OverviewPage: React.FC = () => {
                       unit: "kWh",
                       tip: t("Site consumption for {period}: PV AC + grid, derived from the energy meter, not measured{note}", { period: pp.label, note: meterStoredOnly }),
                     },
-                    {
-                      icon: ArrowDownToLine,
-                      label: t("Grid import"),
-                      value: fmt(meter.gridImportKwh, 1),
-                      unit: "kWh",
-                      tip: t("Bought from the grid for {period}, measured by the energy meter{note}", { period: pp.label, note: meterStoredOnly }),
-                    },
-                    {
-                      icon: ArrowUpFromLine,
-                      label: t("Grid export"),
-                      value: fmt(meter.gridExportKwh, 1),
-                      unit: "kWh",
-                      tip: t("Sent to the grid for {period}, measured by the energy meter{note}", { period: pp.label, note: meterStoredOnly }),
-                    },
                     ] : []),
                     ...(curt ? [
                     {
@@ -543,6 +552,7 @@ export const OverviewPage: React.FC = () => {
 
           {/* no sensor: no Today chart, so the Weather card (Google rain) stays in this column */}
           {!hasSensor && weatherCard()}
+          {!hasSensor && hasLocation && <RadarRainCard key={`radar-${plantId}`} plantId={plant.plant_id} />}
         </div>
       </div>
 
@@ -552,8 +562,13 @@ export const OverviewPage: React.FC = () => {
           <div className="flex min-w-0 flex-col xl:col-span-2 [&>*]:flex-1">
             <SensorTodayCard key={`sensor-${plant.plant_id}`} ov={ov} href={plantHref("sensors")} />
           </div>
-          {/* its own height, not stretched to the (much taller) chart beside it */}
-          {weatherCard("xl:self-start")}
+          {/* own height, not stretched to the (much taller) chart beside it; the space under Weather
+              holds the stored day's sensor figures and the radar rain now */}
+          <div className="flex min-w-0 flex-col gap-4 xl:self-start">
+            {weatherCard()}
+            <SensorDayCard key={`sensorday-${plantId}`} ov={ov} dayText={dayText} />
+            {hasLocation && <RadarRainCard key={`radar-${plantId}`} plantId={plant.plant_id} />}
+          </div>
         </div>
       )}
 

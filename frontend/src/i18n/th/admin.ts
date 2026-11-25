@@ -448,4 +448,8 @@ export const TH_ADMIN: Record<string, string> = {
   "Site photo folder": "โฟลเดอร์รูปหน้างาน",
   "A link saved here is marked manual: a later Drive import leaves it alone. Leave a field empty to remove that link.": "ลิงก์ที่บันทึกที่นี่จะถูกระบุว่ากรอกเอง การนำเข้าจาก Drive ครั้งต่อไปจะไม่แก้ไขลิงก์นี้ เว้นช่องว่างไว้เพื่อลบลิงก์นั้น",
   "Saved links of {name}.": "บันทึกลิงก์ของ {name} แล้ว",
+  // ---- System pages header lines (redesign 24 Nov 2026) ----
+  "{admins} admin · {engineers} engineer active": "ผู้ดูแลระบบ {admins} · วิศวกร {engineers} ที่ใช้งานอยู่",
+  "API and worker records, newest first, times in Bangkok": "บันทึกของ API และ worker ล่าสุดก่อน เวลากรุงเทพฯ",
+  "AI Assistant spend against the monthly cap": "ค่าใช้จ่ายผู้ช่วย AI เทียบเพดานรายเดือน",
 };

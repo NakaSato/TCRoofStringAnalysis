@@ -410,7 +410,7 @@ export const PlantInvertersCard: React.FC<PlantInvertersCardProps> = ({
         </Table>
         <p className="text-[11px] text-muted-foreground">
           {t(
-            "vs plant avg = the inverter's day yield ÷ the mean of the plant's inverters (tick = 100 %); amber below {n} %. Inverters can differ in rating and DC capacity, so compare kWh/kWp as well. Click a row to open the inverter below.",
+            "vs plant avg = the inverter's day yield / the mean of the plant's inverters (tick = 100 %); amber below {n} %. Inverters can differ in rating and DC capacity, so compare kWh/kWp as well. Click a row to open the inverter below.",
             { n: LOW_PCT }
           )}
         </p>

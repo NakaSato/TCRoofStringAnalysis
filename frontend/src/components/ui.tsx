@@ -15,36 +15,6 @@ import { useI18n } from "../i18n";
 
 type Tone = "solar" | "energy" | "ok" | "warn" | "crit" | "info" | "neutral";
 
-const TONE_TEXT: Record<Tone, string> = {
-  solar: "text-solar-400",
-  energy: "text-energy-400",
-  ok: "text-emerald-400",
-  warn: "text-amber-400",
-  crit: "text-red-400",
-  info: "text-sky-400",
-  neutral: "text-slate-300",
-};
-
-const TONE_ICON_BG: Record<Tone, string> = {
-  solar: "bg-solar-500/10 text-solar-400 ring-solar-400/20",
-  energy: "bg-energy-500/10 text-energy-400 ring-energy-400/20",
-  ok: "bg-emerald-500/10 text-emerald-400 ring-emerald-400/20",
-  warn: "bg-amber-500/10 text-amber-400 ring-amber-400/20",
-  crit: "bg-red-500/10 text-red-400 ring-red-400/20",
-  info: "bg-sky-500/10 text-sky-400 ring-sky-400/20",
-  neutral: "bg-white/5 text-slate-300 ring-white/10",
-};
-
-const TONE_BAR: Record<Tone, string> = {
-  solar: "bg-solar-400/60",
-  energy: "bg-energy-400/60",
-  ok: "bg-emerald-400/60",
-  warn: "bg-amber-400/60",
-  crit: "bg-red-400/60",
-  info: "bg-sky-400/60",
-  neutral: "bg-slate-400/30",
-};
-
 /* -------------------------------------------------------------------------- */
 /* Page header                                                                */
 /* -------------------------------------------------------------------------- */
@@ -100,43 +70,6 @@ export const Panel: React.FC<{
       </CardHeader>
     )}
     <div className={bodyClassName}>{children}</div>
-  </Card>
-);
-
-/* -------------------------------------------------------------------------- */
-/* KPI tile                                                                   */
-/* -------------------------------------------------------------------------- */
-export const KpiTile: React.FC<{
-  label: string;
-  value: React.ReactNode;
-  unit?: string;
-  hint?: React.ReactNode;
-  hintTone?: Tone;
-  icon?: LucideIcon;
-  tone?: Tone;
-  /** coloured hairline along the top edge (default on) */
-  accentBar?: boolean;
-  /** smaller padding and value text (dense KPI strips) */
-  compact?: boolean;
-  className?: string;
-}> = ({ label, value, unit, hint, hintTone = "neutral", icon: Icon, tone = "neutral", accentBar = true, compact = false, className = "" }) => (
-  <Card className={cn("gap-0 overflow-hidden", compact ? "p-3" : "p-4", className)}>
-    {accentBar && <div className={`absolute inset-x-0 top-0 h-px ${TONE_BAR[tone]}`} />}
-    <div className="flex items-start justify-between gap-2">
-      <div className="eyebrow">{label}</div>
-      {Icon && (
-        <div className={`rounded-lg ring-1 ${compact ? "p-1" : "p-1.5"} ${TONE_ICON_BG[tone]}`}>
-          <Icon className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-        </div>
-      )}
-    </div>
-    <div className={`${compact ? "mt-1" : "mt-2"} flex items-baseline gap-1.5`}>
-      <span className={`num ${compact ? "text-lg" : "text-2xl"} font-bold tracking-tight ${tone === "neutral" ? "text-white" : TONE_TEXT[tone]}`}>
-        {value}
-      </span>
-      {unit && <span className="text-xs font-medium text-slate-500">{unit}</span>}
-    </div>
-    {hint && <div className={`${compact ? "mt-1" : "mt-1.5"} text-[11px] font-medium ${hintTone === "neutral" ? "text-slate-500" : TONE_TEXT[hintTone]}`}>{hint}</div>}
   </Card>
 );
 

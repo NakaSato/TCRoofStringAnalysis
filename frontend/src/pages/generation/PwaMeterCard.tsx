@@ -47,8 +47,8 @@ export const plantSpec = (d: PwaPlantDays): PanelChartSpec | null => {
         ],
       },
       ratioPanel(
-        translate("Meter ÷ Growatt (%)"),
-        translate("Meter ÷ Growatt"),
+        translate("Meter / Growatt (%)"),
+        translate("Meter / Growatt"),
         d.days.map((r) => r.meter_vs_growatt_pct),
         d.summary.median_meter_vs_growatt_pct != null ? { y: d.summary.median_meter_vs_growatt_pct, label: translate("Median {v} %", { v: fmt(d.summary.median_meter_vs_growatt_pct, 2) }) } : null
       ),
@@ -125,8 +125,8 @@ export const PwaMeterCard: React.FC<{ plantId: number }> = ({ plantId }) => {
               <span className="eyebrow">{t("Meter, {n} days", { n: s?.report_days ?? 0 })}</span>
               <span className="num text-sm font-semibold">{s?.meter_kwh == null ? "—" : `${fmt(s.meter_kwh / 1000, 2)} MWh`}</span>
             </div>
-            <div className="flex flex-col gap-0.5" title={t("Median of meter ÷ Growatt day energy on days both read > 0")}>
-              <span className="eyebrow">{t("Meter ÷ Growatt")}</span>
+            <div className="flex flex-col gap-0.5" title={t("Median of meter / Growatt day energy on days both read > 0")}>
+              <span className="eyebrow">{t("Meter / Growatt")}</span>
               <span className="num text-sm font-semibold">
                 {s?.median_meter_vs_growatt_pct == null ? "—" : `${fmt(s.median_meter_vs_growatt_pct, 2)} %`}
                 <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">

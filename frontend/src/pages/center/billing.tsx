@@ -108,12 +108,12 @@ export const billedMonthSpec = (t: MonthTotal[], bands: ContractBands | null = n
       },
       {
         key: "pct",
-        title: translate("Billed ÷ contract (%)"),
+        title: translate("Billed / contract (%)"),
         weight: 0.6,
         zero: false,
         tickSuffix: " %",
         refLines: contractRefLines(bands),
-        series: [{ key: "pct", name: translate("Billed ÷ contract"), type: "line", color: SERIES.ac, width: 2, y: pct, noLegend: true, format: (v) => `${fmt(v, 1)} %` }],
+        series: [{ key: "pct", name: translate("Billed / contract"), type: "line", color: SERIES.ac, width: 2, y: pct, noLegend: true, format: (v) => `${fmt(v, 1)} %` }],
       },
     ],
     tipExtra: (i) => [
@@ -188,12 +188,12 @@ export const billedRegionSpec = (t: RegionTotal[], bands: ContractBands | null =
       },
       {
         key: "pct",
-        title: translate("Billed ÷ contract (%)"),
+        title: translate("Billed / contract (%)"),
         weight: 0.8,
         zero: false,
         tickSuffix: " %",
         refLines: contractRefLines(bands),
-        series: [{ key: "pct", name: translate("Billed ÷ contract"), type: "points", size: 6, color: SERIES.ac, y: pct, noLegend: true, format: (v) => `${fmt(v, 1)} %` }],
+        series: [{ key: "pct", name: translate("Billed / contract"), type: "points", size: 6, color: SERIES.ac, y: pct, noLegend: true, format: (v) => `${fmt(v, 1)} %` }],
       },
     ],
     tipExtra: (i) => [
@@ -239,7 +239,7 @@ const ContractHead = <K extends string>({ k, sort, desc, onSort }: { k: K; sort:
     desc={desc}
     onSort={onSort}
     className="text-right"
-    title={`${t("Billed ÷ contract energy on the days with a contract figure.")} ${t(MODELLED)}`}
+    title={`${t("Billed / contract energy on the days with a contract figure.")} ${t(MODELLED)}`}
   />
   );
 };

@@ -139,10 +139,10 @@ export const PlantsTable: React.FC<{
         <TableRow>
           <SortHead k="name" label={t("Plant")} {...h} />
           <SortHead k="billed" label={<>{t("Billed")}<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">MWh</span></>} className="text-right" title={t("PWA meter report: the site's billed meter energy for the report days in the period (measured). — = not in the report.")} {...h} />
-          <SortHead k="contract" label={<>{t("Meter vs contract")}<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{t("mod.")}</span></>} className="text-right" title={t("PWA meter report: billed meter energy ÷ the contract's expected energy (modelled), for the report days in the period. Opens the site's days.")} {...h} />
+          <SortHead k="contract" label={<>{t("Meter vs contract")}<span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{t("mod.")}</span></>} className="text-right" title={t("PWA meter report: billed meter energy / the contract's expected energy (modelled), for the report days in the period. Opens the site's days.")} {...h} />
           <SortHead k="issues" label={t("Issues")} className="text-right" {...h} />
-          <SortHead k="avail" label={t("Availability")} className="text-right" title={t("Inverter minutes not in fault / off / standby ÷ daylight minutes with data")} {...h} />
-          <SortHead k="epi" label="EPI" className="text-right" title={t("Median of the period: measured ÷ modelled energy (modelled). Days with a suspect sensor left out.")} {...h} />
+          <SortHead k="avail" label={t("Availability")} className="text-right" title={t("Inverter minutes not in fault / off / standby / daylight minutes with data")} {...h} />
+          <SortHead k="epi" label="EPI" className="text-right" title={t("Median of the period: measured / modelled energy (modelled). Days with a suspect sensor left out.")} {...h} />
           <SortHead k="pr" label="PR′" className="text-right" title={t("Median temperature-corrected PR of the period. Days with a suspect sensor left out.")} {...h} />
           <SortHead k="clean" label={t("Since cleaning")} className="text-right" title={t("Days since the last cleaning in the Site log")} {...h} />
           <SortHead k="visit" label={t("Next visit")} {...h} />

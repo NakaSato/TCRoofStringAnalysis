@@ -7,7 +7,7 @@ import { useFleet } from "../context/FleetContext";
 import { plantPath } from "../context/routes";
 import { pick, useUrlState } from "../lib/useUrlState";
 import type { GrowattPlant } from "../api/client";
-import { Led, LoadingState, LOADING_STATUS, PageHeader, StatusBadge, fmt, fmtInt } from "../components/ui";
+import { Led, LoadingState, LOADING_STATUS, StatusBadge, fmt, fmtInt } from "../components/ui";
 import type { StatusLevel } from "../components/ui";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -408,9 +408,10 @@ export const PlantMapPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title={t("Plant Map")}
-      />
+      <div className="flex flex-col">
+        <h1 className="text-lg font-semibold">{t("Plant Map")}</h1>
+        <p className="text-xs text-muted-foreground">{t("Every plant on one map, coloured by live status")}</p>
+      </div>
 
       {!plantListLoaded ? (
         <LoadingState label={t("Loading plants…")} shape="chart" />

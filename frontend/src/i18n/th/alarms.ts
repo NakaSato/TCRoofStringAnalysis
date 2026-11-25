@@ -202,6 +202,7 @@ export const TH_ALARMS: Record<string, string> = {
   "History stored up to the sync that started {time}": "บันทึกประวัติถึงรอบดึงข้อมูลที่เริ่ม {time}",
   Info: "ข้อมูล",
   "Loading weather sensors…": "กำลังโหลดเซนเซอร์สภาพอากาศ…",
+  "Live online state from Growatt (never stored), newest stored reading and today's coverage": "สถานะออนไลน์สดจาก Growatt (ไม่จัดเก็บ) ค่าที่เก็บล่าสุด และความครอบคลุมของวันนี้",
   "Sensor list unavailable": "โหลดรายการเซนเซอร์ไม่ได้",
   "No weather sensors": "ไม่มีเซนเซอร์สภาพอากาศ",
   "This plant has no Growatt weather sensor registered.": "โรงไฟฟ้านี้ไม่มีเซนเซอร์สภาพอากาศ Growatt ที่ลงทะเบียนไว้",

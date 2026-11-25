@@ -162,18 +162,18 @@ export const yieldSpec = (rows: YieldRow[]): PanelChartSpec | null => {
       },
       {
         key: "r",
-        title: translate("Contract ÷ PVsyst per kWp (%)"),
+        title: translate("Contract / PVsyst per kWp (%)"),
         zero: false,
         refLines: [{ y: 100, label: "100 %" }],
         series: [
-          { key: "ratio", name: translate("Contract ÷ PVsyst per kWp"), type: "points", color: CATEGORICAL[4], symbol: "diamond", size: 10, y: rows.map((r) => (r.ratio == null ? null : r.ratio * 100)), noLegend: true, format: (v) => `${fmt(v, 1)} %` },
+          { key: "ratio", name: translate("Contract / PVsyst per kWp"), type: "points", color: CATEGORICAL[4], symbol: "diamond", size: 10, y: rows.map((r) => (r.ratio == null ? null : r.ratio * 100)), noLegend: true, format: (v) => `${fmt(v, 1)} %` },
         ],
       },
     ],
     tipExtra: (i) => {
       const r = rows[i];
       return [
-        ...(r.sheetRatio != null ? [{ label: translate("Sheet's contract ÷ PVsyst (kWh ÷ kWh)"), value: `${fmt(r.sheetRatio * 100, 1)} %` }] : []),
+        ...(r.sheetRatio != null ? [{ label: translate("Sheet's contract / PVsyst (kWh / kWh)"), value: `${fmt(r.sheetRatio * 100, 1)} %` }] : []),
         { label: translate("Stations"), value: fmtInt(r.n) },
       ];
     },
@@ -207,7 +207,7 @@ export const dcAcSpec = (stations: PvsystStation[]): PanelChartSpec | null => {
   return {
     xKind: "linear",
     x: [],
-    xLabel: translate("DC/AC ratio (kWp ÷ kWac, derived)"),
+    xLabel: translate("DC/AC ratio (kWp / kWac, derived)"),
     xTipNumber: (v) => `DC/AC ${fmt(v, 2)}`,
     panels: [{ key: "pr", title: translate("PR (%, modelled)"), series, zero: false }],
   };
@@ -363,7 +363,7 @@ export const PvsystCharts: React.FC<{ phase: number | null; start?: string | nul
         note={<>
           {t("First-year contract kWh/kWp (on the model's kWp) against PVsyst P50 kWh/kWp (on the reports' kWp). Phase 1's contract comes from the contract sheet; phases 2–4 are the model's estimate.")}{" "}
           {p1?.sheetRatio != null && p1.ratio != null && Math.abs(p1.sheetRatio - p1.ratio) > 0.005
-            ? t("Phase 1: the sheet's kWh ÷ kWh is {a} %, but its PVsyst reports cover {p} kWp against the contract's {c} kWp, so per kWp it is {b} %.", {
+            ? t("Phase 1: the sheet's kWh / kWh is {a} %, but its PVsyst reports cover {p} kWp against the contract's {c} kWp, so per kWp it is {b} %.", {
                 a: fmt(p1.sheetRatio * 100, 1),
                 b: fmt(p1.ratio * 100, 1),
                 p: fmtInt(phases.find((x) => x.phase === 1)?.kwp_pvsyst ?? null),
@@ -380,7 +380,7 @@ export const PvsystCharts: React.FC<{ phase: number | null; start?: string | nul
       </PvCard>
 
       <PvCard title={t("DC/AC ratio and PR")} empty={noStations || (dcac ? null : t("No kWac in the model."))}
-        note={t("DC/AC = the report's kWp ÷ kWac (derived); PR from the same report.")}>
+        note={t("DC/AC = the report's kWp / kWac (derived); PR from the same report.")}>
         <PanelChart spec={dcac} height={320} legendToggle />
       </PvCard>
 
@@ -388,7 +388,7 @@ export const PvsystCharts: React.FC<{ phase: number | null; start?: string | nul
         empty={!meter ? t("Meter comparison not loaded.") : vs ? null : t("No report day with a meter reading for a matched site in this period.")}
         note={meter && (
           <>
-            {t("Each point is a site-month: the meter's kWh on the days read against PVsyst E_Grid on the same days (the month ÷ its days, × site kWp ÷ PVsyst kWp).")}{" "}
+            {t("Each point is a site-month: the meter's kWh on the days read against PVsyst E_Grid on the same days (the month / its days, × site kWp / PVsyst kWp).")}{" "}
             {t("{m} sites matched by report id, {u} not matched (left out), {w} without a reading in the period; {n} site-months shown.", {
               m: meter.matched,
               u: meter.unmatched,

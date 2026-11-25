@@ -377,7 +377,7 @@ export const RainRadarBar: React.FC<{
 };
 
 /** Radar rain over one plant: now and the +15 / +30 min nowcast. Not a measurement. */
-export const PlantRainRow: React.FC<{ plantId: number; legend: Legend }> = ({ plantId, legend }) => {
+export const PlantRainRow: React.FC<{ plantId: number; legend: Legend; /** no top border / margin (inside a card of its own) */ bare?: boolean }> = ({ plantId, legend, bare }) => {
   const [state, setState] = useState<{ id: number; env: GrowattLive<PlantRadarRain> | null; error: string | null }>({
     id: plantId,
     env: null,
@@ -400,7 +400,7 @@ export const PlantRainRow: React.FC<{ plantId: number; legend: Legend }> = ({ pl
       .map((f) => ({ label: t("+{n} min", { n: f.lead_min }), rain: f.rain })),
   ];
   return (
-    <div className="mt-2.5 border-t border-white/[0.06] pt-2.5 text-[11px]">
+    <div className={cn("text-[11px]", !bare && "mt-2.5 border-t border-white/[0.06] pt-2.5")}>
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="text-slate-500">

@@ -79,7 +79,7 @@ export const fleetDailySpec = (d: PwaMeterDaily, phase: number | null, bands: Co
     xStep: DAY_MS,
     panels: [
       { key: "yield", title: withMean ? translate("Specific yield (kWh/kWp per day; bold = 7-day mean)") : translate("Specific yield (kWh/kWp per day)"), yMin: 0, series: yieldSeries },
-      { key: "ratio", title: translate("Meter ÷ contract energy (%)"), weight: 0.8, zero: false, tickSuffix: " %", series: ratioSeries, refLines: contractRefLines(bands) },
+      { key: "ratio", title: translate("Meter / contract energy (%)"), weight: 0.8, zero: false, tickSuffix: " %", series: ratioSeries, refLines: contractRefLines(bands) },
       ...(curtailed.some((n) => n > 0)
         ? [
             {
@@ -143,7 +143,7 @@ export const cumulativeSpec = (d: PwaMeterDaily, phase: number | null, bands: Co
           { key: "contract", name: translate("Contract (modelled)"), type: "line", color: SERIES.reference, dash: "dash", y: cumC, width: 1.6, format: fmtM },
         ],
       },
-      { key: "pct", title: translate("Meter ÷ contract to date (%)"), weight: 0.7, zero: false, tickSuffix: " %", refLines: contractRefLines(bands), series: [{ key: "pct", name: translate("Meter ÷ contract to date"), type: "line", color: SERIES.ac, y: pct, width: 2, noLegend: true, format: (v) => `${fmt(v, 1)} %` }] },
+      { key: "pct", title: translate("Meter / contract to date (%)"), weight: 0.7, zero: false, tickSuffix: " %", refLines: contractRefLines(bands), series: [{ key: "pct", name: translate("Meter / contract to date"), type: "line", color: SERIES.ac, y: pct, width: 2, noLegend: true, format: (v) => `${fmt(v, 1)} %` }] },
     ],
     tipExtra: (i) =>
       cumM[i] == null || cumC[i] == null ? [] : [{ label: translate("Meter − contract to date (contract modelled)"), value: `${fmt(cumM[i]! - cumC[i]!, 1)} MWh` }],

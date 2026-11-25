@@ -52,7 +52,7 @@ const siteSpec = (d: PwaMeterSiteDays, median: number | null): PanelChartSpec | 
             : []),
         ],
       },
-      ratioPanel(translate("Meter ÷ inverter (%)"), translate("Meter ÷ inverter"), ratio, median != null ? { y: median, label: translate("Site median {v} %", { v: fmt(median, 2) }) } : null),
+      ratioPanel(translate("Meter / inverter (%)"), translate("Meter / inverter"), ratio, median != null ? { y: median, label: translate("Site median {v} %", { v: fmt(median, 2) }) } : null),
     ],
   };
 };

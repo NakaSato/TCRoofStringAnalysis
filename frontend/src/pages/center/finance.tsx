@@ -207,11 +207,11 @@ export const financeMonthSpec = (months: FinanceMonth[]): PanelChartSpec | null 
       },
       {
         key: "ratio",
-        title: translate("O&M spend ÷ billed (%)"),
+        title: translate("O&M spend / billed (%)"),
         weight: 0.6,
         yMin: 0,
         tickSuffix: " %",
-        series: [{ key: "ratio", name: translate("Spend ÷ billed"), type: "line", color: SERIES.secondary, width: 2, y: months.map((m) => m.ratio_pct), noLegend: true, format: (v) => `${fmt(v, 2)} %` }],
+        series: [{ key: "ratio", name: translate("Spend / billed"), type: "line", color: SERIES.secondary, width: 2, y: months.map((m) => m.ratio_pct), noLegend: true, format: (v) => `${fmt(v, 2)} %` }],
       },
     ],
     tipExtra: (i) => {
@@ -287,13 +287,13 @@ export const FinanceTable: React.FC<{
               </>
             }
             className="text-right"
-            title={`${t("Billed ÷ contract energy on the days with a contract figure.")} ${t(MODELLED)}`}
+            title={`${t("Billed / contract energy on the days with a contract figure.")} ${t(MODELLED)}`}
             {...h}
           />
           <SortHead k="spend" label={t("O&M spend ฿")} className="text-right" title={`${t("Site log costs of the site's Growatt plant in the report's months.")} ${t(ENTERED)}`} {...h} />
           <SortHead k="events" label={t("Events")} className="text-right" title={t("Site log events with a cost / all events")} {...h} />
-          <SortHead k="ratio" label={t("Spend ÷ billed")} className="text-right" title={t("O&M spend ÷ billed value")} {...h} />
-          <SortHead k="perkwp" label={t("฿ / kWp")} className="text-right" title={t("O&M spend ÷ the contract kWp")} {...h} />
+          <SortHead k="ratio" label={t("Spend / billed")} className="text-right" title={t("O&M spend / billed value")} {...h} />
+          <SortHead k="perkwp" label={t("฿ / kWp")} className="text-right" title={t("O&M spend / the contract kWp")} {...h} />
           <SortHead k="net" label={t("Billed − spend ฿")} className="text-right" title={t("Billed value minus the entered O&M spend; — when no cost is entered")} {...h} />
         </TableRow>
       </TableHeader>

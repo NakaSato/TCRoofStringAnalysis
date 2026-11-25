@@ -38,15 +38,15 @@ export const TH_PVSYST: Record<string, string> = {
   "Specific yield (kWh/kWp/yr, modelled)": "ผลผลิตจำเพาะ (kWh/kWp/ปี, แบบจำลอง)",
   "PVsyst P50": "PVsyst P50",
   "Contract, first year": "ตามสัญญา ปีแรก",
-  "Contract ÷ PVsyst per kWp (%)": "สัญญา ÷ PVsyst ต่อ kWp (%)",
-  "Contract ÷ PVsyst per kWp": "สัญญา ÷ PVsyst ต่อ kWp",
-  "Sheet's contract ÷ PVsyst (kWh ÷ kWh)": "สัญญา ÷ PVsyst ตามชีต (kWh ÷ kWh)",
+  "Contract / PVsyst per kWp (%)": "สัญญา / PVsyst ต่อ kWp (%)",
+  "Contract / PVsyst per kWp": "สัญญา / PVsyst ต่อ kWp",
+  "Sheet's contract / PVsyst (kWh / kWh)": "สัญญา / PVsyst ตามชีต (kWh / kWh)",
   "No contract figures in the model.": "แบบจำลองไม่มีตัวเลขตามสัญญา",
   "yr": "ปี",
   "First-year contract kWh/kWp (on the model's kWp) against PVsyst P50 kWh/kWp (on the reports' kWp). Phase 1's contract comes from the contract sheet; phases 2–4 are the model's estimate.":
     "kWh/kWp ตามสัญญาปีแรก (คิดจาก kWp ในแบบจำลอง) เทียบ kWh/kWp ของ PVsyst P50 (คิดจาก kWp ในรายงาน) ระยะที่ 1 ใช้ตัวเลขจากชีตสัญญา ระยะที่ 2–4 เป็นค่าประมาณของแบบจำลอง",
-  "Phase 1: the sheet's kWh ÷ kWh is {a} %, but its PVsyst reports cover {p} kWp against the contract's {c} kWp, so per kWp it is {b} %.":
-    "ระยะที่ 1: ชีตคิด kWh ÷ kWh ได้ {a} % แต่รายงาน PVsyst ครอบคลุม {p} kWp ขณะที่สัญญาคิด {c} kWp เมื่อเทียบต่อ kWp จึงเป็น {b} %",
+  "Phase 1: the sheet's kWh / kWh is {a} %, but its PVsyst reports cover {p} kWp against the contract's {c} kWp, so per kWp it is {b} %.":
+    "ระยะที่ 1: ชีตคิด kWh / kWh ได้ {a} % แต่รายงาน PVsyst ครอบคลุม {p} kWp ขณะที่สัญญาคิด {c} kWp เมื่อเทียบต่อ kWp จึงเป็น {b} %",
 
   "Orientation and specific yield": "ทิศทางแผงกับผลผลิตจำเพาะ",
   "Azimuth": "มุมทิศ (Azimuth)",
@@ -56,9 +56,9 @@ export const TH_PVSYST: Record<string, string> = {
     "{n} สถานีมีทิศทางแผงเดียว ไม่รวม {m} สถานีที่มีหลายทิศ และ {u} สถานีที่อ่านข้อความ Tilt/Azimuth ไม่ได้",
 
   "DC/AC ratio and PR": "อัตราส่วน DC/AC กับ PR",
-  "DC/AC ratio (kWp ÷ kWac, derived)": "อัตราส่วน DC/AC (kWp ÷ kWac, ค่าคำนวณ)",
+  "DC/AC ratio (kWp / kWac, derived)": "อัตราส่วน DC/AC (kWp / kWac, ค่าคำนวณ)",
   "No kWac in the model.": "แบบจำลองไม่มี kWac",
-  "DC/AC = the report's kWp ÷ kWac (derived); PR from the same report.": "DC/AC = kWp ÷ kWac ในรายงาน (ค่าคำนวณ) PR จากรายงานเดียวกัน",
+  "DC/AC = the report's kWp / kWac (derived); PR from the same report.": "DC/AC = kWp / kWac ในรายงาน (ค่าคำนวณ) PR จากรายงานเดียวกัน",
 
   "Metered vs PVsyst by site and month": "มิเตอร์เทียบ PVsyst รายสถานีรายเดือน",
   "Metered (MWh, measured)": "มิเตอร์ (MWh, ค่าวัดจริง)",
@@ -67,8 +67,8 @@ export const TH_PVSYST: Record<string, string> = {
   "PVsyst": "PVsyst",
   "Meter comparison not loaded.": "ยังไม่ได้โหลดข้อมูลเทียบมิเตอร์",
   "No report day with a meter reading for a matched site in this period.": "ช่วงนี้ไม่มีวันรายงานที่มีค่ามิเตอร์ของสถานีที่จับคู่ได้",
-  "Each point is a site-month: the meter's kWh on the days read against PVsyst E_Grid on the same days (the month ÷ its days, × site kWp ÷ PVsyst kWp).":
-    "แต่ละจุด = หนึ่งสถานีหนึ่งเดือน: kWh จากมิเตอร์ในวันที่มีค่า เทียบ E_Grid ของ PVsyst ในวันเดียวกัน (ค่าเดือน ÷ จำนวนวัน × kWp สถานี ÷ kWp PVsyst)",
+  "Each point is a site-month: the meter's kWh on the days read against PVsyst E_Grid on the same days (the month / its days, × site kWp / PVsyst kWp).":
+    "แต่ละจุด = หนึ่งสถานีหนึ่งเดือน: kWh จากมิเตอร์ในวันที่มีค่า เทียบ E_Grid ของ PVsyst ในวันเดียวกัน (ค่าเดือน / จำนวนวัน × kWp สถานี / kWp PVsyst)",
   "{m} sites matched by report id, {u} not matched (left out), {w} without a reading in the period; {n} site-months shown.":
     "จับคู่ด้วยรหัสในรายงานได้ {m} สถานี จับคู่ไม่ได้ {u} สถานี (ไม่แสดง) ไม่มีค่ามิเตอร์ในช่วงนี้ {w} สถานี แสดง {n} สถานี-เดือน",
 };

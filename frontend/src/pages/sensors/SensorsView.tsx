@@ -1,13 +1,16 @@
 /** Weather Sensors list (fleet `/sensors` and the plant Sensors tab): tiles, filters, table, and the Status / Info views. */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, CircleCheck, CircleHelp, Clock, CloudOff, Gauge, Info, ListChecks, PowerOff, RefreshCw, Search, TriangleAlert, WifiOff, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleCheck, CircleHelp, Clock, CloudOff, Info, ListChecks, PowerOff, RefreshCw, Search, TriangleAlert, WifiOff, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api } from "../../api/client";
 import type { GrowattLive, GrowattWeatherField, SensorList, SensorLiveStatus, SensorRow, SensorStatus } from "../../api/client";
 import { useLivePoll } from "../../context/useLivePoll";
 import { plantPath } from "../../context/routes";
-import { EmptyState, LoadingState, PageHeader, Panel, StatusBadge, fmt, fmtInt } from "../../components/ui";
+import { LoadingState, StatusBadge, fmt, fmtInt } from "../../components/ui";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { FlagChips, STATUS_VIEW, overlay } from "../../components/sensorView";
 import type { ViewRow } from "../../components/sensorView";
 import { cn } from "@/lib/utils";
@@ -225,15 +228,12 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
   return (
     <div className="flex flex-col gap-5">
       {!one && (
-      <PageHeader
-        icon={Gauge}
-        eyebrow={one ? t("Plant") : t("Monitoring")}
-        title={one ? t("Sensors") : t("Weather Sensors")}
-        description={one
-          ? t("This plant's Growatt weather sensors: online state from Growatt's live sensor list (never stored), plus the newest stored reading, probes that report, and how much of today's daylight is stored.")
-          : t("Every Growatt weather sensor you can see: online state from Growatt's live sensor list (checked a few dataloggers at a time, never stored), plus the newest stored reading, probes that report, and how much of today's daylight is stored.")}
-        actions={
-          <>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col">
+          <h1 className="text-lg font-semibold">{t("Weather Sensors")}</h1>
+          <p className="text-xs text-muted-foreground">{t("Live online state from Growatt (never stored), newest stored reading and today's coverage")}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
             {live && !sweeping && !live.stale ? (
               <Badge variant="ok" className="px-2 py-0.5 text-[11px] font-semibold" title={t("Oldest datalogger check {time}", { time: live.fetched_at })}>
                 {t("Live")} · {hhmm(live.fetched_at)}
@@ -252,9 +252,8 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
               {loading ? <Spinner data-icon="inline-start" className="size-3" /> : <RefreshCw data-icon="inline-start" />}
               {t("Refresh")}
             </Button>
-          </>
-        }
-      />
+        </div>
+      </div>
       )}
 
       {!one && <Tabs value={tab} onValueChange={(v) => setUrl({ tab: v === "status" ? null : v })}>
@@ -273,17 +272,25 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       {loading && !data ? (
         <LoadingState label={t("Loading weather sensors…")} shape="table" />
       ) : error && !data ? (
-        <EmptyState icon={CloudOff} title={t("Sensor list unavailable")} description={error} />
+        <Alert variant="destructive">
+          <AlertTitle>{t("Sensor list unavailable")}</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : !sensors.length ? (
-        <EmptyState
-          icon={Gauge}
-          title={t("No weather sensors")}
-          description={
-            one
-              ? t("This plant has no Growatt weather sensor registered.")
-              : t("None of the plants you can see has a Growatt weather sensor registered. Engineers see only the plants an admin assigned to them.")
-          }
-        />
+        <Card>
+          <CardContent>
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>{t("No weather sensors")}</EmptyTitle>
+                <EmptyDescription>
+                  {one
+                    ? t("This plant has no Growatt weather sensor registered.")
+                    : t("None of the plants you can see has a Growatt weather sensor registered. Engineers see only the plants an admin assigned to them.")}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          </CardContent>
+        </Card>
       ) : one ? (
         <PlantSensorView
           sensors={sensors}
@@ -353,10 +360,11 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
             />
           </div>
 
-          <Panel
-            icon={ListChecks}
-            title={t("Sensor status")}
-            subtitle={`${t("{n} of {total} sensors", { n: rows.length, total: sensors.length })}${
+          <Card className="gap-0 py-0">
+            <CardHeader className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <CardTitle>{t("Sensor status")}</CardTitle>
+                <CardDescription>{`${t("{n} of {total} sensors", { n: rows.length, total: sensors.length })}${
               filter !== "all"
                 ? ` · ${t("filter: {name}", { name: filter === "low" ? t("data gaps") : filter === "flags" ? t("health flags") : t(STATUS_VIEW[filter].label) })}`
                 : ""
@@ -366,9 +374,8 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                 : liveErrors
                   ? ` · ${t("{n} datalogger(s) not answering", { n: liveErrors })}`
                   : ""
-            }`}
-            bodyClassName="p-0"
-            actions={
+            }`}</CardDescription>
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 {!one && phases.length > 1 && (
                   <Select value={phase || "all"} onValueChange={(v) => setUrl({ phase: v === "all" ? null : v })}>
@@ -399,10 +406,15 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
                   )}
                 </InputGroup>
               </div>
-            }
-          >
+            </CardHeader>
+            <CardContent className="px-0">
             {!rows.length ? (
-              <EmptyState icon={Search} title={t("No sensor matches")} description={t("Change the filter or search.")} className="py-10" />
+              <Empty className="py-10">
+                <EmptyHeader>
+                  <EmptyTitle>{t("No sensor matches")}</EmptyTitle>
+                  <EmptyDescription>{t("Change the filter or search.")}</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             ) : (
               <Table containerClassName="table-wrap max-h-[680px] overflow-auto">
                 <TableHeader className="sticky top-0 z-10">
@@ -484,8 +496,9 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
               </Table>
             )}
             {rows.length > 0 && <TablePager className="border-t border-white/[0.06] px-4 py-2.5" rows={rows.length} pageSize={SENSOR_PAGE} pageNo={pageNo} onPage={setPage} />}
-          </Panel>
-          <p className="text-[11px] text-slate-500">
+            </CardContent>
+            <CardFooter className="border-t border-white/[0.06] px-4 py-3">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
             {t(
               "Status: online = last upload ≤ {late} min ago, late up to {offline} min, offline after that or when Growatt reports the sensor lost; inactive = no upload for over {days} days (an entry Growatt still lists, not an alarm).",
               { late: live?.data.thresholds.late_min ?? 15, offline: live?.data.thresholds.offline_min ?? 60, days: live?.data.thresholds.inactive_days ?? 30 }
@@ -497,6 +510,8 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
             )}{" "}
             {t("No flag is raised without stored data to support it.")}
           </p>
+            </CardFooter>
+          </Card>
         </>
       ) : (
         <SensorInfo sensor={selected} sensors={sensors} now={now} until={until ?? null} onPick={openInfo} />

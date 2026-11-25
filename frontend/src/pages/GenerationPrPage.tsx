@@ -38,7 +38,7 @@ const STAT_ROW = "grid grid-cols-2 overflow-hidden rounded-lg border border-whit
 
 const CHARTS = ["yield", "thermal"] as const;
 /** PR history length (URL `hdays`) when no day range is picked */
-const HISTORY_DAYS = ["30", "7", "90", "365"] as const;
+const HISTORY_DAYS = ["30", "7", "90", "365", "year"] as const;
 
 /**
  * `/plant/:id/performance`: stored data of the URL plant (DB, not the live overlay) for the period
@@ -55,7 +55,8 @@ export const GenerationPrPage: React.FC = () => {
   const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   const chart = pick(url.get("chart"), CHARTS, "yield");
-  const historyDays = Number(pick(url.get("hdays"), HISTORY_DAYS, "30"));
+  const hdays = pick(url.get("hdays"), HISTORY_DAYS, "30");
+  const historyDays = hdays === "year" ? "year" : Number(hdays);
 
   // stored records only: the live tail belongs to the Plant Overview / Inverters
   const pp = usePowerPeriod(plantOv, null, [], [], { live: false });
@@ -98,32 +99,29 @@ export const GenerationPrPage: React.FC = () => {
       : t("No stored records for {period}", { period: pp.label });
 
   const periodBar = (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="flex flex-col gap-0.5">
-        <span className="text-sm font-semibold text-white">{pp.label}</span>
-        <span className="text-[11px] text-muted-foreground">
-          {pp.windowed
-            ? t("Time window · PR is a whole-day figure, not shown")
-            : pp.multi
-              ? t("Day range · the PR history below gives the range's energy-weighted PR")
-              : t("Whole day")}
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
+    // the picker's button names the period (day, range, time window); the note says what it means
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <StringPeriodPicker
+        period={pp.period}
+        onChange={pp.setPeriod}
+        shownDay={pp.day}
+        shownEndDay={pp.endDay}
+        today={pp.today}
+        loading={pp.loading}
+        align="start"
+        time={false}
+        hint={pp.multi ? undefined : t("Drag across the power chart to look at a time window.")}
+        resetLabel={t("Today")}
+        resetTitle={t("Back to today")}
+      />
+      <span className="flex items-center gap-2 text-xs text-muted-foreground">
         {pp.loading && <Spinner className="size-3" aria-label={t("Loading the period…")} />}
-        <StringPeriodPicker
-          period={pp.period}
-          onChange={pp.setPeriod}
-          shownDay={pp.day}
-          shownEndDay={pp.endDay}
-          today={pp.today}
-          loading={pp.loading}
-          align="end"
-          hint={pp.multi ? undefined : t("Or drag across the power chart.")}
-          resetLabel={t("Today")}
-          resetTitle={t("Back to today")}
-        />
-      </div>
+        {pp.windowed
+          ? t("Time window · PR is a whole-day figure, not shown")
+          : pp.multi
+            ? t("Day range · the PR history below gives the range's energy-weighted PR")
+            : t("Whole day")}
+      </span>
     </div>
   );
 

@@ -232,35 +232,6 @@ const FlowNode: React.FC<{
   );
 };
 
-/** A labelled reading of the meter, as reported: name on top, value + unit under it. */
-const Reading: React.FC<{ label: string; value: number | null | undefined; digits: number; unit?: string; hint?: string }> = ({
-  label,
-  value,
-  digits,
-  unit,
-  hint,
-}) => {
-  const body = (
-    <div
-      tabIndex={hint ? 0 : undefined}
-      className="flex min-w-0 flex-col gap-0.5 rounded-md bg-white/[0.025] px-2.5 py-2 outline-none focus-visible:ring-1 focus-visible:ring-white/20"
-    >
-      <span className="truncate text-[10px] text-muted-foreground">{label}</span>
-      <span className="num truncate text-[13px] font-semibold text-slate-100">
-        <AnimatedNumber value={value} digits={digits} />
-        {value != null && unit && <span className="ml-0.5 text-[10px] font-normal text-muted-foreground">{unit}</span>}
-      </span>
-    </div>
-  );
-  return hint ? (
-    <Tip label={label} hint={hint}>
-      {body}
-    </Tip>
-  ) : (
-    body
-  );
-};
-
 /**
  * Grid import / export now (measured by the plant's energy meter) and the site load (PV AC + grid,
  * derived), from the page's `useLiveMeter` poll; hidden for plants without a meter.
@@ -275,7 +246,6 @@ export const LiveMeterCard: React.FC<{ m: ReturnType<typeof useLiveMeter> }> = (
   // a failed poll keeps the last answer on screen, but it is no longer live
   const stale = Boolean(res?.stale) || Boolean(d?.meters.some((m) => m.stale)) || error != null;
   const meters = d?.meters ?? [];
-  const one = meters.length === 1 ? meters[0] : null;
   const errorCount = d ? Object.keys(d.errors).length : 0;
 
   const pv = load?.pv_kw ?? null;
@@ -416,22 +386,6 @@ export const LiveMeterCard: React.FC<{ m: ReturnType<typeof useLiveMeter> }> = (
                 />
               </div>
 
-              {/* one meter: its counter and quality figures, as reported */}
-              {one && (
-                <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-3">
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <Reading
-                      label={t("Import counter")}
-                      value={one.import_counter_kwh}
-                      digits={0}
-                      unit="kWh"
-                      hint={t("Lifetime import register of the meter")}
-                    />
-                    <Reading label={t("Power factor")} value={one.power_factor} digits={2} />
-                    <Reading label={t("Frequency")} value={one.frequency_hz} digits={2} unit="Hz" />
-                  </div>
-                </div>
-              )}
               {(meters.length > 1 || errorCount > 0) && (
                 <div className="flex items-center justify-between gap-2 text-[11px]">
                   {meters.length > 1 ? <span className="num text-muted-foreground">{t("Sum of {n} meters", { n: meters.length })}</span> : <span />}

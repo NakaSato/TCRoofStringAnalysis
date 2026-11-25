@@ -10,7 +10,6 @@ import type { ViewRow } from "../../components/sensorView";
 import { PanelChart } from "../../components/PanelChart";
 import { cn } from "@/lib/utils";
 import { pickDay, pickTime, useUrlState } from "@/lib/useUrlState";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Spinner } from "@/components/ui/spinner";
@@ -273,10 +272,6 @@ export const PlantSensorView: React.FC<{
             <Button variant="outline" size="sm" onClick={() => setDay(today)} disabled={isToday}>
               {t("Today")}
             </Button>
-            <ButtonGroup aria-label={t("Time of day")}>
-              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeFrom} onChange={(e) => setUrl({ from: e.target.value })} aria-label={t("From time")} />
-              <Input type="time" step={300} className="h-7 w-[6.5rem] text-xs" value={timeTo} onChange={(e) => setUrl({ to: e.target.value })} aria-label={t("To time")} />
-            </ButtonGroup>
             {(timeFrom || timeTo) && (
               <Button variant="ghost" size="sm" onClick={() => setUrl({ from: null, to: null })} title={t("Show the whole day")}>
                 <X data-icon="inline-start" />
@@ -306,7 +301,7 @@ export const PlantSensorView: React.FC<{
                   hint={
                     iecPr.pr_pct == null
                       ? iecPr.reason ?? undefined
-                      : `Yf ${fmt(iecPr.final_yield_h, 2)} h ÷ Yr ${fmt(iecPr.reference_yield_h, 2)} h · ${t("{pct}% coverage", { pct: fmt(iecPr.coverage_pct, 0) })}`
+                      : `Yf ${fmt(iecPr.final_yield_h, 2)} h / Yr ${fmt(iecPr.reference_yield_h, 2)} h · ${t("{pct}% coverage", { pct: fmt(iecPr.coverage_pct, 0) })}`
                   }
                 >
                   <span className={iecPr.pr_pct == null ? "text-muted-foreground" : iecPr.pr_pct >= 80 ? "text-emerald-300" : "text-amber-300"}>{fmt(iecPr.pr_pct, 1)}</span>

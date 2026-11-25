@@ -16,6 +16,8 @@ import { daysBetween, fmtDay } from "../pwaMeter/format";
 
 /** day counts the toggle offers (the endpoint takes 1–365) */
 export const PR_HISTORY_DAYS = [7, 30, 90, 365] as const;
+/** a history length: a day count, or "year" = 1 Jan of `endDay`'s year to `endDay` */
+export type PrHistoryLength = number | "year";
 const MAX_DAYS = 365;
 
 export interface PrHistoryCardProps {
@@ -23,8 +25,8 @@ export interface PrHistoryCardProps {
   /** last day shown (YYYY-MM-DD) */
   endDay: string;
   /** days up to `endDay` (ignored when `startDay` is given) */
-  days: number;
-  onDaysChange: (n: number) => void;
+  days: PrHistoryLength;
+  onDaysChange: (n: PrHistoryLength) => void;
   /** the plant's target PR % (dashed line; colours the period PR); null = none */
   target: number | null;
   /** day marked on the chart (e.g. the day shown above) */
@@ -54,7 +56,8 @@ const Figure: React.FC<{ label: string; value: React.ReactNode; sub?: React.Reac
 export const PrHistoryCard: React.FC<PrHistoryCardProps> = ({ plantId, endDay, days, onDaysChange, target, selectedDay, onPickDay, startDay }) => {
   const { t } = useI18n();
   const ranged = Boolean(startDay && startDay <= endDay);
-  const n = ranged ? Math.min(MAX_DAYS, Math.max(1, daysBetween(startDay!, endDay).length)) : Math.min(MAX_DAYS, Math.max(1, Math.round(days) || 30));
+  const first = ranged ? startDay! : days === "year" ? `${endDay.slice(0, 4)}-01-01` : null;
+  const n = first ? Math.min(MAX_DAYS, Math.max(1, daysBetween(first, endDay).length)) : Math.min(MAX_DAYS, Math.max(1, Math.round(days as number) || 30));
   const key = `${plantId}|${n}|${endDay}`;
 
   const [res, setRes] = useState<{ key: string; plantId: number; data: PlantKpiDaily | null; error: string | null } | null>(null);
@@ -95,13 +98,14 @@ export const PrHistoryCard: React.FC<PrHistoryCardProps> = ({ plantId, endDay, d
           </CardDescription>
         </div>
         {!ranged && (
-          <Tabs value={String(n)} onValueChange={(v) => onDaysChange(Number(v))}>
+          <Tabs value={days === "year" ? "year" : String(n)} onValueChange={(v) => onDaysChange(v === "year" ? "year" : Number(v))}>
             <TabsList variant="line" aria-label={t("PR history length")}>
               {PR_HISTORY_DAYS.map((d) => (
                 <TabsTrigger key={d} value={String(d)}>
                   {t("{n} days", { n: d })}
                 </TabsTrigger>
               ))}
+              <TabsTrigger value="year">{t("This year")}</TabsTrigger>
             </TabsList>
           </Tabs>
         )}
@@ -121,7 +125,7 @@ export const PrHistoryCard: React.FC<PrHistoryCardProps> = ({ plantId, endDay, d
                 label={t("Period PR")}
                 value={sum.periodPr == null ? "—" : `${fmt(sum.periodPr, 1)} %`}
                 sub={t("IEC 61724 · energy-weighted")}
-                title={t("Σ Yf ÷ Σ Yr over the days with an IEC PR; days with a suspect sensor are left out")}
+                title={t("Σ Yf / Σ Yr over the days with an IEC PR; days with a suspect sensor are left out")}
                 className={target != null ? prTone(sum.periodPr, target) : undefined}
               />
               <Figure

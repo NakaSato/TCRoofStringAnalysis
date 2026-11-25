@@ -494,8 +494,8 @@ export const OmCenterPage: React.FC = () => {
     finance: `${t("Finance, per report site over the report's months: billed value (Cewe meter kWh × book price, measured) against the Site log costs of the site's Growatt plant (entered; events without a cost are counted, not priced). Nothing estimated. A row opens the site's days.")}${fin.outside.events ? ` ${t("Outside the report (other plants or months): {thb} in {n} events.", { thb: thb(fin.outside.thb), n: fmtInt(fin.outside.events) })}` : ""}`,
     sites: t("PWA meter report. Contract and PVsyst are modelled. Lowest yield first. A site's row opens its days."),
     outages: `${t("Consecutive outage days of a site (meter and inverter both < 1 kWh). Cause = first keyword group in the notes.")}${longDays != null ? ` ${t("Red = {n} days or more.", { n: longDays })}` : ""}`,
-    meter: t("Meter ÷ inverter per site, judged on productive days."),
-    growatt: `${t("Cewe meter (PWA report) ÷ Growatt's own day energy of the site's plant, per site on the days both read > 0; both measured. About 98.5–99 % is normal (AC losses to the grid-point meter). A Growatt day above 10 kWh/kWp is withheld. A row opens the site's days.")}${vsg?.summary.growatt_first_day ? ` ${t("Growatt day energy stored {from} – {to}.", { from: fmtDayLong(vsg.summary.growatt_first_day), to: fmtDayLong(vsg.summary.growatt_last_day) })}` : ` ${t("No Growatt day energy stored for this period.")}`}`,
+    meter: t("Meter / inverter per site, judged on productive days."),
+    growatt: `${t("Cewe meter (PWA report) / Growatt's own day energy of the site's plant, per site on the days both read > 0; both measured. About 98.5–99 % is normal (AC losses to the grid-point meter). A Growatt day above 10 kWh/kWp is withheld. A row opens the site's days.")}${vsg?.summary.growatt_first_day ? ` ${t("Growatt day energy stored {from} – {to}.", { from: fmtDayLong(vsg.summary.growatt_first_day), to: fmtDayLong(vsg.summary.growatt_last_day) })}` : ` ${t("No Growatt day energy stored for this period.")}`}`,
   }[view];
 
   return (
@@ -661,7 +661,7 @@ export const OmCenterPage: React.FC = () => {
                 tone={flaggedChecks.length ? "text-amber-300" : undefined}
                 href={listHref({ view: "meter" })}
                 linkLabel={t("Open the meter check")}
-                footer={<span title={t("Sites with a meter vs inverter flag")}>{t("Meter ÷ inverter, productive days")}</span>}
+                footer={<span title={t("Sites with a meter vs inverter flag")}>{t("Meter / inverter, productive days")}</span>}
               />
               <StatTile
                 label={t("Meter vs Growatt")}
@@ -717,7 +717,7 @@ export const OmCenterPage: React.FC = () => {
                 unit="%"
                 tone={m?.availability_pct == null ? undefined : m.availability_pct >= 99 ? "text-emerald-300" : m.availability_pct < 95 ? "text-red-300" : "text-amber-300"}
                 meter={m?.availability_pct != null ? <Meter segments={[{ pct: m.availability_pct, className: "bg-emerald-400" }]} mark={99} title={t("Tick = 99 %")} /> : undefined}
-                footer={<span title={t("Inverter minutes not in fault / off / standby ÷ daylight minutes with data. Power limiting is not downtime.")}>{t("Time based")}{m?.limited_min ? ` · ${t("{n} h limited", { n: fmtInt(Math.round(m.limited_min / 60)) })}` : ""}</span>}
+                footer={<span title={t("Inverter minutes not in fault / off / standby / daylight minutes with data. Power limiting is not downtime.")}>{t("Time based")}{m?.limited_min ? ` · ${t("{n} h limited", { n: fmtInt(Math.round(m.limited_min / 60)) })}` : ""}</span>}
               />
             </Group>
 
@@ -758,7 +758,7 @@ export const OmCenterPage: React.FC = () => {
               badgeTitle={t(FINANCE_HINT)}
               loading={pwaLoading || (center.loading && !c)}
               empty={!finSpec ? noReport : null}
-              note={t("Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend ÷ billed. Months without a priced event have no spend bar.")}
+              note={t("Top: billed value per month. Middle: O&M spend entered in the Site log for the report sites' plants, by work type. Bottom: spend / billed. Months without a priced event have no spend bar.")}
             >
               <PanelChart spec={finSpec} height={330} legendPosition="bottom" />
             </ChartCard>
@@ -773,7 +773,7 @@ export const OmCenterPage: React.FC = () => {
               badgeTitle={t("Measured meter kWh; the contract's energy is modelled")}
               loading={pwaLoading}
               empty={!regionSpec ? noReport : null}
-              note={t("Bars = billed meter energy of the period per PWA region (a segment per phase); diamonds = the contract's energy (modelled). Bottom: billed ÷ contract on the days with a contract figure, with the criteria file's watch (amber) and red lines.")}
+              note={t("Bars = billed meter energy of the period per PWA region (a segment per phase); diamonds = the contract's energy (modelled). Bottom: billed / contract on the days with a contract figure, with the criteria file's watch (amber) and red lines.")}
             >
               <PanelChart spec={regionSpec} height={330} />
             </ChartCard>
@@ -784,7 +784,7 @@ export const OmCenterPage: React.FC = () => {
               badgeTitle={t("Measured meter kWh; the contract's energy is modelled")}
               loading={pwaLoading}
               empty={!rankRows.length ? t("No site with a contract figure in this period") : null}
-              note={t("The {n} sites lowest in billed ÷ contract over the period, of {total} with a contract figure (the phase above applies), on the days with a contract figure; a day without a reading counts 0 (grey value with *). Hover for the energy and those days, click to open the site.", { n: Math.min(RANK_N, ranked), total: ranked })}
+              note={t("The {n} sites lowest in billed / contract over the period, of {total} with a contract figure (the phase above applies), on the days with a contract figure; a day without a reading counts 0 (grey value with *). Hover for the energy and those days, click to open the site.", { n: Math.min(RANK_N, ranked), total: ranked })}
             >
               <RankBars rows={rankRows} bands={bands} onOpen={openSite} />
             </ChartCard>
@@ -796,7 +796,7 @@ export const OmCenterPage: React.FC = () => {
               title={t("Weather impact: specific yield by weather")}
               source={t("PWA meter")}
               badge={t("Measured")}
-              badgeTitle={t("Meter kWh ÷ kWp per report day; the weather is the word the site wrote in the report")}
+              badgeTitle={t("Meter kWh / kWp per report day; the weather is the word the site wrote in the report")}
               loading={pwaLoading}
               empty={!boxes.length ? t("No producing report day with a weather word in this period") : null}
               note={t("One box per weather and phase over the sites' producing days (the phase above applies): the box is the middle half, the white line the median, the whiskers P5–P95. Outage days, days with a missing reading or no weather word, and days the report marks as curtailed are left out.")}
@@ -808,7 +808,7 @@ export const OmCenterPage: React.FC = () => {
               title={t("Specific yield by month")}
               source={t("PWA meter")}
               badge={t("Measured")}
-              badgeTitle={t("Meter kWh ÷ kWp per report day")}
+              badgeTitle={t("Meter kWh / kWp per report day")}
               loading={pwaLoading}
               empty={mBoxMonths < 2 ? t("Pick a period of two months or more (e.g. Year to date) to compare months") : null}
               note={t("One box per month and phase over the sites' producing days (the phase above applies): the box is the middle half, the white line the median, the whiskers P5–P95. Specific yield takes out the site size, so seasons and slow drift show. Outage days, days with a missing reading and days marked as curtailed are left out.")}
@@ -842,7 +842,7 @@ export const OmCenterPage: React.FC = () => {
               title={t("Daily heatmap: site × day (kWh/kWp)")}
               source={t("PWA meter")}
               badge={t("Measured")}
-              badgeTitle={t("Meter kWh ÷ kWp per report day")}
+              badgeTitle={t("Meter kWh / kWp per report day")}
               className="xl:col-span-2"
               loading={pwaLoading}
               empty={!daily || !daily.days.length || !heatOrder.length ? noReport : null}
@@ -877,18 +877,18 @@ export const OmCenterPage: React.FC = () => {
                 className="xl:col-span-2"
                 loading={pwaLoading}
                 empty={!vsgSpec ? t("No day with both a meter reading and a Growatt day energy in this period") : null}
-                note={t("Summed per day over the sites with both readings (the phase above applies); an empty day had no site to compare. Middle: meter ÷ Growatt on an axis fitted to the period; a day outside 90–104 % is drawn on the edge in red. Bottom: how many sites were compared, so a step in the energy is sites joining or leaving.")}
+                note={t("Summed per day over the sites with both readings (the phase above applies); an empty day had no site to compare. Middle: meter / Growatt on an axis fitted to the period; a day outside 90–104 % is drawn on the edge in red. Bottom: how many sites were compared, so a step in the energy is sites joining or leaving.")}
               >
                 <PanelChart spec={vsgSpec} height={400} legendPosition="bottom" legendToggle />
               </ChartCard>
               <ChartCard chartHeight={400}
-                title={t("Sites by meter ÷ Growatt")}
+                title={t("Sites by meter / Growatt")}
                 source={t("Median of each site's days")}
                 badge={t("Measured")}
                 badgeTitle={t(GROWATT_HINT)}
                 loading={pwaLoading}
                 empty={!vsgSiteSpec ? t("No site with both a meter reading and a Growatt day energy in this period") : null}
-                note={t("How many sites have their median daily meter ÷ Growatt in each half-point step (the phase above applies). The normal range comes from the criteria file; hover a bar for its sites, or open the Meter vs Growatt list below.")}
+                note={t("How many sites have their median daily meter / Growatt in each half-point step (the phase above applies). The normal range comes from the criteria file; hover a bar for its sites, or open the Meter vs Growatt list below.")}
               >
                 <PanelChart spec={vsgSiteSpec} height={400} legendPosition="bottom" />
               </ChartCard>

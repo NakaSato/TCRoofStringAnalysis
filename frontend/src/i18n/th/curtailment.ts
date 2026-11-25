@@ -1,9 +1,6 @@
 /** Curtailment page (`pages/CurtailmentPage.tsx`) and the curtailment tooltips on Plant Overview. */
 export const TH_CURTAILMENT: Record<string, string> = {
-  "Energy each plant held back: zero export following the load, or the power limit (estimated)":
-    "พลังงานที่แต่ละโรงถูกหรี่: ผลิตตามโหลดไม่ให้ไฟย้อนกริด หรือติดค่าจำกัดกำลัง (ประมาณการ)",
-  "Energy each plant held back: the AC below its modelled available power while the meter held ~0 kW (zero export: the inverters followed the site load) or the AC sat at the power limit. Estimated, not measured; the model is calibrated per plant on how it runs when nothing holds it back.":
-    "พลังงานที่แต่ละโรงถูกหรี่: AC ต่ำกว่ากำลังที่ผลิตได้ตามแบบจำลอง ขณะที่มิเตอร์อ่านได้ราว 0 kW (zero export: อินเวอร์เตอร์ผลิตตามโหลดของไซต์) หรือ AC ติดค่าจำกัดกำลัง เป็นค่าประมาณการ ไม่ใช่ค่าวัด แบบจำลองปรับเทียบรายโรงจากช่วงที่ผลิตได้อิสระ",
+  "Estimated from the stored days": "ประมาณการจากข้อมูลรายวันที่เก็บไว้",
   "Last {n} days": "{n} วันล่าสุด",
   Custom: "กำหนดเอง",
   From: "จาก",

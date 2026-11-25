@@ -86,7 +86,7 @@ export const PhaseTotals: React.FC<{ phases: PwaMeterPhaseSummary[] }> = ({ phas
         <TableHead className="text-right" title={t(MODELLED)}>
           {t("vs contract")} <Tag kind="mod" />
         </TableHead>
-        <TableHead className="text-right" title={t("Pooled meter ÷ PVsyst on producing days of the sites that are not curtailed")}>
+        <TableHead className="text-right" title={t("Pooled meter / PVsyst on producing days of the sites that are not curtailed")}>
           PI_free
         </TableHead>
         <TableHead className="text-right" title={t("Share of site-days that were not an outage")}>
@@ -167,7 +167,7 @@ export const SitesTable: React.FC<{
           desc={desc}
           onSort={onSort}
           className="text-right"
-          title={`${t("Meter ÷ contract expected energy.")} ${t(MODELLED)}`}
+          title={`${t("Meter / contract expected energy.")} ${t(MODELLED)}`}
         />
         <SortHead
           k="pvsyst"
@@ -180,9 +180,9 @@ export const SitesTable: React.FC<{
           desc={desc}
           onSort={onSort}
           className="text-right"
-          title={`${t("Meter ÷ PVsyst P50 on producing days (PI_PVsyst).")} ${t(MODELLED)}`}
+          title={`${t("Meter / PVsyst P50 on producing days (PI_PVsyst).")} ${t(MODELLED)}`}
         />
-        <SortHead k="yield" label="kWh/kWp" sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Meter energy ÷ contract kWp")} />
+        <SortHead k="yield" label="kWh/kWp" sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Meter energy / contract kWp")} />
         <SortHead k="avail" label={t("Availability")} sort={sort} desc={desc} onSort={onSort} className="text-right" />
         <SortHead k="outage" label={t("Outage d")} sort={sort} desc={desc} onSort={onSort} className="text-right" />
         <SortHead k="gaps" label={t("Gap d")} sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Days with the meter or the inverter reading missing")} />
@@ -291,7 +291,7 @@ export const MeterCheckTable: React.FC<{
         <SortHead k="name" label={t("Site")} sort={sort} desc={desc} onSort={onSort} />
         <SortHead
           k="median"
-          label={t("Meter ÷ inverter")}
+          label={t("Meter / inverter")}
           sort={sort}
           desc={desc}
           onSort={onSort}

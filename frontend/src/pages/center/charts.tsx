@@ -370,7 +370,7 @@ export const RankBars: React.FC<{ rows: RankRow[]; bands: { good: number; watch:
           <div className="mb-1 font-semibold text-white">{r.name}</div>
           <TipRow label={t("Phase")} value={String(r.phase)} />
           {r.region && <TipRow label={t("Region")} value={r.region} />}
-          <TipRow label={t("Billed ÷ contract")} value={`${fmt(r.pct, 1)} %`} />
+          <TipRow label={t("Billed / contract")} value={`${fmt(r.pct, 1)} %`} />
           <TipRow label={t("Billed")} value={mwh(r.billed_kwh)} />
           <TipRow label={t("Contract (modelled)")} value={mwh(r.contract_kwh)} />
           <TipRow label={t("Outage days")} value={fmtInt(r.outage_days)} />

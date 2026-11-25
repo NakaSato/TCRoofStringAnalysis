@@ -377,7 +377,7 @@ export const StringLayoutPage: React.FC = () => {
                     label={t("DC entered")}
                     value={totals.kwp > 0 ? `${fmt(totals.kwp, 1)} kWp` : "—"}
                     sub={`AC ${totals.ac != null ? `${fmt(totals.ac, 0)} kW` : "—"} · DC/AC ${totals.ratio != null ? fmt(totals.ratio, 2) : "—"}`}
-                    hint={t("DC/AC ratio: entered DC kWp ÷ rated AC power; shown once every active string has a module count")}
+                    hint={t("DC/AC ratio: entered DC kWp / rated AC power; shown once every active string has a module count")}
                   />
                   <Figure
                     label={t("MPPT mismatch")}

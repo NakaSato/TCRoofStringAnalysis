@@ -60,7 +60,7 @@ export const VsGrowattTable: React.FC<{
           <TableHead className="text-right" title={t("Growatt's own day energy, summed over the compared days")}>
             {t("Growatt MWh")}
           </TableHead>
-          <SortHead k="ratio" label={t("Meter ÷ Growatt")} sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Pooled over the compared days")} />
+          <SortHead k="ratio" label={t("Meter / Growatt")} sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Pooled over the compared days")} />
           <SortHead k="median" label={t("Median")} sort={sort} desc={desc} onSort={onSort} className="text-right" title={t("Median of the daily ratio")} />
           <TableHead className="text-right" title={t("5th percentile of the daily ratio")}>
             P05
@@ -159,8 +159,8 @@ export const vsGrowattDaySpec = (days: VsGrowattDayTotal[]): PanelChartSpec | nu
   const pooled = sumG > 0 ? (100 * sumM) / sumG : null;
   const refs = [100, ...(pooled != null ? [pooled] : [])];
   const range = fitRatioRange(ratio, refs);
-  const title = pooled != null ? translate("Meter ÷ Growatt (%) · period {v} %", { v: fmt(pooled, 2) }) : translate("Meter ÷ Growatt (%)");
-  const ratioP = ratioPanel(title, translate("Meter ÷ Growatt"), ratio, { y: 100, label: "100 %" }, range);
+  const title = pooled != null ? translate("Meter / Growatt (%) · period {v} %", { v: fmt(pooled, 2) }) : translate("Meter / Growatt (%)");
+  const ratioP = ratioPanel(title, translate("Meter / Growatt"), ratio, { y: 100, label: "100 %" }, range);
   // in-range days joined by a line (a pooled ratio moves little day to day); an empty day breaks it
   ratioP.series = ratioP.series.map((s) => (s.key === "ratio" ? { ...s, type: "line", width: 2 } : s));
   // the period's line only where its label clears the 100 % one; the title always gives the figure
@@ -237,7 +237,7 @@ export const vsGrowattSiteSpec = (sites: PwaVsGrowattSite[], band: { low: number
     x: keys,
     xTickLabel: (v) => tick(Number(v)),
     xTipLabel: (v) => translate("Site median {range}", { range: range(Number(v)) }),
-    xLabel: translate("Site median meter ÷ Growatt (%, bin start)"),
+    xLabel: translate("Site median meter / Growatt (%, bin start)"),
     legend: band
       ? [
           { label: translate("Normal {lo}–{hi} %", { lo: fmt(band.low, 1), hi: fmt(band.high, 1) }), color: NORMAL, shape: "bar" },

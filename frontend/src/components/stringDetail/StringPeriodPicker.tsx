@@ -19,12 +19,16 @@ import { MAX_RANGE_DAYS, daysBetween, isRange, periodDayText, rangeDays, shiftDa
 import type { StringPeriod } from "./period";
 import { useI18n } from "../../i18n";
 
-const QUICK = [
-  { label: "Today", back: 0, days: 1 },
-  { label: "Yesterday", back: 1, days: 1 },
-  { label: "Last 7 days", back: 0, days: 7 },
-  { label: "Last 30 days", back: 0, days: 30 },
-] as const;
+/** quick ranges ending today (or yesterday): [first day, last day] from today, "YYYY-MM-DD" */
+const QUICK: { label: string; range: (today: string) => [string, string] }[] = [
+  { label: "Today", range: (d) => [d, d] },
+  { label: "Yesterday", range: (d) => [shiftDay(d, -1), shiftDay(d, -1)] },
+  // Monday to today
+  { label: "This week", range: (d) => [shiftDay(d, -((toDate(d).getDay() + 6) % 7)), d] },
+  { label: "This month", range: (d) => [`${d.slice(0, 8)}01`, d] },
+  { label: "Last 7 days", range: (d) => [shiftDay(d, -6), d] },
+  { label: "Last 30 days", range: (d) => [shiftDay(d, -29), d] },
+];
 
 /** first month shown: with two months, the picked day's month stays visible and never shows a future month */
 const calMonth = (day: string, today: string, months: number) => {
@@ -103,9 +107,9 @@ export const StringPeriodPicker: React.FC<{
     });
     setOpen(false);
   };
-  const quick = (back: number, days: number) => {
-    const end = shiftDay(today, -back);
-    setRange({ from: toDate(shiftDay(end, -(days - 1))), to: toDate(end) });
+  const quick = (q: (typeof QUICK)[number]) => {
+    const [a, b] = q.range(today);
+    setRange({ from: toDate(a), to: toDate(b) });
   };
 
   return (
@@ -153,7 +157,7 @@ export const StringPeriodPicker: React.FC<{
             <div className="flex flex-col gap-3 p-3">
               <div className="flex flex-wrap gap-1">
                 {QUICK.map((q) => (
-                  <Button key={q.label} variant="outline" size="xs" onClick={() => quick(q.back, q.days)}>
+                  <Button key={q.label} variant="outline" size="xs" onClick={() => quick(q)}>
                     {t(q.label)}
                   </Button>
                 ))}

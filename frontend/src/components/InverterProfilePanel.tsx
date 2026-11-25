@@ -68,7 +68,7 @@ export const InverterProfilePanel: React.FC<{
       subtitle={`${t("AC power, DC input power, modelled clear-sky reference")}${
         series?.capacity_kwp != null
           ? ` (${fmt(series.capacity_kwp, 2)} kWp${
-              series.capacity_basis === "plant_share" ? `, ${t("plant kWp ÷ inverters")}` : `, ${t("from string layout")}`
+              series.capacity_basis === "plant_share" ? `, ${t("plant kWp / inverters")}` : `, ${t("from string layout")}`
             })`
           : ""
       }${rated != null ? `, ${t("rated AC (AC flat on it = clipping)")}` : ""} ${t("& inverter temperature")}${
