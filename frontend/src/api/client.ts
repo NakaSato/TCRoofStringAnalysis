@@ -40,6 +40,8 @@ import type { PlantSoiling, SiteEvent, SiteEventBody, SiteEventList, SiteEventQu
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
   OmAssignees,
+  OmCleaningSuggestion,
+  OmCleaningSuggestions,
   OmDue,
   OmFeedLink,
   OmFeedStatus,
@@ -50,6 +52,7 @@ import type {
   OmRoundPreview,
   OmRoundPreviewBody,
   OmRoundSaveBody,
+  OmSuggestionAcceptBody,
   OmTask,
   OmTaskBody,
   OmTaskDetail,
@@ -555,6 +558,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  getOmSuggestions: () => apiFetch<OmCleaningSuggestions>("/growatt/calendar/suggestions"),
+  acceptOmSuggestion: (plantId: number, body: OmSuggestionAcceptBody) =>
+    apiFetch<{ task: OmTask; suggestion: OmCleaningSuggestion }>(`/growatt/plants/${plantId}/cleaning-suggestion/accept`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  dismissOmSuggestion: (plantId: number) =>
+    apiFetch<OmCleaningSuggestion>(`/growatt/plants/${plantId}/cleaning-suggestion/dismiss`, { method: "POST" }),
   getTariff: () => apiFetch<TariffOut>("/growatt/tariff"),
   putTariff: (t: Tariff) => apiFetch<TariffOut>("/growatt/tariff", { method: "PUT", body: JSON.stringify(t) }),
   applyPwaRates: () => apiFetch<PwaRatesResult>("/growatt/tariff/pwa-rates", { method: "POST" }),

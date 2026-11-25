@@ -238,6 +238,7 @@ The dry season starts now (November to April), so **start recording cleanings im
 - Not built: the report's "skip if ≥ 10 mm rain is forecast" gate (no forecast is fetched, §9 Q7).
 - API: `GET /growatt/plants/{id}/soiling` adds `wallet` (on the newest stored day; null for engineers while R12 is shadow), `r12_rule` and `monsoon`. UI: an R12 callout on the Cleaning effect card (wallet vs cost meter, reset, rate and basis, soiling now, best interval) and the R12 evidence line in the issue lists.
 - Local data on 25 Nov 2026: no cleaning recorded, so no rate: all 233 plants `no_rate`.
+- Calendar Team Phase 4 (calendar-team.md §12) turns a firing wallet into a **suggested** cleaning on the Calendar (admins accept / dismiss; hidden from engineers while R12 is shadow).
 
 ## 7. Later (not planned yet)
 

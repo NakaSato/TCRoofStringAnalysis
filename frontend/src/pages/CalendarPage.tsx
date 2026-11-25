@@ -5,7 +5,9 @@
  * tasks on their plants and masked "Busy" blocks for work elsewhere; they open on their own tasks
  * (`user=me`). A done task writes the Site log event. "Due" is the monthly plan per plant (last /
  * next cleaning, overdue work), where admins plan cleaning rounds; "Plans" holds the recurring
- * plans. Pieces in `pages/calendar/`; docs/plans/calendar-team.md.
+ * plans. Suggested cleanings (Phase 4, `calendar/Suggestions.tsx`) are dashed ghost chips, labelled
+ * estimates from the R12 soiling wallet; admins accept one as a cleaning task or dismiss it.
+ * Pieces in `pages/calendar/`; docs/plans/calendar-team.md.
  *
  * URL: `view` (month | week | list | due), `d` (a day in the period), `type`, `status`, `team`,
  * `user` (me | all | id; default me for engineers, all for admins), `plant`; Due adds `show`, `days`, `q`.
@@ -13,7 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarPlus, ChevronLeft, ChevronRight, Plus, Repeat, Users } from "lucide-react";
 import { api } from "../api/client";
-import type { OmAssignees, OmTask, OmTaskList, OmTaskStatus, OmTaskType } from "../api/client";
+import type { OmAssignees, OmCleaningSuggestion, OmCleaningSuggestions, OmTask, OmTaskList, OmTaskStatus, OmTaskType } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { translate, useI18n } from "@/i18n";
 import { notify } from "@/lib/notify";
@@ -23,6 +25,7 @@ import { pick, pickDay, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
 import { LoadingState, Suspended, fmtInt } from "../components/ui";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -35,6 +38,7 @@ import { PlansDialog } from "./calendar/PlansDialog";
 import { FeedDialog } from "./calendar/FeedDialog";
 import { RoundDialog } from "./calendar/RoundDialog";
 import { DueView } from "./calendar/DueView";
+import { SuggestionChip, SuggestionDialog } from "./calendar/Suggestions";
 import type { TaskDialogTarget } from "./calendar/TaskDialog";
 import { MonthGrid, TaskList, WeekLanes } from "./calendar/views";
 import { STATUSES, STATUS_KEYS, TASK_TYPES, TYPE_KEYS, VIEWS, addDays, addMonths, covers, monthLabel, personName, rangeFor, tasksCsv, weekLabel, weekStart } from "./calendar/format";
@@ -79,8 +83,23 @@ export const CalendarPage: React.FC = () => {
   const [round, setRound] = useState<number[] | null>(null);
   const [dueVersion, setDueVersion] = useState(0);
   const [lanesVersion, setLanesVersion] = useState(0);
+  const [sugg, setSugg] = useState<OmCleaningSuggestions | null>(null);
+  const [suggVersion, setSuggVersion] = useState(0);
+  const [openSugg, setOpenSugg] = useState<OmCleaningSuggestion | null>(null);
+
+  // Phase 4: suggested cleanings (estimates from the R12 soiling wallet); a failure just hides them
+  useEffect(() => {
+    let live = true;
+    api.getOmSuggestions().then((x) => live && setSugg(x)).catch(() => live && setSugg(null));
+    return () => {
+      live = false;
+    };
+  }, [suggVersion]);
+  const suggestions = useMemo(() => sugg?.suggestions ?? [], [sugg]);
+  const suggByPlant = useMemo(() => new Map(suggestions.map((x) => [x.plant_id, x])), [suggestions]);
 
   const load = useCallback(async () => {
+    setSuggVersion((v) => v + 1);
     if (view === "due") {
       setDueVersion((v) => v + 1);
       return;
@@ -214,6 +233,27 @@ export const CalendarPage: React.FC = () => {
       </Card>
       )}
 
+      {suggestions.length > 0 && (
+        <Card className="border-dashed py-3">
+          <CardContent className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">{t("Suggested cleanings")}</span>
+              <Badge variant="info">{t("Estimate")}</Badge>
+              {sugg?.shadow && <Badge variant="neutral">{t("Shadow")}</Badge>}
+              <span className="text-xs text-muted-foreground">
+                {t("{n} plants: soiling loss since the last cleaning (estimated, R12) has reached the cleaning cost (entered).", { n: fmtInt(suggestions.length) })}
+                {admin && ` ${t("Open one to accept it as a cleaning task or dismiss it.")}`}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-6">
+              {suggestions.map((x) => (
+                <SuggestionChip key={x.plant_id} s={x} onOpen={setOpenSugg} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -315,7 +355,7 @@ export const CalendarPage: React.FC = () => {
           )}
 
           {view === "due" ? (
-            <DueView month={day} admin={admin} version={dueVersion} onPlanRound={setRound} />
+            <DueView month={day} admin={admin} version={dueVersion} onPlanRound={setRound} suggestions={suggByPlant} onOpenSuggestion={setOpenSugg} />
           ) : !data && loading ? (
             <LoadingState label={t("Loading tasks…")} shape="chart" className="border-0 bg-transparent p-0 shadow-none" />
           ) : (
@@ -330,6 +370,8 @@ export const CalendarPage: React.FC = () => {
               onCreate={create}
               onShowDay={(d) => setUrl({ view: "week", d })}
               onMove={move}
+              suggestions={suggestions}
+              onOpenSuggestion={setOpenSugg}
             />
           ) : view === "week" ? (
             <WeekLanes from={from} today={today} tasks={tasks} busy={data?.busy ?? []} people={lanePeople} teams={lanes?.teams ?? []} only={userId} me={me} onOpen={open} onCreate={create} onMove={move} routeFor={routeFor} />
@@ -344,6 +386,17 @@ export const CalendarPage: React.FC = () => {
         </CardContent>
       </Card>
 
+      <SuggestionDialog
+        s={openSugg}
+        admin={admin}
+        shadow={!!sugg?.shadow}
+        onClose={() => setOpenSugg(null)}
+        onChanged={(msg) => {
+          setOpenSugg(null);
+          notify("ok", msg);
+          void load();
+        }}
+      />
       <FeedDialog open={feedOpen} onClose={() => setFeedOpen(false)} />
       <PlansDialog open={plansOpen} admin={admin} plants={growattPlants} onClose={() => setPlansOpen(false)} onChanged={() => void load()} />
       {admin && (

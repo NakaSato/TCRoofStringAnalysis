@@ -578,6 +578,18 @@ class OmPlanPatch(BaseModel):
     note: Optional[str] = Field(default=None, max_length=2000)
 
 
+class OmSuggestionAccept(BaseModel):
+    """Accept a cleaning suggestion: the cleaning task to plan (defaults: the suggested day, the
+    plant's crew-days, the entered cost)."""
+
+    start_day: Optional[date] = None
+    end_day: Optional[date] = None
+    title: Optional[str] = Field(default=None, max_length=160)
+    team_id: Optional[int] = None
+    assignee_ids: List[int] = Field(default_factory=list, max_length=20)
+    note: Optional[str] = Field(default=None, max_length=1500)
+
+
 class OmPlantSettingsBody(BaseModel):
     """Per-plant planning figures as entered; null = not entered (never assumed)."""
 

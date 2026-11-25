@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import type { OmDue, OmDueRow } from "../../api/client";
+import type { OmCleaningSuggestion, OmDue, OmDueRow } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { LoadingState, Suspended, fmtInt } from "../../components/ui";
 import { pick, useUrlState } from "@/lib/useUrlState";
@@ -20,16 +20,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { shortDay } from "./format";
+import { SuggestionChip } from "./Suggestions";
 import { TablePager, pageBounds } from "../../components/TablePager";
 
 /** rows (plants) per page of the Due list */
 const DUE_PAGE = 50;
 
-const SHOWS = ["all", "due", "never", "unplanned", "overdue"] as const;
+const SHOWS = ["all", "due", "suggested", "never", "unplanned", "overdue"] as const;
 type Show = (typeof SHOWS)[number];
 const SHOW_LABEL: Record<Show, string> = {
   all: "All plants",
   due: "Cleaning due",
+  suggested: "Cleaning suggested (estimate)",
   never: "No cleaning recorded",
   unplanned: "No cleaning planned",
   overdue: "With overdue work",
@@ -95,7 +97,15 @@ const SettingsDialog: React.FC<{ row: OmDueRow | null; onClose: () => void; onSa
   );
 };
 
-export const DueView: React.FC<{ month: string; admin: boolean; version: number; onPlanRound: (ids: number[]) => void }> = ({ month, admin, version, onPlanRound }) => {
+export const DueView: React.FC<{
+  month: string;
+  admin: boolean;
+  version: number;
+  onPlanRound: (ids: number[]) => void;
+  /** Phase 4: the current cleaning suggestions (estimates) by plant; shown in Next cleaning */
+  suggestions?: Map<number, OmCleaningSuggestion>;
+  onOpenSuggestion?: (s: OmCleaningSuggestion) => void;
+}> = ({ month, admin, version, onPlanRound, suggestions, onOpenSuggestion }) => {
   const { t } = useI18n();
   const [url, setUrl] = useUrlState();
   const show = pick(url.get("show"), SHOWS, "all") as Show;
@@ -135,6 +145,7 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
       const hay = `${r.name} ${r.city ?? ""} ${r.plant_id} phase ${r.phase ?? ""}`.toLowerCase();
       if (!words.every((w) => hay.includes(w))) return false;
       if (show === "due") return !r.next_cleaning && (r.days_since_cleaning == null || r.days_since_cleaning >= minDays);
+      if (show === "suggested") return !!suggestions?.has(r.plant_id);
       if (show === "never") return r.days_since_cleaning == null;
       if (show === "unplanned") return !r.next_cleaning;
       if (show === "overdue") return r.overdue > 0;
@@ -142,7 +153,7 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
     });
     // never cleaned first, then the longest since the last cleaning
     return out.sort((a, b) => (b.days_since_cleaning ?? Infinity) - (a.days_since_cleaning ?? Infinity) || a.name.localeCompare(b.name));
-  }, [data, q, show, minDays]);
+  }, [data, q, show, minDays, suggestions]);
 
   // DUE_PAGE plants at a time; back to page 1 when the month, the filter or the search changes.
   // The header tick still selects every plant the filter matches, on every page.
@@ -256,7 +267,14 @@ export const DueView: React.FC<{ month: string; admin: boolean; version: number;
                       <span className="text-muted-foreground">{t("None recorded")}</span>
                     )}
                   </TableCell>
-                  <TableCell className="num whitespace-nowrap">{r.next_cleaning ? shortDay(r.next_cleaning) : <span className="text-muted-foreground">—</span>}</TableCell>
+                  <TableCell className="num whitespace-nowrap">
+                    {r.next_cleaning ? shortDay(r.next_cleaning) : <span className="text-muted-foreground">—</span>}
+                    {suggestions?.has(r.plant_id) && onOpenSuggestion && (
+                      <div className="mt-1 w-40">
+                        <SuggestionChip s={suggestions.get(r.plant_id)!} onOpen={onOpenSuggestion} showPlant={false} />
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-[11px]">
                     {other.length ? other.map((o) => <div key={o.key} className="num whitespace-nowrap">{t(o.label)} {shortDay(r.last[o.key]!)}</div>) : <span className="text-muted-foreground">—</span>}
                   </TableCell>
