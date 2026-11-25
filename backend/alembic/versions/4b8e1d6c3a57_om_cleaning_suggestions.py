@@ -5,7 +5,7 @@
 or heavy rain. `ensure_schema` creates the table at startup too, so it is skipped when present.
 
 Revision ID: 4b8e1d6c3a57
-Revises: 69580c904e8f
+Revises: 7b1c2d3e4f50
 Create Date: 2026-11-25 12:00:00
 
 """
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 
 revision: str = "4b8e1d6c3a57"
-down_revision: Union[str, None] = "69580c904e8f"
+down_revision: Union[str, None] = "7b1c2d3e4f50"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
