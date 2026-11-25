@@ -129,18 +129,67 @@ def test_stored_record_is_redacted(env, monkeypatch):
     assert "tokenvalue" not in r.message and "tokenvalue" not in str(r.extra_json)
 
 
-def test_failed_insert_is_dropped_without_recursion(tmp_path, capsys):
-    engine = build_engine(f"sqlite:///{tmp_path / 'empty.db'}")  # no app_logs table
+def test_failed_insert_is_kept_for_the_next_flush_without_recursion(tmp_path, capsys):
+    engine = build_engine(f"sqlite:///{tmp_path / 'empty.db'}")  # no app_logs table yet
     h = logging_db.DbLogHandler("api", engine)
     lg = logging.getLogger("app.recursion")
+    lg.propagate = False
     lg.addHandler(h)
     try:
         lg.error("first")
-        h.flush()  # insert fails: printed to stderr, nothing re-logged
-        assert h.pending() == 0
-        assert "app_logs insert failed, 1 records dropped" in capsys.readouterr().err
+        h.flush()  # insert fails: printed to stderr, nothing re-logged, the record waits
+        assert h.pending() == 1
+        assert "app_logs insert failed, 1 records kept for the next flush" in capsys.readouterr().err
+        lg.error("second")
+        Base.metadata.create_all(engine)  # the DB is writable again
+        h.flush()
     finally:
         lg.removeHandler(h)
+        lg.propagate = True
+    assert h.pending() == 0
+    f = sessionmaker(bind=engine)
+    assert [r.message for r in _rows(f)] == ["first", "second"]
+
+
+def test_failed_insert_with_a_full_buffer_keeps_the_newest_and_counts_the_rest(tmp_path, capsys):
+    engine = build_engine(f"sqlite:///{tmp_path / 'empty.db'}")
+    h = logging_db.DbLogHandler("worker", engine, buffer_max=3)
+    lg = logging.getLogger("app.requeue")
+    lg.setLevel(logging.INFO)
+    lg.propagate = False
+    lg.addHandler(h)
+    try:
+        for i in range(3):
+            lg.info("old %d", i)
+        h.flush()  # fails: all three go back
+        assert h.pending() == 3
+        lg.info("new 0")  # buffer full: "old 0" is pushed out
+        h.flush()  # fails again: the three go back, the drop of "old 0" stays counted
+        assert "dropped (buffer full)" not in capsys.readouterr().err
+        Base.metadata.create_all(engine)
+        h.flush()
+    finally:
+        lg.removeHandler(h)
+        lg.propagate = True
+    msgs = [r.message for r in _rows(sessionmaker(bind=engine))]
+    assert msgs == ["old 1", "old 2", "new 0", "log buffer full: 1 older records dropped"]
+
+
+def test_requeue_keeps_the_newest_failed_records_when_new_ones_arrived(tmp_path):
+    h = logging_db.DbLogHandler("worker", build_engine(f"sqlite:///{tmp_path / 'x.db'}"), buffer_max=3)
+    h._buf.extend([{"message": "logged meanwhile"}, {"message": "also meanwhile"}])
+    assert h._requeue([{"message": "a"}, {"message": "b"}]) == 1
+    assert [r["message"] for r in h._buf] == ["b", "logged meanwhile", "also meanwhile"]
+
+
+def test_sqlite_engine_uses_wal_and_a_long_busy_timeout(tmp_path):
+    from sqlalchemy import text
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'wal.db'}")
+    with engine.connect() as conn:
+        assert conn.execute(text("PRAGMA journal_mode")).scalar() == "wal"
+        assert conn.execute(text("PRAGMA busy_timeout")).scalar() == 30000
+        assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
 
 
 def test_buffer_overflow_keeps_newest_and_reports_drops(env):

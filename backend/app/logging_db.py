@@ -178,13 +178,17 @@ class DbLogHandler(logging.Handler):
         return len(self._buf)
 
     def flush(self) -> None:
-        """Insert everything buffered so far in one transaction; on failure print and drop."""
+        """Insert everything buffered so far in one transaction. On failure (e.g. SQLite "database
+        is locked") print once to stderr and put the records back for the next flush, oldest first,
+        as far as the buffer has room; what does not fit counts as dropped (reported later)."""
         if not self._buf and not self._dropped:
             return
         with self._flush_lock:
             rows: List[Dict[str, Any]] = []
             while self._buf:
                 rows.append(self._buf.popleft())
+            records = len(rows)  # without the "buffer full" notice, which is rebuilt from the count
+            dropped = self._dropped
             if self._dropped:
                 rows.append(
                     {
@@ -205,7 +209,18 @@ class DbLogHandler(logging.Handler):
                 with self.engine.begin() as conn:
                     conn.execute(insert(AppLog), rows)
             except Exception as exc:  # noqa: BLE001 - never re-logged: that would recurse
-                print(f"app_logs insert failed, {len(rows)} records dropped: {type(exc).__name__}: {(redact(str(exc)) or "")[:300]}", file=sys.stderr)
+                kept = self._requeue(rows[:records])
+                self._dropped += dropped + records - kept
+                lost = f", {records - kept} dropped (buffer full)" if kept < records else ""
+                print(f"app_logs insert failed, {kept} records kept for the next flush{lost}: {type(exc).__name__}: {(redact(str(exc)) or "")[:300]}", file=sys.stderr)
+
+    def _requeue(self, rows: List[Dict[str, Any]]) -> int:
+        """Put `rows` back in front of what was logged meanwhile; the newest of them win when the
+        buffer has no room for all. Returns how many were kept."""
+        room = (self._buf.maxlen or 0) - len(self._buf)
+        keep = rows[len(rows) - room:] if 0 < room < len(rows) else rows if room > 0 else []
+        self._buf.extendleft(reversed(keep))
+        return len(keep)
 
 
 _handler: Optional[DbLogHandler] = None

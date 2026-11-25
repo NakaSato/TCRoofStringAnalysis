@@ -22,9 +22,15 @@ def _compact_json(obj) -> str:
     return json.dumps(obj, separators=(",", ":"))
 
 
+SQLITE_BUSY_TIMEOUT_S = 30
+
+
 def build_engine(database_url: str | None = None):
     url = database_url or settings.database_url
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    # SQLite (local only; production is Postgres): wait up to 30 s for a lock instead of the
+    # driver's 5 s, so the log flusher and a meter upsert outlast a long `rules_today` / `history`
+    # write instead of failing with "database is locked"
+    connect_args = {"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_S} if url.startswith("sqlite") else {}
     # JSON columns without the spaces after "," and ":" (json.dumps' default): a few % of every
     # JSON value, which adds up over the readings tables
     eng = create_engine(url, connect_args=connect_args, future=True, json_serializer=_compact_json)
@@ -33,6 +39,15 @@ def build_engine(database_url: str | None = None):
         def _set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_S * 1000}")
+            # WAL: readers no longer block the writer nor the writer the readers (the default
+            # rollback journal locks the whole file for every write). It is stored in the file, so
+            # this is a no-op after the first connection; an in-memory DB stays "memory". A file
+            # another process holds locked keeps its mode until the next connection succeeds.
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+            except Exception:  # noqa: BLE001 - the mode is an optimisation, never a reason to fail
+                pass
             cursor.close()
     return eng
 
