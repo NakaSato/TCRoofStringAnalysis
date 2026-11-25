@@ -172,6 +172,26 @@ def plant_baseline(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/plants/{plant_id}/billing")
+def plant_billing(
+    plant_id: int,
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """The plant tab's Energy & Billing: billed meter energy per month (book price) against the
+    contract (modelled), the site's outage events and meter check, and the plant's Site log spend per
+    month (entered). Default window: the site's report month. 404 without a report site."""
+    _window(start, end)
+    try:
+        return svc.plant_billing(db, allowed_plant_ids(db, user), plant_id, start, end)
+    except GrowattNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/import")
 async def import_report(
     files: List[UploadFile] = File(..., description="daily report workbooks (.xlsx)"),

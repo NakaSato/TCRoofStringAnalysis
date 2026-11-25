@@ -112,6 +112,7 @@ const PLANT_NAV: Record<PlantPage, { label: string; description?: string }> = {
   "string-layout": { label: "String Layout", description: "Modules per string for each inverter" },
   maintenance: { label: "Maintenance", description: "Upcoming tasks and the site log (cleanings, repairs)" },
   documents: { label: "Documents", description: "As-built drawings, manuals for its equipment, SOPs and reports" },
+  billing: { label: "Energy & Billing", description: "Billed meter energy against the contract, outages and O&M spend" },
 };
 
 const useClock = () => {

@@ -161,6 +161,7 @@ PYTHONPATH=backend uv run python -m app.services.pwa_meter expected --model Sola
 | `POST /pwa/meter/import` (admin, multipart `files`, `commit`, `days` JSON) | daily report import: preview per sheet, or store when `commit` and no problem |
 | `GET /pwa/meter/vs-growatt?start=&end=` | every visible site's meter days against Growatt's `plant/energy` day (both measured): per site pooled / median / P05 meter ÷ Growatt, low / high / missing days and flags (criteria `meter_vs_growatt`), per day and phase the pooled energy; Engineering O&M's Meter vs Growatt |
 | `GET /pwa/meter/plants/{plant_id}?start=&end=` | one Growatt plant's report days (default last 60) with Growatt's own day energy and meter ÷ Growatt; 404 if not in the report |
+| `GET /pwa/meter/plants/{plant_id}/billing?start=&end=` | the plant tab's Energy & Billing (`/plant/:id/billing`): `billing()` (without the causes: null), `outage_events()` and `meter_check()` narrowed to the plant's site(s), its coverage, and the plant's Site log spend per month and work type (entered); default window = the site's report month, ≤ 366 days, `start` and `end` together; 404 outside the scope or not in the report |
 
 Checked on the full import (2026-01-01 → 11-18): phase 1 106.1 % of contract, phase 2 92.6 %; PI_free 95.9 % both; availability 99.19 % / 99.03 %; losses (MWh) curtailment 811 / 2,250, outage 145 / 374, under-performance 337 / 127; 71 outage events; 35 sites with meter flags, gap 81.6 MWh. Same as the dashboard.
 

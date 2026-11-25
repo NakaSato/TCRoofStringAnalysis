@@ -45,6 +45,7 @@ const KbDocumentPage = page(() => import("./pages/kb/DocumentPage"), "KbDocument
 const KbDocViewerPage = page(() => import("./pages/kb/DocViewerPage"), "KbDocViewerPage");
 const KbSearchPage = page(() => import("./pages/kb/SearchPage"), "KbSearchPage");
 const PlantDocumentsPage = page(() => import("./pages/PlantDocumentsPage"), "PlantDocumentsPage");
+const PlantBillingPage = page(() => import("./pages/PlantBillingPage"), "PlantBillingPage");
 const VisitRoutePage = page(() => import("./pages/VisitRoutePage"), "VisitRoutePage");
 
 /** `/kb/doc/:docId/rev/:rev`: one revision, read only = the viewer on that revision. */
@@ -178,6 +179,7 @@ export const App: React.FC = () => {
               <Route path="string-layout" element={<StringLayoutPage />} />
               <Route path="maintenance" element={<PlantMaintenancePage />} />
               <Route path="documents" element={<PlantDocumentsPage />} />
+              <Route path="billing" element={<PlantBillingPage />} />
               <Route path="*" element={<Navigate to=".." relative="path" replace />} />
             </Route>
             {/* URLs from before the plant was in the URL */}

@@ -35,7 +35,7 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattPlantEnergyDay, PwaMeterDay, PwaMeterSite
+from app.db.models import GrowattPlantEnergyDay, PwaMeterDay, PwaMeterSite, SiteEvent
 from app.services.growatt_common import GrowattNotFound
 
 CRITERIA_FILE = Path(__file__).with_name("pwa_meter_criteria.json")
@@ -515,14 +515,17 @@ def _month_windows(first: date, last: date) -> List[Tuple[str, date, date]]:
     return out
 
 
-def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None, phase: Optional[int] = None) -> Dict[str, Any]:
+def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None, phase: Optional[int] = None,
+            causes: bool = True) -> Dict[str, Any]:
     """Billed energy per site and calendar month over [start, end]: meter kWh at the book price, the
     contract's energy (modelled), the shortfall against it and how much of that the engineering causes
     explain: outage, under-performance and meter gap (recoverable by O&M) and curtailment (PM).
 
     Each month's losses are `summary()` / `meter_check()` over that month alone (PI_free of the month,
     every site of the phase), so the months add up to the sites' period totals here, not to the
-    period summary. A missing reading stays null; kWh and THB of the losses are estimated."""
+    period summary. A missing reading stays null; kWh and THB of the losses are estimated.
+    `causes=False` skips the causes (each month's fleet-wide summary and meter check, the slow part):
+    the cause, recoverable and unexplained fields are then null (not computed), never 0."""
     c = criteria()
     price = c["tariff"]["book_price_thb_per_kwh"]
     bc = c["billing"]
@@ -546,8 +549,8 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
         g_all = df[(df.day >= pd.Timestamp(ms)) & (df.day <= pd.Timestamp(me))]
         if g_all.empty:
             continue
-        losses = {r["site_id"]: r for r in summary(db, None, ms, me)["sites"]}
-        gaps = {r["site_id"]: r for r in meter_check(db, None, ms, me)}
+        losses = {r["site_id"]: r for r in summary(db, None, ms, me)["sites"]} if causes else {}
+        gaps = {r["site_id"]: r for r in meter_check(db, None, ms, me)} if causes else {}
         for sid, g in g_all.groupby("site_id"):
             if sid not in visible:
                 continue
@@ -564,6 +567,9 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
                 "curtailment": (lo.get("curtailment_loss_mwh") or 0.0) * 1000,
             }
             rec = sum(v for k, v in cause.items() if k in recov)
+            if not causes:
+                cause = {k: None for k in cause}
+                rec = None
             from_day = max(ms, site_first.get(sid, ms))
             cal = max(0, (me - from_day).days + 1)
             rows.append({
@@ -577,8 +583,8 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
                 "shortfall_kwh": _f(short, 1), "shortfall_thb": _f(short * price, 0) if short is not None else None,
                 "outage_kwh": _f(cause["outage"], 1), "under_kwh": _f(cause["under"], 1), "meter_gap_kwh": _f(cause["meter_gap"], 1),
                 "curtailment_kwh": _f(cause["curtailment"], 1),
-                "recoverable_kwh": _f(rec, 1), "recoverable_thb": _f(rec * price, 0),
-                "unexplained_kwh": _f(short - sum(cause.values()), 1) if short is not None else None,
+                "recoverable_kwh": _f(rec, 1), "recoverable_thb": _f(rec * price, 0) if rec is not None else None,
+                "unexplained_kwh": _f(short - sum(cause.values()), 1) if short is not None and causes else None,
             })
     # the sites' totals over the months, the largest recoverable baht first
     sites: List[Dict[str, Any]] = []
@@ -612,6 +618,8 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             "top_cause": top, "action_cause": top_rec,
             "owner": bc["cause_owner"].get(top_rec) if top_rec else None, "action": bc["cause_action"].get(top_rec) if top_rec else None,
         })
+        if not causes:  # not computed: null, never 0
+            sites[-1].update({f"{k}_kwh": None for k in bc["causes"]}, recoverable_kwh=None, recoverable_thb=None, unexplained_kwh=None)
     sites.sort(key=lambda s: (-(s["recoverable_thb"] or 0), s["site_id"]))
     for i, s in enumerate(sites, start=1):
         s["rank"] = i
@@ -945,6 +953,61 @@ def plant_baseline(db: Session, allowed: Optional[Set[int]], plant_id: int, star
             "contract_kwh": total("contract_kwh"), "pvsyst_kwh": total("pvsyst_kwh"),
             "missing_days": sum(1 for x in out if x["contract_kwh"] is None),
             "labels": {"contract_kwh": "modelled", "pvsyst_kwh": "modelled"}}
+
+
+PLANT_BILLING_MAX_DAYS = 366
+
+
+def plant_billing(db: Session, allowed: Optional[Set[int]], plant_id: int, start: Optional[date] = None, end: Optional[date] = None) -> Dict[str, Any]:
+    """The plant tab's Energy & Billing (`/plant/{id}/billing`): the fleet page's billing, outage and
+    meter-check figures narrowed to the report site(s) linked to `plant_id`, plus the plant's Site
+    log spend per calendar month and work type (entered; `spend_thb` null when no event has a cost).
+    Default window: the site's own report month (`coverage`), else nothing. Same maths as the fleet
+    page (`billing`, `outage_events`, `meter_check` with the scope set to this plant). 404
+    (GrowattNotFound) outside the scope or without a report site; ValueError over
+    PLANT_BILLING_MAX_DAYS."""
+    if allowed is not None and plant_id not in allowed:
+        raise GrowattNotFound(f"Plant {plant_id} not found")
+    only = {plant_id}
+    sites = _visible_sites(db, only)
+    if not sites:
+        raise GrowattNotFound(f"Plant {plant_id} has no PWA meter report site")
+    cov = coverage(db, only)
+    if start is None and end is None and cov["report_month"]:
+        y, m = (int(x) for x in cov["report_month"].split("-"))
+        start = date(y, m, 1)
+        end = date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)
+    elif start is None or end is None:
+        raise ValueError("start and end go together")
+    if start is not None and end is not None and (end - start).days + 1 > PLANT_BILLING_MAX_DAYS:
+        raise ValueError(f"at most {PLANT_BILLING_MAX_DAYS} days")
+    window = {"start": start and start.isoformat(), "end": end and end.isoformat()}
+    if start is None or end is None:  # no report day yet
+        return {"sites": [_site_out(s) for s in sites], "coverage": cov, "window": window, "billing": None,
+                "outages": [], "meter_check": [], "spend_by_month": []}
+    spend: Dict[Tuple[str, str], List[float]] = {}
+    q = select(SiteEvent.cost_thb, SiteEvent.day, SiteEvent.event_type).where(
+        SiteEvent.plant_id == plant_id, SiteEvent.day >= start, SiteEvent.day <= end)
+    for cost, day, etype in db.execute(q):
+        v = spend.setdefault((day.strftime("%Y-%m"), etype or "other"), [0.0, 0, 0])
+        v[1] += 1
+        if cost is not None:
+            v[0] += float(cost)
+            v[2] += 1
+    return {
+        "sites": [_site_out(s) for s in sites],
+        "coverage": cov,
+        "window": window,
+        "billing": billing(db, only, start, end, causes=False),  # the tab shows no estimated causes
+        "outages": outage_events(db, only, start, end),
+        "meter_check": meter_check(db, only, start, end),
+        "spend_by_month": [
+            {"plant_id": plant_id, "month": mo, "event_type": et, "spend_thb": _f(v[0], 0) if v[2] else None,
+             "events": int(v[1]), "events_priced": int(v[2])}
+            for (mo, et), v in sorted(spend.items())
+        ],
+        "labels": {"contract_kwh": "modelled", "spend_thb": "entered"},
+    }
 
 
 def meter_vs_growatt(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None) -> Dict[str, Any]:

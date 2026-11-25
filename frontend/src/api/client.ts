@@ -78,7 +78,7 @@ import type {
 import type { KbArticle, KbArticleBody, KbArticleList, KbArticlePatch, KbArticleQuery, KbDeleteResult, KbRevision, KbRevisionList } from "./types/kb";
 import type { KbDocCatalog, KbDocContext, KbDocCreateMeta, KbDocDetail, KbDocFileLink, KbDocHome, KbDocLinkInput, KbDocList, KbDocPatch, KbDocQuery, KbPlantDocuments, KbSearchResult } from "./types/kbDocs";
 import type { PlantSiteRegister, SiteDeviceIn, SiteRegisterImport, SiteRegisterRow } from "./types/siteRegister";
-import type { PwaBilling, PwaImportResult, PwaMeterCoverage, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantBaseline, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
+import type { PwaBilling, PwaImportResult, PwaMeterCoverage, PwaMeterCheck, PwaMeterCriteria, PwaMeterDaily, PwaPlantBaseline, PwaPlantBilling, PwaPlantDays, PwaMeterSite, PwaMeterSiteDays, PwaMeterSummary, PwaMeterWindow, PwaOutageEvent, PwaVsGrowatt } from "./types/pwaMeter";
 import type { InverterRuleDay, Issue, IssueActionBody, IssueList, IssueQuery, PwaRatesResult, RuleDaily, StringRuleDay, Tariff, TariffOut, TariffRates } from "./types/issues";
 
 export function getStoredToken(): string | null {
@@ -626,6 +626,8 @@ export const api = {
   getPwaMeterPlant: (plantId: number, w: PwaMeterWindow = {}) => apiFetch<PwaPlantDays>(`/pwa/meter/plants/${plantId}${pwaWindow(w)}`),
   getPwaMeterPlantBaseline: (plantId: number, start: string, end: string) =>
     apiFetch<PwaPlantBaseline>(`/pwa/meter/plants/${plantId}/baseline${pwaWindow({ start, end })}`),
+  /** the plant tab's Energy & Billing; no window = the site's report month; 404 = not a report site */
+  getPwaMeterPlantBilling: (plantId: number, w: PwaMeterWindow = {}) => apiFetch<PwaPlantBilling>(`/pwa/meter/plants/${plantId}/billing${pwaWindow(w)}`),
   /** admin: daily report workbooks → preview (commit false) or store (commit true); `days` = {"file::sheet": "YYYY-MM-DD" | "skip"} */
   importPwaReport: (files: File[], commit: boolean, days: Record<string, string>) => {
     const form = new FormData();

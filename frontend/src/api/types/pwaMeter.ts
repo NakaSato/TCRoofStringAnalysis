@@ -1,6 +1,7 @@
 /** PWA daily meter report (`/pwa/meter/*`): the Cewe meter kWh each phase 1–2 site sends to PEA
  * per day, linked to its Growatt plant. DB only, imported monthly. `contract_*` / `pvsyst_*` are
  * modelled; losses, the meter gap and THB values are estimated (`labels`). docs/plans/pwa-meter-daily.md */
+import type { OmCenterSpendMonth } from "./center";
 
 export type PwaDayStatus = "ok" | "outage" | "loss_inv" | "loss_meter";
 export type PwaWeather = "clear" | "cloudy" | "rain";
@@ -401,4 +402,18 @@ export interface PwaMeterCoverage {
   first_day: string | null;
   last_day: string | null;
   report_month: string | null;
+}
+
+/** `/pwa/meter/plants/{id}/billing` (plant tab Energy & Billing): the fleet page's billing, outages and
+ * meter check narrowed to the plant's report site(s), plus its Site log spend per month (entered).
+ * Default window = the site's report month; `billing` is null when the site has no report day yet. */
+export interface PwaPlantBilling {
+  sites: PwaMeterSite[];
+  coverage: PwaMeterCoverage;
+  window: { start: string | null; end: string | null };
+  billing: PwaBilling | null;
+  outages: PwaOutageEvent[];
+  meter_check: PwaMeterCheck[];
+  spend_by_month: OmCenterSpendMonth[];
+  labels?: Record<string, string>;
 }

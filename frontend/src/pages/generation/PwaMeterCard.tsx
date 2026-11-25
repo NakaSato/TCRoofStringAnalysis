@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { DAY_MS, ratioPanel, statusBands } from "../pwaMeter/chart";
 import { DAY_STATUS, WEATHER, dayMs, fmtDay } from "../pwaMeter/format";
 
-const plantSpec = (d: PwaPlantDays): PanelChartSpec | null => {
+export const plantSpec = (d: PwaPlantDays): PanelChartSpec | null => {
   if (!d.days.length) return null;
   const x = d.days.map((r) => dayMs(r.day));
   const dayOf = new Map(d.days.map((r, i) => [x[i], r.day]));

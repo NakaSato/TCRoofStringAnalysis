@@ -714,3 +714,43 @@ def test_plant_baseline_from_report_days_then_expected_months(api):
     assert client.get("/pwa/meter/plants/9999/baseline?start=2026-04-01&end=2026-04-01", headers=admin).status_code == 404  # no site
     assert client.get(f"/pwa/meter/plants/{P1}/baseline?start=2026-04-02&end=2026-04-01", headers=admin).status_code == 422
     assert client.get(f"/pwa/meter/plants/{P1}/baseline?start=2025-01-01&end=2026-04-01", headers=admin).status_code == 422  # > 366 days
+
+
+def test_plant_billing_narrows_the_fleet_figures_to_the_plant(api):
+    """Plant tab Energy & Billing: the plant's site only, its report month by default, Site log spend per month."""
+    from app.db.models import SiteEvent
+
+    f, client, admin, eng = api
+    with f() as db:
+        db.add_all([
+            SiteEvent(plant_id=P1, event_type="cleaning", day=date(2026, 3, 5), cost_thb=1500.0),
+            SiteEvent(plant_id=P1, event_type="repair", day=date(2026, 3, 20), cost_thb=None),
+            SiteEvent(plant_id=P1, event_type="cleaning", day=date(2026, 4, 2), cost_thb=900.0),  # outside March
+            SiteEvent(plant_id=P2, event_type="cleaning", day=date(2026, 3, 6), cost_thb=700.0),  # another plant
+        ])
+        db.commit()
+    r = client.get(f"/pwa/meter/plants/{P1}/billing", headers=eng)
+    assert r.status_code == 200
+    body = r.json()
+    assert [s["site_id"] for s in body["sites"]] == ["P1-01"]
+    assert body["window"] == {"start": "2026-03-01", "end": "2026-03-31"}  # the report month
+    assert body["coverage"]["report_month"] == "2026-03"
+    (row,) = body["billing"]["rows"]
+    # 23 days × 400 + 5 × 360 + 3 outage days at 0 kWh; contract 31 × 380 (modelled)
+    assert (row["month"], row["billed_kwh"], row["contract_kwh"], row["missing_days"]) == ("2026-03", 11000.0, 11780.0, 0)
+    # the tab shows no estimated causes, so they are not computed: null, never 0
+    assert (row["outage_kwh"], row["recoverable_thb"], row["unexplained_kwh"]) == (None, None, None)
+    assert body["billing"]["sites"][0]["recoverable_kwh"] is None and body["billing"]["sites"][0]["top_cause"] is None
+    assert [(o["start"], o["days"]) for o in body["outages"]] == [("2026-03-11", 3)]
+    assert [m["site_id"] for m in body["meter_check"]] == ["P1-01"]
+    spend = {(s["month"], s["event_type"]): s for s in body["spend_by_month"]}
+    assert set(spend) == {("2026-03", "cleaning"), ("2026-03", "repair")}
+    assert (spend[("2026-03", "cleaning")]["spend_thb"], spend[("2026-03", "cleaning")]["events_priced"]) == (1500.0, 1)
+    assert spend[("2026-03", "repair")]["spend_thb"] is None  # no cost entered: null, never 0
+    april = client.get(f"/pwa/meter/plants/{P1}/billing?start=2026-04-01&end=2026-04-30", headers=eng).json()
+    assert april["billing"]["rows"][0]["month"] == "2026-04" and april["spend_by_month"][0]["spend_thb"] == 900.0
+    assert client.get(f"/pwa/meter/plants/{P2}/billing", headers=eng).status_code == 404  # not assigned
+    assert client.get("/pwa/meter/plants/9999/billing", headers=admin).status_code == 404  # no report site
+    assert client.get(f"/pwa/meter/plants/{P1}/billing?start=2026-03-01", headers=admin).status_code == 422  # end missing
+    assert client.get(f"/pwa/meter/plants/{P1}/billing?start=2025-01-01&end=2026-04-01", headers=admin).status_code == 422
+    assert client.get(f"/pwa/meter/plants/{P1}/billing").status_code == 401
