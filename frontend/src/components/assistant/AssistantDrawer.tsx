@@ -28,6 +28,7 @@ const TOOL_LABEL: Record<string, string> = {
   string_detail: "Analysing string",
   weather_sensors: "Checking weather sensors",
   plant_weather: "Reading plant weather",
+  om_dashboard: "Reading O&M dashboard",
 };
 
 // keyed by every plant page, so a renamed or added tab fails the type check instead of becoming "plant page"

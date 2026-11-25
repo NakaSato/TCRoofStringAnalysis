@@ -110,6 +110,7 @@ Each tool has a JSON schema with `required` and `additionalProperties: false`, a
 | `alarms(day, plant_id?)` | `growatt_alarms.alarm_day` | Alarm counts by plant and code, open faults, sync coverage (`synced_inverters` / `inverters`). |
 | `weather_sensors(day?, plant_id?)` | `growatt_sensors.list_sensors` (DB part only) | Coverage %, health flags, newest stored reading. No live online status. |
 | `plant_weather(plant_id, day)` | `growatt_weather` + `google_weather` (DB) | Insolation and peaks from the sensor, and Google rain slots **labelled modelled**. |
+| `om_dashboard(start?, end?, plant_id?, limit≤20)` | `om_center.overview` (the Energy & Billing page) | Period (default month to date): produced kWh, **estimated** lost kWh by cause and share, availability, active issues in fix-first order, plants losing the most, this week's tasks and overdue backlog, response per tier vs targets, open claims. Live issues only; no baht estimates (the page shows none); spend is entered. Added 2026-11-25 (om-center-dashboard.md Phase 3). |
 | `fleet_ranking(day, metric, order, limit≤20)` | built on `list_plants_summary` / overview batch | Top or bottom plants by yield, specific yield or PR. This tool keeps fleet questions to one call instead of 234. |
 
 Lessons from the live phase 3 run (2026-11-15), now built into the tools and prompt:

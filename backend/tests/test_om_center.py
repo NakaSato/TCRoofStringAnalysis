@@ -321,3 +321,41 @@ def test_claims_waiting_and_linked_claim_on_issue_rows(api):
 
     fleet = client.get("/growatt/center", headers=admin).json()["claims"]
     assert fleet["open"] == 3 and fleet["oldest"]["number"] == "CL-2026-004" and fleet["oldest"]["age_days"] == 80
+
+
+def test_assistant_om_dashboard_tool_scoped_live_only_kwh(api):
+    """The AI Assistant's `om_dashboard` tool: the same figures as the page, scoped, never shadow, no baht estimates."""
+    import json
+
+    from app.services.assistant.tools import ToolContext, run_tool
+
+    f = api[0]
+
+    def call(args, allowed=None):
+        text, err = run_tool("om_dashboard", args, ToolContext(session_factory=f, allowed=allowed, today=TODAY))
+        return json.loads(text), err
+
+    eng, err = call({}, allowed={P1})
+    assert not err and eng["window"]["start"] == "2026-11-01" and eng["scope"] == "assigned" and eng["plant_count"] == 1
+    s = eng["summary"]
+    assert s["lost_kwh_est"] == 68.0 and s["produced_kwh"] == 940.0 and s["active_issues"] == 3 and s["safety_issues"] == 1
+    assert s["spend_thb_entered"] == 3000 and s["spend_events_with_cost"] == 1
+    assert eng["loss_by_cause"][0] == {"cause": "Inverter down", "lost_kwh_est": 20.0}
+    assert eng["top_issues"][0]["rule"] == "R3" and all(i["plant_id"] == P1 for i in eng["top_issues"])
+    assert [p["plant_id"] for p in eng["plants_most_lost"]] == [P1]
+    assert "thb_est" not in json.dumps(eng) and "thb_per_day" not in json.dumps(eng)
+
+    fleet, _ = call({})
+    # shadow R2 (70 kWh) is never counted, even for an admin
+    assert fleet["summary"]["lost_kwh_est"] == 68.0 + 40.0 and fleet["plants_with_loss"] == 2
+    assert fleet["plants_most_lost"][0]["plant_id"] == P1
+    assert fleet["shadow_issues_left_out"] == 1 and eng["shadow_issues_left_out"] is None
+
+    one, _ = call({"plant_id": P2})
+    assert one["scope"] == "one plant" and one["summary"]["lost_kwh_est"] == 40.0
+    hidden, err = call({"plant_id": P2}, allowed={P1})
+    assert err and "not found" in hidden["error"]
+
+    for bad in ({"start": "2026-11-20", "end": "2026-11-01"}, {"end": "2026-11-21"}, {"start": "2025-01-01"}, {"limit": 50}):
+        _, err = call(bad)
+        assert err, bad

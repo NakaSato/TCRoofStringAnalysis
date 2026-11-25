@@ -1,6 +1,6 @@
 # Plan: O&M Dashboard (engineer O&M team, finance view)
 
-Status: **Phase 1 built 2026-11-21** (endpoint, page `/center`, tests; see §7), **Phase 2 built 2026-11-25** (work and response, row actions, linked claims; see §8; the page is now Energy & Billing at `/energy-billing`), Phase 3 not started · Created 2026-11-21 · Owner: Chanthawat
+Status: **Phase 1 built 2026-11-21** (endpoint, page `/center`, tests; see §7), **Phase 2 built 2026-11-25** (work and response, row actions, linked claims; see §8; the page is now Energy & Billing at `/energy-billing`), **Phase 3 built 2026-11-25** (AI Assistant tool; see §9) · Created 2026-11-21 · Owner: Chanthawat
 Related: [`decision-rules.md`](decision-rules.md) (issues, tariff, daily tables), [`calendar-team.md`](calendar-team.md), [`claims.md`](claims.md), [`pwa-meter-daily.md`](pwa-meter-daily.md), research report §7 (economics) and §8 (portfolio level).
 
 One page for the O&M engineers that answers, in baht: **what are we losing, why, what do we fix first, and is the work keeping up?** The app already computes every input. They sit on separate pages (Rule review, Calendar, Claims, PWA Meter, Maintenance), and no page puts them side by side.
@@ -139,3 +139,11 @@ Answers (2026-11-21): 1 = the page is open to both roles and never flips a rule;
   - **Cost of waiting** stays out of the page: the page dropped estimated baht on 21 Nov (§7), so the backend still computes `cost_of_waiting_thb_est` but nothing shows it.
   - No "acknowledged by" change: the Fix first table already had it.
 
+## 9. As built: Phase 3 (2026-11-25)
+
+- **Contract card (§3.6):** not built as a card. Phase 1 already put the whole PWA meter report on the page (§7, "One page with the PWA meter report"), which covers it.
+- **CSV export:** already on every list (Fix first, Plants, Billing, Finance, Meter sites, Outage events, Meter vs Growatt, Meter check). Nothing added.
+- **AI Assistant tool `om_dashboard`** (`services/assistant/tools.py`, test in `tests/test_om_center.py`): `om_center.overview` for `start` / `end` (default month to date, end not after today, at most 366 days) over the caller's plants or one `plant_id` (outside the scope = "not found"), summarised for the model: produced kWh, lost kWh (estimated) by cause and share, availability, minutes power-limited, active issues by tier and safety, entered spend, open tasks, the top `limit` (≤ 20) issues in fix-first order and plants by lost kWh, this week's work, response per tier, open claims, and notes on which figures are estimated, measured or entered.
+  - **No baht estimates:** the page dropped estimated baht on 21 Nov, so the tool gives lost kWh only; the model would otherwise quote baht the page never shows.
+  - **Never shadow issues**, also for admins (there is no switch in a chat). Admins get `shadow_issues_left_out`, so "no loss estimate" while rules are still in shadow mode is not read as "no loss".
+  - The chat shows "Reading O&M dashboard" while it runs.

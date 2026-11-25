@@ -114,6 +114,13 @@ class PlantWeatherIn(_In):
     day: Optional[date] = None
 
 
+class OmDashboardIn(_In):
+    start: Optional[date] = Field(None, description="First day (default: the 1st of end's month)")
+    end: Optional[date] = Field(None, description="Last day (default: today); at most 366 days after start")
+    plant_id: Optional[int] = Field(None, description="Limit it to one plant")
+    limit: int = Field(10, ge=1, le=20, description="Rows in top_issues and plants_most_lost")
+
+
 # ---------------------------------------------------------------------------------------------
 # Helpers
 
@@ -660,6 +667,91 @@ def plant_weather(args: PlantWeatherIn, ctx: ToolContext, db: Session) -> Dict[s
     }
 
 
+_ISSUE_KEYS = [
+    "plant_id", "plant_name", "inverter_name", "device_sn", "string_no", "rule", "name", "tier", "safety",
+    "status", "opened_day", "last_seen_day", "age_days", "days_seen", "lost_kwh_est", "lost_kwh_total_est", "next_visit",
+]
+_PLANT_KEYS = [
+    "plant_id", "name", "capacity_kwp", "energy_kwh", "lost_kwh_est", "loss_share_pct", "active_issues", "epi_median",
+    "pr_temp_corrected_median_pct", "availability_pct", "days_since_cleaning", "next_visit", "spend_thb", "open_claims",
+]
+
+
+def om_dashboard(args: OmDashboardIn, ctx: ToolContext, db: Session) -> Dict[str, Any]:
+    """The Energy & Billing (O&M Dashboard) figures for a period: loss by cause, issues to fix first, plants
+    losing the most, this week's work, response times and claims. Live issues only (never shadow rules);
+    estimated loss in kWh only, as the page shows it (no estimated baht); spend is entered."""
+    from app.services import om_center  # imports the rules / tariff stack; only when the tool runs
+
+    end = args.end or ctx.today
+    start = args.start or end.replace(day=1)
+    if end > ctx.today:
+        raise ToolError(f"end {end.isoformat()} is after today ({ctx.today.isoformat()})")
+    if start > end:
+        raise ToolError("start must not be after end")
+    if (end - start).days + 1 > om_center.MAX_SPAN_DAYS:
+        raise ToolError(f"the period may span at most {om_center.MAX_SPAN_DAYS} days")
+    scope = ctx.allowed
+    if args.plant_id is not None:
+        _check_plant(args.plant_id, ctx)
+        scope = {args.plant_id}
+    o = om_center.overview(db, scope, start, end, include_shadow=False)
+
+    m = o["money"]
+    families = {f["key"]: f["label"] for f in o["loss_by_cause"]["families"]}
+    by_cause = sorted(
+        ({"cause": families.get(t["family"], t["family"]), "lost_kwh_est": t["kwh_est"]} for t in o["loss_by_cause"]["totals"]),
+        key=lambda r: -(r["lost_kwh_est"] or 0),
+    )
+    plants = sorted(o["plants"], key=lambda r: (-(r["lost_kwh_est"] or 0), r["name"] or ""))
+    losing = [_pick(r, _PLANT_KEYS, 2) for r in plants if r["lost_kwh_est"]][: args.limit]
+    top = o["issues"]["top"]
+    issues = []
+    for d in top[: args.limit]:
+        row = _pick(d, _ISSUE_KEYS, 1)
+        row["acknowledged"] = d.get("ack_at") is not None
+        row["claims_open"] = sum(1 for c in d.get("claims") or [] if c.get("open"))
+        issues.append(row)
+    return {
+        "window": o["window"],
+        "scope": "one plant" if args.plant_id is not None else o["scope"],
+        "plant_count": o["plant_count"],
+        "summary": {
+            "produced_kwh": m["produced_kwh"],
+            "lost_kwh_est": m["lost_kwh_est"],
+            "loss_share_pct": m["loss_share_pct"],
+            "availability_pct": m["availability_pct"],
+            "power_limited_min": m["limited_min"],
+            "active_issues": m["active_issues"],
+            "safety_issues": m["safety_issues"],
+            "active_by_tier": m["by_tier"],
+            "spend_thb_entered": m["spend_thb"],
+            "spend_events": m["spend_events"],
+            "spend_events_with_cost": m["spend_events_priced"],
+            "open_tasks": m["committed_tasks"],
+        },
+        "loss_by_cause": by_cause,
+        "top_issues_total": o["issues"]["total"],
+        # admins only (None for engineers): issues of rules still in shadow mode, not in any figure here
+        "shadow_issues_left_out": o["shadow_hidden"],
+        "top_issues": issues,
+        "plants_with_loss": sum(1 for r in plants if r["lost_kwh_est"]),
+        "plants_most_lost": losing,
+        "work_this_week": o["work"],
+        "response": o["response"]["tiers"],
+        "response_targets_days": o["response"]["targets"],
+        "claims_open": o["claims"],
+        "notes": [
+            "lost_kwh_est is ESTIMATED by the detection rules, each kWh counted once across overlapping rules",
+            "produced_kwh and availability_pct are measured (stored inverter days); null = no stored data, not 0",
+            "spend_thb_entered is typed in by the team; null = no cost entered",
+            "top_issues are the active issues in fix-first order (safety, tier, loss); issues of rules in shadow mode are left out "
+            "(shadow_issues_left_out counts them): with none live, no loss estimate means rules not live yet, not no loss",
+            "response counts issues first seen in the window; days are whole plant-local days",
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------------------------
 # Registry
 
@@ -701,6 +793,14 @@ _TOOLS: Dict[str, Tuple[type[_In], ToolFn, str]] = {
         "Find plants by name, city or id (Thai or English text, substring match) and/or project phase "
         "1-4. Returns plant_id, name, capacity kWp, inverter count and the yield of the newest stored day. "
         "Use it to turn a plant name into a plant_id.",
+    ),
+    "om_dashboard": (
+        OmDashboardIn,
+        om_dashboard,
+        "The O&M dashboard for a period (default: month to date) over the user's plants, or one plant_id: produced "
+        "kWh, ESTIMATED lost kWh by cause and its share, availability, the active issues to fix first, the plants "
+        "losing the most, this week's Calendar tasks and overdue backlog, response times per tier vs targets, and "
+        "open claims. Use it for 'what are we losing / what to fix first / is the work keeping up'. No baht estimates.",
     ),
     "plant_overview": (
         PlantOverviewIn,

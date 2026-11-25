@@ -262,6 +262,7 @@ export const TH_ADMIN: Record<string, string> = {
   "Reading plant day": "กำลังอ่านข้อมูลรายวันของโรงไฟฟ้า",
   "Reading alarm log": "กำลังอ่านบันทึกอลาร์ม",
   "Ranking the fleet": "กำลังจัดอันดับทุกโรงไฟฟ้า",
+  "Reading O&M dashboard": "กำลังอ่านแดชบอร์ด O&M",
   "Reading inverter trend": "กำลังอ่านแนวโน้มอินเวอร์เตอร์",
   "Reading inverter day": "กำลังอ่านข้อมูลรายวันของอินเวอร์เตอร์",
   "Analysing string": "กำลังวิเคราะห์สตริง",
