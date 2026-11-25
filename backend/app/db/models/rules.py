@@ -129,9 +129,12 @@ class GrowattPlantDaily(Base):
     curtailed_limit_kwh: Mapped[Optional[float]] = mapped_column(Float)  # at the power-limit setting
     curtail_ratio: Mapped[Optional[float]] = mapped_column(Float)  # model scale used (calibration of the 14 days before; null = plain model)
     curtail_ratio_slots: Mapped[Optional[int]] = mapped_column(Integer)  # the plant's own free slots in that window
-    curtail_ratio_source: Mapped[Optional[str]] = mapped_column(String(8))  # plant | fleet (null = plain model)
+    curtail_ratio_source: Mapped[Optional[str]] = mapped_column(String(8))  # plant | blend | fleet (null = plain model)
+    curtailed_err_kwh: Mapped[Optional[float]] = mapped_column(Float)  # typical error of curtailed_kwh from the calibration (null = plain model)
     free_ratio: Mapped[Optional[float]] = mapped_column(Float)  # median AC ÷ plain model over the day's free slots (measured ÷ modelled)
     free_slots: Mapped[Optional[int]] = mapped_column(Integer)
+    # free slots at the shoulder hours (growatt_curtailment.SHOULDER_HOURS): {"8": [median AC ÷ plain model, slots], …}
+    shoulder_ratios: Mapped[Optional[Any]] = mapped_column(JSON)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
 

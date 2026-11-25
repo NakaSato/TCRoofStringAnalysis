@@ -6,7 +6,9 @@
  * why: the meter at ~0 kW both ways (zero export: the inverters follow the load) or the AC at the
  * power-limit setting. The model is calibrated per plant on how it runs when nothing holds it back
  * (midday, importing well above the export band), from the 14 days before each day; a plant with
- * too few such slots takes the fleet's ratio, and the table says which. A row opens the plant's
+ * too few such slots takes the mean of the fleet's ratio and its own 08 h / 15 h free running
+ * (scaled to midday), else the fleet's ratio, and the table says which. Every figure carries its
+ * typical error (±, from the backtest of each calibration source). A row opens the plant's
  * overview on its last curtailed day, where the chart shows the band slot by slot.
  */
 import React, { useEffect, useMemo, useState } from "react";
@@ -47,8 +49,21 @@ const PAGE = 50;
 /** "YYYY-MM-DD" n days before `day` (UTC date arithmetic, so no zone shifts it). */
 const daysBefore = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
-const CAL_VARIANT: Record<CurtailCalibrationSource, "ok" | "info" | "neutral"> = { plant: "ok", fleet: "info", not_checked: "neutral" };
-const CAL_LABEL: Record<CurtailCalibrationSource, string> = { plant: "Own", fleet: "Fleet", not_checked: "Not checked" };
+const CAL_VARIANT: Record<CurtailCalibrationSource, "ok" | "info" | "warn" | "neutral"> = { plant: "ok", blend: "info", fleet: "warn", not_checked: "neutral" };
+const CAL_LABEL: Record<CurtailCalibrationSource, string> = { plant: "Own", blend: "Own + fleet", fleet: "Fleet", not_checked: "Not checked" };
+
+/** √Σ err² of the rows' curtailed-kWh errors (plants are independent); null when a curtailed row has none. */
+const totalErr = (rows: FleetCurtailmentPlant[]): number | null => {
+  let s = 0;
+  for (const r of rows) {
+    if (!r.curtailed_kwh) continue;
+    if (r.curtailed_err_kwh == null) return null;
+    s += r.curtailed_err_kwh ** 2;
+  }
+  return Math.sqrt(s);
+};
+/** kWh, or MWh from 10,000 kWh (the tile's unit) */
+const bigKwh = (v: number, mwh: boolean) => (mwh ? fmt(v / 1000, 1) : fmtInt(v));
 
 const sortValue = (p: FleetCurtailmentPlant, k: SortKey): number | string | null => {
   switch (k) {
@@ -132,7 +147,9 @@ export const CurtailmentPage: React.FC = () => {
       kwh: judged.length ? kwh : null,
       pct: judged.length && energy + kwh > 0 ? (kwh / (energy + kwh)) * 100 : null,
       curtailed: judged.filter((r) => (r.curtailed_kwh ?? 0) > 0).length,
+      err: judged.length ? totalErr(judged) : null,
       plant: by("plant"),
+      blend: by("blend"),
       fleet: by("fleet"),
       unchecked: by("not_checked"),
     };
@@ -161,9 +178,9 @@ export const CurtailmentPage: React.FC = () => {
   const exportCsv = () =>
     downloadCsv(
       `curtailment_${start}_${end}.csv`,
-      ["plant_id", "plant", "phase", "kwp", "curtailed_kwh_est", "share_pct", "days_curtailed", "days_judged", "export_limit_kwh_est", "power_limit_kwh_est", "model_scale_pct", "calibration", "last_curtailed_day"],
+      ["plant_id", "plant", "phase", "kwp", "curtailed_kwh_est", "curtailed_kwh_err", "share_pct", "days_curtailed", "days_judged", "export_limit_kwh_est", "power_limit_kwh_est", "model_scale_pct", "calibration", "last_curtailed_day"],
       rows.map((p) => [
-        p.plant_id, p.name, p.phase, p.capacity_kwp, p.curtailed_kwh, p.curtailed_pct, p.curtailed_days, p.judged_days,
+        p.plant_id, p.name, p.phase, p.capacity_kwp, p.curtailed_kwh, p.curtailed_err_kwh, p.curtailed_pct, p.curtailed_days, p.judged_days,
         p.by.export_limit ?? null, p.by.power_limit ?? null,
         p.calibration.ratio == null ? null : Math.round(p.calibration.ratio * 1000) / 10, p.calibration.status, p.last_curtailed_day,
       ])
@@ -219,10 +236,15 @@ export const CurtailmentPage: React.FC = () => {
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatTile
               label={t("Curtailed (estimated)")}
-              value={kpi.kwh == null ? "—" : kpi.kwh >= 10_000 ? fmt(kpi.kwh / 1000, 1) : fmtInt(kpi.kwh)}
+              value={kpi.kwh == null ? "—" : bigKwh(kpi.kwh, kpi.kwh >= 10_000)}
               unit={kpi.kwh != null && kpi.kwh >= 10_000 ? "MWh" : "kWh"}
               tone="text-amber-300"
-              footer={t("{n} plant(s) judged", { n: kpi.judged })}
+              footer={
+                <span title={t("Typical error of the total from the model calibration: the plants' errors are independent, so they partly cancel. A bias shared by every plant would not cancel and is not included.")}>
+                  {kpi.kwh != null && kpi.kwh > 0 && (kpi.err == null ? `${t("± unknown")} · ` : `± ${bigKwh(kpi.err, kpi.kwh >= 10_000)} · `)}
+                  {t("{n} plant(s) judged", { n: kpi.judged })}
+                </span>
+              }
             />
             <StatTile label={t("Of what the plants could give")} value={kpi.pct == null ? "—" : fmt(kpi.pct, 1)} unit="%" footer={t("curtailed ÷ (produced + curtailed)")} />
             <StatTile label={t("Plants curtailed")} value={fmtInt(kpi.curtailed)} unit={t("of {n}", { n: kpi.judged })} footer={t("at least one curtailed slot in the period")} />
@@ -230,7 +252,7 @@ export const CurtailmentPage: React.FC = () => {
               label={t("Model calibration")}
               value={fmtInt(kpi.plant)}
               unit={t("own")}
-              footer={t("{fleet} fleet ratio · {none} not checked", { fleet: kpi.fleet, none: kpi.unchecked })}
+              footer={t("{blend} own + fleet · {fleet} fleet ratio · {none} not checked", { blend: kpi.blend, fleet: kpi.fleet, none: kpi.unchecked })}
             />
           </div>
         </Suspended>
@@ -342,6 +364,18 @@ export const CurtailmentPage: React.FC = () => {
                         <TableCell className="num text-right text-muted-foreground">{fmtInt(p.capacity_kwp)}</TableCell>
                         <TableCell className={cn("num text-right font-semibold", (p.curtailed_kwh ?? 0) > 0 ? "text-amber-300" : "text-muted-foreground")}>
                           {p.curtailed_kwh == null ? <span title={t("No slot could be judged: no weather sensor or no kWp")}>—</span> : fmtInt(p.curtailed_kwh)}
+                          {(p.curtailed_kwh ?? 0) > 0 && (
+                            <span
+                              className="block text-[11px] font-normal text-muted-foreground"
+                              title={
+                                p.curtailed_err_kwh == null
+                                  ? t("Some curtailed day rests on the uncalibrated model: the error is not known")
+                                  : t("Typical error of the estimate from the model calibration ({source}); about 1 plant in 10 is off by up to twice this", { source: t(CAL_LABEL[p.calibration.status]) })
+                              }
+                            >
+                              ± {p.curtailed_err_kwh == null ? "?" : fmtInt(p.curtailed_err_kwh)}
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="num text-right">{p.curtailed_pct == null ? "—" : `${fmt(p.curtailed_pct, 1)} %`}</TableCell>
                         <TableCell className="num text-right text-muted-foreground">{p.judged_days ? `${p.curtailed_days} / ${p.judged_days}` : "—"}</TableCell>
@@ -359,7 +393,9 @@ export const CurtailmentPage: React.FC = () => {
                             title={
                               p.calibration.status === "plant"
                                 ? t("From the plant's own {n} free-running slot(s)", { n: p.calibration.slots ?? 0 })
-                                : p.calibration.status === "fleet"
+                                : p.calibration.status === "blend"
+                                  ? t("Too few midday free-running slots of its own ({n}): the mean of the fleet's ratio and its own free running at 08 h / 15 h (scaled to midday)", { n: p.calibration.slots ?? 0 })
+                                  : p.calibration.status === "fleet"
                                   ? t("Too few free-running slots of its own ({n}): the fleet's ratio", { n: p.calibration.slots ?? 0 })
                                   : t("No free-running slots yet: the plain model, likely high")
                             }
@@ -388,7 +424,7 @@ export const CurtailmentPage: React.FC = () => {
         <CardFooter className="border-t border-white/[0.06] pt-3">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             {t(
-              "How it is estimated: available power = kWp × irradiance × temperature × system factor × the plant's model scale (modelled). A plant's model scale is how it ran when nothing held it back (09–15 h, ≥ 400 W/m², buying more than 30 % of the model from the grid) over the 14 days before each day; with fewer than {n} such slots the fleet's ratio is used. A plant without a weather sensor cannot be judged (—).",
+              "How it is estimated: available power = kWp × irradiance × temperature × system factor × the plant's model scale (modelled). A plant's model scale is how it ran when nothing held it back (09–15 h, ≥ 400 W/m², buying more than 30 % of the model from the grid) over the 14 days before each day; with fewer than {n} such slots it is the mean of the fleet's ratio and the plant's own free running at 08 h / 15 h (scaled to midday by the fleet's hour factors), else the fleet's ratio. ± = typical error from that calibration (backtest: own 5 %, own + fleet 10 %, fleet 15 % on the available power, 2–3× that on the curtailed kWh). A plant without a weather sensor cannot be judged (—).",
               { n: data?.meta.calibration_min_slots ?? 12 }
             )}
           </p>

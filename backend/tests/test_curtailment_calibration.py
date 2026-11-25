@@ -81,7 +81,7 @@ def test_a_plant_without_free_slots_takes_the_fleet_ratio(db):
 def test_fleet_sums_ranks_and_scopes(db):
     db.add_all([
         _pd(1, date(2026, 11, 20), energy_kwh=900.0, curtailed_kwh=100.0, curtailed_slots=20, curtailed_export_kwh=100.0,
-            curtailed_limit_kwh=0.0, curtail_ratio=0.8, curtail_ratio_slots=40, curtail_ratio_source="plant"),
+            curtailed_limit_kwh=0.0, curtail_ratio=0.8, curtail_ratio_slots=40, curtail_ratio_source="plant", curtailed_err_kwh=12.0),
         _pd(1, date(2026, 11, 21), energy_kwh=1000.0, curtailed_kwh=0.0, curtailed_slots=0, curtailed_export_kwh=0.0,
             curtailed_limit_kwh=0.0, curtail_ratio=0.8, curtail_ratio_slots=44, curtail_ratio_source="plant"),
         _pd(2, date(2026, 11, 20), energy_kwh=500.0, curtailed_kwh=None),  # no sensor: never judged
@@ -93,10 +93,53 @@ def test_fleet_sums_ranks_and_scopes(db):
     assert (a["curtailed_days"], a["judged_days"], a["last_curtailed_day"]) == (1, 2, "2026-11-20")
     assert a["calibration"] == {"ratio": 0.8, "slots": 44, "status": "plant"}
     assert b["plant_id"] == 2 and b["curtailed_kwh"] is None and b["calibration"]["status"] == "not_checked"
+    assert a["curtailed_err_kwh"] == 12.0  # the day with 0 kWh adds no error
     assert out["summary"] == {"plants": 2, "judged_plants": 1, "curtailed_plants": 1, "plant_calibrated": 1,
-                              "fleet_calibrated": 0, "curtailed_kwh": 100.0, "energy_kwh": 2400.0}
-    assert [(d["day"], d["kwh"], d["plants"]) for d in out["days"]] == [("2026-11-20", 100.0, 1), ("2026-11-21", 0.0, 0)]
+                              "blend_calibrated": 0, "fleet_calibrated": 0, "curtailed_kwh": 100.0,
+                              "curtailed_err_kwh": 12.0, "energy_kwh": 2400.0}
+    assert [(d["day"], d["kwh"], d["err_kwh"], d["plants"]) for d in out["days"]] == [
+        ("2026-11-20", 100.0, 12.0, 1), ("2026-11-21", 0.0, 0.0, 0)]
     assert [p["plant_id"] for p in gc.fleet(db, date(2026, 11, 20), date(2026, 11, 21), plant_ids=[2])["plants"]] == [2]
+
+
+def test_shoulder_hours_are_stored_apart_from_midday():
+    # model = 80 kW at 800 W/m². 08:00 / 15:00 free (import well above 30 % of the model), 07:00 and
+    # 16:00 are not shoulder hours, 08:10 below the shoulder POA
+    rows = [
+        _row("08:00", 60, imp=60), _row("08:05", 64, imp=60), _row("15:00", 68, imp=60), _row("07:00", 40, imp=60),
+        _row("16:00", 40, imp=60), _row("08:10", 10, g=150.0, imp=60), _row("10:00", 72, imp=60),
+    ]
+    s = gc.annotate(rows, **KW)
+    assert s["free_slots"] == 1 and s["free_ratio"] == 0.9
+    assert s["shoulder"] == {"8": [0.775, 2], "15": [0.85, 1]}
+
+
+def test_error_follows_the_calibration_source_of_each_held_slot():
+    rows = [_row("10:00", 50, imp=0.5, exp=0.0), _row("10:05", 50, imp=1.0, exp=0.0)]
+    s = gc.annotate([dict(r) for r in rows], **KW, calibration={"2026-11-20": {"ratio": 0.8, "slots": 0, "source": "blend"}})
+    # 2 slots × 64 kW available × 5 min × 10 %
+    assert s["err_kwh"] == pytest.approx(2 * 64 * gc.SLOT_H * gc.RATIO_ERROR["blend"], abs=0.05)
+    assert gc.annotate([dict(r) for r in rows], **KW)["err_kwh"] is None  # plain model: unknown
+    free = [_row("10:00", 80, imp=60)]
+    assert gc.annotate(free, **KW)["err_kwh"] == 0.0  # nothing held: no error
+
+
+def test_a_plant_free_only_at_the_shoulders_blends_its_own_ratio_with_the_fleet(db):
+    db.add_all([GrowattPlant(plant_id=100 + i, name=f"P{i}") for i in range(20)])
+    db.flush()
+    # 20 plants × 2 days: midday 0.8, 08 h at 0.68 (k = 0.85), 15 h at 0.72 (k = 0.9)
+    for i in range(20):
+        for d in (date(2026, 11, 18), date(2026, 11, 19)):
+            db.add(_pd(100 + i, d, free_ratio=0.8, free_slots=10, shoulder_ratios={"8": [0.68, 4], "15": [0.72, 4]}))
+    # plant 1: never free at midday; its shoulders read 0.765 / 0.81 → 0.9 of midday-equivalent
+    db.add(_pd(1, date(2026, 11, 19), free_ratio=None, free_slots=0, shoulder_ratios={"8": [0.765, 6], "15": [0.81, 6]}))
+    db.commit()
+    out = gc.calibration(db, 1, [date(2026, 11, 20)])["2026-11-20"]
+    assert out == {"ratio": 0.85, "slots": 0, "source": "blend"}  # (fleet 0.8 + own 0.9) / 2
+    # too few shoulder slots of its own: the fleet's ratio
+    db.query(GrowattPlantDaily).filter_by(plant_id=1).update({"shoulder_ratios": {"8": [0.765, 5], "15": [0.81, 6]}})
+    db.commit()
+    assert gc.calibration(db, 1, [date(2026, 11, 20)])["2026-11-20"]["source"] == "fleet"
 
 
 def test_fleet_route_scopes_engineers_and_checks_the_period(tmp_path):

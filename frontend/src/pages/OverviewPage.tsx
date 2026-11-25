@@ -497,7 +497,7 @@ export const OverviewPage: React.FC = () => {
                     {
                       icon: Gauge,
                       label: t("Curtailed (estimated)"),
-                      value: fmt(curt.kwh, 1),
+                      value: fmt(curt.kwh, 1) + (curt.kwh && curt.err_kwh != null ? ` ± ${fmt(curt.err_kwh, 0)}` : ""),
                       unit: "kWh",
                       tip: t("Estimated energy held back for {period}: modelled available power (kWp × POA × temperature × EPI factor {f}) − AC, in {n} slot(s) where the meter held ~0 kW (zero export) or the AC sat at the power limit. Not measured{note}", {
                         period: pp.label,
@@ -507,7 +507,9 @@ export const OverviewPage: React.FC = () => {
                       }) + " " + (curt.calibration?.ratio != null
                         ? t(curt.calibration.status === "plant"
                             ? "Model scaled to {r} %: how this plant ran when nothing held it back over the 14 days before."
-                            : "Model scaled to {r} %: the fleet's ratio, as this plant had too few free-running slots of its own.", { r: fmt(curt.calibration.ratio * 100, 0) })
+                            : curt.calibration.status === "blend"
+                              ? "Model scaled to {r} %: the mean of the fleet's ratio and this plant's own free running at 08 h / 15 h, as it had too few midday free-running slots."
+                              : "Model scaled to {r} %: the fleet's ratio, as this plant had too few free-running slots of its own.", { r: fmt(curt.calibration.ratio * 100, 0) })
                         : t("Model not checked yet against free running, so it may read high.")),
                     },
                     ] : []),

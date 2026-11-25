@@ -103,6 +103,8 @@ _ADDED_COLUMNS = [
     ("growatt_plant_daily", "curtail_ratio_source", "VARCHAR(8)", None),
     ("growatt_plant_daily", "free_ratio", "FLOAT", None),
     ("growatt_plant_daily", "free_slots", "INTEGER", None),
+    ("growatt_plant_daily", "curtailed_err_kwh", "FLOAT", None),
+    ("growatt_plant_daily", "shoulder_ratios", "JSON", None),
     ("growatt_iv_sweeps", "sweep_time_ms", "FLOAT", None),
     ("growatt_iv_sweeps", "cell_technology", "VARCHAR(16)", None),
     ("growatt_iv_sweeps", "irradiance_uncertainty_pct", "FLOAT", None),

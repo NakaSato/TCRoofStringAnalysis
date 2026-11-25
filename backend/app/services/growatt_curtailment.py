@@ -37,9 +37,26 @@ free slots (`source: plant`). A plant with fewer (a zero-export plant held back 
 runs free then; no meter) takes the fleet's slot-weighted ratio over the same days, from at least
 `FLEET_MIN_PLANTS` plants (`source: fleet`); without either the plain model stays (`not_checked`).
 `available_kw` is then model × ratio (still **modelled**).
+
+**Shoulder hours** (Nov 2026). A zero-export plant held back all midday often still runs free at
+08 h and 15 h, when the site load is above the PV. Those slots read low against the model (it has
+no angle-of-incidence loss: −15 % at 08 h, −9 % at 15 h, 21–25 Nov 2026), so each day's free
+ratio per `SHOULDER_HOURS` hour is stored apart (`shoulder`) and scaled by the fleet's `k_h` =
+median of (hour ratio ÷ midday ratio) over the plant-days of the window that have both (learned
+from the same 14 days, so it follows the season). A plant without enough midday slots of its own
+but ≥ `CALIBRATION_MIN_SLOTS` corrected shoulder slots takes (fleet + own corrected) ÷ 2
+(`source: blend`). Backtest 21–25 Nov 2026 (next day's midday free ratio predicted from the days
+before): own midday 4.9 % mean error, blend 10.3 %, fleet 14.6 %.
+
+**Uncertainty.** `err_kwh` = Σ over the held slots of `RATIO_ERROR[source]` × available × 5 min:
+the curtailed kWh moves by the whole available power when the ratio is off (curtailed = available
+− AC, so a ratio error is amplified 2–3× on the curtailed kWh). It is the typical error (mean
+absolute error of the backtest), not a bound; a held slot of a day without a calibration
+(`not_checked`, plain model) makes it null (unknown).
 """
 from __future__ import annotations
 
+import math
 import statistics
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
@@ -63,6 +80,13 @@ FREE_IMPORT_FRAC = 0.30  # import above this share of the model = surely not hel
 CALIBRATION_DAYS = 14
 CALIBRATION_MIN_SLOTS = 12  # one hour of free running over the window
 FLEET_MIN_PLANTS = 10
+SHOULDER_HOURS = (8, 15)  # plant-local whole hours whose free slots, scaled by the fleet's k_h, stand in for midday
+SHOULDER_MIN_POA_WM2 = 200.0
+SHOULDER_K_MIN_PLANT_DAYS = 20  # plant-days with both a midday and an hour ratio needed to learn k_h
+SHOULDER_K_MIN_MID_SLOTS = 6
+SHOULDER_K_MIN_HOUR_SLOTS = 3
+# mean |error| of the calibrated available power by source (backtest 21–25 Nov 2026, next day)
+RATIO_ERROR = {"plant": 0.05, "blend": 0.10, "fleet": 0.15}
 _TS = "%Y-%m-%d %H:%M:%S"
 
 
@@ -109,6 +133,7 @@ def annotate(
     judged = 0
     cal = calibration or {}
     free: List[float] = []
+    shoulder: Dict[int, List[float]] = {h: [] for h in SHOULDER_HOURS}
     for r in rows:
         r["available_kw"] = None
         r["curtailed_kw"] = None
@@ -135,16 +160,18 @@ def annotate(
         judged += 1
         r["curtailed_kw"] = 0.0
         imp = r.get("grid_import_kw")
+        hour = int(ts[11:13])
         if (
-            FREE_HOURS[0] <= int(ts[11:13]) < FREE_HOURS[1]
-            and g >= FREE_MIN_POA_WM2
-            and imp is not None
+            imp is not None
             and model > 0
             and imp > max(band, FREE_IMPORT_FRAC * model)
             and not (limit_kw and pac >= LIMIT_FRACTION * limit_kw)
             and not (rated_ac_kw and (model >= rated_ac_kw or pac >= LIMIT_FRACTION * rated_ac_kw))
         ):
-            free.append(float(pac) / model)
+            if FREE_HOURS[0] <= hour < FREE_HOURS[1] and g >= FREE_MIN_POA_WM2:
+                free.append(float(pac) / model)
+            elif hour in shoulder and g >= SHOULDER_MIN_POA_WM2:
+                shoulder[hour].append(float(pac) / model)
         gap = avail - float(pac)
         if gap < max(MIN_GAP_KW, MIN_GAP_FRAC * avail):
             continue
@@ -163,6 +190,7 @@ def annotate(
     kwh = 0.0
     slots = 0
     by: Dict[str, float] = {}
+    err: Optional[float] = 0.0
     for r in rows:
         cause = flagged.get(r["timestamp"])
         if cause is None or not near(r["timestamp"]):
@@ -173,6 +201,8 @@ def annotate(
         kwh += kw * SLOT_H
         slots += 1
         by[cause] = by.get(cause, 0.0) + kw * SLOT_H
+        frac = RATIO_ERROR.get((cal.get(r["timestamp"][:10]) or {}).get("source") or "")
+        err = None if err is None or frac is None else err + frac * r["available_kw"] * SLOT_H
     reason = None
     if not judged:
         reason = "no_capacity" if not kwp else "no_sensor_slots"
@@ -180,6 +210,9 @@ def annotate(
     used = [cal[d] for d in days if (cal.get(d) or {}).get("ratio")]
     return {
         "kwh": round(kwh, 1) if judged else None,
+        # typical error of `kwh` from the calibration (mean |error| × available power of the held
+        # slots); null = a held slot rests on the plain model
+        "err_kwh": (round(err, 1) if err is not None else None) if judged else None,
         "slots": slots,
         "judged_slots": judged,
         "by": {k: round(v, 1) for k, v in by.items()},
@@ -197,49 +230,86 @@ def annotate(
         },
         "free_ratio": round(statistics.median(free), 3) if free else None,
         "free_slots": len(free),
+        # per SHOULDER_HOURS hour: [median AC ÷ plain model, slots] of its free slots (stored per day)
+        "shoulder": {str(h): [round(statistics.median(v), 3), len(v)] for h, v in shoulder.items() if v},
     }
 
 
 def calibration(db: Session, plant_id: int, days: Sequence[date]) -> Dict[str, Dict[str, Any]]:
     """{day: {ratio, slots, source}} per day in `days`, from the stored daily free ratios of the
-    CALIBRATION_DAYS before that day (slot-weighted): the plant's own (`plant`, ≥
-    CALIBRATION_MIN_SLOTS free slots), else the fleet's (`fleet`, ≥ FLEET_MIN_PLANTS plants;
-    `slots` = the plant's own), else `ratio` null (`source` null)."""
+    CALIBRATION_DAYS before that day (slot-weighted): the plant's own midday ones (`plant`, ≥
+    CALIBRATION_MIN_SLOTS free slots); else, with the fleet's (≥ FLEET_MIN_PLANTS plants) and the
+    plant's own shoulder-hour ratios ÷ the fleet's k_h holding ≥ CALIBRATION_MIN_SLOTS slots, their
+    mean (`blend`); else the fleet's (`fleet`); else `ratio` null (`source` null). `slots` = the
+    plant's own midday free slots in the window."""
     from app.db.models import GrowattPlantDaily as PD
 
     if not days:
         return {}
     lo, hi = min(days) - timedelta(days=CALIBRATION_DAYS), max(days)
     stored = [
-        (int(p), d, float(r), int(n))
-        for p, d, r, n in db.execute(
-            select(PD.plant_id, PD.day, PD.free_ratio, PD.free_slots).where(
-                PD.day >= lo, PD.day < hi, PD.free_ratio.is_not(None), PD.free_slots > 0
+        (int(p), d, float(r) if r is not None else None, int(n or 0), sh if isinstance(sh, dict) else {})
+        for p, d, r, n, sh in db.execute(
+            select(PD.plant_id, PD.day, PD.free_ratio, PD.free_slots, PD.shoulder_ratios).where(
+                PD.day >= lo, PD.day < hi, (PD.free_ratio.is_not(None)) | (PD.shoulder_ratios.is_not(None))
             )
         )
-        if r is not None and n is not None  # already filtered in SQL; narrows the types
     ]
     out: Dict[str, Dict[str, Any]] = {}
     for day in days:
-        win = [(p, r, n) for p, d, r, n in stored if day - timedelta(days=CALIBRATION_DAYS) <= d < day]
-        own = [(r, n) for p, r, n in win if p == plant_id]
+        win = [x for x in stored if day - timedelta(days=CALIBRATION_DAYS) <= x[1] < day]
+        mid = [(p, r, n) for p, _, r, n, _ in win if r is not None and n > 0]
+        own = [(r, n) for p, r, n in mid if p == plant_id]
         n_own = sum(n for _, n in own)
         if n_own >= CALIBRATION_MIN_SLOTS:
             out[day.isoformat()] = {"ratio": round(sum(r * n for r, n in own) / n_own, 3), "slots": n_own, "source": "plant"}
             continue
-        n_all = sum(n for _, _, n in win)
-        if len({p for p, _, _ in win}) >= FLEET_MIN_PLANTS and n_all:
-            out[day.isoformat()] = {"ratio": round(sum(r * n for _, r, n in win) / n_all, 3), "slots": n_own, "source": "fleet"}
+        n_all = sum(n for _, _, n in mid)
+        if len({p for p, _, _ in mid}) < FLEET_MIN_PLANTS or not n_all:
+            out[day.isoformat()] = {"ratio": None, "slots": n_own, "source": None}
             continue
-        out[day.isoformat()] = {"ratio": None, "slots": n_own, "source": None}
+        fleet_ratio = sum(r * n for _, r, n in mid) / n_all
+        corrected = _shoulder_corrected(win, plant_id)
+        if corrected is not None:
+            out[day.isoformat()] = {"ratio": round((fleet_ratio + corrected) / 2, 3), "slots": n_own, "source": "blend"}
+        else:
+            out[day.isoformat()] = {"ratio": round(fleet_ratio, 3), "slots": n_own, "source": "fleet"}
     return out
+
+
+def _shoulder_corrected(win: Sequence[Any], plant_id: int) -> Optional[float]:
+    """The plant's own shoulder-hour free ratio scaled to midday: per hour h, k_h = median over the
+    window's plant-days (any plant) of hour ratio ÷ midday ratio; the plant's day ratios ÷ k_h,
+    slot-weighted. None when k_h cannot be learned or the plant has < CALIBRATION_MIN_SLOTS."""
+    k: Dict[str, float] = {}
+    for h in map(str, SHOULDER_HOURS):
+        rel = [
+            float(sh[h][0]) / r
+            for _, _, r, n, sh in win
+            if r and n >= SHOULDER_K_MIN_MID_SLOTS and h in sh and int(sh[h][1]) >= SHOULDER_K_MIN_HOUR_SLOTS
+        ]
+        if len(rel) >= SHOULDER_K_MIN_PLANT_DAYS:
+            k[h] = statistics.median(rel)
+    vals = [
+        (float(sh[h][0]) / k[h], int(sh[h][1]))
+        for p, _, _, _, sh in win
+        if p == plant_id
+        for h in k
+        if h in sh and int(sh[h][1]) > 0 and k[h] > 0
+    ]
+    n = sum(m for _, m in vals)
+    return sum(v * m for v, m in vals) / n if n >= CALIBRATION_MIN_SLOTS else None
 
 
 def fleet(db: Session, start: date, end: date, plant_ids: Optional[Iterable[int]] = None) -> Dict[str, Any]:
     """Curtailment of every plant (`plant_ids` = the user's scope; None = all) over `start`..`end`
-    from the stored daily rows (DB only): per plant the curtailed kWh (estimated), the days with
-    any, produced kWh, the share of produced + curtailed, cause split and its last day's
-    calibration; per day the fleet totals."""
+    from the stored daily rows (DB only): per plant the curtailed kWh (estimated) and its typical
+    error, the days with any, produced kWh, the share of produced + curtailed, cause split and its
+    last day's calibration; per day the fleet totals.
+
+    Errors: a plant's days share one calibration, so their errors add (Σ); different plants'
+    errors are independent, so a day's or the period's total takes √Σ err² over the plants. Null
+    when a curtailed day has none (plain model)."""
     from app.db.models import GrowattPlant, GrowattPlantDaily as PD
 
     q = select(PD).where(PD.day >= start, PD.day <= end)
@@ -255,13 +325,13 @@ def fleet(db: Session, start: date, end: date, plant_ids: Optional[Iterable[int]
         if r.plant_id not in plants:
             continue
         p = per.setdefault(r.plant_id, {
-            "kwh": None, "energy_kwh": None, "days": 0, "judged_days": 0, "curtailed_days": 0,
+            "kwh": None, "err": 0.0, "energy_kwh": None, "days": 0, "judged_days": 0, "curtailed_days": 0,
             "export_limit_kwh": 0.0, "power_limit_kwh": 0.0, "slots": 0, "last": None,
         })
         p["days"] += 1
         if r.energy_kwh is not None:
             p["energy_kwh"] = (p["energy_kwh"] or 0.0) + float(r.energy_kwh)
-        d = days.setdefault(r.day.isoformat(), {"day": r.day.isoformat(), "kwh": None, "plants": 0, "energy_kwh": None})
+        d = days.setdefault(r.day.isoformat(), {"day": r.day.isoformat(), "kwh": None, "err2": 0.0, "plants": 0, "energy_kwh": None})
         if r.energy_kwh is not None:
             d["energy_kwh"] = (d["energy_kwh"] or 0.0) + float(r.energy_kwh)
         if r.curtailed_kwh is None:
@@ -269,6 +339,9 @@ def fleet(db: Session, start: date, end: date, plant_ids: Optional[Iterable[int]
         p["judged_days"] += 1
         p["kwh"] = (p["kwh"] or 0.0) + float(r.curtailed_kwh)
         d["kwh"] = (d["kwh"] or 0.0) + float(r.curtailed_kwh)
+        e = 0.0 if r.curtailed_kwh == 0 else (float(r.curtailed_err_kwh) if r.curtailed_err_kwh is not None else None)
+        p["err"] = None if p["err"] is None or e is None else p["err"] + e
+        d["err2"] = None if d["err2"] is None or e is None else d["err2"] + e * e
         p["slots"] += int(r.curtailed_slots or 0)
         p["export_limit_kwh"] += float(r.curtailed_export_kwh or 0.0)
         p["power_limit_kwh"] += float(r.curtailed_limit_kwh or 0.0)
@@ -286,6 +359,8 @@ def fleet(db: Session, start: date, end: date, plant_ids: Optional[Iterable[int]
             "phase": pl.phase,
             "capacity_kwp": last.capacity_kwp if last is not None else None,
             "curtailed_kwh": round(kwh, 1) if kwh is not None else None,
+            # typical error of curtailed_kwh (Σ of its days; null = rests on the plain model somewhere)
+            "curtailed_err_kwh": (round(p["err"], 1) if p["err"] is not None else None) if kwh is not None else None,
             "energy_kwh": round(e, 1) if e is not None else None,
             # share of what the plant could have given (produced + curtailed)
             "curtailed_pct": round(kwh / (e + kwh) * 100.0, 1) if kwh and e is not None and e + kwh > 0 else (0.0 if kwh == 0 else None),
@@ -311,6 +386,7 @@ def fleet(db: Session, start: date, end: date, plant_ids: Optional[Iterable[int]
         r["last_curtailed_day"] = last_day.get(r["plant_id"])
     rows.sort(key=lambda r: (r["curtailed_kwh"] is None, -(r["curtailed_kwh"] or 0.0)))
     judged = [r for r in rows if r["curtailed_kwh"] is not None]
+    errs = [r["curtailed_err_kwh"] for r in judged]
     return {
         "meta": {"source": "db", "start": start.isoformat(), "end": end.isoformat(), "estimated": True,
                  "calibration_days": CALIBRATION_DAYS, "calibration_min_slots": CALIBRATION_MIN_SLOTS},
@@ -319,12 +395,17 @@ def fleet(db: Session, start: date, end: date, plant_ids: Optional[Iterable[int]
             "judged_plants": len(judged),
             "curtailed_plants": sum(1 for r in judged if (r["curtailed_kwh"] or 0) > 0),
             "plant_calibrated": sum(1 for r in judged if r["calibration"]["status"] == "plant"),
+            "blend_calibrated": sum(1 for r in judged if r["calibration"]["status"] == "blend"),
             "fleet_calibrated": sum(1 for r in judged if r["calibration"]["status"] == "fleet"),
             "curtailed_kwh": round(sum(r["curtailed_kwh"] or 0.0 for r in judged), 1) if judged else None,
+            # √Σ of the plants' errors (independent between plants); null when one is unknown
+            "curtailed_err_kwh": round(math.sqrt(sum(e * e for e in errs)), 1) if judged and None not in errs else None,
             "energy_kwh": round(sum(r["energy_kwh"] or 0.0 for r in rows), 1) if rows else None,
         },
         "plants": rows,
-        "days": [{**d, "kwh": round(d["kwh"], 1) if d["kwh"] is not None else None,
+        "days": [{"day": d["day"], "kwh": round(d["kwh"], 1) if d["kwh"] is not None else None,
+                  "err_kwh": round(math.sqrt(d["err2"]), 1) if d["kwh"] is not None and d["err2"] is not None else None,
+                  "plants": d["plants"],
                   "energy_kwh": round(d["energy_kwh"], 1) if d["energy_kwh"] is not None else None} for d in sorted(days.values(), key=lambda x: x["day"])],
     }
 

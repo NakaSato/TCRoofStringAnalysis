@@ -15,7 +15,18 @@ export const TH_CURTAILMENT: Record<string, string> = {
   "at least one curtailed slot in the period": "มีช่วงที่ถูกหรี่อย่างน้อยหนึ่งช่วงในระยะเวลานี้",
   "Model calibration": "การปรับเทียบแบบจำลอง",
   own: "ของโรงเอง",
-  "{fleet} fleet ratio · {none} not checked": "ใช้ค่าของทั้งพอร์ต {fleet} · ยังไม่ได้ตรวจ {none}",
+  "{blend} own + fleet · {fleet} fleet ratio · {none} not checked": "ของโรง + พอร์ต {blend} · ใช้ค่าของทั้งพอร์ต {fleet} · ยังไม่ได้ตรวจ {none}",
+  "± unknown": "± ไม่ทราบ",
+  "Typical error of the total from the model calibration: the plants' errors are independent, so they partly cancel. A bias shared by every plant would not cancel and is not included.":
+    "ความคลาดทั่วไปของยอดรวมจากการปรับเทียบแบบจำลอง: ความคลาดของแต่ละโรงเป็นอิสระต่อกันจึงหักล้างกันบางส่วน ถ้ามีความเอนเอียงร่วมกันทุกโรงจะไม่หักล้างและไม่ได้รวมไว้",
+  "Some curtailed day rests on the uncalibrated model: the error is not known": "มีวันที่ถูกหรี่ที่ใช้แบบจำลองที่ยังไม่ได้ปรับเทียบ: ไม่ทราบความคลาด",
+  "Typical error of the estimate from the model calibration ({source}); about 1 plant in 10 is off by up to twice this":
+    "ความคลาดทั่วไปของค่าประมาณจากการปรับเทียบแบบจำลอง ({source}) ประมาณ 1 ใน 10 โรงอาจคลาดได้ถึง 2 เท่าของค่านี้",
+  "Own + fleet": "ของโรง + พอร์ต",
+  "Too few midday free-running slots of its own ({n}): the mean of the fleet's ratio and its own free running at 08 h / 15 h (scaled to midday)":
+    "ช่วงผลิตอิสระตอนกลางวันของโรงเองน้อยเกินไป ({n}): ใช้ค่าเฉลี่ยของทั้งพอร์ตกับช่วงผลิตอิสระของโรงเองตอน 08 น. / 15 น. (ปรับเทียบเป็นค่ากลางวัน)",
+  "Model scaled to {r} %: the mean of the fleet's ratio and this plant's own free running at 08 h / 15 h, as it had too few midday free-running slots.":
+    "ปรับแบบจำลองเป็น {r} %: ค่าเฉลี่ยของทั้งพอร์ตกับช่วงผลิตอิสระของโรงนี้ตอน 08 น. / 15 น. เพราะมีช่วงผลิตอิสระตอนกลางวันน้อยเกินไป",
   "Fleet energy per day": "พลังงานทั้งพอร์ตรายวัน",
   "AC energy of every plant with the curtailed energy (estimated) stacked on top": "พลังงาน AC ของทุกโรง ซ้อนด้วยพลังงานที่ถูกหรี่ (ประมาณการ) ด้านบน",
   "No stored days in this period": "ไม่มีข้อมูลที่บันทึกในช่วงนี้",
@@ -38,8 +49,8 @@ export const TH_CURTAILMENT: Record<string, string> = {
   "Too few free-running slots of its own ({n}): the fleet's ratio": "ช่วงผลิตอิสระของโรงเองน้อยเกินไป ({n}): ใช้ค่าของทั้งพอร์ต",
   "No free-running slots yet: the plain model, likely high": "ยังไม่มีช่วงผลิตอิสระ: ใช้แบบจำลองเดิม ซึ่งมักสูงเกินจริง",
   Own: "ของโรง",
-  "How it is estimated: available power = kWp × irradiance × temperature × system factor × the plant's model scale (modelled). A plant's model scale is how it ran when nothing held it back (09–15 h, ≥ 400 W/m², buying more than 30 % of the model from the grid) over the 14 days before each day; with fewer than {n} such slots the fleet's ratio is used. A plant without a weather sensor cannot be judged (—).":
-    "วิธีประมาณการ: กำลังที่ผลิตได้ = kWp × ความเข้มแสง × อุณหภูมิ × ตัวคูณระบบ × สัดส่วนแบบจำลองของโรง (แบบจำลอง) สัดส่วนแบบจำลองคือสิ่งที่โรงผลิตได้จริงเมื่อไม่ถูกหรี่ (09–15 น., ≥ 400 W/m², ซื้อไฟจากกริดเกิน 30 % ของแบบจำลอง) ในช่วง 14 วันก่อนหน้าแต่ละวัน ถ้ามีน้อยกว่า {n} ช่วงจะใช้ค่าของทั้งพอร์ต โรงที่ไม่มีเซนเซอร์สภาพอากาศประเมินไม่ได้ (—)",
+  "How it is estimated: available power = kWp × irradiance × temperature × system factor × the plant's model scale (modelled). A plant's model scale is how it ran when nothing held it back (09–15 h, ≥ 400 W/m², buying more than 30 % of the model from the grid) over the 14 days before each day; with fewer than {n} such slots it is the mean of the fleet's ratio and the plant's own free running at 08 h / 15 h (scaled to midday by the fleet's hour factors), else the fleet's ratio. ± = typical error from that calibration (backtest: own 5 %, own + fleet 10 %, fleet 15 % on the available power, 2–3× that on the curtailed kWh). A plant without a weather sensor cannot be judged (—).":
+    "วิธีประมาณการ: กำลังที่ผลิตได้ = kWp × ความเข้มแสง × อุณหภูมิ × ตัวคูณระบบ × สัดส่วนแบบจำลองของโรง (แบบจำลอง) สัดส่วนแบบจำลองคือสิ่งที่โรงผลิตได้จริงเมื่อไม่ถูกหรี่ (09–15 น., ≥ 400 W/m², ซื้อไฟจากกริดเกิน 30 % ของแบบจำลอง) ในช่วง 14 วันก่อนหน้าแต่ละวัน ถ้ามีน้อยกว่า {n} ช่วงจะใช้ค่าเฉลี่ยของทั้งพอร์ตกับช่วงผลิตอิสระของโรงเองตอน 08 น. / 15 น. (ปรับเป็นค่ากลางวันด้วยตัวคูณรายชั่วโมงของทั้งพอร์ต) ถ้าไม่มีอีกจะใช้ค่าของทั้งพอร์ต ± = ความคลาดทั่วไปจากการปรับเทียบนั้น (backtest: ของโรง 5 %, ของโรง + พอร์ต 10 %, ทั้งพอร์ต 15 % ของกำลังที่ผลิตได้ และ 2–3 เท่าของค่านี้สำหรับ kWh ที่ถูกหรี่) โรงที่ไม่มีเซนเซอร์สภาพอากาศประเมินไม่ได้ (—)",
   "Model scaled to {r} %: how this plant ran when nothing held it back over the 14 days before.":
     "ปรับแบบจำลองเป็น {r} %: ตามที่โรงนี้ผลิตได้จริงเมื่อไม่ถูกหรี่ในช่วง 14 วันก่อนหน้า",
   "Model scaled to {r} %: the fleet's ratio, as this plant had too few free-running slots of its own.":

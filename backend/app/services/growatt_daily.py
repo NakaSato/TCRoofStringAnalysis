@@ -752,8 +752,10 @@ def _curtailment_day(db: Session, plant_id: int, day: date) -> Tuple[Dict[str, A
         "curtail_ratio": cal.get("ratio"),
         "curtail_ratio_slots": cal.get("slots"),
         "curtail_ratio_source": cal.get("status") if cal.get("ratio") is not None else None,
+        "curtailed_err_kwh": c.get("err_kwh") if judged else None,
         "free_ratio": c.get("free_ratio"),
         "free_slots": c.get("free_slots"),
+        "shoulder_ratios": c.get("shoulder") or None,
     }, held
 
 

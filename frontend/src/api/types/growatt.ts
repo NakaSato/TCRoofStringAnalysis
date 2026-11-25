@@ -484,6 +484,8 @@ export type CurtailCause = "export_limit" | "power_limit";
 export interface Curtailment {
   /** null = no slot could be judged (no sensor reading, no kWp) */
   kwh: number | null;
+  /** typical error of `kwh` from the calibration (estimated); null = a held slot rests on the plain model */
+  err_kwh?: number | null;
   slots: number;
   judged_slots: number;
   by: Partial<Record<CurtailCause, number>>;
@@ -493,14 +495,15 @@ export interface Curtailment {
   factor: number;
   limit_kw: number | null;
   /** the model's scale (how the plant runs when free, over the 14 days before): `plant` = its own
-   *  free slots, `fleet` = the fleet's ratio, `not_checked` = plain model */
+   *  midday free slots, `blend` = mean of the fleet's ratio and its own 08 h / 15 h free slots
+   *  (scaled to midday), `fleet` = the fleet's ratio, `not_checked` = plain model */
   calibration?: CurtailCalibration;
   /** median AC ÷ plain model over this period's free slots (measured ÷ modelled); null = none */
   free_ratio?: number | null;
   free_slots?: number;
 }
 
-export type CurtailCalibrationSource = "plant" | "fleet" | "not_checked";
+export type CurtailCalibrationSource = "plant" | "blend" | "fleet" | "not_checked";
 
 export interface CurtailCalibration {
   status: CurtailCalibrationSource;
@@ -519,6 +522,8 @@ export interface FleetCurtailmentPlant {
   capacity_kwp: number | null;
   /** null = no day of the period could be judged (no sensor, no kWp) */
   curtailed_kwh: number | null;
+  /** typical error of curtailed_kwh (estimated; its days added, as they share a calibration); null = unknown */
+  curtailed_err_kwh: number | null;
   energy_kwh: number | null;
   /** curtailed ÷ (produced + curtailed) */
   curtailed_pct: number | null;
@@ -538,12 +543,15 @@ export interface FleetCurtailment {
     judged_plants: number;
     curtailed_plants: number;
     plant_calibrated: number;
+    blend_calibrated: number;
     fleet_calibrated: number;
     curtailed_kwh: number | null;
+    /** √Σ of the plants' errors (independent between plants); null = one is unknown */
+    curtailed_err_kwh: number | null;
     energy_kwh: number | null;
   };
   plants: FleetCurtailmentPlant[];
-  days: Array<{ day: string; kwh: number | null; plants: number; energy_kwh: number | null }>;
+  days: Array<{ day: string; kwh: number | null; err_kwh: number | null; plants: number; energy_kwh: number | null }>;
 }
 
 /** The EPI model's system factor in use for a plant (backend services/epi_fit.py). Modelled. */
