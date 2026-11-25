@@ -28,10 +28,12 @@ export type * from "./types/pvsyst";
 export type * from "./types/kb";
 export type * from "./types/kbDocs";
 export type * from "./types/visitRoute";
+export type * from "./types/devices";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
 import type { FleetAlarmDay, FleetCurtailment, FleetModule, FleetModuleOut, GrowattInverter, GrowattInverterDaily, GrowattInverterSnapshot, GrowattInverterTimeseries, GrowattLive, GrowattLiveAlarms, GrowattLiveMeter, GrowattLivePlant, GrowattLivePlantLatest, GrowattLivePlantsToday, LiveStringOperating, GrowattPlant, GrowattPlantOverview, GrowattPlantPower, PlantKpiDaily, GrowattStringDetail, GrowattStringLayout, GrowattStringLayoutEntry, IvSiteCoefficients, PlantDocument, PlantDocumentKind, PlantDocumentRow, IvSweep, IvSweepCreate, IvSweepList, PublishResult } from "./types/growatt";
 import type { GoogleWeatherDay, GoogleWeatherNow, GrowattLiveWeather, GrowattWeatherDay, FleetRadarRain, PlantRadarRain, RainRadar } from "./types/weather";
+import type { DeviceCheckList, DeviceDataloggerList, DeviceInverterList, DeviceMeterList } from "./types/devices";
 import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./types/sensors";
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
@@ -363,6 +365,13 @@ export const api = {
   /** today's 5-min records of one sensor from Growatt (memory only; today only) */
   getLiveSensorToday: (dataloggerSn: string, address: number) =>
     apiFetch<GrowattLive<SensorToday>>(`/growatt/live/sensors/${encodeURIComponent(dataloggerSn)}/${address}/today`),
+
+  // Devices page (DB only, scoped; docs/plans/devices-page.md)
+  listDeviceInverters: (includeNotInstalled = false) =>
+    apiFetch<DeviceInverterList>(`/growatt/devices/inverters${includeNotInstalled ? "?include_not_installed=true" : ""}`),
+  listDeviceMeters: () => apiFetch<DeviceMeterList>("/growatt/devices/meters"),
+  listDeviceDataloggers: () => apiFetch<DeviceDataloggerList>("/growatt/devices/dataloggers"),
+  listDeviceChecks: () => apiFetch<DeviceCheckList>("/growatt/devices/checks"),
 
   // Growatt — realtime (backend memory only; poll, never stored)
   getGrowattLivePlants: () => apiFetch<GrowattLive<GrowattLivePlant[]>>("/growatt/live/plants"),

@@ -94,8 +94,10 @@ const SortHead: React.FC<{
   </TableHead>
 );
 
-/** `plantId` set = one plant's sensors (no plant column / phase filter), else every visible sensor. */
-export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
+/** `plantId` set = one plant's sensors (no plant column / phase filter), else every visible sensor.
+ * `viewKey`: the URL key of the Status / Info view ("tab"; the Devices page uses its own `tab`, so it
+ * passes "view"). `embedded`: inside another page, the title is an h2 under that page's h1. */
+export const SensorsView: React.FC<{ plantId?: number; viewKey?: string; embedded?: boolean }> = ({ plantId, viewKey = "tab", embedded = false }) => {
   const one = plantId != null;
   const { t } = useI18n();
   const [data, setData] = useState<SensorList | null>(null);
@@ -103,9 +105,9 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(plantNow);
 
-  // view state in the URL (?tab=&sensor=&status=&phase=&q=&sort=&desc=1)
+  // view state in the URL (?tab= (or `viewKey`)&sensor=&status=&phase=&q=&sort=&desc=1)
   const [url, setUrl] = useUrlState();
-  const tab: Tab = pick(url.get("tab"), TABS, "status");
+  const tab: Tab = pick(url.get(viewKey), TABS, "status");
   const filter: Filter = pick(url.get("status"), FILTERS, "all");
   const sort: SortKey = pick(url.get("sort"), SORTS, "plant");
   const desc = url.get("desc") === "1";
@@ -217,7 +219,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
 
   const onSort = (k: SortKey) => setUrl({ sort: k === "plant" ? null : k, desc: sort === k ? !desc : false });
   const toggleFilter = (f: Filter) => setUrl({ status: filter === f ? null : f });
-  const openInfo = (key: string) => setUrl({ tab: "info", sensor: key });
+  const openInfo = (key: string) => setUrl({ [viewKey]: "info", sensor: key });
   const selected = sensors.find((s) => s.key === selectedKey) ?? null;
   const until = data?.meta.coverage_window.until;
   const syncedAt = data?.meta.synced_at ? hhmm(data.meta.synced_at) : null;
@@ -230,7 +232,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       {!one && (
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
-          <h1 className="text-lg font-semibold">{t("Weather Sensors")}</h1>
+          {embedded ? <h2 className="text-sm font-semibold">{t("Weather Sensors")}</h2> : <h1 className="text-lg font-semibold">{t("Weather Sensors")}</h1>}
           <p className="text-xs text-muted-foreground">{t("Live online state from Growatt (never stored), newest stored reading and today's coverage")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -256,7 +258,7 @@ export const SensorsView: React.FC<{ plantId?: number }> = ({ plantId }) => {
       </div>
       )}
 
-      {!one && <Tabs value={tab} onValueChange={(v) => setUrl({ tab: v === "status" ? null : v })}>
+      {!one && <Tabs value={tab} onValueChange={(v) => setUrl({ [viewKey]: v === "status" ? null : v })}>
         <TabsList>
           <TabsTrigger value="status">
             <ListChecks className="h-3.5 w-3.5" />

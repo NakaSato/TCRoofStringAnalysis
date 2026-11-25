@@ -27,7 +27,7 @@ const PlantMaintenancePage = page(() => import("./pages/PlantMaintenancePage"), 
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
 const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAlarmPage");
 const PlantMapPage = page(() => import("./pages/PlantMapPage"), "PlantMapPage");
-const SensorsPage = page(() => import("./pages/SensorsPage"), "SensorsPage");
+const DevicesPage = page(() => import("./pages/DevicesPage"), "DevicesPage");
 const CurtailmentPage = page(() => import("./pages/CurtailmentPage"), "CurtailmentPage");
 const PlantSensorsPage = page(() => import("./pages/SensorsPage"), "PlantSensorsPage");
 const UsersPage = page(() => import("./pages/UsersPage"), "UsersPage");
@@ -131,6 +131,18 @@ const PwaMeterRedirect: React.FC = () => {
 /** Old `/center` links keep their whole query (period, view, site, sort …). */
 const CenterRedirect: React.FC = () => <Navigate to={{ pathname: ENERGY_BILLING, search: useLocation().search }} replace />;
 
+/** The Weather Sensors page is the Devices page's sensors tab: `/sensors` links (Active Alarm, …) keep
+ * their query, with the sensor view's `tab=status|info` moved to `view` (Devices uses `tab` itself). */
+const SensorsRedirect: React.FC = () => {
+  const q = new URLSearchParams(useLocation().search);
+  const view = q.get("tab");
+  q.delete("tab");
+  q.delete("view");
+  if (view === "status" || view === "info") q.set("view", view);
+  q.set("tab", "sensors");
+  return <Navigate to={{ pathname: "/devices", search: `?${q}` }} replace />;
+};
+
 /** Every page needs a signed-in user: splash while the stored token is checked, else the login page. */
 const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, authChecked } = useAppContext();
@@ -179,7 +191,8 @@ export const App: React.FC = () => {
             <Route path="center" element={<CenterRedirect />} />
             <Route path="center/*" element={<PwaMeterRedirect />} />
             <Route path="pwa-meter" element={<PwaMeterRedirect />} />
-            <Route path="sensors" element={<SensorsPage />} />
+            <Route path="devices" element={<DevicesPage />} />
+            <Route path="sensors" element={<SensorsRedirect />} />
             <Route path="settings" element={<PlantSettingsPage />} />
             <Route path="users" element={<AdminOnly><UsersPage /></AdminOnly>} />
             <Route path="logs" element={<AdminOnly><SystemLogsPage /></AdminOnly>} />

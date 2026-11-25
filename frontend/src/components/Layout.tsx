@@ -24,6 +24,7 @@ import {
   Sparkles,
   Banknote,
   Route as RouteIcon,
+  Cpu,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
@@ -64,6 +65,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
       { to: "/energy-billing", label: "Energy & Billing", icon: Banknote, description: "Billed meter energy, finance and the meter / inverter checks of one period" },
       { to: "/curtailment", label: "Curtailment", icon: Gauge },
       { to: "/alarms", label: "Active Alarm", icon: BellRing, description: "Plants in alarm & today's Growatt alarm log" },
+      { to: "/devices", label: "Devices", icon: Cpu, description: "Every inverter, sensor, meter and datalogger, with device checks" },
       { to: "/calendar", label: "Calendar", icon: CalendarDays, description: "Team O&M plan: cleaning rounds, PM & repairs by week and month" },
       { to: "/route", label: "Visit Route", icon: RouteIcon, description: "Plan a day of site visits: best order, drive times, Google Maps" },
       { to: "/claims", label: "Claims", icon: FileWarning, description: "Warranty & insurance claims: what failed, who has it, where it stands" },
@@ -89,11 +91,9 @@ const AVATAR_FALLBACK_CLS = "bg-energy-500/20 text-energy-300";
 /** localStorage key: "1" = desktop sidebar collapsed to icons (key name kept so saved choices carry over). */
 const NAV_COLLAPSED_KEY = "tcroof.navCollapsed";
 
-/** Fleet pages not in the sidebar (reached by links, e.g. from Active Alarm or Weather Station).
- * Listed here only for the header breadcrumb. */
-const HIDDEN_NAV: NavItem[] = [
-  { to: "/sensors", label: "Weather Sensors", icon: Gauge, description: "Every weather sensor: status, last upload & newest reading" },
-];
+/** Fleet pages not in the sidebar (reached by links). Listed here only for the header breadcrumb.
+ * (`/sensors` is now the Devices page's sensors tab and redirects there.) */
+const HIDDEN_NAV: NavItem[] = [];
 
 /** The tab title index.html starts with; each page puts its name in front of it. */
 const APP_TITLE = document.title || "TC Roof";
