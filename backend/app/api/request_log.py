@@ -61,5 +61,5 @@ def install(app: FastAPI) -> None:
         finally:
             logging_db.request_id_var.reset(token)
             h = logging_db.db_handler()
-            if h is not None and h.pending():
+            if h is not None and h.pending() and not h.waiting():
                 await run_in_threadpool(h.flush)

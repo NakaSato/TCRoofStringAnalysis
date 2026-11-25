@@ -142,7 +142,10 @@ def test_failed_insert_is_kept_for_the_next_flush_without_recursion(tmp_path, ca
         assert "app_logs insert failed, 1 records kept for the next flush" in capsys.readouterr().err
         lg.error("second")
         Base.metadata.create_all(engine)  # the DB is writable again
-        h.flush()
+        h.flush()  # still inside the pause after the failure: skipped, nothing printed
+        assert h.pending() == 2 and h.waiting() and capsys.readouterr().err == ""
+        h.flush(force=True)  # shutdown flushes ignore the pause
+        assert not h.waiting()
     finally:
         lg.removeHandler(h)
         lg.propagate = True
@@ -164,15 +167,76 @@ def test_failed_insert_with_a_full_buffer_keeps_the_newest_and_counts_the_rest(t
         h.flush()  # fails: all three go back
         assert h.pending() == 3
         lg.info("new 0")  # buffer full: "old 0" is pushed out
-        h.flush()  # fails again: the three go back, the drop of "old 0" stays counted
+        h.flush(force=True)  # fails again: the three go back, the drop of "old 0" stays counted
         assert "dropped (buffer full)" not in capsys.readouterr().err
         Base.metadata.create_all(engine)
-        h.flush()
+        h.flush(force=True)
     finally:
         lg.removeHandler(h)
         lg.propagate = True
     msgs = [r.message for r in _rows(sessionmaker(bind=engine))]
     assert msgs == ["old 1", "old 2", "new 0", "log buffer full: 1 older records dropped"]
+
+
+def test_pause_after_failure_ends_and_the_next_flush_stores(tmp_path, monkeypatch):
+    engine = build_engine(f"sqlite:///{tmp_path / 'empty.db'}")
+    h = logging_db.DbLogHandler("api", engine)
+    clock = [1000.0]
+    monkeypatch.setattr(logging_db.time, "monotonic", lambda: clock[0])
+    h._buf.append({"ts": datetime.now(timezone.utc), "level": "ERROR", "level_no": 40, "source": "api", "host": "h",
+                   "logger": "app.x", "message": "boom", "exc_text": None, "run_id": None, "job": None,
+                   "request_id": None, "extra_json": None})
+    h.flush()  # no table: fails, pause starts
+    assert h.waiting()
+    Base.metadata.create_all(engine)
+    clock[0] += logging_db.RETRY_AFTER_FAILURE_S - 1
+    h.flush()
+    assert h.pending() == 1  # still paused
+    clock[0] += 2
+    assert not h.waiting()
+    h.flush()
+    assert h.pending() == 0 and [r.message for r in _rows(sessionmaker(bind=engine))] == ["boom"]
+
+
+def test_records_logged_from_threads_while_flushes_fail_are_all_kept(tmp_path):
+    import threading
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'empty.db'}")
+    h = logging_db.DbLogHandler("worker", engine, buffer_max=10_000)
+    lg = logging.getLogger("app.threads")
+    lg.setLevel(logging.INFO)
+    lg.propagate = False
+    lg.addHandler(h)
+    stop = threading.Event()
+
+    def flusher():
+        while not stop.is_set():
+            h.flush(force=True)  # every insert fails: no table yet
+
+    def writer(n):
+        for i in range(500):
+            lg.info("w%d %d", n, i)
+
+    try:
+        f = threading.Thread(target=flusher)
+        f.start()
+        ws = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+        for w in ws:
+            w.start()
+        for w in ws:
+            w.join()
+        stop.set()
+        f.join()
+        Base.metadata.create_all(engine)
+        h.flush(force=True)
+    finally:
+        lg.removeHandler(h)
+        lg.propagate = True
+    msgs = [r.message for r in _rows(sessionmaker(bind=engine))]
+    assert len(msgs) == 2000 and len(set(msgs)) == 2000
+    for n in range(4):  # each thread's records in the order they were logged
+        mine = [m for m in msgs if m.startswith(f"w{n} ")]
+        assert mine == [f"w{n} {i}" for i in range(500)]
 
 
 def test_requeue_keeps_the_newest_failed_records_when_new_ones_arrived(tmp_path):

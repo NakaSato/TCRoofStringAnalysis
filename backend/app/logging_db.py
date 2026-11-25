@@ -5,7 +5,8 @@ without the GCP console or SSH.
 
 - `DbLogHandler.emit` formats and **redacts** a record and appends it to an in-memory buffer;
   `flush` bulk-inserts the buffer on the handler's own engine connection (never the request's
-  session). A failed insert is printed to stderr and dropped, never logged again (no recursion).
+  session). A failed insert is printed to stderr, never logged again (no recursion); its records
+  go back in the buffer and the next flush waits `RETRY_AFTER_FAILURE_S` (shutdown flushes don't).
 - Worker / CLI: a daemon thread flushes every `LOG_FLUSH_INTERVAL_S`, at once after an ERROR,
   and at exit. API: no thread (Cloud Run cuts CPU after the response); the request middleware
   flushes after each response and the lifespan at shutdown.
@@ -23,6 +24,7 @@ import re
 import socket
 import sys
 import threading
+import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Optional
@@ -38,6 +40,9 @@ MESSAGE_MAX = 4_000
 EXC_MAX = 16_000
 MASK = "***"
 CONSOLE_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+# After a failed insert, flushes are skipped this long: the API flushes before every response, so
+# a locked SQLite file (30 s busy wait) or a Postgres outage must not hold each request
+RETRY_AFTER_FAILURE_S = 30.0
 
 # Loggers never stored: SQL echo (and our own insert), and HTTP clients below WARNING, whose
 # debug lines carry full URLs (the Google key is a `?key=` parameter).
@@ -128,7 +133,9 @@ class DbLogHandler(logging.Handler):
         self._engine = engine
         self._buf: Deque[Dict[str, Any]] = deque(maxlen=max(1, buffer_max))
         self._dropped = 0
-        self._flush_lock = threading.Lock()
+        self._flush_lock = threading.Lock()  # one flush at a time; held across the insert
+        self._buf_lock = threading.Lock()  # `_buf` + `_dropped` together; never held across the insert
+        self._retry_at = 0.0  # time.monotonic() before which a flush is skipped (after a failure)
         self.wake = threading.Event()  # set on ERROR+: the flush thread writes at once
         self.addFilter(_DbFilter())
         self.setFormatter(logging.Formatter("%(message)s"))
@@ -166,9 +173,10 @@ class DbLogHandler(logging.Handler):
                 "request_id": request_id_var.get(),
                 "extra_json": _redact_obj(ctx) if isinstance(ctx, dict) else None,
             }
-            if len(self._buf) == self._buf.maxlen:
-                self._dropped += 1
-            self._buf.append(row)
+            with self._buf_lock:
+                if len(self._buf) == self._buf.maxlen:
+                    self._dropped += 1
+                self._buf.append(row)
             if record.levelno >= logging.ERROR:
                 self.wake.set()
         except Exception:  # noqa: BLE001 - logging must never raise into the caller
@@ -177,28 +185,34 @@ class DbLogHandler(logging.Handler):
     def pending(self) -> int:
         return len(self._buf)
 
-    def flush(self) -> None:
+    def waiting(self) -> bool:
+        """True while flushes are paused after a failed insert."""
+        return time.monotonic() < self._retry_at
+
+    def flush(self, force: bool = False) -> None:
         """Insert everything buffered so far in one transaction. On failure (e.g. SQLite "database
-        is locked") print once to stderr and put the records back for the next flush, oldest first,
-        as far as the buffer has room; what does not fit counts as dropped (reported later)."""
+        is locked") print once to stderr, put the records back for the next flush, oldest first, as
+        far as the buffer has room (what does not fit counts as dropped, reported later), and skip
+        flushes for `RETRY_AFTER_FAILURE_S`. `force` (shutdown) ignores that pause."""
         if not self._buf and not self._dropped:
             return
+        if not force and self.waiting():
+            return
         with self._flush_lock:
-            rows: List[Dict[str, Any]] = []
-            while self._buf:
-                rows.append(self._buf.popleft())
-            records = len(rows)  # without the "buffer full" notice, which is rebuilt from the count
-            dropped = self._dropped
-            if self._dropped:
+            with self._buf_lock:
+                rows: List[Dict[str, Any]] = list(self._buf)
+                self._buf.clear()
+                records = len(rows)  # without the "buffer full" notice, which is rebuilt from the count
+                dropped, self._dropped = self._dropped, 0
+            if dropped:
                 rows.append(
                     {
                         "ts": datetime.now(timezone.utc), "level": "WARNING", "level_no": logging.WARNING,
                         "source": self.source, "host": self.host, "logger": "app.logging_db",
-                        "message": f"log buffer full: {self._dropped} older records dropped", "exc_text": None,
+                        "message": f"log buffer full: {dropped} older records dropped", "exc_text": None,
                         "run_id": None, "job": None, "request_id": None, "extra_json": None,
                     }
                 )
-                self._dropped = 0
             if not rows:
                 return
             try:
@@ -208,18 +222,22 @@ class DbLogHandler(logging.Handler):
 
                 with self.engine.begin() as conn:
                     conn.execute(insert(AppLog), rows)
+                self._retry_at = 0.0
             except Exception as exc:  # noqa: BLE001 - never re-logged: that would recurse
-                kept = self._requeue(rows[:records])
-                self._dropped += dropped + records - kept
+                self._retry_at = time.monotonic() + RETRY_AFTER_FAILURE_S
+                kept = self._requeue(rows[:records], dropped)
                 lost = f", {records - kept} dropped (buffer full)" if kept < records else ""
                 print(f"app_logs insert failed, {kept} records kept for the next flush{lost}: {type(exc).__name__}: {(redact(str(exc)) or "")[:300]}", file=sys.stderr)
 
-    def _requeue(self, rows: List[Dict[str, Any]]) -> int:
-        """Put `rows` back in front of what was logged meanwhile; the newest of them win when the
-        buffer has no room for all. Returns how many were kept."""
-        room = (self._buf.maxlen or 0) - len(self._buf)
-        keep = rows[len(rows) - room:] if 0 < room < len(rows) else rows if room > 0 else []
-        self._buf.extendleft(reversed(keep))
+    def _requeue(self, rows: List[Dict[str, Any]], dropped: int = 0) -> int:
+        """Put `rows` back in front of what was logged meanwhile (under the buffer lock, so no
+        record arriving meanwhile is pushed out uncounted); the newest of them win when the buffer
+        has no room for all, the rest and `dropped` go to the drop count. Returns how many were kept."""
+        with self._buf_lock:
+            room = (self._buf.maxlen or 0) - len(self._buf)
+            keep = rows[len(rows) - room:] if 0 < room < len(rows) else rows if room > 0 else []
+            self._buf.extendleft(reversed(keep))
+            self._dropped += dropped + len(rows) - len(keep)
         return len(keep)
 
 
@@ -233,8 +251,9 @@ def db_handler() -> Optional[DbLogHandler]:
 
 
 def flush_logs() -> None:
+    """At exit: one last try even inside the pause after a failure."""
     if _handler is not None:
-        _handler.flush()
+        _handler.flush(force=True)
 
 
 def _flush_loop(h: DbLogHandler, interval: float) -> None:
@@ -279,6 +298,6 @@ def teardown_logging() -> None:
     """Flush and detach the DB handler (tests, shutdown)."""
     global _handler
     if _handler is not None:
-        _handler.flush()
+        _handler.flush(force=True)
         logging.getLogger().removeHandler(_handler)
         _handler = None
