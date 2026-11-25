@@ -1,6 +1,6 @@
 # IP Switcher: extension ↔ native host contract (protocol 1)
 
-Phase 1 of `specs/ip-switcher-design-spec.md` (Rev B). This file is the single contract between
+Phase 1 of the internal IP Switcher design spec (Rev B, not in this repo). This file is the single contract between
 `ipswitcher/extension/` and `ipswitcher/host/`. Change it first, then both sides.
 
 ## Names

@@ -81,3 +81,6 @@ data/imports/
 billing/Phase 1.xlsx
 billing/Phase 2.xlsx
 billing/clean/
+
+# Internal-class design spec: kept locally, never pushed (public repo)
+specs/ip-switcher-design-spec.md

@@ -1,7 +1,7 @@
 # IP Switcher (phase 1)
 
 Switch a Windows 10/11 laptop's IPv4 address between saved profiles from the browser toolbar, with
-automatic undo. Design: `specs/ip-switcher-design-spec.md` (Rev B). Contract between the two parts:
+automatic undo. Design: the internal design spec (Rev B, not in this repo). Contract between the two parts:
 [`PROTOCOL.md`](PROTOCOL.md).
 
 | Part | Folder | What it is |
