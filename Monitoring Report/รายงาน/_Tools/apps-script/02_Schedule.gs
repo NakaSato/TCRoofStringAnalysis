@@ -144,7 +144,7 @@ function nothingNew_(ym) {
     const last = JSON.parse(props.getProperty(`synced_${ym}`) || 'null');
     if (!last || !last.f || !last.ov || !last.fin || last.v !== SYNC_VERSION || (last.err && last.err.length)) return false;
     if (last.root !== rootId_()) return false;   // the last sync was of another root folder
-    // บันทึกรายงานรายวัน: a new day of this month gets its row (0 reported) even when nobody edits anything that day
+    // บันทึกรายงานรายวัน: a new day of this month gets its column (✗ for everyone) even when nobody edits anything that day
     const day = t => Utilities.formatDate(new Date(t), 'Asia/Bangkok', 'yyyyMMdd');
     if (!props.getProperty(`days_${ym}`)) return false;
     if (ym === ym_(new Date()) && day(Number(last.fin)) !== day(Date.now())) return false;

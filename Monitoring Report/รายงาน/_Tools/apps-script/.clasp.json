@@ -21,6 +21,9 @@
     "05_Template.gs",
     "06_Overview.gs",
     "07_Sync.gs",
+    "07a_SyncPlant.gs",
+    "07b_Issues.gs",
+    "07c_ReportSheets.gs",
     "08_Archive.gs",
     "09_Helpers.gs"
   ],

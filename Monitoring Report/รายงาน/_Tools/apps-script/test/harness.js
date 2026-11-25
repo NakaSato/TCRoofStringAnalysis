@@ -17,7 +17,7 @@ class Sheet {
   deleteRows(a, n) { const c = {}; for (const k in this.cells) { const [r, col] = k.split(',').map(Number); if (r < a) c[k] = this.cells[k]; else if (r >= a + n) c[`${r - n},${col}`] = this.cells[k]; } this.cells = c; this.rows -= n; } deleteColumns(a, n) { this.cols -= n; }
   insertRowsAfter(a, n) { if (a !== this.rows) throw new Error('insertRowsAfter not at end'); this.rows += n; }
   insertColumnsAfter(a, n) { if (a !== this.cols) throw new Error('insertColsAfter not at end'); this.cols += n; }
-  insertImage(b, c, r) { if (!b) throw new Error('no blob'); const sh = this, o = { c, r, setHeight: () => o, setWidth: () => o, getAnchorCell: () => ({ getRow: () => o.r, getColumn: () => o.c }), remove: () => { sh.images = sh.images.filter(x => x !== o); } }; this.images = [...(this.images || []), o]; return o; } getImages() { return [...(this.images || [])]; } setHiddenGridlines() { return this; } clear() { this.cells = {}; return this; } setFrozenRows() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules(r) { this.cfRules = r; } getConditionalFormatRules() { return [...(this.cfRules || [])]; } getFilter() { return this.filter || null; }
+  insertImage(b, c, r) { if (!b) throw new Error('no blob'); const sh = this, o = { c, r, setHeight: () => o, setWidth: () => o, getAnchorCell: () => ({ getRow: () => o.r, getColumn: () => o.c }), remove: () => { sh.images = sh.images.filter(x => x !== o); } }; this.images = [...(this.images || []), o]; return o; } getImages() { return [...(this.images || [])]; } setHiddenGridlines() { return this; } clear() { this.cells = {}; return this; } setFrozenRows() {} setFrozenColumns() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules(r) { this.cfRules = r; } getConditionalFormatRules() { return [...(this.cfRules || [])]; } getFilter() { return this.filter || null; }
   _ext() { let r = 0, c = 0; for (const k in this.cells) { if (this.cells[k] === '' ) continue; const [a, b] = k.split(',').map(Number); r = Math.max(r, a); c = Math.max(c, b); } return [r, c]; }
   getLastRow() { return this._ext()[0]; } getLastColumn() { return this._ext()[1]; }
   getDataRange() { const [r, c] = this._ext(); return this.getRange(1, 1, Math.max(r, 1), Math.max(c, 1)); }
@@ -61,7 +61,8 @@ for (const m of ['setFontFamily', 'setFontSize', 'setHorizontalAlignment', 'setV
 class SS { constructor(id, name) { this.id = id; this.name = name; this.sheets = [new Sheet(this, 'Sheet1', ++seq)]; }
   getId() { return this.id; } getSheets() { return this.sheets; } setSpreadsheetLocale() {} setSpreadsheetTimeZone(z) { this.tz = z; } getSpreadsheetTimeZone() { return this.tz || "Etc/GMT"; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
-  insertSheet(n, idx) { const s = new Sheet(this, n, ++seq); idx === undefined ? this.sheets.push(s) : this.sheets.splice(idx, 0, s); return s; } }
+  insertSheet(n, idx) { if (this.getSheetByName(n)) throw new Error('sheet exists ' + n); const s = new Sheet(this, n, ++seq); idx === undefined ? this.sheets.push(s) : this.sheets.splice(idx, 0, s); return s; }
+  deleteSheet(s) { this.sheets = this.sheets.filter(x => x !== s); } }
 class File { constructor(id, name, mime, parent, ss) { Object.assign(this, { id, name, mime, parent, ss, trashed: false }); files[id] = this; }
   getId() { return this.id; } getName() { return this.name; } getMimeType() { return this.mime; } isTrashed() { return this.trashed; } setTrashed(t) { this.trashed = t; }
   getLastUpdated() { if (globalThis.__old) return new Date(this.lastTime || 0); this.lastTime = this.editedAt || Date.now(); return new Date(this.lastTime); }   /* __old: not edited since = the time it had */ moveTo(f) { this.parent = f.id; } getUrl() { return 'url/' + this.id; }
@@ -342,30 +343,39 @@ try {
   console.log('dropdowns to the last row:', T14.dv[`${last},9`] === 'status-list' && T14.dv[`${last},12`] === 'date', '· no dropdown added elsewhere:', !T14.dv[`${last},1`]);
   const rules0 = T14.cfRules; api.syncNow(); drain(); console.log('second sync leaves them as they are:', T14.cfRules.every((r, i) => r === rules0[i]));
 } catch (e) { console.log('section 14 failed:', e.stack); }
-// 15) บันทึกรายงานรายวัน: one row per day up to today, newest on top; a late report changes its own day only
+// 15) บันทึกรายงานรายวัน MM/พ.ศ.: a plant × day grid; a late report changes its own day only
+const logName = (y, m) => `บันทึกรายงานรายวัน ${pad(m)}/${y + 543}`;
+const logGrid = (y, m) => {   // { sheet, reported(d), pct(d), mark(code, d), plant(code) }
+  const R = O.getSheetByName(logName(y, m)); if (!R) return null;
+  const rowOf = code => { for (let r = 6; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === code) return r; return 0; };
+  return { R, reported: d => R.cells[`3,${5 + d}`], pct: d => R.cells[`4,${5 + d}`], mark: (code, d) => R.cells[`${rowOf(code)},${5 + d}`],
+    plant: code => [1, 2, 3, 4, 5].map(c => R.cells[`${rowOf(code)},${c}`]) };
+};
 try {
-  const R = O.getSheetByName('บันทึกรายงานรายวัน'), S = O.getSheetByName('สถานี');
-  const rowOf = d => { const k = `${pad(d)}/${fmt(new Date(), '', 'MM')}/${+fmt(new Date(), '', 'yyyy') + 543}`; for (let r = 2; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === k) return [1, 2, 3, 4, 5, 6, 7].map(c => R.cells[`${r},${c}`]); return null; };
-  const nPlants = S.getLastRow() - 1;
-  console.log('log sheet:', !!R, '· head', JSON.stringify([1, 2, 3, 4, 5, 6, 7].map(c => R.cells[`1,${c}`])), '· rows', R.getLastRow() - 1, '(want', today, ') · newest on top:', R.cells['2,1'] === rowOf(today)[0]);
-  const t0 = rowOf(today), dd0 = rowOf(d0);
-  console.log('today:', JSON.stringify(t0.slice(0, 5)), '· reported + not = all:', t0[1] + t0[2] === nPlants && t0[3] === nPlants, '· missing list length = not reported:', t0[5].split(', ').length === t0[2]);
-  console.log(`day ${d0}:`, JSON.stringify(dd0.slice(0, 5)), '· P1-001 counted:', !dd0[5].includes('P1-001'), '· P3-002 not counted that day:', dd0[5].includes('P3-002'));
-  // P3-002 reports day d0 late: that day goes up by one, its stamp changes; other days stay
-  const before = rowOf(d1);
+  const [yy, mo] = ym.split('-').map(Number), G = logGrid(yy, mo), S = O.getSheetByName('สถานี');
+  const nPlants = S.getLastRow() - 1, R = G.R, nDays = new Date(yy, mo, 0).getDate();
+  console.log('grid sheet:', !!R, '· old one-row-per-day sheet gone:', !O.getSheetByName('บันทึกรายงานรายวัน'), '· plants', R.getLastRow() - 5, '(want', nPlants, ') · columns', R.getMaxColumns(), '(want', 5 + nDays, ')');
+  console.log('header:', JSON.stringify([1, 2, 3, 4, 5, 6, 5 + nDays].map(c => R.cells[`5,${c}`])), '· filter on the header:', !!R.getFilter() && R.getFilter().getRange().getRow() === 5 && R.getFilter().getRange().getLastRow() === R.getLastRow());
+  const colOf = d => { const out = []; for (let r = 6; r <= R.getLastRow(); r++) out.push(R.cells[`${r},${5 + d}`]); return out; };
+  console.log(`today (day ${today}): reported`, G.reported(today), '· = ✓ in its column:', G.reported(today) === colOf(today).filter(v => v === '✓').length, '· ✓ + ✗ = all:', colOf(today).filter(v => v === '✓' || v === '✗').length === nPlants,
+    '· days after today blank:', today === nDays || colOf(today + 1).every(v => v === '' || v === undefined) && G.reported(today + 1) === '');
+  console.log(`day ${d0}: P1-001`, G.mark('P1-001', d0), '(want ✓) · P3-002', G.mark('P3-002', d0), '(want ✗) · P1-001 days reported / not:', JSON.stringify(G.plant('P1-001').slice(3)));
+  // P3-002 reports day d0 late: that day goes up by one; other days stay
+  const before0 = G.reported(d0), before1 = JSON.stringify(colOf(d1)), stamp0 = R.cells['2,1'];
   put(day(p3, d0), 'G17', 0); put(day(p3, d0), 'J17', 'Online');
   files[Object.values(files).find(f => f.ss === p3).id].editedAt = Date.now() + 3600000;
   api.syncNow(); drain();
-  const after0 = rowOf(d0);
-  console.log(`late report for day ${d0}:`, dd0[1], '→', after0[1], '· P3-002 off the list:', !after0[5].includes('P3-002'), `· day ${d1} unchanged:`, JSON.stringify(rowOf(d1)) === JSON.stringify(before));
+  console.log(`late report for day ${d0}:`, before0, '→', G.reported(d0), '· P3-002 now', G.mark('P3-002', d0), `· day ${d1} unchanged:`, JSON.stringify(colOf(d1)) === before1, '· one grid sheet:', O.getSheets().filter(x => x.getName().startsWith('บันทึกรายงานรายวัน')).length);
+  // a sync with nothing new leaves the sheet as it is
+  const cells0 = JSON.stringify(R.cells); api.syncNow(); drain();
+  console.log('nothing new: sheet unchanged:', JSON.stringify(R.cells) === cells0);
 } catch (e) { console.log('section 15 failed:', e.stack); }
 // 16) sync across months: on days 1–7 of next month, a late report in this month's file is still synced
 try {
   props.archived = '[]'; delete props.job;
   const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number);
   const at = (y, m0, d, h) => class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(Date.UTC(y, m0, d, h - 7)); } static now() { return Date.UTC(y, m0, d, h - 7); } };
-  const R = O.getSheetByName('บันทึกรายงานรายวัน');
-  const rowOf = d => { const k = `${pad(d)}/${pad(mo)}/${yy + 543}`; for (let r = 2; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === k) return [2, 3].map(c => R.cells[`${r},${c}`]); return null; };
+  const G = logGrid(yy, mo), rowOf = d => [G.reported(d)];
   const before = rowOf(d1);
   // the late report: P3-002 fills yesterday's sheet after the month ended
   put(day(p3, d1), 'G17', 0); put(day(p3, d1), 'J17', 'Online');
@@ -412,8 +422,7 @@ try {
   props.archived = '[]'; delete props.job;
   const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number), ny = mo === 12 ? yy + 1 : yy, nm = mo === 12 ? 0 : mo;
   const at = d => class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(Date.UTC(ny, nm, d, 5)); } static now() { return Date.UTC(ny, nm, d, 5); } };
-  const R = O.getSheetByName('บันทึกรายงานรายวัน');
-  const rowOf = d => { const k = `${pad(d)}/${pad(mo)}/${yy + 543}`; for (let r = 2; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === k) return R.cells[`${r},2`]; return null; };
+  const G = logGrid(yy, mo), rowOf = d => G.reported(d);
   const lastDayOfMonth = new RealDate(yy, mo, 0).getDate(), before = rowOf(lastDayOfMonth);
   root.createFolder(`${ny}-${pad(nm + 1)}`);
   const p2 = plant('P1-002').ss; put(day(p2, lastDayOfMonth), 'G17', 0); put(day(p2, lastDayOfMonth), 'J17', 'Online');   // a late report for the last day
