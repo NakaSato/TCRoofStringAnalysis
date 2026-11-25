@@ -205,6 +205,7 @@ export const TH_OVERVIEW: Record<string, string> = {
   "Rain radar unavailable": "ไม่มีเรดาร์ฝน",
   unavailable: "ไม่พร้อมใช้งาน",
   "Rain radar unavailable: {error}": "ไม่มีเรดาร์ฝน: {error}",
+  "Loading rain radar": "กำลังโหลดเรดาร์ฝน",
   "No radar snapshot available": "ไม่มีภาพเรดาร์",
   "Loading rain radar…": "กำลังโหลดเรดาร์ฝน…",
   "Pause radar playback": "หยุดเล่นภาพเรดาร์",

@@ -7,6 +7,7 @@ import type { RainRadar } from "../../api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { PlantRainRow } from "../plantMap/rainRadar";
 import { useI18n } from "../../i18n";
@@ -19,17 +20,24 @@ import { useI18n } from "../../i18n";
 export const RadarRainCard: React.FC<{ plantId: number; className?: string }> = ({ plantId, className }) => {
   const [radar, setRadar] = useState<RainRadar | null>(null);
   const [off, setOff] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   const { t } = useI18n();
   useEffect(() => {
     let cancelled = false;
+    setError(null);
     api
       .getRainRadar()
       .then((r) => !cancelled && setRadar(r.data))
-      .catch((err) => !cancelled && err instanceof ApiError && err.status === 404 && setOff(true));
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) setOff(true);
+        else setError(err instanceof Error ? err.message : String(err));
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tick]);
 
   if (off || radar?.point_rain === false) return null;
 
@@ -51,7 +59,21 @@ export const RadarRainCard: React.FC<{ plantId: number; className?: string }> = 
         </CardAction>
       </CardHeader>
       <CardContent>
-        {radar ? <PlantRainRow plantId={plantId} legend={radar.legend} bare /> : <p className="text-[11px] text-slate-400">{t("Loading…")}</p>}
+        {radar ? (
+          <PlantRainRow plantId={plantId} legend={radar.legend} bare />
+        ) : error ? (
+          <div className="flex items-center justify-between gap-2">
+            <p className="callout-warn text-[11px]">{t("Rain radar unavailable: {error}", { error })}</p>
+            <Button variant="outline" size="xs" onClick={() => setTick((n) => n + 1)}>
+              {t("Try again")}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2" aria-label={t("Loading rain radar")}>
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        )}
       </CardContent>
     </Card>
   );

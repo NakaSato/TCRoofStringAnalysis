@@ -47,6 +47,7 @@ import { SensorDayCard } from "./overview/SensorDayCard";
 import { RadarRainCard } from "./overview/RadarRainCard";
 import { InvertersOnlineTile, StringHealthTile } from "./overview/SummaryCards";
 import { Meter, StatTile } from "./overview/StatTile";
+import { hasLocation as validLocation } from "./visitRoute/format";
 import { dateLocale, useI18n } from "../i18n";
 
 // Leaflet (~40 KB gz) is fetched only when a plant map is shown.
@@ -316,7 +317,9 @@ export const OverviewPage: React.FC = () => {
   const ofKwp = acW != null && k.capacity_kwp ? (acW / 1000 / k.capacity_kwp) * 100 : null;
 
   const target = k.target_pr_pct ?? null;
-  const hasLocation = plant.latitude != null && plant.longitude != null;
+  // set, finite, in range and not 0,0 (Growatt's "not set"): the satellite map and the radar card ask
+  // nothing for a plant without a real location
+  const hasLocation = validLocation(plant.latitude, plant.longitude);
   // with a sensor: beside the Today chart; without: in the Site column under the Energy meter
   const weatherCard = (className?: string) => (
     <WeatherCard
