@@ -341,7 +341,7 @@ def test_findings_endpoint_is_admin_only(tmp_path):
 from app.services import growatt_issues, tariff  # noqa: E402
 
 
-def _finding(rule="R2", sn=A, sno=3, day=DAY, kwh=2.0, thb=10.0, tier="P2", shadow=True, plant=PLANT):
+def _finding(rule="R2", sn=A, sno: Optional[int] = 3, day=DAY, kwh=2.0, thb=10.0, tier="P2", shadow=True, plant=PLANT):
     return {"rule": rule, "tier": tier, "plant_id": plant, "device_sn": sn, "string_no": sno, "day": day.isoformat(),
             "lost_kwh_est": kwh, "thb_est": thb, "evidence": {"open_min": 60}, "safety": False, "shadow": shadow}
 
