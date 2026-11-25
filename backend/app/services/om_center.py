@@ -58,6 +58,11 @@ Entry = Tuple[int, Optional[str], Optional[int], str, Optional[float], Optional[
 Loss = Dict[str, List[float]]  # family -> [kwh, thb]
 
 
+def _rows(db: Session, stmt: Any) -> Iterable[Tuple[Any, ...]]:
+    """The rows of `stmt` as plain tuples (statements built through `scoped` are typed Any)."""
+    return db.execute(stmt).tuples()
+
+
 def _add(out: Loss, family: str, kwh: float, thb: Optional[float]) -> None:
     if kwh <= 0:
         return
@@ -212,7 +217,7 @@ def overview(
     q = scoped(select(ID.plant_id, func.count(ID.energy_kwh), *[func.sum(c) for c in cols]), ID.plant_id).where(
         ID.day >= start, ID.day <= end, ID.device_sn.not_in(not_installed_sns())
     )
-    for row in db.execute(q.group_by(ID.plant_id)):
+    for row in _rows(db, q.group_by(ID.plant_id)):
         inv[int(row[0])] = {
             "energy_rows": int(row[1] or 0), "energy": float(row[2] or 0.0), "daylight": float(row[3] or 0),
             "down": float((row[4] or 0) + (row[5] or 0) + (row[6] or 0)), "no_data": float(row[7] or 0), "limited": float(row[8] or 0),
@@ -241,7 +246,7 @@ def overview(
     q = scoped(select(SiteEvent.plant_id, SiteEvent.cost_thb, SiteEvent.day, SiteEvent.event_type), SiteEvent.plant_id).where(
         SiteEvent.day >= start, SiteEvent.day <= end
     )
-    for pid, cost, day, etype in db.execute(q):
+    for pid, cost, day, etype in _rows(db, q):
         for s in (spend[int(pid)], spend_month[(int(pid), day.strftime("%Y-%m"), etype or "other")]):
             s[1] += 1
             if cost is not None:
@@ -250,13 +255,13 @@ def overview(
     q = scoped(select(SiteEvent.plant_id, func.max(SiteEvent.day)), SiteEvent.plant_id).where(
         SiteEvent.event_type == "cleaning", SiteEvent.day <= today
     )
-    last_clean = {int(p): d for p, d in db.execute(q.group_by(SiteEvent.plant_id))}
+    last_clean = {int(p): d for p, d in _rows(db, q.group_by(SiteEvent.plant_id))}
     next_visit: Dict[int, date] = {}
     committed = [0.0, 0, 0]
     q = scoped(select(OmTask.plant_id, OmTask.start_day, OmTask.end_day, OmTask.est_cost_thb), OmTask.plant_id).where(
         OmTask.status.in_(OPEN_TASKS)
     )
-    for pid, s_day, e_day, cost in db.execute(q):
+    for pid, s_day, e_day, cost in _rows(db, q):
         committed[1] += 1
         if cost is not None:
             committed[0] += float(cost)
