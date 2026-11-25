@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -43,7 +43,7 @@ def df_to_records(df: pd.DataFrame) -> List[Dict[str, Any]]:
                 lambda v: v.isoformat() if isinstance(v, (date, datetime, pd.Timestamp)) else v
             )
     clean = clean.replace({np.nan: None})
-    return json.loads(clean.to_json(orient="records"))
+    return json.loads(clean.to_json(orient="records") or "[]")
 
 
 def build_plant_config(plant: Plant, df: Optional[pd.DataFrame] = None) -> PlantConfig:
@@ -68,7 +68,7 @@ def build_plant_config(plant: Plant, df: Optional[pd.DataFrame] = None) -> Plant
     if df is not None and not df.empty:
         for s_id in sorted(df["string_id"].astype(str).unique()):
             if s_id not in specs:
-                sub = df[df["string_id"] == s_id]
+                sub = df.loc[df["string_id"] == s_id]
                 inv_id = str(sub["inverter_id"].iloc[0]) if "inverter_id" in sub.columns else "INV-01"
                 mppt_id = str(sub["mppt_id"].iloc[0]) if "mppt_id" in sub.columns else "MPPT-1"
                 specs[s_id] = StringSpec(
@@ -101,7 +101,7 @@ def sync_plant_string_specs_from_df(db: Session, plant: Plant, df: pd.DataFrame)
     existing_ids = {s.string_id for s in plant.string_specs}
     for s_id in sorted(df["string_id"].astype(str).unique()):
         if s_id not in existing_ids:
-            sub = df[df["string_id"] == s_id]
+            sub = df.loc[df["string_id"] == s_id]
             inv_id = str(sub["inverter_id"].iloc[0]) if "inverter_id" in sub.columns else "INV-01"
             mppt_id = str(sub["mppt_id"].iloc[0]) if "mppt_id" in sub.columns else "MPPT-1"
             spec_row = StringSpecModel(
@@ -130,7 +130,7 @@ def store_dataset_from_dataframe(
     source_label: str,
 ) -> Dataset:
     """Persist a canonical telemetry DataFrame into `datasets` and `telemetry` tables."""
-    work = df[CANONICAL_COLUMNS].copy()
+    work = df.loc[:, CANONICAL_COLUMNS].copy()
     work["timestamp"] = pd.to_datetime(work["timestamp"])
 
     start_ts = work["timestamp"].min().isoformat() if not work.empty else None
@@ -152,7 +152,8 @@ def store_dataset_from_dataframe(
     db.flush()
 
     records = []
-    for row in work.itertuples(index=False):
+    # itertuples rows are namedtuples with the canonical column names (typed as plain tuples)
+    for row in cast(Iterable[Any], work.itertuples(index=False)):
         records.append(
             {
                 "dataset_id": dataset.id,
@@ -294,6 +295,8 @@ def reconstruct_analysis_results(
 ) -> Tuple[AnalysisResults, PlantConfig]:
     """Recompute enriched_df and AnalysisResults for a stored AnalysisRun (used for charts)."""
     plant = db.get(Plant, run.plant_id)
+    if plant is None:
+        raise LookupError(f"plant {run.plant_id} of analysis run {run.id} not found")
     df = load_dataset_dataframe(db, run.dataset_id)
     config = build_plant_config(plant, df)
     results = run_pv_string_analysis(df, config)
