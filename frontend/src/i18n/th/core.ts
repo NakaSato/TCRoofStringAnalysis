@@ -56,7 +56,6 @@ export const TH_CORE: Record<string, string> = {
   "Users & Access": "ผู้ใช้และสิทธิ์",
   "Accounts, roles & plant assignments": "บัญชี บทบาท และการมอบหมายโรงไฟฟ้า",
   Logs: "บันทึกระบบ",
-  "Backend and worker logs, errors & job runs": "บันทึกของ backend และ worker ข้อผิดพลาด และการรัน job",
   "AI Usage": "การใช้งาน AI",
   "AI Assistant spend against the monthly cap, per user": "ค่าใช้จ่าย AI Assistant เทียบเพดานรายเดือน แยกตามผู้ใช้",
   "Weather Sensors": "เซนเซอร์สภาพอากาศ",

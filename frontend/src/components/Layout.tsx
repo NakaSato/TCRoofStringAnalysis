@@ -76,7 +76,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { to: "/settings", label: "Settings", icon: Settings, description: "Fleet-wide module & settings for every plant" },
       { to: "/users", label: "Users & Access", icon: Users, description: "Accounts, roles & plant assignments" },
-      { to: "/logs", label: "Logs", icon: ScrollText, description: "Backend and worker logs, errors & job runs" },
+      { to: "/logs", label: "Logs", icon: ScrollText },
       { to: "/ai-usage", label: "AI Usage", icon: Sparkles, description: "AI Assistant spend against the monthly cap, per user" },
     ],
   },
