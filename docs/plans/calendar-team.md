@@ -14,7 +14,7 @@ A shared **team calendar** where admins and engineers plan O&M work per plant: a
 | Work done | `site_events`: cleaning, repair, module / inverter replaced, IR flight, curtailment, other. `day` … `end_day` is **never in the future**. Has optional inverter / string, `cost_thb`, a linked issue, and a note. | `services/site_events.py`, `routes/growatt/events.py`, `SiteEventsCard.tsx` |
 | Work planned | **None.** The admin-only legacy PM table (`get_default_pm_schedule`) is hard-coded demo data (subcontractor names, "Next_Due") and is not stored. | `solar_core/om_management.py:254` |
 | Roles | admin = everything. engineer = only the plants in `user_plant_assignments`. Unassigned plants answer 404. | `app/auth.py:129-160` |
-| Cleaning signals | "Last cleaning" on the Site log. The soiling wallet (R12) and R13 are not built yet. | decision-rules.md §6 |
+| Cleaning signals | "Last cleaning" on the Site log. Since then built (shadow mode): R13 incomplete recovery (2026-11-22) and the soiling wallet R12 (2026-11-25), which suggests a cleaning when the THB lost since the last one exceeds its cost. | decision-rules.md §6.2–6.3 |
 | Notifications | FCM web push for alarms (`services/push.py`, per user's devices). | |
 | UI kit | shadcn `calendar.tsx` (react-day-picker 10), Popover, Dialog, Tabs, Select, Table. There is no full calendar grid component. | `frontend/src/components/ui/` |
 
