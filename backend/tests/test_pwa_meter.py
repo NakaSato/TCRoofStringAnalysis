@@ -754,3 +754,25 @@ def test_plant_billing_narrows_the_fleet_figures_to_the_plant(api):
     assert client.get(f"/pwa/meter/plants/{P1}/billing?start=2026-03-01", headers=admin).status_code == 422  # end missing
     assert client.get(f"/pwa/meter/plants/{P1}/billing?start=2025-01-01&end=2026-04-01", headers=admin).status_code == 422
     assert client.get(f"/pwa/meter/plants/{P1}/billing").status_code == 401
+
+
+def test_plant_billing_of_a_site_without_report_days_is_empty_not_an_error(api):
+    """A report site whose days are not imported yet: 200 with billing null (the tab's "No report days
+    yet"), not 422; a one-sided window is still 422."""
+    f, client, admin, _ = api
+    p3 = 9203
+    with f() as db:
+        db.add(GrowattPlant(plant_id=p3, name="New plant"))
+        db.commit()
+        svc.import_rows(db, [*_sites(), {"site_id": "P1-04", "phase": "1", "name": "Not reported yet", "region": "เขต 1",
+                                         "kwp": "100", "growatt_plant_id": str(p3), "kwp_mismatch": "0"}], [])
+    r = client.get(f"/pwa/meter/plants/{p3}/billing", headers=admin)
+    assert r.status_code == 200
+    body = r.json()
+    assert [s["site_id"] for s in body["sites"]] == ["P1-04"]
+    assert body["coverage"]["report_month"] is None and body["window"] == {"start": None, "end": None}
+    assert (body["billing"], body["outages"], body["meter_check"], body["spend_by_month"]) == (None, [], [], [])
+    assert client.get(f"/pwa/meter/plants/{p3}/billing?end=2026-03-31", headers=admin).status_code == 422
+    # an explicit window still answers, with no rows
+    w = client.get(f"/pwa/meter/plants/{p3}/billing?start=2026-03-01&end=2026-03-31", headers=admin).json()
+    assert w["window"] == {"start": "2026-03-01", "end": "2026-03-31"} and w["outages"] == []

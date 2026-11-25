@@ -600,10 +600,10 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
         r0 = rs[0]
         con = tot(rs, "contract_kwh")
         billed_c = sum((r["contract_kwh"] or 0) - (r["shortfall_kwh"] or 0) for r in rs if r["contract_kwh"] is not None)
-        cause = {k: tot(rs, f"{k}_kwh") or 0.0 for k in bc["causes"]}
-        rec = sum(v for k, v in cause.items() if k in recov)
-        top = max((k for k in bc["causes"] if cause[k] > 0), key=lambda k: cause[k], default=None)
-        top_rec = max((k for k in bc["recoverable_causes"] if cause[k] > 0), key=lambda k: cause[k], default=None)
+        site_cause: Dict[str, float] = {k: tot(rs, f"{k}_kwh") or 0.0 for k in bc["causes"]}
+        rec = sum(v for k, v in site_cause.items() if k in recov)
+        top = max((k for k in bc["causes"] if site_cause[k] > 0), key=lambda k: site_cause[k], default=None)
+        top_rec = max((k for k in bc["recoverable_causes"] if site_cause[k] > 0), key=lambda k: site_cause[k], default=None)
         short = tot(rs, "shortfall_kwh")
         sites.append({
             "site_id": sid, "phase": r0["phase"], "name": r0["name"], "region": r0["region"], "kwp": r0["kwp"], "growatt_plant_id": r0["growatt_plant_id"],
@@ -612,9 +612,9 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             "billed_kwh": _f(tot(rs, "billed_kwh"), 1), "billed_thb": _f(tot(rs, "billed_thb"), 0),
             "contract_kwh": _f(con, 1), "vs_contract_pct": _f(100 * _div(billed_c, con), 1) if con else None,
             "shortfall_kwh": _f(short, 1), "shortfall_thb": _f(short * price, 0) if short is not None else None,
-            **{f"{k}_kwh": _f(v, 1) for k, v in cause.items()},
+            **{f"{k}_kwh": _f(v, 1) for k, v in site_cause.items()},
             "recoverable_kwh": _f(rec, 1), "recoverable_thb": _f(rec * price, 0),
-            "unexplained_kwh": _f(short - sum(cause.values()), 1) if short is not None else None,
+            "unexplained_kwh": _f(short - sum(site_cause.values()), 1) if short is not None else None,
             "top_cause": top, "action_cause": top_rec,
             "owner": bc["cause_owner"].get(top_rec) if top_rec else None, "action": bc["cause_action"].get(top_rec) if top_rec else None,
         })
@@ -973,18 +973,19 @@ def plant_billing(db: Session, allowed: Optional[Set[int]], plant_id: int, start
     if not sites:
         raise GrowattNotFound(f"Plant {plant_id} has no PWA meter report site")
     cov = coverage(db, only)
-    if start is None and end is None and cov["report_month"]:
-        y, m = (int(x) for x in cov["report_month"].split("-"))
+    if (start is None) != (end is None):
+        raise ValueError("start and end go together")
+    if start is None or end is None:  # no window asked: the site's report month
+        report_month: Optional[str] = cov["report_month"]
+        if not report_month:  # no report day yet: an answer without figures, not an error
+            return {"sites": [_site_out(s) for s in sites], "coverage": cov, "window": {"start": None, "end": None},
+                    "billing": None, "outages": [], "meter_check": [], "spend_by_month": []}
+        y, m = (int(x) for x in report_month.split("-"))
         start = date(y, m, 1)
         end = date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)
-    elif start is None or end is None:
-        raise ValueError("start and end go together")
-    if start is not None and end is not None and (end - start).days + 1 > PLANT_BILLING_MAX_DAYS:
+    if (end - start).days + 1 > PLANT_BILLING_MAX_DAYS:
         raise ValueError(f"at most {PLANT_BILLING_MAX_DAYS} days")
-    window = {"start": start and start.isoformat(), "end": end and end.isoformat()}
-    if start is None or end is None:  # no report day yet
-        return {"sites": [_site_out(s) for s in sites], "coverage": cov, "window": window, "billing": None,
-                "outages": [], "meter_check": [], "spend_by_month": []}
+    window = {"start": start.isoformat(), "end": end.isoformat()}
     spend: Dict[Tuple[str, str], List[float]] = {}
     q = select(SiteEvent.cost_thb, SiteEvent.day, SiteEvent.event_type).where(
         SiteEvent.plant_id == plant_id, SiteEvent.day >= start, SiteEvent.day <= end)

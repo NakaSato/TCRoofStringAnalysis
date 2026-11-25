@@ -35,7 +35,7 @@ import { FINANCE_HINT, financeModel, financeMonthSpec } from "./center/finance";
 import { contractBands } from "./center/chartSpecs";
 import { ENTERED, monthWindow, thb, thbShort, windowMonth } from "./center/format";
 import { MODELLED, byKey, fmtDay } from "./pwaMeter/format";
-import { MeterCheckTable, OutagesTable, outageSortValue } from "./pwaMeter/tables";
+import { MeterCheckTable, OutagesTable, checkSortValue, outageSortValue } from "./pwaMeter/tables";
 import type { CheckSort, OutageSort } from "./pwaMeter/tables";
 import { SiteDialog } from "./pwaMeter/SiteDialog";
 import type { PwaMeterCriteria } from "../api/client";
@@ -153,7 +153,7 @@ const PlantBilling: React.FC<{ plantId: number }> = ({ plantId }) => {
 
   const rows = b ? byKey(b.rows, (r) => billSortValue(r, billSort[0]), billSort[1]) : [];
   const outRows = data ? byKey(data.outages, (r) => outageSortValue(r, outSort[0]), outSort[1]) : [];
-  const checkRows = data?.meter_check ?? [];
+  const checkRows = data ? byKey(data.meter_check, (r) => checkSortValue(r, checkSort[0]), checkSort[1]) : [];
 
   return (
     <div className="flex flex-col gap-5">
@@ -244,7 +244,7 @@ const PlantBilling: React.FC<{ plantId: number }> = ({ plantId }) => {
                   label={`${t("vs contract")} (${t("mod.")})`}
                   value={vsContract == null ? "—" : fmt(vsContract, 1)}
                   unit={vsContract == null ? undefined : "%"}
-                  tone={vsContract == null ? undefined : bands && vsContract < bands.watch ? "text-red-300" : bands && vsContract < bands.good ? "text-amber-300" : "text-emerald-300"}
+                  tone={vsContract == null || !bands ? undefined : vsContract < bands.watch ? "text-red-300" : vsContract < bands.good ? "text-amber-300" : "text-emerald-300"}
                   footer={<span title={t(MODELLED)}>{t("Contract {v} MWh", { v: mwh(contractKwh, 1) })}</span>}
                 />
                 <StatTile
