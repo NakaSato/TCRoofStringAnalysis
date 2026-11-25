@@ -4,7 +4,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Route } from "lucide-react";
-import type { OmBusyBlock, OmPerson, OmTask, OmTeam } from "../../api/client";
+import type { OmBusyBlock, OmCleaningSuggestion, OmPerson, OmTask, OmTeam } from "../../api/client";
+import { SuggestionChip } from "./Suggestions";
 import { plantPath } from "../../context/routes";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
@@ -98,7 +99,10 @@ export const MonthGrid: React.FC<{
   onCreate: (day: string) => void;
   onShowDay: (day: string) => void;
   onMove?: (t: OmTask, day: string) => void;
-}> = ({ from, month, today, tasks, onOpen, onCreate, onShowDay, onMove }) => {
+  /** Phase 4: suggested cleanings (estimates), drawn as dashed ghost chips on their suggested day */
+  suggestions?: OmCleaningSuggestion[];
+  onOpenSuggestion?: (s: OmCleaningSuggestion) => void;
+}> = ({ from, month, today, tasks, onOpen, onCreate, onShowDay, onMove, suggestions, onOpenSuggestion }) => {
   const { t } = useI18n();
   const days = daysBetween(from, addDays(from, 41));
   const drop = useDrop(tasks, onMove);
@@ -112,6 +116,7 @@ export const MonthGrid: React.FC<{
         ))}
         {days.map((day) => {
           const here = tasks.filter((t) => covers(t, day));
+          const ghosts = onOpenSuggestion ? (suggestions ?? []).filter((s) => s.suggested_day === day) : [];
           const inMonth = day.slice(0, 7) === month.slice(0, 7);
           return (
             <div
@@ -132,6 +137,12 @@ export const MonthGrid: React.FC<{
               {here.slice(0, MAX_CHIPS).map((x) => (
                 <Chip key={x.id} task={x} onOpen={onOpen} draggable={!!onMove} />
               ))}
+              {ghosts.slice(0, MAX_CHIPS).map((g) => (
+                <SuggestionChip key={`s${g.plant_id}`} s={g} onOpen={onOpenSuggestion!} />
+              ))}
+              {ghosts.length > MAX_CHIPS && (
+                <span className="text-[11px] text-sky-300/80">{t("+{n} suggested", { n: ghosts.length - MAX_CHIPS })}</span>
+              )}
               {here.length > MAX_CHIPS && (
                 <Button
                   type="button"

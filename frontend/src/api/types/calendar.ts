@@ -325,3 +325,73 @@ export interface OmFeedLink extends OmFeedStatus {
   /** e.g. /api/ics/calendar/<secret>.ics, served on the app's own origin */
   path: string;
 }
+
+/** Phase 4: why a plant is or is not suggested a cleaning (R12 soiling wallet). */
+export type OmSuggestionStatus =
+  | "suggested"
+  | "below_cost"
+  | "no_cost"
+  | "monsoon"
+  | "no_rate"
+  | "no_reset"
+  | "rain_unknown"
+  | "no_data"
+  | "accepted"
+  | "dismissed"
+  | "planned";
+
+/** One plant's cleaning suggestion. Wallet figures are **estimates**, the cost is entered; null = not known. */
+export interface OmCleaningSuggestion {
+  plant_id: number;
+  plant_name: string | null;
+  status: OmSuggestionStatus;
+  suggested: boolean;
+  reason: string | null;
+  /** the stored plant day the wallet is judged on */
+  day: string | null;
+  wallet_thb: number | null;
+  wallet_kwh: number | null;
+  cost_thb: number | null;
+  /** plant_setting = Calendar → Due; site_log = median cost on its cleanings */
+  cost_basis: "plant_setting" | "site_log" | null;
+  /** first day the wallet reached the cost (estimate) */
+  crossed_day: string | null;
+  reset_day: string | null;
+  reset_by: "cleaning" | "rain" | null;
+  days_since_reset: number | null;
+  rate_pct_per_day: number | null;
+  rate_basis: "plant" | "fleet" | null;
+  soiling_pct: number | null;
+  optimal_interval_days: number | null;
+  days_without_energy: number | null;
+  monsoon: boolean | null;
+  /** where the ghost chip sits: the next working day (only while suggested) */
+  suggested_day: string | null;
+  cleaning_crew_days: number | null;
+  open_task: { id: number; start_day: string; status: OmTaskStatus } | null;
+  mark: { action: "accepted" | "dismissed"; task_id: number | null; by: string | null; at: string | null } | null;
+}
+
+export interface OmCleaningSuggestions {
+  today: string;
+  rule: { enabled: boolean; shadow: boolean };
+  shadow: boolean;
+  monsoon_window: string[];
+  in_monsoon: boolean;
+  /** why nothing is listed for this user: R12 in shadow mode (engineers) or disabled */
+  hidden: "r12_shadow" | "r12_disabled" | null;
+  suggestions: OmCleaningSuggestion[];
+  plants: OmCleaningSuggestion[];
+  summary: Partial<Record<OmSuggestionStatus, number>>;
+  labels: Record<string, string>;
+  meta: { source: "db" };
+}
+
+export interface OmSuggestionAcceptBody {
+  start_day?: string;
+  end_day?: string;
+  title?: string;
+  team_id?: number | null;
+  assignee_ids?: number[];
+  note?: string;
+}
