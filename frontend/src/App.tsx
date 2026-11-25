@@ -25,7 +25,6 @@ const StringLayoutPage = page(() => import("./pages/StringLayoutPage"), "StringL
 const StringDetailPage = page(() => import("./pages/StringDetailPage"), "StringDetailPage");
 const PlantMaintenancePage = page(() => import("./pages/PlantMaintenancePage"), "PlantMaintenancePage");
 const PlantSettingsPage = page(() => import("./pages/PlantSettingsPage"), "PlantSettingsPage");
-const GrowattFleetPage = page(() => import("./pages/GrowattFleetPage"), "GrowattFleetPage");
 const ActiveAlarmPage = page(() => import("./pages/ActiveAlarmPage"), "ActiveAlarmPage");
 const PlantMapPage = page(() => import("./pages/PlantMapPage"), "PlantMapPage");
 const SensorsPage = page(() => import("./pages/SensorsPage"), "SensorsPage");
@@ -100,6 +99,23 @@ const LegacyPlantRedirect: React.FC<{ page: PlantPage }> = ({ page }) => {
   return <Navigate to={last != null ? plantPath(last, page) : "/"} replace />;
 };
 
+/** `/plant/:id/generation` (the Performance page's old path): same plant, query and hash. */
+const GenerationRedirect: React.FC = () => {
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname: "../performance", search, hash }} relative="path" replace />;
+};
+
+/** The Growatt Fleet page (`/growatt`) was removed: `?plant=<id>` (a plant's Energy & Billing there for a
+ * while) opens that plant's Energy & Billing tab with the rest of the query, anything else the directory. */
+const GrowattRedirect: React.FC = () => {
+  const q = new URLSearchParams(useLocation().search);
+  const plant = q.get("plant");
+  q.delete("plant");
+  if (!plant || !/^\d+$/.test(plant)) return <Navigate to="/" replace />;
+  const rest = q.toString();
+  return <Navigate to={{ pathname: `/plant/${plant}/billing`, search: rest ? `?${rest}` : "" }} replace />;
+};
+
 /** Energy & Billing (`/energy-billing`, was Engineering O&M at `/center`). */
 const ENERGY_BILLING = "/energy-billing";
 
@@ -144,7 +160,7 @@ export const App: React.FC = () => {
             {/* fleet-wide pages */}
             <Route index element={<FleetHomePage />} />
             <Route path="map" element={<PlantMapPage />} />
-            <Route path="growatt" element={<GrowattFleetPage />} />
+            <Route path="growatt" element={<GrowattRedirect />} />
             <Route path="alarms" element={<ActiveAlarmPage />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="route" element={<VisitRoutePage />} />
@@ -171,7 +187,8 @@ export const App: React.FC = () => {
             {/* one plant: the plant id is in the URL */}
             <Route path="plant/:plantId" element={<PlantRoute />}>
               <Route index element={<OverviewPage />} />
-              <Route path="generation" element={<GenerationPrPage />} />
+              <Route path="performance" element={<GenerationPrPage />} />
+              <Route path="generation" element={<GenerationRedirect />} />
               <Route path="sensors" element={<PlantSensorsPage />} />
               <Route path="inverters" element={<InvertersPage />} />
               <Route path="strings" element={<StringAnalysisPage />} />
@@ -183,7 +200,8 @@ export const App: React.FC = () => {
               <Route path="*" element={<Navigate to=".." relative="path" replace />} />
             </Route>
             {/* URLs from before the plant was in the URL */}
-            <Route path="generation" element={<LegacyPlantRedirect page="generation" />} />
+            <Route path="performance" element={<LegacyPlantRedirect page="performance" />} />
+            <Route path="generation" element={<LegacyPlantRedirect page="performance" />} />
             <Route path="inverters" element={<LegacyPlantRedirect page="inverters" />} />
             <Route path="strings" element={<LegacyPlantRedirect page="strings" />} />
             <Route path="string-layout" element={<LegacyPlantRedirect page="string-layout" />} />

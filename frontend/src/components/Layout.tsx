@@ -56,7 +56,6 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [
       { to: "/", label: "All Plants", icon: Building2, description: "Every plant you can see, with live status" },
       { to: "/map", label: "Plant Map", icon: MapIcon, description: "Every plant on one map, coloured by live status" },
-      { to: "/growatt", label: "Growatt Fleet", icon: Radio, description: "Live Growatt OpenAPI plants & inverter status" },
     ],
   },
   {
@@ -104,7 +103,7 @@ const ALL_NAV = [...NAV_GROUPS.flatMap((g) => g.items), ...HIDDEN_NAV];
  * Listed here only for the header breadcrumb. */
 const PLANT_NAV: Record<PlantPage, { label: string; description?: string }> = {
   "": { label: "Plant Overview" },
-  generation: { label: "Generation & PR", description: "Daily / monthly yield, PR & loss waterfall" },
+  performance: { label: "Generation & PR", description: "Daily / monthly yield, PR & loss waterfall" },
   inverters: { label: "Inverters", description: "Inverter status, MPPT, 5-minute profile & fault log" },
   sensors: { label: "Plant Sensors", description: "This plant's weather sensors: live status & newest reading" },
   strings: { label: "String Diagnostics", description: "String performance, heatmap & I-V / P-V curves" },

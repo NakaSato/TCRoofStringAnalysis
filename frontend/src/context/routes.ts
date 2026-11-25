@@ -7,7 +7,7 @@
  */
 
 /** Pages of one plant: "" is the plant overview. */
-export const PLANT_PAGES = ["", "generation", "inverters", "sensors", "strings", "string", "string-layout", "maintenance", "documents", "billing"] as const;
+export const PLANT_PAGES = ["", "performance", "inverters", "sensors", "strings", "string", "string-layout", "maintenance", "documents", "billing"] as const;
 export type PlantPage = (typeof PLANT_PAGES)[number];
 
 /** Plant pages that poll `/live/plants/{id}/latest`: all of them, because the plant banner's string

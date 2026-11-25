@@ -98,7 +98,7 @@ export const HeroBanner: React.FC<{ d: FleetDirectory }> = ({ d }) => {
               </Link>
             </div>
             <Link
-              to="/generation"
+              to="/performance"
               className="inline-flex items-center gap-0.5 text-xs text-slate-300/80 transition hover:text-white"
             >
               <ChevronRight className="h-4 w-4" />

@@ -108,12 +108,6 @@ class GrowattLiveService(LiveCache):
         # ask again as soon as any account can change
         return self._envelope(_Result(min(walls), data, stale=stale, error=error, refresh_in=min(refresh)))
 
-    def inverters(self, plant_id: int, phase: Optional[int] = None, coords: Optional[Coords] = None) -> Dict[str, Any]:
-        ph = self.resolve_phase(phase)
-        ttl = lambda _data: self._night(self.ttl_s, coords)
-        r = self._get(("inverters", ph, plant_id), lambda c: c.list_inverters(plant_id, refresh=True), ttl, ph)
-        return self._envelope(r)
-
     def plant_dataloggers(
         self, plant_id: int, phase: Optional[int] = None, coords: Optional[Coords] = None
     ) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:

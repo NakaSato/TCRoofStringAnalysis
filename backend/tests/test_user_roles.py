@@ -29,9 +29,6 @@ class _FakeLive:
     def plants(self, coords=None):
         return self._env([{"plant_id": PLANT, "phase": 1}, {"plant_id": OTHER, "phase": 1}])
 
-    def inverters(self, plant_id, phase=None, coords=None):
-        return self._env([{"plant_id": plant_id}])
-
 
 @pytest.fixture()
 def client(tmp_path):
@@ -85,9 +82,8 @@ def test_engineer_sees_only_assigned_plants(client):
     assert [p["plant_id"] for p in client.get("/api/growatt/plants", headers=eng).json()] == [PLANT]
     assert [p["plant_id"] for p in client.get("/api/growatt/live/plants", headers=eng).json()["data"]] == [PLANT]
     assert client.get(f"/api/growatt/plants/{PLANT}/overview", headers=eng).status_code == 200
-    assert client.get(f"/api/growatt/live/plants/{PLANT}/inverters", headers=eng).status_code == 200
     for path in (f"/plants/{OTHER}/overview", f"/plants/{OTHER}/inverters", f"/plants/{OTHER}/string-layout",
-                 f"/live/plants/{OTHER}/inverters", f"/live/plants/{OTHER}/latest"):
+                 f"/live/plants/{OTHER}/latest"):
         assert client.get(f"/api/growatt{path}", headers=eng).status_code == 404, path
     assert client.put(f"/api/growatt/plants/{OTHER}/string-layout", json=[], headers=eng).status_code == 404
 

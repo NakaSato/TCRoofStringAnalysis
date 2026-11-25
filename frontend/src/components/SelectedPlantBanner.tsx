@@ -124,7 +124,7 @@ export const SelectedPlantBanner: React.FC = () => {
   const currentPage = parsePlantPath(location.pathname)?.page ?? "";
   const tabs: Array<{ page: PlantPage; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { page: "", label: t("Plant Overview"), icon: LayoutDashboard },
-    { page: "generation", label: t("Performance Ratio"), icon: TrendingUp },
+    { page: "performance", label: t("Performance Ratio"), icon: TrendingUp },
     { page: "billing", label: t("Energy & Billing"), icon: Receipt },
     { page: "inverters", label: t("Inverters"), icon: Cpu },
     { page: "sensors", label: t("Sensors"), icon: Gauge },

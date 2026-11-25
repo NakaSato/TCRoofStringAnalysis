@@ -19,7 +19,7 @@ An end-to-end **Full-Stack Solar PV String Performance, Asset Management, Root C
    - **SCADA CSV / Excel Upload**: Automatically normalizes both Long/Tidy and Wide SCADA formats (`PV1_U`, `PV1_I`, ..., `PV24_U`, `PV24_I`).
    - **Built-in PV String Simulator**: Multi-day telemetry with realistic solar irradiance curves and injected faults.
 
-2. **Analyze Daily / Monthly Generation & Evaluate Performance Ratio (`/generation`)**
+2. **Analyze Daily / Monthly Generation & Evaluate Performance Ratio (`/plant/:id/performance`)**
    - Daily & 6-Month Generation ($\text{kWh}$) and Performance Ratio ($\text{PR \%}$) vs. Contractual Target PR.
    - **IEC 61724 Energy Loss Waterfall**: Quantifies Theoretical STC Yield $\rightarrow$ Thermal Loss $\rightarrow$ Inverter/Cabling Loss $\rightarrow$ Open-Circuit / Bypassed Diode / Shading Fault Losses $\rightarrow$ Actual Metered Yield.
    - **Prioritized PR Improvement Opportunities**: Ranked by recoverable energy ($\text{kWh}$), estimated $\text{PR}$ gain ($\%$), and revenue recovery ($\text{THB}$).

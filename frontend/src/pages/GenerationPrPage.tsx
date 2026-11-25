@@ -41,7 +41,7 @@ const CHARTS = ["yield", "thermal"] as const;
 const HISTORY_DAYS = ["30", "7", "90", "365"] as const;
 
 /**
- * `/plant/:id/generation`: stored data of the URL plant (DB, not the live overlay) for the period
+ * `/plant/:id/performance`: stored data of the URL plant (DB, not the live overlay) for the period
  * picked at the top (URL `day`, `to`, `from_t`, `to_t`, as on the Plant Overview; default today).
  * A whole day shows that day's overview: figures, the 5-min power curve (drag = time window),
  * per-inverter comparison, the modelled loss breakdown and the inverter table. A day range or a

@@ -124,20 +124,6 @@ def live_inverter_snapshot(
     return out
 
 
-@router.get("/live/plants/{plant_id}/inverters")
-def live_inverters(
-    plant_id: int,
-    db: Session = Depends(get_db),
-    live: GrowattLiveService = Depends(get_live_service),
-    _user: User = Depends(require_plant_read),
-) -> Dict[str, Any]:
-    """Realtime inverter status for one plant. Not persisted."""
-    try:
-        return live.inverters(plant_id, phase=ov.plant_phase(db, plant_id), coords=ov.plant_coords(db, plant_id))
-    except LiveUnavailable as exc:
-        raise HTTPException(status_code=503, detail=f"Growatt live data unavailable: {exc}") from exc
-
-
 @router.get("/live/plants/{plant_id}/latest")
 def live_plant_latest(
     plant_id: int,

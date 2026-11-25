@@ -424,7 +424,7 @@ export const OverviewPage: React.FC = () => {
                   resetTitle={t("Back to today")}
                 />
                 <Button asChild variant="ghost" size="icon-sm" aria-label={t("Generation details")} title={t("Generation details")}>
-                  <Link to={plantHref("generation")}>
+                  <Link to={plantHref("performance")}>
                     <ArrowRight />
                   </Link>
                 </Button>

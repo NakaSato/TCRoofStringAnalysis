@@ -181,7 +181,7 @@ def plant_coords(db: Session, plant_id: Optional[int] = None) -> List[Tuple[floa
 
 def inverter_out(inv: GrowattInverter) -> Dict[str, Any]:
     """Registry fields. Status, lost and last upload time are realtime: null here, the UI
-    fills them from `/growatt/live/plants/{id}/inverters`."""
+    gets them live from `/growatt/live/plants/{id}/latest`."""
     return {
         "device_sn": inv.device_sn,
         "model": inv.model or "",

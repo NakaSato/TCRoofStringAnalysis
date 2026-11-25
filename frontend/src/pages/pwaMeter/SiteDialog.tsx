@@ -127,7 +127,7 @@ export const SiteDialog: React.FC<{
             <Fact label={t("vs PVsyst (mod.)")} title={t(MODELLED)} value={row?.vs_pvsyst_pct == null ? "—" : `${fmt(row.vs_pvsyst_pct, 1)} %`} />
             <Fact label={t("Availability")} value={row?.availability_pct == null ? "—" : `${fmt(row.availability_pct, 2)} %`} />
             {site.growatt_plant_id != null && (
-              <Link to={plantPath(site.growatt_plant_id, "generation")} className="ml-auto text-xs text-solar-400 hover:underline">
+              <Link to={plantPath(site.growatt_plant_id, "performance")} className="ml-auto text-xs text-solar-400 hover:underline">
                 {t("Growatt plant {name} →", { name: site.growatt_name ?? site.growatt_plant_id })}
               </Link>
             )}

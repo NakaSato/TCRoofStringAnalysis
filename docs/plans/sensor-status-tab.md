@@ -125,7 +125,7 @@ All read-only, `require_plant_read` / `allowed_plant_ids` filtering, mounted at 
   `Status` (`Led` + `Badge`: ok/warn/crit/neutral) · Plant · Sensor (`DL#addr`, name) · Last upload (relative + time; "Last sync" label when from DB) · Irradiance · Module temp · Ambient temp · Humidity · Wind · Coverage today · Flags (chips with tooltip reason).
   Unmeasured fields "—"; values from DB carry the stored time in the tooltip.
 - Freshness header: "Live · hh:mm" when the sweep is fresh, "Last sync hh:mm" when stale.
-- Row click → Info sheet; plant name → `/plant/:id/generation#weather`.
+- Row click → Info sheet; plant name → `/plant/:id/performance#weather`.
 - Empty states: no sensors visible; engineer with no plants.
 
 ### 6.3 Info tab / sheet

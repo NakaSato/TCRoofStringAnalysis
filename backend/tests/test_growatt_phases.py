@@ -44,6 +44,12 @@ class _Account:
             for sn in self.plants[plant_id]
         ]
 
+    def list_dataloggers(self, plant_id):
+        self.calls.append(("dataloggers", plant_id))
+        if plant_id not in self.plants:
+            raise GrowattAPIError("plant not in this account", error_code=10002)
+        return [{"sn": f"DL{plant_id}", "model": "ShineLan", "lost": False}]
+
     def max_history(self, sn, a, b, stop_before=None):
         self.calls.append(("history", sn))
         return []
@@ -181,11 +187,13 @@ def test_live_plants_merges_accounts_and_marks_stale_per_account():
 def test_live_plant_calls_use_the_plants_phase():
     accs, clock = {1: _Account({10: ["A1"]}), 3: _Account({30: ["C1"]})}, [0.0]
     svc = _live(accs, clock)
-    assert svc.inverters(30, phase=3)["data"][0]["device_sn"] == "C1"
+    rows, err = svc.plant_dataloggers(30, phase=3)
+    assert err is None and rows[0]["datalogger_sn"] == "DL30"
     assert accs[1].calls == []
-    assert svc.inverters(10, phase=None)["data"][0]["device_sn"] == "A1"  # untagged -> first account
-    with pytest.raises(LiveUnavailable, match="phase 2"):
-        svc.inverters(20, phase=2)
+    rows, _ = svc.plant_dataloggers(10, phase=None)  # untagged -> first account
+    assert rows[0]["datalogger_sn"] == "DL10" and accs[1].calls == [("dataloggers", 10)]
+    rows, err = svc.plant_dataloggers(20, phase=2)  # no token for phase 2: never raises, says why
+    assert rows is None and "phase 2" in err
 
 
 def test_ensure_schema_adds_phase_to_an_existing_table(tmp_path):

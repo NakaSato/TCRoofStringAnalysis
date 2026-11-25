@@ -306,7 +306,6 @@ def test_live_routes_do_not_write_db(client):
     before = client.get("/api/growatt/plants").json()
     live = client.get("/api/growatt/live/plants").json()
     assert live["source"] == "live" and live["data"][0]["current_power_w"] == 1234.5
-    assert client.get(f"/api/growatt/live/plants/{PLANT}/inverters").json()["data"][0]["device_sn"] == SN_A
     after = client.get("/api/growatt/plants").json()
     assert before == after  # realtime values never reach the DB
 

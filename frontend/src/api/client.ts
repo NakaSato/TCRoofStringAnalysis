@@ -370,8 +370,6 @@ export const api = {
     apiFetch<GrowattLive<GrowattInverterSnapshot>>(
       `/growatt/live/inverters/snapshot${plantId != null ? `?plant_id=${plantId}` : ""}`,
     ),
-  getGrowattLiveInverters: (plantId: number) =>
-    apiFetch<GrowattLive<GrowattInverter[]>>(`/growatt/live/plants/${plantId}/inverters`),
   getGrowattLivePlantLatest: (plantId: number) =>
     apiFetch<GrowattLive<GrowattLivePlantLatest>>(`/growatt/live/plants/${plantId}/latest`),
   getGrowattLiveAlarms: (plantId: number, day?: string, days = 7) =>
@@ -424,27 +422,9 @@ export const api = {
       body: JSON.stringify(specs),
     }),
 
-  // Datasets & Ingestion
+  // Datasets (legacy analysis, admin)
   listDatasets: (plantId: number) => apiFetch<DatasetInfo[]>(`/plants/${plantId}/datasets`),
   getDataset: (datasetId: number) => apiFetch<DatasetInfo>(`/datasets/${datasetId}`),
-  uploadDataset: (plantId: number, file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return apiFetch<DatasetInfo>(`/plants/${plantId}/datasets/upload`, {
-      method: "POST",
-      body: form,
-    });
-  },
-  fetchDatasetFromApi: (plantId: number, payload: Record<string, any>) =>
-    apiFetch<DatasetInfo>(`/plants/${plantId}/datasets/fetch`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  simulateDataset: (plantId: number, payload: { days: number; num_strings: number; interval_minutes: number }) =>
-    apiFetch<DatasetInfo>(`/plants/${plantId}/datasets/simulate`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
 
   // Analysis & Charts
   getLatestAnalysis: (plantId: number) => apiFetch<AnalysisRun>(`/plants/${plantId}/analysis/latest`),
@@ -754,7 +734,4 @@ export const api = {
   updateRouteOffice: (id: number, body: RouteOfficePatch) =>
     apiFetch<RouteOffice>(`/growatt/routes/offices/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteRouteOffice: (id: number) => apiFetch<RouteOfficeDeleted>(`/growatt/routes/offices/${id}`, { method: "DELETE" }),
-
-  // File URLs (need the session token: download with downloadApiFile)
-  sampleCsvPath: (datasetId: number) => `/datasets/${datasetId}/sample-csv`,
 };

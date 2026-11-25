@@ -75,8 +75,8 @@ export const CommandPaletteModal: React.FC<{
         title: t("Generation & PR"),
         subtitle: t("Daily/monthly yield, IEC 61724 PR & energy loss waterfall"),
         icon: TrendingUp,
-        onSelect: go(plantHref("generation")),
-        path: plantHref("generation"),
+        onSelect: go(plantHref("performance")),
+        path: plantHref("performance"),
       },
       {
         id: "nav-strings",
