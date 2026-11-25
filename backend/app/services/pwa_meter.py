@@ -29,7 +29,7 @@ import math
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, cast
 
 import pandas as pd
 from sqlalchemy import func, select
@@ -223,7 +223,7 @@ def coverage(db: Session, allowed: Optional[Set[int]]) -> Dict[str, Any]:
     if last is not None:
         month_end = (last.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
         full = last if last == month_end else last.replace(day=1) - timedelta(days=1)
-        month = (full if full >= first.replace(day=1) else last).strftime("%Y-%m")
+        month = (full if first is not None and full >= first.replace(day=1) else last).strftime("%Y-%m")
     return {"first_day": first and first.isoformat(), "last_day": last and last.isoformat(), "report_month": month}
 
 
@@ -277,13 +277,23 @@ def _f(v: Any, nd: int = 1) -> Optional[float]:
     return None if math.isnan(x) or math.isinf(x) else round(x, nd)
 
 
-def _div(a: float, b: float) -> Optional[float]:
+def _div(a: float, b: Optional[float]) -> Optional[float]:
     return a / b if b else None
+
+
+def _pct(a: float, b: Optional[float]) -> Optional[float]:
+    """a as a percentage of b, None when b is 0 or missing."""
+    return 100 * (a / b) if b else None
+
+
+def _gkey(v: Any) -> int:
+    """A pandas group key (typed Hashable) as an int."""
+    return int(v)
 
 
 def _pi_free(df: pd.DataFrame, curtailed: Set[str]) -> Dict[int, Optional[float]]:
     ok = df[(df.status == "ok") & ~df.site_id.isin(curtailed)]
-    return {int(ph): _div(g.meter_p.sum(), g.pv.sum()) for ph, g in ok.groupby("phase")}
+    return {_gkey(ph): _div(g.meter_p.sum(), g.pv.sum()) for ph, g in ok.groupby("phase")}
 
 
 def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None, phase: Optional[int] = None) -> Dict[str, Any]:
@@ -332,10 +342,10 @@ def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
                 owners.append("O&M")
         loss = cur_kwh + out_kwh + under_kwh
         rows.append({
-            "site_id": sid, "phase": ph, "name": g.name.iloc[0], "region": g.region.iloc[0], "kwp": _f(g.kwp.iloc[0], 2),
+            "site_id": sid, "phase": ph, "name": g["name"].iloc[0], "region": g.region.iloc[0], "kwp": _f(g.kwp.iloc[0], 2),
             "growatt_plant_id": None if pd.isna(g.growatt_plant_id.iloc[0]) else int(g.growatt_plant_id.iloc[0]),
             "days": n, "meter_mwh": _f(act / 1000, 2), "contract_mwh": _f(con / 1000, 2), "pvsyst_mwh": _f(pv / 1000, 2),
-            "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), con), 1) if con else None, "vs_pvsyst_pct": _f(100 * pi_pv, 1) if pi_pv is not None else None,
+            "vs_contract_pct": _f(_pct(g.meter_c.sum(), con), 1) if con else None, "vs_pvsyst_pct": _f(100 * pi_pv, 1) if pi_pv is not None else None,
             "yield_kwh_kwp": _f(act / g.kwp.iloc[0], 0), "availability_pct": _f(100 * (1 - outage / n), 2), "data_availability_pct": _f(100 * (1 - gaps / n), 2),
             "outage_days": outage, "data_gap_days": gaps, "outage_recent_days": recent, "curtailment_note_days": int(curt_days.get(sid, 0)), "curtailed": is_cur,
             "curtailment_loss_mwh": _f(cur_kwh / 1000, 2), "outage_loss_mwh": _f(out_kwh / 1000, 2), "under_loss_mwh": _f(under_kwh / 1000, 2),
@@ -347,13 +357,14 @@ def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
     phases = []
     for ph, g in df.groupby("phase"):
         n = len(g)
-        ph_rows = [r for r in rows if r["phase"] == int(ph)]
+        ph_rows = [r for r in rows if r["phase"] == _gkey(ph)]
+        pf = pif.get(_gkey(ph))
         phases.append({
-            "phase": int(ph), "sites": int(g.site_id.nunique()), "kwp": _f(g.drop_duplicates("site_id").kwp.sum(), 2),
+            "phase": _gkey(ph), "sites": int(g.site_id.nunique()), "kwp": _f(g.drop_duplicates("site_id").kwp.sum(), 2),
             "first_day": g.day.min().date().isoformat(), "last_day": g.day.max().date().isoformat(),
             "meter_mwh": _f(g.meter.sum() / 1000, 1), "contract_mwh": _f(g.con.sum() / 1000, 1), "pvsyst_mwh": _f(g.pv.sum() / 1000, 1),
-            "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), g.con.sum()), 1) if g.con.sum() else None,
-            "pi_free_pct": _f(100 * pif[int(ph)], 1) if pif.get(int(ph)) else None,
+            "vs_contract_pct": _f(_pct(g.meter_c.sum(), g.con.sum()), 1) if g.con.sum() else None,
+            "pi_free_pct": _f(100 * pf, 1) if pf else None,
             "availability_pct": _f(100 * (1 - (g.status == "outage").sum() / n), 2),
             "data_availability_pct": _f(100 * (1 - g.status.isin(["loss_inv", "loss_meter"]).sum() / n), 2),
             "curtailed_sites": len([s for s in curtailed if s in set(g.site_id)]),
@@ -382,7 +393,8 @@ def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None
     idx = {d: i for i, d in enumerate(days)}
     phases: List[Dict[str, Any]] = []
     if allowed is None:  # fleet totals stay with admins: they include plants an engineer may not see
-        for (ph, day), g in df.groupby(["phase", "day"]):
+        for key, g in df.groupby(["phase", "day"]):
+            ph, day = cast(Tuple[Any, Any], key)
             read = g[g.meter.notna()]
             has_con = bool(g.con.notna().any())
             phases.append({
@@ -394,7 +406,7 @@ def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None
                 "meter_on_contract_mwh": _f(g.meter_c.sum() / 1000, 2) if has_con else None,
                 # metered energy ÷ kWp of the sites that have a reading on the day
                 "yield_kwh_kwp": _f(_div(read.meter.sum(), read.kwp.sum()), 3) if len(read) else None,
-                "vs_contract_pct": _f(100 * _div(g.meter_c.sum(), g.con.sum()), 1) if has_con and g.con.sum() else None,
+                "vs_contract_pct": _f(_pct(g.meter_c.sum(), g.con.sum()), 1) if has_con and g.con.sum() else None,
                 # the report's remark says the system was curtailed (หรี่) that day: a PM matter, not a fault
                 "curtailment_sites": int(g.curt.sum()),
             })
@@ -443,7 +455,7 @@ def outage_events(db: Session, allowed: Optional[Set[int]], start: Optional[date
     pif = _pi_free(df, set(cd[cd > cur_min].index))
     visible = {s.site_id for s in _visible_sites(db, allowed)}
     out = []
-    o = df[df.status == "outage"].sort_values(["site_id", "day"])
+    o = df.loc[df.status == "outage"].sort_values(["site_id", "day"])
     for sid, g in o.groupby("site_id"):
         if sid not in visible:
             continue
@@ -470,7 +482,7 @@ def meter_check(db: Session, allowed: Optional[Set[int]], start: Optional[date] 
     if df.empty:
         return []
     visible = {s.site_id for s in _visible_sites(db, allowed)}
-    df = df[df.site_id.isin(visible)].copy()
+    df = df.loc[df.site_id.isin(visible)].copy()
     meter, inv = df.meter.fillna(0), df.inv.fillna(0)
     df["r"] = (meter / inv).where((meter > 0) & (inv > 0))
     df["med"] = df.groupby("site_id").r.transform("median")
@@ -483,10 +495,11 @@ def meter_check(db: Session, allowed: Optional[Set[int]], start: Optional[date] 
     out = []
     for sid, g in df.groupby("site_id"):
         med = g.med.iloc[0]
+        has_med = med is not None and not bool(pd.isna(med))
         low, high, im, mm = int(g.low.sum()), int(g.high.sum()), int(g.inv_miss.sum()), int(g.met_miss.sum())
         gap = max(0.0, float(g.gap.sum()))
         flags = []
-        if med is not None and not pd.isna(med) and med < fl["ratio_low_median"]:
+        if has_med and med < fl["ratio_low_median"]:
             flags.append("สัดส่วนต่ำกว่าปกติ")
         if low + mm >= fl["low_or_missing_meter_days"]:
             flags.append("มิเตอร์อ่านต่ำ/ขาด")
@@ -494,8 +507,8 @@ def meter_check(db: Session, allowed: Optional[Set[int]], start: Optional[date] 
             flags.append("ข้อมูลอินเวอร์เตอร์ขาด")
         if high >= fl["meter_above_inverter_days"]:
             flags.append("มิเตอร์สูงกว่าอินเวอร์เตอร์")
-        out.append({"site_id": sid, "phase": int(g.phase.iloc[0]), "name": g.name.iloc[0], "region": g.region.iloc[0],
-                    "median_ratio_pct": _f(100 * med, 2) if not pd.isna(med) else None, "p05_ratio_pct": _f(100 * g.r.quantile(0.05), 2) if g.r.notna().any() else None,
+        out.append({"site_id": sid, "phase": int(g.phase.iloc[0]), "name": g["name"].iloc[0], "region": g.region.iloc[0],
+                    "median_ratio_pct": _f(100 * med, 2) if med is not None and has_med else None, "p05_ratio_pct": _f(100 * g.r.quantile(0.05), 2) if g.r.notna().any() else None,
                     "low_days": low, "high_days": high, "inverter_missing_days": im, "meter_missing_days": mm,
                     "gap_mwh": _f(gap / 1000, 2), "gap_thb": _f(gap * price, 0), "flags": flags})
     out.sort(key=lambda r: -(r["gap_thb"] or 0))
@@ -546,7 +559,7 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
     rows: List[Dict[str, Any]] = []
     months = _month_windows(first_day, last_day)
     for month, ms, me in months:
-        g_all = df[(df.day >= pd.Timestamp(ms)) & (df.day <= pd.Timestamp(me))]
+        g_all = df.loc[(df.day >= pd.Timestamp(ms)) & (df.day <= pd.Timestamp(me))]
         if g_all.empty:
             continue
         losses = {r["site_id"]: r for r in summary(db, None, ms, me)["sites"]} if causes else {}
@@ -559,7 +572,7 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             con = float(g.con.sum()) if has_con else None
             billed = float(read.meter.sum()) if len(read) else None
             short = con - float(g.meter_c.sum()) if con is not None else None
-            lo, gp = losses.get(sid, {}), gaps.get(sid, {})
+            lo, gp = losses.get(str(sid), {}), gaps.get(str(sid), {})
             cause = {
                 "outage": (lo.get("outage_loss_mwh") or 0.0) * 1000,
                 "under": (lo.get("under_loss_mwh") or 0.0) * 1000,
@@ -573,13 +586,13 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             from_day = max(ms, site_first.get(sid, ms))
             cal = max(0, (me - from_day).days + 1)
             rows.append({
-                "site_id": sid, "phase": int(g.phase.iloc[0]), "name": g.name.iloc[0], "region": g.region.iloc[0], "kwp": _f(g.kwp.iloc[0], 2),
+                "site_id": sid, "phase": int(g.phase.iloc[0]), "name": g["name"].iloc[0], "region": g.region.iloc[0], "kwp": _f(g.kwp.iloc[0], 2),
                 "growatt_plant_id": None if pd.isna(g.growatt_plant_id.iloc[0]) else int(g.growatt_plant_id.iloc[0]),
                 "month": month, "start": ms.isoformat(), "end": me.isoformat(),
                 "days": int(len(g)), "meter_days": int(len(read)), "missing_days": max(0, cal - int(len(read))),
                 "outage_days": int((g.status == "outage").sum()), "curtailment_note_days": int(g.curt.sum()),
                 "billed_kwh": _f(billed, 1), "billed_thb": _f(billed * price, 0) if billed is not None else None,
-                "contract_kwh": _f(con, 1), "vs_contract_pct": _f(100 * _div(float(g.meter_c.sum()), con), 1) if con else None,
+                "contract_kwh": _f(con, 1), "vs_contract_pct": _f(_pct(float(g.meter_c.sum()), con), 1) if con else None,
                 "shortfall_kwh": _f(short, 1), "shortfall_thb": _f(short * price, 0) if short is not None else None,
                 "outage_kwh": _f(cause["outage"], 1), "under_kwh": _f(cause["under"], 1), "meter_gap_kwh": _f(cause["meter_gap"], 1),
                 "curtailment_kwh": _f(cause["curtailment"], 1),
@@ -610,7 +623,7 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
             "months": len(rs), "meter_days": sum(r["meter_days"] for r in rs), "missing_days": sum(r["missing_days"] for r in rs),
             "outage_days": sum(r["outage_days"] for r in rs),
             "billed_kwh": _f(tot(rs, "billed_kwh"), 1), "billed_thb": _f(tot(rs, "billed_thb"), 0),
-            "contract_kwh": _f(con, 1), "vs_contract_pct": _f(100 * _div(billed_c, con), 1) if con else None,
+            "contract_kwh": _f(con, 1), "vs_contract_pct": _f(_pct(billed_c, con), 1) if con else None,
             "shortfall_kwh": _f(short, 1), "shortfall_thb": _f(short * price, 0) if short is not None else None,
             **{f"{k}_kwh": _f(v, 1) for k, v in site_cause.items()},
             "recoverable_kwh": _f(rec, 1), "recoverable_thb": _f(rec * price, 0),
@@ -896,8 +909,9 @@ def plant_days(db: Session, allowed: Optional[Set[int]], plant_id: int, start: O
         implausible = g is not None and cap and g > cap * MAX_GROWATT_KWH_PER_KWP_DAY
         if implausible:
             g = None
-        ratio = 100 * r.meter_kwh / g if (r.meter_kwh and g) else None
-        if ratio is not None:
+        ratio = None
+        if r.meter_kwh and g:
+            ratio = 100 * r.meter_kwh / g
             ratios.append(ratio)
             both_meter += r.meter_kwh
             both_growatt += g
@@ -1094,7 +1108,7 @@ def meter_vs_growatt(db: Session, allowed: Optional[Set[int]], start: Optional[d
     day_rows = [{"day": d.isoformat(), "phase": ph, "sites": int(v[0]), "meter_kwh": _f(v[1], 1), "growatt_kwh": _f(v[2], 1)}
                 for (d, ph), v in sorted(days.items())]
     tm, tg = sum(r["meter_kwh"] or 0 for r in out), sum(r["growatt_kwh"] or 0 for r in out)
-    reach = db.execute(select(func.min(GrowattPlantEnergyDay.day), func.max(GrowattPlantEnergyDay.day)).where(
+    g_first, g_last = db.execute(select(func.min(GrowattPlantEnergyDay.day), func.max(GrowattPlantEnergyDay.day)).where(
         GrowattPlantEnergyDay.plant_id.in_(plants), *([GrowattPlantEnergyDay.day >= start] if start else []), *([GrowattPlantEnergyDay.day <= end] if end else []))).one() if plants else (None, None)
     return {
         "window": {"start": start and start.isoformat(), "end": end and end.isoformat()},
@@ -1105,7 +1119,7 @@ def meter_vs_growatt(db: Session, allowed: Optional[Set[int]], start: Optional[d
             "ratio_pct": _f(100 * tm / tg, 2) if tg else None,
             "median_site_ratio_pct": _f(100 * float(pd.Series(site_medians).median()), 2) if site_medians else None,
             "flagged_sites": sum(1 for r in out if r["flags"]),
-            "growatt_first_day": reach[0] and reach[0].isoformat(), "growatt_last_day": reach[1] and reach[1].isoformat(),
+            "growatt_first_day": g_first and g_first.isoformat(), "growatt_last_day": g_last and g_last.isoformat(),
         },
         "days": day_rows,
         "sites": out,
@@ -1118,7 +1132,7 @@ def meter_vs_growatt(db: Session, allowed: Optional[Set[int]], start: Optional[d
 def main(argv: Optional[List[str]] = None) -> int:
     from app.db.session import SessionLocal, ensure_schema, engine
 
-    ap = argparse.ArgumentParser(prog="python -m app.services.pwa_meter", description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(prog="python -m app.services.pwa_meter", description=(__doc__ or "").split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     imp = sub.add_parser("import", help="upsert the clean sites CSV (+ the days CSV when given)")
     imp.add_argument("--sites", required=True, type=Path)
