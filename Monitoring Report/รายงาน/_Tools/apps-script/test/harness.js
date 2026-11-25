@@ -407,3 +407,19 @@ try {
   api.syncNow(); drain();
   console.log('inverter 3 normal again: its fault days stay in the same row:', JSON.stringify(rowsOf('P1-001').map(x => [x.key, x.st])));
 } catch (e) { console.log('section 17 failed:', e.stack); }
+// 18) a calendar sync of the new month (its folder made, nothing in it yet) goes straight on to last month's edits
+try {
+  props.archived = '[]'; delete props.job;
+  const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number), ny = mo === 12 ? yy + 1 : yy, nm = mo === 12 ? 0 : mo;
+  const at = d => class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(Date.UTC(ny, nm, d, 5)); } static now() { return Date.UTC(ny, nm, d, 5); } };
+  const R = O.getSheetByName('บันทึกรายงานรายวัน');
+  const rowOf = d => { const k = `${pad(d)}/${pad(mo)}/${yy + 543}`; for (let r = 2; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === k) return R.cells[`${r},2`]; return null; };
+  const lastDayOfMonth = new RealDate(yy, mo, 0).getDate(), before = rowOf(lastDayOfMonth);
+  root.createFolder(`${ny}-${pad(nm + 1)}`);
+  const p2 = plant('P1-002').ss; put(day(p2, lastDayOfMonth), 'G17', 0); put(day(p2, lastDayOfMonth), 'J17', 'Online');   // a late report for the last day
+  files[Object.values(files).find(f => f.ss === p2).id].editedAt = RealDate.now() + 2e7;
+  const logs = []; const real = console.log; console.log = (...a) => { logs.push(a.join(' ')); };
+  ctx.Date = at(2); api.calendarSync(); drain(); ctx.Date = RealDate; console.log = real;
+  const synced = logs.filter(l => /^ซิงก์ \d{4}-\d{2}:/.test(l)).map(l => l.slice(0, 13));
+  console.log('calendar sync on day 2:', JSON.stringify(synced), '(want the new month, then last month) · last day reported', before, '→', rowOf(lastDayOfMonth));
+} catch (e) { ctx.Date = Date; console.log('section 18 failed:', e.stack); }
