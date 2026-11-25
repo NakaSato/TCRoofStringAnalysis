@@ -199,6 +199,10 @@ class DbLogHandler(logging.Handler):
         if not force and self.waiting():
             return
         with self._flush_lock:
+            # again under the lock: a flush that waited here behind a failing insert must not retry
+            # at once (each could wait the 30 s SQLite busy timeout in turn)
+            if not force and self.waiting():
+                return
             with self._buf_lock:
                 rows: List[Dict[str, Any]] = list(self._buf)
                 self._buf.clear()

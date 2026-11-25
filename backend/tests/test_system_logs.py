@@ -198,6 +198,38 @@ def test_pause_after_failure_ends_and_the_next_flush_stores(tmp_path, monkeypatc
     assert h.pending() == 0 and [r.message for r in _rows(sessionmaker(bind=engine))] == ["boom"]
 
 
+def test_flushes_queued_behind_a_failing_insert_do_not_retry(tmp_path, capsys):
+    """Several requests flush while one insert hangs and then fails: only that one tries the DB;
+    the others, waiting on the flush lock, see the pause once they get it and return."""
+    import threading
+
+    h = logging_db.DbLogHandler("api", build_engine(f"sqlite:///{tmp_path / 'x.db'}"))
+    h._buf.append({"message": "boom"})
+    started, release = threading.Event(), threading.Event()
+    attempts = []
+
+    class _Hanging:
+        def begin(self):
+            attempts.append(1)
+            started.set()
+            release.wait(5)
+            raise RuntimeError("database is locked")
+
+    h._engine = _Hanging()
+    first = threading.Thread(target=h.flush)
+    first.start()
+    assert started.wait(5)
+    h._buf.append({"message": "logged while the insert hangs"})  # what makes the others flush
+    queued = [threading.Thread(target=h.flush) for _ in range(3)]
+    for q in queued:
+        q.start()
+    release.set()
+    for t in (first, *queued):
+        t.join(5)
+    assert len(attempts) == 1 and h.waiting() and h.pending() == 2
+    assert capsys.readouterr().err.count("app_logs insert failed") == 1
+
+
 def test_records_logged_from_threads_while_flushes_fail_are_all_kept(tmp_path):
     import threading
 
