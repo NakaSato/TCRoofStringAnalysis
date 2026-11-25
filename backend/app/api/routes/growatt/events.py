@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids, get_current_user, require_plant_read, require_plant_write
-from app.db.models import User
+from app.db.models import GrowattPlant, User
 from app.db.session import get_db
 from app.schemas.api_schemas import SiteEventCreate, SiteEventPatch
 from app.services import growatt_overview as ov
@@ -146,3 +146,33 @@ def delete_plant_site_event(
     kind, day = ev.event_type, ev.day
     site_events.delete_event(db, ev)
     audit.info("%s deleted site event #%s (%s %s) for plant %s", who, event_id, kind, day, plant_id)
+
+
+# --------------------------------------------------------------------------- soiling (DB only)
+
+
+@router.get("/plants/{plant_id}/soiling")
+def plant_soiling(
+    plant_id: int,
+    days: int = Query(60, ge=7, le=366, description="Days of daily EPI / rain to return, ending today"),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_plant_read),
+) -> Dict[str, Any]:
+    """Cleaning steps (EPI before / after each recorded cleaning, soiling rate), the plant's
+    latest R13 verdict (incomplete recovery after a heavy rain) and its R12 soiling wallet. EPI is
+    modelled, rain is Google Weather (modelled, daytime only), steps, rates and the wallet are
+    estimates; the cleaning cost is entered."""
+    from app.services import growatt_rules, soiling
+
+    if db.get(GrowattPlant, plant_id) is None:
+        raise HTTPException(status_code=404, detail=f"Plant {plant_id} not found")
+    cfg = growatt_rules.rule_settings(db)
+    out = soiling.plant_soiling(db, plant_id, soiling.local_today(), days, cfg)
+    r13_state, r12_state = cfg["rules"]["R13"], cfg["rules"]["R12"]
+    if r13_state["shadow"] and user.role != "admin":
+        out["r13"] = None  # engineers never see shadow findings
+    if r12_state["shadow"] and user.role != "admin":
+        out["wallet"] = None
+    out["r13_rule"] = r13_state
+    out["r12_rule"] = r12_state
+    return {**out, "meta": {"source": "db"}}

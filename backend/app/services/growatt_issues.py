@@ -88,10 +88,11 @@ def _untouched(i: GrowattIssue) -> bool:
 
 def _verdicts(
     db: Session, days: Sequence[date], plant_ids: Optional[Set[int]]
-) -> Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple]]:
+) -> Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple]]:
     """Which entities had enough data on each day for a rule to judge them:
     (string keys with a gated verdict, inverter keys with records, inverter keys with a yield comparison,
-    plant keys with an EPI verdict on a day its sensor passed R16, plant keys with an R16 verdict)."""
+    plant keys with an EPI verdict on a day its sensor passed R16, plant keys with an R16 verdict,
+    plant keys with stored energy)."""
     cfg = growatt_rules.rule_settings(db)
     cfg_gap = float(cfg["r7_max_gap_pct"])
     SD, ID, PD = GrowattStringDaily, GrowattInverterDaily, GrowattPlantDaily
@@ -113,25 +114,32 @@ def _verdicts(
                 yf.add((r.plant_id, r.device_sn, r.day))
     plants_epi: Set[tuple] = set()
     plants_sensor: Set[tuple] = set()
+    plants_energy: Set[tuple] = set()
     for r in db.scalars(q3):
+        if r.energy_kwh is not None:
+            plants_energy.add((r.plant_id, r.day))
         v = growatt_rules.sensor_verdict(r, cfg)
         if v is not None:
             plants_sensor.add((r.plant_id, r.day))
         if r.epi is not None and (v is None or v["ok"]):
             plants_epi.add((r.plant_id, r.day))
-    return strings, inv, yf, plants_epi, plants_sensor
+    return strings, inv, yf, plants_epi, plants_sensor, plants_energy
 
 
-def _had_verdict(i: GrowattIssue, d: date, v: Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple]]) -> bool:
-    strings, inv, yf, plants_epi, plants_sensor = v
+def _had_verdict(
+    i: GrowattIssue, d: date, v: Tuple[Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple], Set[tuple]]
+) -> bool:
+    strings, inv, yf, plants_epi, plants_sensor, plants_energy = v
     if i.rule in STRING_RULES:
         return (i.plant_id, i.device_sn, i.string_no, d) in strings
     if i.rule == "R7":
         return (i.plant_id, i.device_sn, d) in yf
     if i.rule in ("R8", "R11", "R17", "R18"):
         return (i.plant_id, i.device_sn, d) in inv
-    if i.rule == "R10":
+    if i.rule in ("R10", "R13"):
         return (i.plant_id, d) in plants_epi
+    if i.rule == "R12":
+        return (i.plant_id, d) in plants_energy  # judged on the stored energy; a cleaning or heavy rain empties it
     if i.rule == "R16":
         return (i.plant_id, d) in plants_sensor
     return True  # R3 / R9: the alarm log is the data

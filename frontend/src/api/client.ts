@@ -36,7 +36,7 @@ import type { SensorList, SensorLive, SensorLiveStatus, SensorToday } from "./ty
 import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/systemLogs";
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
-import type { SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
+import type { PlantSoiling, SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
   OmAssignees,
@@ -533,6 +533,8 @@ export const api = {
     apiFetch<SiteEvent>(`/growatt/plants/${plantId}/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteSiteEvent: (plantId: number, id: number) =>
     apiFetch<void>(`/growatt/plants/${plantId}/events/${id}`, { method: "DELETE" }),
+  /** cleaning steps (EPI before / after) and the R13 verdict; DB only */
+  getPlantSoiling: (plantId: number, days = 60) => apiFetch<PlantSoiling>(`/growatt/plants/${plantId}/soiling?days=${days}`),
   // ---- Calendar Team (planned O&M tasks and crews; DB only)
   listOmTasks: (q: OmTaskQuery) => {
     const p = new URLSearchParams();

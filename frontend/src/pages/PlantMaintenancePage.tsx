@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useAppContext } from "../context/AppContext";
 import { SelectedPlantBanner } from "../components/SelectedPlantBanner";
 import { SiteEventsCard } from "./maintenance/SiteEventsCard";
+import { SoilingCard } from "./maintenance/SoilingCard";
 import { UpcomingTasksCard } from "./maintenance/UpcomingTasksCard";
 
 export const PlantMaintenancePage: React.FC = () => {
@@ -17,6 +18,7 @@ export const PlantMaintenancePage: React.FC = () => {
         <div className="space-y-6">
           <UpcomingTasksCard plantId={selectedGrowattPlantId} onDone={() => setLogVersion((v) => v + 1)} />
           <SiteEventsCard key={logVersion} plantId={selectedGrowattPlantId} />
+          <SoilingCard key={`soil-${selectedGrowattPlantId}-${logVersion}`} plantId={selectedGrowattPlantId} />
         </div>
       )}
     </div>

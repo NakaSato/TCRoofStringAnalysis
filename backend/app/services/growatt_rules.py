@@ -80,6 +80,29 @@ DEFAULT_RULES: Dict[str, Any] = {
     "r16_high_slots": 6,  # slots above clear-sky GHI × 1.5 (growatt_daily.SENSOR_CLEAR_SKY_FACTOR)
     "r16_neighbour_ratio": 0.7,  # midday irradiance below this share of the neighbours' median
     "r16_clear_cloud_pct": 20.0,  # neighbour check only when Google's midday cloud cover is at most this
+    # Soiling (services/soiling.py, plan §6): good days = EPI with the sensor passing R16, clearness
+    # >= soil_min_clearness, inverters down <= 3 %. Cleaning step = median EPI of up to soil_step_days
+    # good days before vs after a cleaning (within soil_window_days, >= soil_min_days on each side).
+    "soil_min_clearness": 0.6,
+    "soil_window_days": 14,
+    "soil_step_days": 5,
+    "soil_min_days": 3,
+    "soil_rain_mm": 10.0,  # daytime rain (Google, modelled) that counts as washing the array
+    # R13 incomplete recovery after a heavy rain: suggest a manual cleaning
+    "r13_before_days": 7,
+    "r13_judge_days": 3,
+    "r13_min_days": 2,
+    "r13_max_age_days": 30,
+    "r13_recovery_pct": 50.0,
+    "r13_min_deficit": 0.03,  # EPI points below the clean reference before the rain, else nothing to recover
+    # R12 soiling wallet: THB lost to dirt since the array was last clean (plant-wide cleaning or heavy
+    # rain), from a soiling rate measured on cleaning steps; suggest a cleaning once it reaches the
+    # plant's cleaning cost, outside the monsoon. Rate = the plant's own median, else the fleet's
+    # median when at least r12_fleet_min_plants plants have one.
+    "r12_rate_lookback_days": 365,
+    "r12_fleet_min_plants": 3,
+    "r12_max_soiling_pct": 20.0,  # the linear model is capped here (no dirt keeps growing forever)
+    "r12_monsoon": ["05-15", "10-15"],  # MM-DD, inclusive: no suggestion in this window
     # R17 data gap
     "r17_pct": 5.0,
     # THB/day above which R2 is P1 (else P2) and R7 is P2 (else P3). Not confirmed yet (plan §9 Q4).
@@ -102,6 +125,8 @@ RULE_NAMES = {
     "R9": "Grid trips",
     "R10": "Plant EPI anomaly",
     "R11": "Inverter Ya − Yf loss drift",
+    "R12": "Soiling wallet: cleaning pays off",
+    "R13": "Incomplete recovery after rain",
     "R16": "Weather sensor suspect",
     "R17": "Data gap",
     "R18": "Power limiting",
@@ -511,6 +536,18 @@ def evaluate(
                         pr_temp_corrected_pct=p_today.pr_temp_corrected_pct,
                     )
                 )
+
+    # R13 incomplete recovery after a heavy rain (services/soiling.py)
+    if "R13" in on:
+        from app.services import soiling
+
+        out.extend(soiling.r13_findings(db, day, plant_ids, cfg, pr))
+
+    # R12 soiling wallet (services/soiling.py)
+    if "R12" in on:
+        from app.services import soiling
+
+        out.extend(soiling.r12_findings(db, day, plant_ids, cfg, pr))
 
     # R16 weather-sensor health (no energy is lost; the plant's PR / EPI are blind that day)
     if "R16" in on:

@@ -114,6 +114,16 @@ export const evidenceText = (i: Issue): string => {
       });
     case "R10":
       return `EPI ${fmt(num(e.epi), 3)} vs baseline μ=${fmt(num(e.epi_mu), 3)} (σ=${fmt(num(e.epi_sigma), 3)}, ${String(e.trigger ?? "")})`;
+    case "R12":
+      return translate("Lost to dirt ฿{w} since {by} {day} ({n} days, {r} %/day {basis}, est.) ≥ cleaning cost ฿{c} (entered)", {
+        w: fmtInt(num(e.wallet_thb)),
+        by: e.reset_by === "rain" ? translate("heavy rain") : translate("cleaning"),
+        day: String(e.reset_day ?? "—"),
+        n: fmtInt(num(e.days_since_reset)),
+        r: fmt(num(e.rate_pct_per_day), 2),
+        basis: e.rate_basis === "fleet" ? translate("fleet") : translate("this plant"),
+        c: fmtInt(num(e.cost_thb)),
+      });
     case "R16": {
       const flags = Array.isArray(e.flags) ? (e.flags as string[]) : [];
       const parts = flags.map((f) =>

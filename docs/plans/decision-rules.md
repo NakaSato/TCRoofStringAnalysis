@@ -1,6 +1,6 @@
 # Plan: Decision rules and the Issues queue
 
-Status: **Phases 1–2 built and merged, every rule starts in shadow mode; Phase 3 built (plant daily table, PR', EPI with a per-plant fitted system factor, R10, R11, R16 in shadow mode); Phase 4: site log built (§6.1), soiling analysis not started** · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–2 built and merged, every rule starts in shadow mode; Phase 3 built (plant daily table, PR', EPI with a per-plant fitted system factor, R10, R11, R16 in shadow mode); Phase 4: site log built (§6.1), cleaning step and R13 built 2026-11-22 in shadow mode (§6.2), soiling wallet R12 built 2026-11-25 in shadow mode (§6.3; rain-forecast gate not built)** · Created 2026-11-15 · Owner: Chanthawat
 Source: the research report `docs/plans/Data-Driven Decisions for the TC Roof Solar Dashboard_ KPIs, Thresholds and Decision Rules for Thai Commercial and Industrial Rooftop PV.md` (rule numbers R1–R18 below are its §8 master table).
 
 Turn the data the platform already stores into **issues ranked by baht lost per day**. Each issue has an owner, a tier and evidence, and engineers can acknowledge and close it. Today the platform shows statuses (string Healthy / Warning / Critical, inverter fault codes, PR), but nothing says what to fix first or what a fault costs.
@@ -205,7 +205,39 @@ The dry season starts now (November to April), so **start recording cleanings im
 - `site_events` table (`services/site_events.py`, migration `b7c8d9e0f1a2`), SQL only, kept indefinitely. Types: cleaning, repair, module_replaced, inverter_replaced, ir_flight, curtailment, other; `day` … `end_day` (plant-local, never in the future), optional inverter / string, `cost_thb` (null = not entered), note, `issue_id` (+ `close_issue` resolves it as confirmed, its note naming the event).
 - Routes: `GET/POST /growatt/plants/{id}/events`, `PATCH/DELETE /growatt/plants/{id}/events/{event_id}`, fleet `GET /growatt/events`. Engineers record on their assigned plants; delete = admin or whoever recorded it.
 - UI: the plant Maintenance tab is now open to engineers and starts with the **Site log** card; the legacy PM / CM / RCA modules stay admin only below it.
-- Still to build: the cleaning step (EPI before / after), the soiling wallet (R12, needs §9 Q5 cleaning costs; `cost_thb` on cleanings gives a per-plant figure once entered), R13.
+- Built since: the cleaning step and R13 (§6.2), the soiling wallet R12 (§6.3).
+
+### 6.2 As built (2026-11-22): cleaning step and R13
+
+- `services/soiling.py`, DB only, nothing new stored: it reads `growatt_plant_daily` EPI, the Site log's cleanings and Google Weather's daytime rain.
+- **Good day** (the only days compared): EPI from ≥ 36 filtered slots, sensor passing R16, clearness (POA insolation ÷ Haurwitz clear sky) ≥ `soil_min_clearness` (0.6; the EPI fit uses 0.7), inverters down ≤ 3 % of daylight minutes.
+- **Cleaning step**: the median EPI of the last `soil_step_days` (5) good days before the cleaning, against the first 5 after it. These days are searched within `soil_window_days` (14), never across the previous or next cleaning, and `soil_min_days` (3) are needed on each side. Statuses: `measured`, `waiting` (the after-window is still open), `too_few_days`, `no_epi`. A heavy rain (≥ `soil_rain_mm`, 10 mm daytime) between the compared days is listed in `rain_between`, since that rain cleaned the array too. A cleaning of one inverter only is `scope: inverter` (its effect on the plant EPI is diluted).
+- **Soiling rate** (estimated) = step ÷ days since the last reset (the previous cleaning or heavy rain). It is null when the rain record has a missing or incomplete day in between, or when no reset is known.
+- **R13** (P3, shadow) is judged each day by `growatt_rules.evaluate`. It looks at the newest heavy rain since the last cleaning, at most `r13_max_age_days` (30) ago.
+  - The clean reference C is the last cleaning's after-median (≥ `r13_min_days` 2 days). Without one, a plant with a fitted EPI factor uses 1.0 (its best clear days); otherwise there is no verdict.
+  - B is the median of the good days in the `r13_before_days` (7) before the rain (after the last cleaning and any earlier heavy rain). A is the median of the newest `r13_judge_days` (3) good days after it. There is no verdict unless C − B ≥ `r13_min_deficit` (0.03).
+  - The rule fires when (A − B) ÷ (C − B) < `r13_recovery_pct` (50 %) and C − A ≥ 0.03.
+  - Lost kWh (est.) = the day's energy × (C − A) ÷ A.
+  - Auto-close works like R10: 2 quiet days with an EPI. A new cleaning ends the condition.
+- O&M Dashboard attribution: the new family `soiling` (R13) takes what the inverter and string rules leave, and R10 takes what is left after that.
+- API: `GET /growatt/plants/{id}/soiling?days=` (plant read), with the steps (newest first), the summary, daily EPI / good / rain and the latest R13 verdict (null for engineers while R13 is shadow). UI: the **Cleaning effect** card on the plant Maintenance tab, under the Site log.
+- Local data on 22 Nov 2026: 206 plants have EPI (11–21 Nov) and 183 have good days. No cleaning is recorded, and the stored rain covers 12 Nov only, so there are no steps or R13 verdicts yet. Both need cleanings entered with their real dates, and the daily `google_weather` job running.
+- The settings are thresholds in `DEFAULT_RULES` (the `soil_*` / `r13_*` keys), overridable via `app_settings` `decision_rules`.
+
+### 6.3 As built (2026-11-25): soiling wallet R12
+
+- `services/soiling.py` (`wallet`, `wallets`, `r12_findings`), DB only, nothing new stored. Everything in it is **estimated**; the cleaning cost is **entered**.
+- **Reset**: the newest plant-wide cleaning (a cleaning of one inverter does not reset the plant) or heavy rain (≥ `soil_rain_mm`) up to the judged day.
+- **Soiling rate r**: the median of the plant's own measured rates (§6.2 steps, plant-wide cleanings, last `r12_rate_lookback_days` 365), else the fleet median when ≥ `r12_fleet_min_plants` (3) plants have one (`rate_basis` plant / fleet), else no wallet (`no_rate`).
+- **Wallet** = Σ over the days since the reset of the measured energy × SL ÷ (1 − SL), SL = min(r × n, `r12_max_soiling_pct` 20 %), priced with the tariff (unknown on-peak split = off-peak). A day without stored energy adds nothing (`days_without_energy`).
+- **Rain record**: every day between the reset and the judged day must have complete Google daytime hours (the judged day itself may still be missing, since `google_weather` runs at 18:15); otherwise `rain_unknown` and no verdict, because a heavy rain could be hidden. Google hours are kept 90 days, so a reset older than that is `rain_unknown` too.
+- **Cost C**: `om_plant_settings.cleaning_cost_thb` (Calendar → Due), else the median `cost_thb` entered on the plant's plant-wide cleanings; none = the wallet is shown without a verdict (§9 Q5 still open for a fleet figure).
+- **Fires** (P3, shadow) when wallet ≥ C and the day is outside `r12_monsoon` (`["05-15", "10-15"]`, MM-DD, may wrap the year). The finding's lost kWh / THB is that day's soiling loss, so the issue's daily sum follows the wallet; evidence has the wallet, cost and basis, rate and basis, reset, soiling %, and T* = √(2C ÷ (r × V)) (`optimal_interval_days`, V = the mean clean-energy value per day since the reset).
+- Auto-close: 2 quiet days with stored plant energy (`growatt_issues._verdicts` `plants_energy`); a cleaning or heavy rain empties the wallet.
+- O&M Dashboard: R12 joins the `soiling` family; per plant-day the larger of R12 / R13 counts, before R10's residual.
+- Not built: the report's "skip if ≥ 10 mm rain is forecast" gate (no forecast is fetched, §9 Q7).
+- API: `GET /growatt/plants/{id}/soiling` adds `wallet` (on the newest stored day; null for engineers while R12 is shadow), `r12_rule` and `monsoon`. UI: an R12 callout on the Cleaning effect card (wallet vs cost meter, reset, rate and basis, soiling now, best interval) and the R12 evidence line in the issue lists.
+- Local data on 25 Nov 2026: no cleaning recorded, so no rate: all 233 plants `no_rate`.
 
 ## 7. Later (not planned yet)
 

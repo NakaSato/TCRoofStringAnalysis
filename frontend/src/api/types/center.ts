@@ -2,7 +2,7 @@
  * estimates with each kWh counted once across overlapping rules; costs are entered by the team. */
 import type { Issue, IssueTier } from "./issues";
 
-export type LossFamily = "down" | "strings" | "conversion" | "underyield" | "plant" | "data_gap";
+export type LossFamily = "down" | "strings" | "conversion" | "underyield" | "soiling" | "plant" | "data_gap";
 
 export interface OmCenterMoney {
   losing_now_thb_per_day_est: number | null;

@@ -10,7 +10,9 @@ two string rules can price the same string-day. `attribute` counts each lost kWh
 - a string-day: the largest of its string rules (they price the same missing energy);
 - an inverter-day: down time (R8), its strings, conversion loss (R11), not-recovered data gaps
   (R17), and of R7 only what the strings and R11 do not explain;
-- a plant-day: of R10 only what nothing above explains.
+- a plant-day: of soiling (the larger of R12, the wallet's modelled daily loss, and R13, the dirt the
+  rain left) what the inverter and string rules do not explain,
+  then of R10 only what nothing above explains.
 
 Every kWh and THB here is an **estimate**; costs are **entered** by the team (null when not).
 """
@@ -46,6 +48,7 @@ FAMILIES: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
     ("strings", "Strings", tuple(sorted(growatt_issues.STRING_RULES))),
     ("conversion", "Inverter conversion loss", ("R11",)),
     ("underyield", "Inverter under-yield, not explained above", ("R7",)),
+    ("soiling", "Soiling (wallet, or rain did not wash it off)", ("R12", "R13")),
     ("plant", "Plant shortfall, not explained above", ("R10",)),
     ("data_gap", "Data gap, energy not recovered", ("R17",)),
 )
@@ -76,6 +79,7 @@ def attribute(entries: Iterable[Entry]) -> Dict[int, Loss]:
         strings: Dict[Tuple[Optional[str], int], Tuple[float, Optional[float]]] = {}
         per_inv: Dict[Optional[str], Dict[str, Tuple[float, Optional[float]]]] = defaultdict(dict)
         plant_level: Optional[Tuple[float, Optional[float]]] = None
+        soiling: Optional[Tuple[float, Optional[float]]] = None
         for _, sn, sno, rule, kwh, thb in rows:
             v = (float(kwh or 0.0), thb)
             if rule in growatt_issues.STRING_RULES and sno is not None:
@@ -84,6 +88,9 @@ def attribute(entries: Iterable[Entry]) -> Dict[int, Loss]:
             elif rule == "R10":
                 if plant_level is None or v[0] > plant_level[0]:
                     plant_level = v
+            elif rule in ("R12", "R13"):
+                if soiling is None or v[0] > soiling[0]:
+                    soiling = v
             elif rule in ("R7", "R8", "R11", "R17"):
                 per_inv[sn][rule] = v
         s_inv: Dict[Optional[str], List[float]] = defaultdict(lambda: [0.0, 0.0])
@@ -102,11 +109,13 @@ def attribute(entries: Iterable[Entry]) -> Dict[int, Loss]:
                 if rest > 0:
                     # the unexplained part keeps R7's own THB/kWh
                     _add(loss, "underyield", rest, None if thb is None else max(0.0, thb - s_inv[sn][1] - (c_thb or 0.0)))
-        if plant_level is not None:
-            kwh, thb = plant_level
+        for family, level in (("soiling", soiling), ("plant", plant_level)):
+            if level is None:
+                continue
+            kwh, thb = level
             rest = kwh - sum(v[0] for v in loss.values())
             if rest > 0:
-                _add(loss, "plant", rest, None if thb is None else max(0.0, thb - sum(v[1] for v in loss.values())))
+                _add(loss, family, rest, None if thb is None else max(0.0, thb - sum(v[1] for v in loss.values())))
         if loss:
             out[pid] = loss
     return out
