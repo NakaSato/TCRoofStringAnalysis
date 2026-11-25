@@ -74,7 +74,7 @@ def plant_limit_kw(invs: Sequence[GrowattInverter]) -> Optional[float]:
     pcts = [i.active_limit_pct for i in invs]
     if not any(p is not None and p < 100 for p in pcts):
         return None
-    return sum(float(i.nominal_power_w) * min(p if p is not None else 100.0, 100.0) / 100.0 for i, p in zip(invs, pcts)) / 1000.0
+    return sum(float(i.nominal_power_w or 0) * min(p if p is not None else 100.0, 100.0) / 100.0 for i, p in zip(invs, pcts)) / 1000.0
 
 
 def inverters(db: Session, plant_id: int) -> List[GrowattInverter]:
@@ -217,6 +217,7 @@ def calibration(db: Session, plant_id: int, days: Sequence[date]) -> Dict[str, D
                 PD.day >= lo, PD.day < hi, PD.free_ratio.is_not(None), PD.free_slots > 0
             )
         )
+        if r is not None and n is not None  # already filtered in SQL; narrows the types
     ]
     out: Dict[str, Dict[str, Any]] = {}
     for day in days:
