@@ -598,3 +598,22 @@ def test_inverter_marked_not_installed_raises_nothing(factory):
         inv.not_installed_at = datetime(2026, 11, 11)  # its stored daily rows stay, but raise nothing
         db.commit()
         assert all(f["device_sn"] != A for f in growatt_rules.evaluate(db, DAY))
+
+
+def test_pwa_contract_failure_rolls_back_the_session(monkeypatch):
+    """#89: a failed PWA lookup (no criteria file / table) resets the transaction, so on Postgres the
+    config/tariff publish that follows in put_tariff is not run in an aborted transaction."""
+    from app.api.routes.growatt import fleet_config
+
+    calls = []
+
+    class Db:
+        def rollback(self) -> None:
+            calls.append("rollback")
+
+    def missing_table(_db):
+        raise RuntimeError("no such table: pwa_meter_sites")
+
+    monkeypatch.setattr(tariff, "pwa_plant_rates", missing_table)
+    assert fleet_config._pwa_contract(Db()) is None  # type: ignore[arg-type]
+    assert calls == ["rollback"]

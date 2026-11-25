@@ -143,6 +143,9 @@ def _pwa_contract(db: Session, allowed: Optional[Any] = None) -> Optional[Dict[s
         c = pwa_meter.criteria()
         ids = sorted(int(k) for k in tariff.pwa_plant_rates(db))
     except Exception:  # noqa: BLE001 — no criteria file / table: the page shows no PWA block
+        # a failed query aborts the transaction on Postgres; reset it so the publish that follows
+        # in put_tariff / post_tariff_pwa_rates can still read (callers have committed by now)
+        db.rollback()
         return None
     if allowed is not None:
         ids = [i for i in ids if i in allowed]

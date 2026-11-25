@@ -170,6 +170,9 @@ export const PriceSettings: React.FC = () => {
           ? t("{n} PWA plants now use the contract book price; {kept} rates already entered were kept.", { n: r.added, kept: r.kept })
           : t("Every PWA plant already has a rate; nothing changed.")
       );
+      // the rates are saved either way; a failed or deferred config/tariff publish is a warning
+      const pub = r.published ? publishNotice(r.published) : null;
+      if (pub?.tone === "warn") notifyNotice(pub);
     } catch (e: any) {
       notify("crit", t("Save failed: {error}", { error: e.message }));
     } finally {
