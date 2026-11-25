@@ -209,6 +209,11 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     ['กำลังแก้ไข', `=COUNTIF(${st},"กำลังแก้ไข")`],
     ['แก้ไขแล้วเสร็จ', `=${done}`],
   ];
+  let owners = {};
+  try { owners = ownersSheet_(overview, stations); } catch (e) {     // never stops the sync: the reason goes to _log
+    console.error(`ชีต ${OWNERS}: ${e}`);
+    warnings.push(`เขียนชีต "${OWNERS}" ไม่ได้: ${e.message || e}`);
+  }
   // รายงานวันนี้ = plants whose รายงานล่าสุด (สถานี) is today / every plant in สถานี
   const ss = overview.getSheetByName(STATIONS);
   const sHead = ss.getRange(1, 1, 1, ss.getLastColumn()).getValues()[0].map(h => String(h).trim());
@@ -217,7 +222,7 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     const L = letter_(lastCol);
     boxes.push([REPORTED_TODAY, `=COUNTIF('${STATIONS}'!$${L}$2:$${L},TEXT(TODAY(),"dd/mm/")&(YEAR(TODAY())+543))&"/"&COUNTA('${STATIONS}'!$A$2:$A)`]);
     addBox_(t, REPORTED_TODAY);
-    try { todaySheet_(overview, sHead, stations.length); } catch (e) {      // never stops the sync: the reason goes to _log
+    try { todaySheet_(overview, sHead, stations.length, !!overview.getSheetByName(OWNERS)); } catch (e) {      // never stops the sync: the reason goes to _log
       console.error(`ชีต ${REPORTED_TODAY}: ${e}`);
       warnings.push(`สร้างชีต "${REPORTED_TODAY}" ไม่ได้: ${e.message || e}`);
     }
@@ -226,7 +231,7 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     console.error(`ตารางปัญหา: ${e}`);
     warnings.push(`ขยายตัวกรอง / dropdown ของตารางปัญหาไม่ได้: ${e.message || e}`);
   }
-  try { reportLog_(overview, ym, stations); } catch (e) {          // never stops the sync: the reason goes to _log
+  try { reportLog_(overview, ym, stations, owners); } catch (e) {          // never stops the sync: the reason goes to _log
     console.error(`ชีต ${reportLogName_(ym)}: ${e}`);
     warnings.push(`เขียนชีต "${reportLogName_(ym)}" ไม่ได้: ${e.message || e}`);
   }

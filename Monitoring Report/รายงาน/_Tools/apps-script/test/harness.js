@@ -345,21 +345,22 @@ try {
 } catch (e) { console.log('section 14 failed:', e.stack); }
 // 15) บันทึกรายงานรายวัน MM/พ.ศ.: a plant × day grid; a late report changes its own day only
 const logName = (y, m) => `บันทึกรายงานรายวัน ${pad(m)}/${y + 543}`;
+const LEFT = 7;   // รหัส, ระยะ, ชื่อสถานี, ผู้รับผิดชอบ, ทำแล้ว, ยังไม่ทำ, ขาดติดกัน
 const logGrid = (y, m) => {   // { sheet, reported(d), pct(d), mark(code, d), plant(code) }
   const R = O.getSheetByName(logName(y, m)); if (!R) return null;
   const rowOf = code => { for (let r = 6; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === code) return r; return 0; };
-  return { R, reported: d => R.cells[`3,${5 + d}`], pct: d => R.cells[`4,${5 + d}`], mark: (code, d) => R.cells[`${rowOf(code)},${5 + d}`],
-    plant: code => [1, 2, 3, 4, 5].map(c => R.cells[`${rowOf(code)},${c}`]) };
+  return { R, reported: d => R.cells[`3,${LEFT + d}`], pct: d => R.cells[`4,${LEFT + d}`], mark: (code, d) => R.cells[`${rowOf(code)},${LEFT + d}`],
+    plant: code => [1, 2, 3, 4, 5, 6, 7].map(c => R.cells[`${rowOf(code)},${c}`]) };
 };
 try {
   const [yy, mo] = ym.split('-').map(Number), G = logGrid(yy, mo), S = O.getSheetByName('สถานี');
   const nPlants = S.getLastRow() - 1, R = G.R, nDays = new Date(yy, mo, 0).getDate();
-  console.log('grid sheet:', !!R, '· old one-row-per-day sheet gone:', !O.getSheetByName('บันทึกรายงานรายวัน'), '· plants', R.getLastRow() - 5, '(want', nPlants, ') · columns', R.getMaxColumns(), '(want', 5 + nDays, ')');
-  console.log('header:', JSON.stringify([1, 2, 3, 4, 5, 6, 5 + nDays].map(c => R.cells[`5,${c}`])), '· filter on the header:', !!R.getFilter() && R.getFilter().getRange().getRow() === 5 && R.getFilter().getRange().getLastRow() === R.getLastRow());
-  const colOf = d => { const out = []; for (let r = 6; r <= R.getLastRow(); r++) out.push(R.cells[`${r},${5 + d}`]); return out; };
+  console.log('grid sheet:', !!R, '· old one-row-per-day sheet gone:', !O.getSheetByName('บันทึกรายงานรายวัน'), '· plants', R.getLastRow() - 5, '(want', nPlants, ') · columns', R.getMaxColumns(), '(want', LEFT + nDays, ')');
+  console.log('header:', JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, LEFT + nDays].map(c => R.cells[`5,${c}`])), '· filter on the header:', !!R.getFilter() && R.getFilter().getRange().getRow() === 5 && R.getFilter().getRange().getLastRow() === R.getLastRow());
+  const colOf = d => { const out = []; for (let r = 6; r <= R.getLastRow(); r++) out.push(R.cells[`${r},${LEFT + d}`]); return out; };
   console.log(`today (day ${today}): reported`, G.reported(today), '· = ✓ in its column:', G.reported(today) === colOf(today).filter(v => v === '✓').length, '· ✓ + ✗ = all:', colOf(today).filter(v => v === '✓' || v === '✗').length === nPlants,
     '· days after today blank:', today === nDays || colOf(today + 1).every(v => v === '' || v === undefined) && G.reported(today + 1) === '');
-  console.log(`day ${d0}: P1-001`, G.mark('P1-001', d0), '(want ✓) · P3-002', G.mark('P3-002', d0), '(want ✗) · P1-001 days reported / not:', JSON.stringify(G.plant('P1-001').slice(3)));
+  console.log(`day ${d0}: P1-001`, G.mark('P1-001', d0), '(want ✓) · P3-002', G.mark('P3-002', d0), '(want ✗) · P1-001 days reported / not:', JSON.stringify(G.plant('P1-001').slice(4)));
   // P3-002 reports day d0 late: that day goes up by one; other days stay
   const before0 = G.reported(d0), before1 = JSON.stringify(colOf(d1)), stamp0 = R.cells['2,1'];
   put(day(p3, d0), 'G17', 0); put(day(p3, d0), 'J17', 'Online');
@@ -369,6 +370,13 @@ try {
   // a sync with nothing new leaves the sheet as it is
   const cells0 = JSON.stringify(R.cells); api.syncNow(); drain();
   console.log('nothing new: sheet unchanged:', JSON.stringify(R.cells) === cells0);
+  // ผู้รับผิดชอบสถานี: one row per plant; a name typed there shows in the grid and รายงานวันนี้
+  const W = O.getSheetByName('ผู้รับผิดชอบสถานี'), wRow = code => { for (let r = 2; r <= W.getLastRow(); r++) if (W.cells[`${r},1`] === code) return r; return 0; };
+  console.log('owners sheet:', !!W, '· rows', W.getLastRow() - 1, '(want', nPlants, ') · header', JSON.stringify([1, 2, 3, 4].map(c => W.cells[`1,${c}`])), '· P1-001 blank:', G.plant('P1-001')[3] === '');
+  W.cells[`${wRow('P1-001')},4`] = 'สมชาย'; W.cells[`${wRow('P1-001')},5`] = '081-000-0000';
+  api.syncNow(); drain();
+  const T = O.getSheetByName('รายงานวันนี้');
+  console.log('typed owner in grid:', G.plant('P1-001')[3], '· kept in owners sheet:', W.cells[`${wRow('P1-001')},4`], W.cells[`${wRow('P1-001')},5`], '· รายงานวันนี้ header:', T.cells['4,4'], '· lookup:', /VLOOKUP\('สถานี'!\$A\$2:\$A,'ผู้รับผิดชอบสถานี'!\$A:\$D,4/.test(String(T.getRange(5, 1).getFormula())));
 } catch (e) { console.log('section 15 failed:', e.stack); }
 // 16) sync across months: on days 1–7 of next month, a late report in this month's file is still synced
 try {
