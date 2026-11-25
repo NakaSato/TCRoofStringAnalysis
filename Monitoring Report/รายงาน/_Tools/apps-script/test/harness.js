@@ -370,13 +370,17 @@ try {
   // a sync with nothing new leaves the sheet as it is
   const cells0 = JSON.stringify(R.cells); api.syncNow(); drain();
   console.log('nothing new: sheet unchanged:', JSON.stringify(R.cells) === cells0);
-  // ผู้รับผิดชอบสถานี: one row per plant; a name typed there shows in the grid and รายงานวันนี้
-  const W = O.getSheetByName('ผู้รับผิดชอบสถานี'), wRow = code => { for (let r = 2; r <= W.getLastRow(); r++) if (W.cells[`${r},1`] === code) return r; return 0; };
+  // ผู้รับผิดชอบ: one row per plant; a name typed there shows in the grid and รายงานวันนี้
+  const W = O.getSheetByName('ผู้รับผิดชอบ'), wRow = code => { for (let r = 2; r <= W.getLastRow(); r++) if (W.cells[`${r},1`] === code) return r; return 0; };
   console.log('owners sheet:', !!W, '· rows', W.getLastRow() - 1, '(want', nPlants, ') · header', JSON.stringify([1, 2, 3, 4].map(c => W.cells[`1,${c}`])), '· P1-001 blank:', G.plant('P1-001')[3] === '');
   W.cells[`${wRow('P1-001')},4`] = 'สมชาย'; W.cells[`${wRow('P1-001')},5`] = '081-000-0000';
   api.syncNow(); drain();
   const T = O.getSheetByName('รายงานวันนี้');
-  console.log('typed owner in grid:', G.plant('P1-001')[3], '· kept in owners sheet:', W.cells[`${wRow('P1-001')},4`], W.cells[`${wRow('P1-001')},5`], '· รายงานวันนี้ header:', T.cells['4,4'], '· lookup:', /VLOOKUP\('สถานี'!\$A\$2:\$A,'ผู้รับผิดชอบสถานี'!\$A:\$D,4/.test(String(T.getRange(5, 1).getFormula())));
+  console.log('typed owner in grid:', G.plant('P1-001')[3], '· kept in owners sheet:', W.cells[`${wRow('P1-001')},4`], W.cells[`${wRow('P1-001')},5`], '· รายงานวันนี้ header:', T.cells['4,4'], '· lookup:', /VLOOKUP\('สถานี'!\$A\$2:\$A,'ผู้รับผิดชอบ'!\$A:\$D,4/.test(String(T.getRange(5, 1).getFormula())));
+  // the sheet under its earlier name "ผู้รับผิดชอบสถานี" is renamed, its typed names kept
+  W.setName('ผู้รับผิดชอบสถานี'); W.cells[`${wRow('P1-001')},4`] = 'สมหญิง';
+  api.syncNow(); drain();
+  console.log('old owners sheet renamed:', O.getSheetByName('ผู้รับผิดชอบ') === W, '· old name gone:', !O.getSheetByName('ผู้รับผิดชอบสถานี'), '· name kept:', G.plant('P1-001')[3]);
 } catch (e) { console.log('section 15 failed:', e.stack); }
 // 16) sync across months: on days 1–7 of next month, a late report in this month's file is still synced
 try {

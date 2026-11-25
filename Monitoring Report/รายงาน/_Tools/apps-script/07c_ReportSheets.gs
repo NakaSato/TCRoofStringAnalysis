@@ -133,7 +133,7 @@ function todaySheet_(overview, sHead, nPlants, withOwners) {
   const cols0 = ['รหัส', 'ระยะ', 'ชื่อสถานี', 'กปภ.สาขา', LAST_REPORT].filter(h => sHead.indexOf(h) >= 0);
   if (cols0.indexOf(LAST_REPORT) < 0 || cols0.indexOf('รหัส') < 0) return;
   const ref = h => { const L = letter_(sHead.indexOf(h) + 1); return `'${STATIONS}'!$${L}$2:$${L}`; };
-  // ผู้รับผิดชอบ, looked up by รหัส in the sheet ผู้รับผิดชอบสถานี (column D), after ชื่อสถานี
+  // ผู้รับผิดชอบ, looked up by รหัส in the sheet ผู้รับผิดชอบ (column D), after ชื่อสถานี
   const want = cols0.slice(), parts = cols0.map(ref);
   if (withOwners) {
     const k = (want.indexOf('ชื่อสถานี') + 1) || want.length;
@@ -191,7 +191,7 @@ function todaySheet_(overview, sHead, nPlants, withOwners) {
 }
 
 /**
- * Sheet "ผู้รับผิดชอบสถานี": one row per plant (รหัส, ระยะ, ชื่อสถานี from "สถานี") and ผู้รับผิดชอบ, typed
+ * Sheet "ผู้รับผิดชอบ": one row per plant (รหัส, ระยะ, ชื่อสถานี from "สถานี") and ผู้รับผิดชอบ, typed
  * by hand. The sync adds new plants and drops removed ones, keeping each row's typed values (any column
  * after D too) with its รหัส; it writes only when the plant list or a name changed. A blank ผู้รับผิดชอบ
  * stays blank. Returns { รหัส: ผู้รับผิดชอบ }.
@@ -199,6 +199,7 @@ function todaySheet_(overview, sHead, nPlants, withOwners) {
 function ownersSheet_(overview, stations) {
   const head = ['รหัส', 'ระยะ', 'ชื่อสถานี', OWNER_COL];
   let sh = overview.getSheetByName(OWNERS), fresh = false;
+  if (!sh && (sh = overview.getSheetByName(OWNERS_OLD))) sh.setName(OWNERS);   // the sheet under its earlier name
   if (!sh) {
     const sheets = overview.getSheets();
     const at = sheets.findIndex(x => x.getName() === INVERTERS);
