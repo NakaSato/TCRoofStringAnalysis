@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,10 +10,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import (
+    Claim,
+    ClaimLink,
     GrowattInverter,
     GrowattInverterDaily,
     GrowattIssue,
     GrowattPlant,
+    OmPlan,
+    OmPlanPlant,
     OmTask,
     PwaMeterSite,
     SiteEvent,
@@ -199,3 +203,121 @@ def test_spend_by_month_entered_only_and_scoped(api):
     assert [r["month"] for r in body["spend_by_month"]] == sorted(r["month"] for r in body["spend_by_month"])
     mine = client.get("/growatt/center?start=2026-10-01&end=2026-11-20", headers=eng).json()
     assert {r["plant_id"] for r in mine["spend_by_month"]} == {P1}
+
+
+# ---------------------------------------------------------------- Phase 2: work, response, claims
+
+
+def _p1(plant, opened, *, status="open", ack_at=None, closed_at=None, close_reason=None, shadow=False, tier="P1"):
+    return GrowattIssue(
+        plant_id=plant, device_sn=SN, rule="R8", tier=tier, status=status, shadow=shadow, opened_day=opened, last_seen_day=opened,
+        days_seen=1, daily={opened.isoformat(): {"kwh": None, "thb": None}}, ack_at=ack_at, closed_at=closed_at, close_reason=close_reason,
+    )
+
+
+def _utc(s):
+    return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+
+
+def test_response_medians_targets_and_edges(api):
+    f, client, admin, eng = api
+    with f() as db:
+        db.add_all([
+            # acknowledged the same local day, resolved 2 days later
+            _p1(P1, date(2026, 11, 10), status="resolved", ack_at=_utc("2026-11-10T03:00:00"), closed_at=_utc("2026-11-12T03:00:00"), close_reason="resolved"),
+            # 18:00 UTC is 01:00 the next day in Bangkok: 1 day
+            _p1(P1, date(2026, 11, 10), status="acknowledged", ack_at=_utc("2026-11-10T18:00:00")),
+            # window start: dismissed the same day without an acknowledgement
+            _p1(P1, date(2026, 11, 1), status="dismissed", closed_at=_utc("2026-11-01T05:00:00"), close_reason="dismissed"),
+            # window end: nobody has acted yet
+            _p1(P1, date(2026, 11, 20)),
+            _p1(P1, date(2026, 10, 31), status="acknowledged", ack_at=_utc("2026-10-31T03:00:00")),  # before the window
+            _p1(P1, date(2026, 11, 5), shadow=True),
+            _p1(P2, date(2026, 11, 5)),  # not the engineer's plant
+        ])
+        db.commit()
+
+    def tiers(body):
+        return {t["tier"]: t for t in body["response"]["tiers"]}
+
+    mine = tiers(client.get("/growatt/center", headers=eng).json())
+    p1 = mine["P1"]
+    assert (p1["target_days"], p1["opened"], p1["acknowledged"], p1["ack_median_days"]) == (0, 4, 2, 0.5)
+    assert (p1["closed_by_team"], p1["close_median_days"], p1["responded"], p1["first_response_median_days"]) == (2, 1.0, 3, 0.0)
+    assert (p1["within_target"], p1["waiting"], p1["waiting_oldest_days"]) == (2, 1, 0)
+    # the fixture's P2 issues: auto-closed ones are not a response; the dismissed one has no closed_at, so no day
+    p2 = mine["P2"]
+    assert (p2["target_days"], p2["opened"], p2["auto_closed"], p2["acknowledged"], p2["closed_by_team"]) == (2, 8, 4, 0, 0)
+    assert p2["ack_median_days"] is None and p2["first_response_median_days"] is None and p2["within_target"] == 0
+    assert (p2["waiting"], p2["waiting_oldest_days"]) == (3, 2)
+
+    fleet = tiers(client.get("/growatt/center", headers=admin).json())
+    assert fleet["P1"]["opened"] == 5 and fleet["P1"]["waiting"] == 2
+    assert tiers(client.get("/growatt/center?include_shadow=true", headers=admin).json())["P1"]["opened"] == 6
+    # an engineer cannot ask for shadow issues
+    assert tiers(client.get("/growatt/center?include_shadow=true", headers=eng).json())["P1"]["opened"] == 4
+    # the start edge moves: the 1 Nov issue drops out
+    later = tiers(client.get("/growatt/center?start=2026-11-02&end=2026-11-20", headers=eng).json())["P1"]
+    assert later["opened"] == 3 and later["closed_by_team"] == 1 and later["close_median_days"] == 2.0
+    # nothing opened in a window = no tiers, not zeros
+    assert client.get("/growatt/center?start=2026-09-01&end=2026-09-30", headers=eng).json()["response"]["tiers"] == []
+
+
+def test_work_this_week_and_plans(api):
+    f, client, admin, eng = api
+    with f() as db:
+        plan = OmPlan(name="Monthly clean", task_type="cleaning", every_n=1, unit="month", starts_on=date(2026, 1, 1))
+        db.add(plan)
+        db.flush()
+        db.add(OmPlanPlant(plan_id=plan.id, plant_id=P1))
+        db.add_all([
+            OmTask(plant_id=P1, task_type="cleaning", start_day=date(2026, 11, 17), end_day=date(2026, 11, 17), status="planned", plan_id=plan.id, scheduled_day=date(2026, 11, 17)),
+            OmTask(plant_id=P1, task_type="repair", start_day=date(2026, 11, 10), end_day=date(2026, 11, 11), status="in_progress"),
+            OmTask(plant_id=P1, task_type="repair", start_day=date(2026, 11, 18), end_day=date(2026, 11, 18), status="cancelled"),
+            # spans into the week from the Sunday before: counted
+            OmTask(plant_id=P1, task_type="site_visit", start_day=date(2026, 11, 15), end_day=date(2026, 11, 16), status="done"),
+            OmTask(plant_id=P2, task_type="repair", start_day=date(2026, 11, 22), end_day=date(2026, 11, 22), status="planned"),
+            OmTask(plant_id=P2, task_type="repair", start_day=date(2026, 11, 23), end_day=date(2026, 11, 23), status="planned"),  # next week
+        ])
+        db.commit()
+    w = client.get("/growatt/center", headers=eng).json()["work"]
+    # TODAY is Friday 20 Nov: the week is Mon 16 … Sun 22; the fixture's done task on 21 Nov is in it
+    assert w["week"] == {"start": "2026-11-16", "end": "2026-11-22"}
+    assert w["tasks"]["by_status"] == {"planned": 1, "in_progress": 0, "done": 2, "skipped": 0, "cancelled": 1}
+    assert (w["tasks"]["total"], w["tasks"]["open"], w["tasks"]["overdue"]) == (3, 1, 1)
+    assert w["from_plans"] == {"total": 1, "done": 0, "open": 1, "overdue": 1}
+    assert (w["active_plans"], w["overdue_all"], w["overdue_oldest_days"]) == (1, 2, 9)
+    fleet = client.get("/growatt/center", headers=admin).json()["work"]
+    assert fleet["tasks"]["total"] == 4 and fleet["tasks"]["overdue"] == 1
+    # the week follows today, not the period
+    assert client.get("/growatt/center?start=2026-10-01&end=2026-10-31", headers=eng).json()["work"]["week"]["start"] == "2026-11-16"
+
+
+def test_claims_waiting_and_linked_claim_on_issue_rows(api):
+    f, client, admin, eng = api
+    with f() as db:
+        r1 = db.scalars(select(GrowattIssue).where(GrowattIssue.plant_id == P1, GrowattIssue.rule == "R1")).one()
+        c1 = Claim(number="CL-2026-001", claim_type="inverter_warranty", status="submitted", cause="unknown", plant_id=P1, counterparty="Growatt",
+                   submitted_day=date(2026, 11, 1), next_action_day=date(2026, 11, 19))
+        c2 = Claim(number="CL-2026-002", claim_type="insurance", status="draft", cause="storm_wind", plant_id=P1, counterparty="Insurer",
+                   created_at=_utc("2026-11-15T00:00:00"))
+        c3 = Claim(number="CL-2026-003", claim_type="insurance", status="closed", cause="fire", plant_id=P1, counterparty="Insurer")
+        c4 = Claim(number="CL-2026-004", claim_type="module_warranty", status="info_requested", cause="degradation", plant_id=P2, counterparty="Maker",
+                   submitted_day=date(2026, 9, 1))
+        db.add_all([c1, c2, c3, c4])
+        db.flush()
+        db.add(ClaimLink(claim_id=c1.id, kind="issue", ref_id=r1.id))
+        db.add(ClaimLink(claim_id=c3.id, kind="issue", ref_id=r1.id))
+        db.commit()
+    body = client.get("/growatt/center", headers=eng).json()
+    cl = body["claims"]
+    assert (cl["open"], cl["by_status"], cl["waiting_us"], cl["waiting_them"], cl["followup_overdue"]) == (2, {"draft": 1, "submitted": 1}, 1, 1, 1)
+    assert cl["oldest"]["number"] == "CL-2026-001" and cl["oldest"]["age_days"] == 19
+    assert "thb" not in str(cl).lower()
+    r1_row = next(i for i in body["issues"]["top"] if i["rule"] == "R1")
+    assert [(c["number"], c["open"]) for c in r1_row["claims"]] == [("CL-2026-003", False), ("CL-2026-001", True)]
+    assert all(i["claims"] == [] for i in body["issues"]["top"] if i["rule"] != "R1")
+    assert body["plants"][0]["open_claims"] == 2
+
+    fleet = client.get("/growatt/center", headers=admin).json()["claims"]
+    assert fleet["open"] == 3 and fleet["oldest"]["number"] == "CL-2026-004" and fleet["oldest"]["age_days"] == 80

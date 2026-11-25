@@ -15,32 +15,48 @@ two string rules can price the same string-day. `attribute` counts each lost kWh
   then of R10 only what nothing above explains.
 
 Every kWh and THB here is an **estimate**; costs are **entered** by the team (null when not).
+
+Work and response (Phase 2: `work`, `response`, `claims_waiting`): this week's Calendar tasks, how
+fast the team answered the issues first seen in the window (days from the day an issue was first
+seen to the plant-local day a person acknowledged / closed it, per tier against the targets) and
+the claims still open. Counts and days only, no money.
 """
 
 from __future__ import annotations
 
 import statistics
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    Claim,
+    ClaimLink,
     GrowattInverterDaily,
     GrowattIssue,
     GrowattPlant,
     GrowattPlantDaily,
+    OmPlan,
+    OmPlanPlant,
     OmTask,
     SiteEvent,
     not_installed_sns,
 )
+from app.services import claims as claims_svc
 from app.services import growatt_issues, growatt_rules, jobs, tariff
 
 MAX_SPAN_DAYS = 366
 TOP_ISSUES = 50
 OPEN_TASKS = ("planned", "in_progress")
+TASK_STATUSES = ("planned", "in_progress", "done", "skipped", "cancelled")
+# response targets in days from the day an issue was first seen (research report: P1 same day, P2 ≤ 2 days)
+RESPONSE_TARGET_DAYS: Dict[str, int] = {"P1": 0, "P2": 2}
+TIER_ORDER = ("P1", "P2", "P3", "Info")
+# closed by a person (auto = the rule went quiet; not_installed = an admin marked the inverter)
+TEAM_CLOSED = ("resolved", "dismissed")
 
 # (key, label, rules); the order of the stacked bars
 FAMILIES: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
@@ -144,6 +160,147 @@ def window(start: Optional[date], end: Optional[date]) -> Tuple[date, date]:
     if (end - start).days + 1 > MAX_SPAN_DAYS:
         raise ValueError(f"the window may span at most {MAX_SPAN_DAYS} days")
     return start, end
+
+
+def _days(ts: Any, opened: date) -> Optional[int]:
+    """Whole days from the day an issue was first seen to the plant-local day of `ts` (≥ 0)."""
+    d = growatt_issues._local_day(ts)
+    return None if d is None else max(0, (d - opened).days)
+
+
+def response(issues: Iterable[GrowattIssue], start: date, end: date, today: date) -> Dict[str, Any]:
+    """How fast the team answered the issues first seen in `start` … `end`, per tier, in days.
+
+    Acknowledged = `ack_at` (set by the acknowledge action). Closed = `closed_at` of an issue a person
+    resolved or dismissed; auto-closed ones (`close_reason = auto`, the rule went quiet) are counted
+    apart, since their `closed_at` is when the job ran, not a response. First response = the earlier
+    of the two (an engineer may resolve without acknowledging). Medians are over the issues that had
+    the event; an issue nobody has acted on is counted as waiting, never given a day."""
+    tiers: Dict[str, Dict[str, Any]] = {}
+    for i in issues:
+        if not (start <= i.opened_day <= end) or i.close_reason == "not_installed":
+            continue
+        t = tiers.setdefault(i.tier, {"ack": [], "closed": [], "first": [], "opened": 0, "auto_closed": 0, "waiting": []})
+        t["opened"] += 1
+        ack = _days(i.ack_at, i.opened_day) if i.ack_at else None
+        closed = _days(i.closed_at, i.opened_day) if i.closed_at and i.close_reason in TEAM_CLOSED else None
+        if i.close_reason == "auto":
+            t["auto_closed"] += 1
+        if ack is not None:
+            t["ack"].append(ack)
+        if closed is not None:
+            t["closed"].append(closed)
+        firsts = [x for x in (ack, closed) if x is not None]
+        if firsts:
+            t["first"].append(min(firsts))
+        elif i.status == "open":  # still active and nobody has acted on it
+            t["waiting"].append((today - i.opened_day).days)
+    out = []
+    for tier in sorted(tiers, key=lambda x: (TIER_ORDER.index(x) if x in TIER_ORDER else len(TIER_ORDER), x)):
+        t = tiers[tier]
+        target = RESPONSE_TARGET_DAYS.get(tier)
+        out.append({
+            "tier": tier,
+            "target_days": target,
+            "opened": t["opened"],
+            "acknowledged": len(t["ack"]),
+            "ack_median_days": _median([float(x) for x in t["ack"]], 1),
+            "closed_by_team": len(t["closed"]),
+            "close_median_days": _median([float(x) for x in t["closed"]], 1),
+            "auto_closed": t["auto_closed"],
+            "responded": len(t["first"]),
+            "first_response_median_days": _median([float(x) for x in t["first"]], 1),
+            "within_target": None if target is None else sum(1 for x in t["first"] if x <= target),
+            "waiting": len(t["waiting"]),
+            "waiting_oldest_days": max(t["waiting"]) if t["waiting"] else None,
+        })
+    return {"start": start.isoformat(), "end": end.isoformat(), "tiers": out, "targets": dict(RESPONSE_TARGET_DAYS)}
+
+
+def work(db: Session, plant_ids: Set[int], today: date) -> Dict[str, Any]:
+    """This week's (Monday … Sunday of today) Calendar tasks on the plants, the overdue backlog and
+    the recurring plans' share. Counts only; nothing estimated."""
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+    ids = plant_ids or {-1}
+    by_status = {s: 0 for s in TASK_STATUSES}
+    overdue = 0
+    from_plans = {"total": 0, "done": 0, "open": 0, "overdue": 0}
+    q = select(OmTask.status, OmTask.end_day, OmTask.plan_id).where(
+        OmTask.plant_id.in_(ids), OmTask.start_day <= week_end, OmTask.end_day >= week_start
+    )
+    for status, e_day, plan_id in _rows(db, q):
+        by_status[status] = by_status.get(status, 0) + 1
+        late = status in OPEN_TASKS and e_day < today
+        overdue += late
+        if plan_id is not None and status != "cancelled":
+            from_plans["total"] += 1
+            from_plans["done"] += status == "done"
+            from_plans["open"] += status in OPEN_TASKS
+            from_plans["overdue"] += late
+    backlog = [
+        e for (e,) in _rows(db, select(OmTask.end_day).where(OmTask.plant_id.in_(ids), OmTask.status.in_(OPEN_TASKS), OmTask.end_day < today))
+    ]
+    plans = db.scalar(
+        select(func.count(func.distinct(OmPlan.id)))
+        .select_from(OmPlan)
+        .join(OmPlanPlant, OmPlanPlant.plan_id == OmPlan.id)
+        .where(OmPlan.active.is_(True), OmPlanPlant.plant_id.in_(ids))
+    )
+    return {
+        "week": {"start": week_start.isoformat(), "end": week_end.isoformat()},
+        "tasks": {
+            "total": sum(v for k, v in by_status.items() if k != "cancelled"),
+            "by_status": by_status,
+            "open": by_status["planned"] + by_status["in_progress"],
+            "overdue": overdue,
+        },
+        "from_plans": from_plans,
+        "active_plans": int(plans or 0),
+        "overdue_all": len(backlog),
+        "overdue_oldest_days": (today - min(backlog)).days if backlog else None,
+    }
+
+
+def claims_waiting(db: Session, plant_ids: Set[int], today: date) -> Dict[str, Any]:
+    """Open claims on the plants: count by status, whose move it is, follow-ups past due and the
+    oldest (age from the day submitted, else the day created, as the Claims page counts it). No money."""
+    rows = list(db.scalars(select(Claim).where(Claim.plant_id.in_(plant_ids or {-1}), Claim.status.not_in(claims_svc.CLOSED))))
+    by_status: Dict[str, int] = defaultdict(int)
+    oldest: Optional[Tuple[int, Claim]] = None
+    for c in rows:
+        by_status[c.status] += 1
+        since = c.submitted_day or growatt_issues._local_day(c.created_at) or today
+        age = (today - since).days
+        if oldest is None or age > oldest[0]:
+            oldest = (age, c)
+    return {
+        "open": len(rows),
+        "by_status": {s: by_status[s] for s in claims_svc.STATUSES if by_status.get(s)},
+        "waiting_us": sum(1 for c in rows if claims_svc.WAITING.get(c.status) == "us"),
+        "waiting_them": sum(1 for c in rows if claims_svc.WAITING.get(c.status) == "them"),
+        "followup_overdue": sum(1 for c in rows if c.next_action_day is not None and c.next_action_day < today),
+        "oldest": None
+        if oldest is None
+        else {"id": oldest[1].id, "number": oldest[1].number, "status": oldest[1].status, "plant_id": oldest[1].plant_id, "age_days": oldest[0]},
+    }
+
+
+def issue_claims(db: Session, issue_ids: Iterable[int], plant_ids: Set[int]) -> Dict[int, List[Dict[str, Any]]]:
+    """The claims linked to each issue (`claim_links` kind issue), newest first, on the user's plants."""
+    ids = list(issue_ids)
+    if not ids:
+        return {}
+    q = (
+        select(ClaimLink.ref_id, Claim.id, Claim.number, Claim.status)
+        .join(Claim, Claim.id == ClaimLink.claim_id)
+        .where(ClaimLink.kind == "issue", ClaimLink.ref_id.in_(ids), Claim.plant_id.in_(plant_ids or {-1}))
+        .order_by(Claim.id.desc())
+    )
+    out: Dict[int, List[Dict[str, Any]]] = defaultdict(list)
+    for ref, cid, number, status in _rows(db, q):
+        out[int(ref)].append({"id": cid, "number": number, "status": status, "open": status not in claims_svc.CLOSED})
+    return out
 
 
 def overview(
@@ -271,6 +428,17 @@ def overview(
             if int(pid) not in next_visit or d < next_visit[int(pid)]:
                 next_visit[int(pid)] = d
 
+    # ---- open claims per plant
+    open_claims: Dict[int, int] = {
+        int(p): int(n)
+        for p, n in _rows(
+            db,
+            select(Claim.plant_id, func.count())
+            .where(Claim.plant_id.in_(set(plants) or {-1}), Claim.status.not_in(claims_svc.CLOSED))
+            .group_by(Claim.plant_id),
+        )
+    }
+
     # ---- rows
     rows: List[Dict[str, Any]] = []
     for pid, p in plants.items():
@@ -296,6 +464,7 @@ def overview(
             "days_since_cleaning": (today - lc).days if lc else None,
             "next_visit": nv.isoformat() if nv else None,
             "spend_thb": _r(s[0]) if s and s[2] else None,
+            "open_claims": open_claims.get(pid, 0),
         })
     rows.sort(key=lambda r: (-(r["lost_thb_est"] or 0), -(r["thb_per_day_est"] or 0), r["name"] or ""))
 
@@ -303,6 +472,7 @@ def overview(
     top = sorted((growatt_issues.serialize(i, *names) for i in active), key=growatt_issues.sort_key)
     summary = growatt_issues.summarize(top)
     top_out: List[Dict[str, Any]] = []
+    linked = issue_claims(db, (d["id"] for d in top[:TOP_ISSUES]), set(plants))
     for d in top[:TOP_ISSUES]:
         nv = next_visit.get(d["plant_id"])
         wait = (nv - today).days if nv else None
@@ -312,6 +482,7 @@ def overview(
         d["days_to_visit"] = wait
         # what the issue costs until the plant's next planned visit, at today's THB/day
         d["cost_of_waiting_thb_est"] = _r(d["thb_per_day_est"] * wait) if wait is not None and d["thb_per_day_est"] is not None else None
+        d["claims"] = linked.get(d["id"], [])
         top_out.append(d)
 
     tot_energy = sum(m["energy"] for pid, m in inv.items() if pid in plants and m["energy_rows"])
@@ -360,6 +531,9 @@ def overview(
             for (pid, mo, et), v in sorted(spend_month.items(), key=lambda kv: (kv[0][1], kv[0][0], kv[0][2]))
             if pid in plants
         ],
+        "work": work(db, set(plants), today),
+        "response": response(issues, start, end, today),
+        "claims": claims_waiting(db, set(plants), today),
         "shadow_hidden": shadow_hidden,
         "include_shadow": include_shadow,
         "meta": {
