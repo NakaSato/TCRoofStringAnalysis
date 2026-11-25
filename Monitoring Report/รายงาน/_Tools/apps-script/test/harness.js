@@ -444,3 +444,19 @@ try {
   const synced = logs.filter(l => /^ซิงก์ \d{4}-\d{2}:/.test(l)).map(l => l.slice(0, 13));
   console.log('calendar sync on day 2:', JSON.stringify(synced), '(want the new month, then last month) · last day reported', before, '→', rowOf(lastDayOfMonth));
 } catch (e) { ctx.Date = Date; console.log('section 18 failed:', e.stack); }
+// 19) the new month has no folder (its files were never created): the automatic sync says so once a day in _log and status()
+try {
+  props.archived = '[]'; delete props.job; delete props.last;
+  const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number);
+  const k = mo - 1, ny = yy + 3, want = `${ny}-${pad(k + 1)}`;   // three years on: no folder (sections 9 and 18 made the next months')
+  const at = (d, h) => class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(Date.UTC(ny, k, d, h - 7)); } static now() { return Date.UTC(ny, k, d, h - 7); } };
+  const log = O.getSheetByName('_log');   // capped at LOG_KEEP_ROWS (section 11): count the warning lines, not the rows
+  const warned = () => { let n = 0; for (let r = 2; r <= log.getLastRow(); r++) if (String(log.cells[`${r},2`]).includes(`createMonth('${want}')`)) n++; return n; };
+  ctx.Date = at(1, 6); api.intervalSync(); drain(); api.calendarSync(); drain();
+  const day1 = warned(), line = String(log.cells[`${log.getLastRow()},2`]);
+  ctx.Date = at(2, 9); api.intervalSync(); drain();
+  const day2 = warned();
+  ctx.Date = RealDate;
+  console.log(`no folder ${want}: _log lines day 1:`, day1, '(want 1) · day 2:', day2, '(want 2) · names the month:', line.includes(`createMonth('${want}')`),
+    '· status():', /ยังไม่มีโฟลเดอร์เดือน/.test(api.status()), '· no job left:', !props.job);
+} catch (e) { ctx.Date = Date; console.log('section 19 failed:', e.stack); }

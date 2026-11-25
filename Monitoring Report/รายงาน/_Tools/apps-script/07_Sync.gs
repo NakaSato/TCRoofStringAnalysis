@@ -26,7 +26,7 @@ function startSync_(ym, quiet, full) {
   }
   const folder = findMonthFolder_(ym);
   if (!folder) {
-    if (quiet) return;
+    if (quiet) { warnNoFolder_(props, ym, file.getId()); return; }
     throw new Error(`ยังไม่มีโฟลเดอร์เดือน ${ym} — สร้างไฟล์ของเดือนนั้นก่อน`);
   }
   props.setProperties({
@@ -156,6 +156,8 @@ function dropOldSeen_(props, keep) {
     if (ym && ym < prev && ym !== keep) props.deleteProperty(k);
     const dm = k.indexOf('days_') === 0 ? k.slice(5) : '';   // the days each plant reported: the sheet keeps the counts
     if (dm && dm < prev && dm !== keep) props.deleteProperty(k);
+    const nf = k.indexOf('noFolder_') === 0 ? k.slice(9) : '';  // the day the missing month folder was last reported
+    if (nf && nf < prev) props.deleteProperty(k);
   });
 }
 function saveSeen_(props, ym, seen) {
@@ -272,14 +274,33 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     });
   }
 
+  logLines_(overview, (logIt ? [summary] : []).concat(warnings));
+}
+
+/** Appends lines to "_log" (one write, however many), each with the time; keeps the newest LOG_KEEP_ROWS. */
+function logLines_(overview, texts) {
+  if (!texts.length) return;
   const log = overview.getSheetByName(LOG) || overview.insertSheet(LOG);
-  const stamp = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
-  const lines = (logIt ? [[stamp, summary]] : []).concat(warnings.map(w => [stamp, w]));
-  if (lines.length) {                                   // one write, however many warnings
-    const r = log.getLastRow() + 1;
-    ensureSize_(log, r + lines.length - 1, 2);
-    log.getRange(r, 1, lines.length, 2).setValues(lines);
-    const extra = log.getLastRow() - 1 - LOG_KEEP_ROWS;   // row 1 is the header
-    if (extra > 0) log.deleteRows(2, extra);
-  }
+  const stamp = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
+  const r = log.getLastRow() + 1;
+  ensureSize_(log, r + texts.length - 1, 2);
+  log.getRange(r, 1, texts.length, 2).setValues(texts.map(t => [stamp, t]));
+  const extra = log.getLastRow() - 1 - LOG_KEEP_ROWS;   // row 1 is the header
+  if (extra > 0) log.deleteRows(2, extra);
+}
+
+/**
+ * The automatic sync of this month found no month folder: the month's files were not created (the calendar's
+ * "สร้าง" event did not run or failed). Said once a day in "_log" and status(), instead of nothing at all;
+ * the sync of last month (days 1–7) still runs.
+ */
+function warnNoFolder_(props, ym, overviewId) {
+  if (ym !== ym_(new Date())) return;
+  const today = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyyMMdd');
+  if (props.getProperty(`noFolder_${ym}`) === today) return;
+  props.setProperty(`noFolder_${ym}`, today);
+  const msg = `ยังไม่มีโฟลเดอร์เดือน ${ym} — ซิงก์เดือนนี้ไม่ได้ และยังไม่มีชีต "${reportLogName_(ym)}": รัน createMonth('${ym}')`;
+  console.warn(msg);
+  note_(props, msg);
+  try { logLines_(SpreadsheetApp.openById(overviewId), [msg]); } catch (e) { console.error(`เขียน ${LOG} ไม่ได้: ${e}`); }
 }
