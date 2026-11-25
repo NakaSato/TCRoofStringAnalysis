@@ -218,6 +218,8 @@ async def upload_document(
     except _HANDLED as exc:
         raise _err(exc) from exc
     r = db.get(KbDocRevision, d.current_rev_id)
+    if r is None:  # create_doc always writes the first revision
+        raise HTTPException(status_code=500, detail="the new document has no revision")
     _queue_ocr(db, r)
     audit.info("%s uploaded KB document %s (%s, %d pages, sha256 %s)", _who(user), d.number, d.doc_type, r.page_count, r.sha256[:12])
     return svc.doc_out(db, d, user)

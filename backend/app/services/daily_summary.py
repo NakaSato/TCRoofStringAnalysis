@@ -336,6 +336,8 @@ def plant_sites(db: Session) -> Dict[int, Dict[str, Any]]:
     fields without a value left out."""
     out: Dict[int, Dict[str, Any]] = {}
     for r in db.scalars(select(SiteRegister).where(SiteRegister.plant_id.is_not(None))):
+        if r.plant_id is None:  # filtered in SQL; narrows the type
+            continue
         site = {f: getattr(r, f) for f in SITE_FIELDS if getattr(r, f) not in (None, "")}
         if isinstance(site.get("cod_actual"), date):
             site["cod_actual"] = site["cod_actual"].isoformat()

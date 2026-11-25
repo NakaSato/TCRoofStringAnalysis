@@ -403,6 +403,8 @@ def _equipment_of_plants(db: Session, plant_ids: Optional[Set[int]]) -> Dict[str
         q = q.where(GrowattInverter.plant_id.in_(plant_ids or {-1}))
     out: Dict[str, Tuple[str, int]] = {}
     for name, n in db.execute(q.group_by(GrowattInverter.device_model)):
+        if name is None:  # filtered in SQL; narrows the type
+            continue
         k = model_key(name)
         prev = out.get(k)
         out[k] = (prev[0] if prev else name, (prev[1] if prev else 0) + int(n))
@@ -1034,7 +1036,7 @@ def known_fault_codes(db: Session) -> List[Dict[str, Any]]:
         .where(GrowattAlarm.fault_type.is_not(None), GrowattAlarm.alarm_code.is_not(None))
         .group_by(GrowattAlarm.fault_type, GrowattAlarm.alarm_code)
     )
-    out = [{"key": fault_key(t, c), "fault_type": str(t).capitalize(), "code": str(c), "message": m, "records": int(n)} for t, c, m, n in rows]
+    out = [{"key": fault_key(str(t), c), "fault_type": str(t).capitalize(), "code": str(c), "message": m, "records": int(n)} for t, c, m, n in rows]
     out.sort(key=lambda r: (-r["records"], r["key"]))
     return out
 

@@ -110,7 +110,7 @@ def _seed_users(db: Session, cfg: Settings) -> None:
         db.flush()
     if cfg.is_prod:
         for user in db.scalars(select(User).where(User.username.in_(list(DEMO_ACCOUNTS)), User.is_active.is_(True))):
-            if user.username != cfg.admin_username.strip().lower() and verify_password(
+            if user.username in DEMO_ACCOUNTS and user.username != cfg.admin_username.strip().lower() and verify_password(
                 DEMO_ACCOUNTS[user.username], user.hashed_password
             ):
                 user.is_active = False  # demo password on a public site

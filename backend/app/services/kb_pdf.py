@@ -137,7 +137,7 @@ def ocr_pages(data: bytes, page_nos: List[int], langs: str) -> dict[int, str]:
                 continue
             page = pdf[n - 1]
             try:
-                bitmap = page.render(scale=scale, grayscale=True)
+                bitmap = page.render(scale=scale, grayscale=True)  # pyright: ignore[reportArgumentType]  # scale is a float (pypdfium2 docs); the stub infers int from the default 1
                 img = _pgm(bitmap.to_numpy())
             finally:
                 page.close()

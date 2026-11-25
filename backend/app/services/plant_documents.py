@@ -98,7 +98,7 @@ def put(db: Session, user: User, plant_id: int, kind: str, url: str, title: Opti
 def remove(db: Session, plant_id: int, kind: str) -> bool:
     if kind not in KINDS:
         raise DocumentError(f"kind must be one of {', '.join(KINDS)}")
-    n = db.execute(delete(PlantDocument).where(PlantDocument.plant_id == plant_id, PlantDocument.kind == kind)).rowcount
+    n = getattr(db.execute(delete(PlantDocument).where(PlantDocument.plant_id == plant_id, PlantDocument.kind == kind)), "rowcount", 0)
     db.commit()
     return bool(n)
 

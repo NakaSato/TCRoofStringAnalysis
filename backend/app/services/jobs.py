@@ -725,4 +725,4 @@ def prune_runs(db: Session, now: datetime, keep_days: int) -> int:
         )
     )
     db.commit()
-    return int(res.rowcount or 0)
+    return int(getattr(res, "rowcount", 0) or 0)  # a CursorResult, typed as plain Result

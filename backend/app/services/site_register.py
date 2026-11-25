@@ -664,7 +664,7 @@ def provinces(db: Session, allowed: Optional[Set[int]]) -> Dict[int, str]:
     q = select(SiteRegister.plant_id, SiteRegister.province).where(SiteRegister.plant_id.is_not(None), SiteRegister.province.is_not(None))
     if allowed is not None:
         q = q.where(SiteRegister.plant_id.in_(allowed or {-1}))
-    return {int(pid): prov for pid, prov in db.execute(q)}
+    return {int(pid): prov for pid, prov in db.execute(q) if pid is not None and prov is not None}  # filtered in SQL; narrows the types
 
 
 # headers of each device sheet, in the workbook's order (after รหัส, สถานี)
@@ -688,6 +688,7 @@ def export_workbook(db: Session, allowed: Optional[Set[int]]) -> bytes:
     import matches again)."""
     import openpyxl
     from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
 
     q = select(SiteRegister).order_by(SiteRegister.site_code)
     if allowed is not None:
@@ -716,7 +717,7 @@ def export_workbook(db: Session, allowed: Optional[Set[int]]) -> bytes:
             ws.append(row)
         ws.freeze_panes = "C2"
         for i, h in enumerate(headers, start=1):
-            ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = 40 if h == "สถานี" else max(12, min(28, len(h) + 4))
+            ws.column_dimensions[get_column_letter(i)].width = 40 if h == "สถานี" else max(12, min(28, len(h) + 4))
         for row in ws.iter_rows(min_row=2):
             for c in row:
                 if isinstance(c.value, str):

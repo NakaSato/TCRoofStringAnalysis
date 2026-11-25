@@ -611,7 +611,7 @@ def rollout(db: Session) -> Dict[str, Any]:
 def main(argv: Optional[List[str]] = None) -> int:
     from app.db.session import SessionLocal, engine, ensure_schema
 
-    ap = argparse.ArgumentParser(prog="python -m app.services.tfrs16", description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(prog="python -m app.services.tfrs16", description=(__doc__ or "").split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     imp = sub.add_parser("import", help="replace the TFRS 16 tables with the model workbook's figures")
     imp.add_argument("--model", required=True, type=Path)

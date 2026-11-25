@@ -78,6 +78,8 @@ def analyze_dataset(
     if dataset is None:
         raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
     plant = db.get(Plant, dataset.plant_id)
+    if plant is None:
+        raise HTTPException(status_code=404, detail=f"Plant {dataset.plant_id} of dataset {dataset_id} not found")
     req = payload or AnalyzeDatasetRequest()
     run, _ = execute_and_store_analysis(
         db=db,
@@ -190,4 +192,4 @@ def get_analysis_chart(
             detail=f"Unknown chart_name '{chart_name}'. Expected one of: daily_pr, monthly_pr, waterfall, yield_pr, heatmap, timeseries, iv_pv",
         )
 
-    return json.loads(fig.to_json())
+    return json.loads(fig.to_json() or "{}")
