@@ -9,6 +9,7 @@
  * is when that was. The old one-row-per-day sheet "บันทึกรายงานรายวัน" is replaced (deleted) by it.
  */
 const LOG_HEAD_ROW = 5;                    // rows 1–2 title, 3–4 per-day totals, 5 header, plants from 6
+const LOG_FROZEN = 4;                     // รหัส … ผู้รับผิดชอบ stay in view while scrolling the days
 const LOG_LEFT = ['รหัส', 'ระยะ', 'ชื่อสถานี', OWNER_COL, 'ทำแล้ว (วัน)', 'ยังไม่ทำ (วัน)', 'ขาดติดกัน (วัน)'];
 const DONE_MARK = '✓', MISS_MARK = '✗';
 function reportLogName_(ym) { const [y, m] = ym.split('-').map(Number); return `${REPORT_LOG} ${String(m).padStart(2, '0')}/${y + 543}`; }
@@ -43,7 +44,9 @@ function reportLog_(overview, ym, stations, owners) {
 
   const name = reportLogName_(ym);
   let sh = overview.getSheetByName(name);
-  if (sh && sh.getMaxRows() >= rows && sh.getMaxColumns() >= W && sh.getLastRow() === rows) {
+  // rewritten when a value changed, or when an earlier write stopped half-way (no frozen columns or filter)
+  if (sh && sh.getMaxRows() >= rows && sh.getMaxColumns() >= W && sh.getLastRow() === rows &&
+      sh.getFrozenColumns() === LOG_FROZEN && sh.getFilter()) {
     const was = sh.getRange(3, 1, body.length, W).getValues();
     if (was.every((r, i) => r.every((v, k) => String(v) === String(body[i][k])))) return;   // nothing changed
   }
@@ -69,17 +72,17 @@ function reportLog_(overview, ym, stations, owners) {
   all.setFontFamily(CONFIG.FONT).setFontSize(CONFIG.FONT_SIZE).setVerticalAlignment('middle');
   [75, 50, 280, 150, 80, 80, 80].forEach((px, k) => sh.setColumnWidth(k + 1, px));
   for (let c = L + 1; c <= W; c++) sh.setColumnWidth(c, 34);
-  sh.getRange(1, 1, 2, W).breakApart();
-  sh.getRange(1, 1, 1, W).merge().setValue(`บันทึกรายงานรายวัน ${TH_MONTH[m]} ${y + 543}`)
+  // no merged cells in rows 1–4: Sheets refuses to freeze columns through a merge (the text overflows instead;
+  // the legend is split at the frozen edge so neither half is cut off)
+  sh.getRange(1, 1, 4, W).breakApart();
+  sh.getRange(1, 1, 2, W).clearContent();
+  sh.getRange(1, 1).setValue(`บันทึกรายงานรายวัน ${TH_MONTH[m]} ${y + 543}`)
     .setFontSize(16).setFontWeight('bold').setHorizontalAlignment('left');
-  sh.getRange(2, 1, 1, W).merge()
-    .setValue(`${DONE_MARK} ทำรายงานแล้ว      ${MISS_MARK} ยังไม่ทำรายงาน      ${MISS_MARK} สีเหลือง วันนี้ยังส่งได้      คอลัมน์สีเทา เสาร์ อาทิตย์      อัปเดตล่าสุด ${stamp}`)
-    .setFontColor('#595959').setHorizontalAlignment('left');
-  sh.getRange(3, 1, 2, W).breakApart();
-  sh.getRange(3, 1, 1, L).merge();
-  sh.getRange(4, 1, 1, L).merge();
+  sh.getRange(2, 1).setValue(`${DONE_MARK} ทำรายงานแล้ว      ${MISS_MARK} ยังไม่ทำรายงาน      ${MISS_MARK} สีเหลือง วันนี้ยังส่งได้`);
+  sh.getRange(2, LOG_FROZEN + 1).setValue(`คอลัมน์สีเทา เสาร์ อาทิตย์      อัปเดตล่าสุด ${stamp}`);
+  sh.getRange(2, 1, 1, W).setFontColor('#595959').setHorizontalAlignment('left');
   sh.getRange(3, 1, body.length, W).setValues(body);
-  sh.getRange(3, 1, 2, L).setFontWeight('bold').setHorizontalAlignment('right').setBackground(COLOR.GREY);
+  sh.getRange(3, 1, 2, L).setFontWeight('bold').setHorizontalAlignment('left').setBackground(COLOR.GREY);
   sh.getRange(3, L + 1, 1, nDays).setNumberFormat('0').setHorizontalAlignment('center').setBackground(COLOR.GREY);
   sh.getRange(4, L + 1, 1, nDays).setNumberFormat('0%').setHorizontalAlignment('center').setBackground(COLOR.GREY);
   sh.getRange(H, 1, 1, W).setFontWeight('bold').setBackground(COLOR.BLUE).setHorizontalAlignment('center').setWrap(true);
@@ -91,7 +94,7 @@ function reportLog_(overview, ym, stations, owners) {
   sh.setRowHeight(1, 34);
   sh.setRowHeight(H, 36);
   sh.setFrozenRows(H);
-  sh.setFrozenColumns(4);
+  sh.setFrozenColumns(LOG_FROZEN);
 
   // colours: ✓ green, ✗ red (today's ✗ yellow: still open); % per day: 100 % green, 80 % up yellow, below red;
   // today's column header yellow, Saturday / Sunday headers grey (both follow TODAY() / the date)
