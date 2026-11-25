@@ -41,7 +41,7 @@ function nextYm_() {
 
 /**
  * A date typed in a day sheet (วันเข้าแก้ไข, วันที่แก้ไขเสร็จ) as a real A.D. date for the Overview. The year
- * may be typed as พ.ศ. (2400 or more) or ค.ศ.; anything that is not a date is returned as typed.
+ * may be typed as พ.ศ. (2400 or more, or short: 69 = 2569) or ค.ศ.; anything that is not a date is returned as typed.
  */
 function typedDate_(v) {
   let y, m, d;
@@ -51,11 +51,15 @@ function typedDate_(v) {
     const x = new Date(1899, 11, 30 + Math.floor(v));
     y = x.getFullYear(); m = x.getMonth() + 1; d = x.getDate();
   } else {                                              // text, e.g. 29/02/2571 (no such day in the A.D. year 2571)
-    const t = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(String(v === null || v === undefined ? '' : v).trim());
+    const t = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})$/.exec(String(v === null || v === undefined ? '' : v).trim());
     if (!t) return v;
     d = Number(t[1]); m = Number(t[2]); y = Number(t[3]);
+    if (y < 100) y += 2500;                             // a short Buddhist year: 26/11/69 = 26/11/2569
   }
   if (y >= 2400) y -= 543;                              // typed as a Buddhist year
+  // 26/11/69 typed into a date cell: Sheets reads the short year as 1969 (shown as 2512 in the Overview);
+  // no date of this work is in 1930–1999, so it is the short Buddhist year 2569
+  if (y >= 1930 && y <= 1999) y += 2500 - 1900 - 543;
   const out = new Date(y, m - 1, d);
   return out.getMonth() === m - 1 && out.getDate() === d ? out : v;   // not a real day: kept as typed
 }

@@ -195,7 +195,7 @@ try { api.CONFIG.ROOT_FOLDER_ID = ''; ctx.__bound = O;
 
 // 7) dates typed as พ.ศ.
 { const f = v => { const r = api.typedDate_(v); return r instanceof Date ? r.getFullYear() + '-' + (r.getMonth() + 1) + '-' + r.getDate() : JSON.stringify(r); };
-  console.log('typed dates:', [244668.375, 46342, '15/11/2569', '15/11/2026', '29/02/2571', '31/02/2569', 'รออะไหล่', ''].map(v => JSON.stringify(v) + ' → ' + f(v)).join(' | ')); }
+  console.log('typed dates:', [244668.375, 46342, '15/11/2569', '15/11/2026', '29/02/2571', '31/02/2569', 'รออะไหล่', '', '26/11/69', 25533, '26/11/2512', new Date(1969, 10, 26)].map(v => JSON.stringify(v) + ' → ' + f(v)).join(' | ')); }
 
 // 8) folder listing, renamed plant, the problem table is never cleared first, calendar create waits for a sync
 try { const ymNow = api.ym_(new Date());
