@@ -72,6 +72,7 @@ function continueJob() {
     if (done) {
       cleanup_(props, props.getProperties());
       startQueued_(props);
+      if (p.job === 'sync' && p.ym === ym_(new Date())) syncPrevAfter_(props);
     } else {
       after_(NEXT_RUN_MS);
     }
@@ -92,6 +93,23 @@ function startQueued_(props) {
   } catch (e) {
     console.error(`เริ่มงานสร้างไฟล์ที่รอคิวไม่ได้: ${e}`);
     note_(props, `เริ่มงานสร้างไฟล์ที่รอคิวไม่ได้ — ${e.message || e}`);
+  }
+}
+
+/**
+ * After a sync of this month (by the calendar, the menu or the interval): last month too, within
+ * CONFIG.PREV_MONTH_SYNC_DAYS, when its files were edited since its last sync. A create queued behind the
+ * sync goes first; last month then waits for the next interval sync.
+ */
+function syncPrevAfter_(props) {
+  if (props.getProperty('job')) return;
+  const prev = prevMonthToSync_();
+  if (!prev || nothingNew_(prev)) return;
+  try {
+    RUN_LATER = true;
+    startSync_(prev, true);
+  } catch (e) {
+    console.error(`ซิงก์เดือน ${prev} ต่อไม่ได้: ${e}`);
   }
 }
 

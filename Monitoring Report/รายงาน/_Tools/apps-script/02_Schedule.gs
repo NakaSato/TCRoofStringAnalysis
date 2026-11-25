@@ -112,8 +112,23 @@ function intervalSync() {
   const hour = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'H'));
   if (hour < CONFIG.SYNC_FROM_HOUR || hour >= CONFIG.SYNC_TO_HOUR) return;
   const ym = ym_(new Date());
-  if (nothingNew_(ym)) return;
-  startSync_(ym, true);
+  if (!nothingNew_(ym)) {
+    startSync_(ym, true);
+    if (PropertiesService.getScriptProperties().getProperty('job')) return;   // started (or another job is working)
+  }
+  const prev = prevMonthToSync_();                      // nothing to do this month: last month's late edits, if any
+  if (prev && !nothingNew_(prev)) startSync_(prev, true);
+}
+
+/**
+ * Last month (yyyy-MM) while today is within CONFIG.PREV_MONTH_SYNC_DAYS of the month's start, else null.
+ * Files of the month that just ended are still filled in late; this brings them into the Overview.
+ */
+function prevMonthToSync_() {
+  const day = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'd'));
+  if (!(CONFIG.PREV_MONTH_SYNC_DAYS > 0) || day > CONFIG.PREV_MONTH_SYNC_DAYS) return null;
+  const [y, m] = ym_(new Date()).split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
 }
 
 /**
@@ -129,6 +144,10 @@ function nothingNew_(ym) {
     const last = JSON.parse(props.getProperty(`synced_${ym}`) || 'null');
     if (!last || !last.f || !last.ov || !last.fin || last.v !== SYNC_VERSION || (last.err && last.err.length)) return false;
     if (last.root !== rootId_()) return false;   // the last sync was of another root folder
+    // บันทึกรายงานรายวัน: a new day of this month gets its row (0 reported) even when nobody edits anything that day
+    const day = t => Utilities.formatDate(new Date(t), 'Asia/Bangkok', 'yyyyMMdd');
+    if (!props.getProperty(`days_${ym}`)) return false;
+    if (ym === ym_(new Date()) && day(Number(last.fin)) !== day(Date.now())) return false;
     // files edited lately: nothing new when each one still has the edit time it had when it was last read
     const since = new Date(Number(last.t) - SYNC_MARGIN_MS).toISOString();
     const seen = readSeen_(props, ym);

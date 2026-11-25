@@ -61,10 +61,11 @@ function syncBatch_(props, p, t0) {
   let since = Number(p.since || 0);
   if (!p.began) {
     const sig = signature_([stations, inverters]);
-    since = !p.full && last && last.sig === sig && last.v === SYNC_VERSION ? Number(last.t) - SYNC_MARGIN_MS : 0;
+    const noDays = !readDays_(props, p.ym);              // the days each plant reported are not on record yet
+    since = !p.full && !noDays && last && last.sig === sig && last.v === SYNC_VERSION ? Number(last.t) - SYNC_MARGIN_MS : 0;
     // why every file is read (shown in _log)
     const why = since ? '' : p.full ? 'สั่งอ่านทุกไฟล์' : otherFolder ? 'โฟลเดอร์เดือนเปลี่ยน'
-      : !last ? 'ไม่มีบันทึกซิงก์ครั้งก่อน' : last.v !== SYNC_VERSION ? 'สคริปต์รุ่นใหม่' : 'แท็บสถานี/Inverter ใน Overview เปลี่ยน';
+      : !last ? 'ไม่มีบันทึกซิงก์ครั้งก่อน' : noDays ? 'ยังไม่มีบันทึกวันที่ทำรายงาน' : last.v !== SYNC_VERSION ? 'สคริปต์รุ่นใหม่' : 'แท็บสถานี/Inverter ใน Overview เปลี่ยน';
     p.sig = sig; p.began = String(t0); p.why = why;
     props.setProperties({ sig: sig, since: String(since), began: p.began, why: why });
   }
@@ -103,6 +104,7 @@ function syncBatch_(props, p, t0) {
   upsertIssues_(overview, y, m, results);
   writeInverterStatus_(overview, invStatus);
   writeLastReport_(overview, p.ym, results);
+  saveDays_(props, p.ym, results);
   props.setProperties({ idx: String(i), made: String(made), skipped: String(skipped), same: String(same),
     errors: errors.join(','), warn: warnings.join('\n').slice(0, 8000) });
   if (i >= stations.length) {
@@ -152,6 +154,8 @@ function dropOldSeen_(props, keep) {
   props.getKeys().forEach(k => {
     const ym = k.indexOf('seen_') === 0 ? k.slice(5) : '';
     if (ym && ym < prev && ym !== keep) props.deleteProperty(k);
+    const dm = k.indexOf('days_') === 0 ? k.slice(5) : '';   // the days each plant reported: the sheet keeps the counts
+    if (dm && dm < prev && dm !== keep) props.deleteProperty(k);
   });
 }
 function saveSeen_(props, ym, seen) {
@@ -159,6 +163,28 @@ function saveSeen_(props, ym, seen) {
   if (text.length > SEEN_MAX_CHARS) props.deleteProperty(`seen_${ym}`);
   else props.setProperty(`seen_${ym}`, text);
 }
+
+/**
+ * days_<ym>: { plant code: the days of the month it has a checked row, as a number (bit d-1 = day d) }.
+ * A plant read by this sync gets its days from its file; plants not read keep what they had.
+ */
+function readDays_(props, ym) {
+  try { return JSON.parse(props.getProperty(`days_${ym}`) || 'null'); } catch (e) { return null; }
+}
+function saveDays_(props, ym, results) {
+  const codes = Object.keys(results).filter(c => results[c].days);
+  const days = readDays_(props, ym) || {};
+  let changed = !props.getProperty(`days_${ym}`);
+  codes.forEach(c => {
+    const mask = results[c].days.reduce((a, d) => a + Math.pow(2, d - 1), 0);
+    if (days[c] !== mask) { days[c] = mask; changed = true; }
+  });
+  if (!changed) return;
+  const text = JSON.stringify(days);
+  if (text.length > DAYS_MAX_CHARS) props.deleteProperty(`days_${ym}`);   // the next sync reads every file again
+  else props.setProperty(`days_${ym}`, text);
+}
+function reportedOn_(mask, d) { return Math.floor((mask || 0) / Math.pow(2, d - 1)) % 2 === 1; }
 
 /** Day sheets to read: up to today for the current month, the whole month for a past one, none for a future one. */
 function lastDayToRead_(ym) {
@@ -250,7 +276,7 @@ function syncPlant_(id, s, invs, y, m, lastDay) {
   if (!same) writeInfo_(id, wantInfo, wantInv);
 
   // plant file ─► Overview
-  const out = { station: s, episodes: [], invStatus: {}, warnings: warnings, updated: !same };
+  const out = { station: s, episodes: [], invStatus: {}, warnings: warnings, updated: !same, days: [] };
   if (lastDay < 1) return out;
   const date = d => new Date(y, m - 1, d);
   const checkedDays = [];
@@ -277,6 +303,7 @@ function syncPlant_(id, s, invs, y, m, lastDay) {
     });
   }
   out.lastReport = checkedDays.length ? date(checkedDays[checkedDays.length - 1]) : null;
+  out.days = checkedDays;
   if (!out.episodes.length) return out;
 
   const gids = sheetIds();
@@ -338,6 +365,62 @@ function issueTable_(overview) {
 }
 
 /**
+ * A row of several inverters (รหัสปัญหา "P1-001|SN-A,SN-B|20261123", see groupIssues_) as one row per
+ * inverter, each with the row's values: the sync works per inverter, and a value typed into the Overview
+ * row stays with every inverter of it.
+ */
+function splitIssue_(row) {
+  const [code, sns, day] = String(row['รหัสปัญหา']).split('|');
+  const list = String(sns || '').split(',').map(v => v.trim()).filter(Boolean);
+  if (list.length < 2) return [row];
+  return list.map(sn => Object.assign({}, row, { 'รหัสปัญหา': `${code}|${sn}|${day}`, 'Inverter S/N': sn }));
+}
+
+/**
+ * Inverters of one plant with the same problem (รายละเอียดปัญหา) found on the same day share one row:
+ * Inverter S/N lists them all and รหัสปัญหา is "plant|S/N,S/N|day". สถานะ is the least finished one of
+ * them; วันเข้าแก้ไข the earliest; วันที่แก้ไขเสร็จ the latest, and only when every inverter is done.
+ * Other columns show each different value once ("a / b"); a link (formula) is the first one.
+ */
+function groupIssues_(rows) {
+  const groups = {}, order = [];
+  rows.forEach(row => {
+    const [code, , day] = String(row['รหัสปัญหา']).split('|');
+    const k = `${code}|${day}|${String(row['รายละเอียดปัญหา'] || '').trim()}`;
+    if (!groups[k]) { groups[k] = []; order.push(k); }
+    groups[k].push(row);
+  });
+  const rank = v => Math.max(STATUSES.indexOf(String(v || '').trim()), 0);
+  const time = v => (v instanceof Date ? v.getTime() : null);
+  return order.map(k => {
+    const list = groups[k];
+    if (list.length === 1) return list[0];
+    list.sort((p, q) => String(p['Inverter S/N']).localeCompare(String(q['Inverter S/N'])));
+    const [code, , day] = String(list[0]['รหัสปัญหา']).split('|');
+    const sns = list.map(r => String(r['Inverter S/N']).trim());
+    const row = {};
+    Object.keys(Object.assign({}, ...list)).forEach(h => {
+      const vals = list.map(r => r[h]).filter(v => v !== undefined && v !== null && v !== '');
+      if (!vals.length) { row[h] = ''; return; }
+      if (vals.some(v => v instanceof Date)) { row[h] = vals.find(v => v instanceof Date); return; }
+      if (vals.some(v => typeof v === 'string' && v.charAt(0) === '=')) { row[h] = vals[0]; return; }
+      const uniq = vals.map(String).filter((v, i, a) => a.indexOf(v) === i);
+      row[h] = uniq.length === 1 ? vals[0] : uniq.join(' / ');
+    });
+    row['รหัสปัญหา'] = `${code}|${sns.join(',')}|${day}`;
+    row['Inverter S/N'] = sns.join(', ');
+    const least = list.reduce((a, r) => (rank(r['สถานะ']) < rank(a['สถานะ']) ? r : a), list[0]);
+    row['สถานะ'] = least['สถานะ'];
+    const enter = list.map(r => time(r['วันเข้าแก้ไข'])).filter(v => v !== null);
+    row['วันเข้าแก้ไข'] = enter.length ? new Date(Math.min(...enter)) : '';
+    const done = list.map(r => time(r['วันที่แก้ไขเสร็จ']));
+    const allDone = list.every(r => DONE_STATUSES.indexOf(String(r['สถานะ'])) >= 0);
+    row['วันที่แก้ไขเสร็จ'] = allDone && done.some(v => v !== null) ? new Date(Math.max(...done.filter(v => v !== null))) : '';
+    return row;
+  });
+}
+
+/**
  * Rewrites the rows of the scanned plants in the Overview's problem table (key: plant | S/N | first day).
  * Rows of other plants and of earlier months are kept as they are.
  */
@@ -357,12 +440,13 @@ function upsertIssues_(overview, y, m, results) {
       return row;
     }).filter(row => String(row['รหัสปัญหา'] || '').trim() !== '');
     rows.forEach(row => ISSUE_DATES.forEach(h => { if (row[h] !== undefined) row[h] = typedDate_(row[h]); }));
+    rows = [].concat(...rows.map(splitIssue_));          // one row per inverter while the rows are worked out
   }
   const monthStart = new Date(y, m - 1, 1), monthEnd = new Date(y, m, 1);
   const inMonth = v => v instanceof Date && v >= monthStart && v < monthEnd;
   const ymd = d => Utilities.formatDate(d, 'Asia/Bangkok', 'yyyyMMdd');
 
-  const kept = [], byCode = {};                         // rows of other plants are kept; the scanned plants' rows by code
+  let kept = []; const byCode = {};                     // rows of other plants are kept; the scanned plants' rows by code
   codes.forEach(code => { byCode[code] = []; });
   rows.forEach(row => {
     const code = String(row['รหัสปัญหา']).split('|')[0];
@@ -395,6 +479,7 @@ function upsertIssues_(overview, y, m, results) {
   });
 
   const time = v => (v instanceof Date ? v.getTime() : 0);
+  kept = groupIssues_(kept);
   kept.sort((p, q) => time(p['วันที่พบ']) - time(q['วันที่พบ']) || String(p['รหัสปัญหา']).localeCompare(String(q['รหัสปัญหา'])));
   const openSeen = {};
   const out = kept.map((row, k) => {
@@ -514,6 +599,14 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
       warnings.push(`สร้างชีต "${REPORTED_TODAY}" ไม่ได้: ${e.message || e}`);
     }
   }
+  try { fitIssueTable_(t); } catch (e) {               // never stops the sync: the reason goes to _log
+    console.error(`ตารางปัญหา: ${e}`);
+    warnings.push(`ขยายตัวกรอง / dropdown ของตารางปัญหาไม่ได้: ${e.message || e}`);
+  }
+  try { reportLog_(overview, ym, stations); } catch (e) {          // never stops the sync: the reason goes to _log
+    console.error(`ชีต ${REPORT_LOG}: ${e}`);
+    warnings.push(`เขียนชีต "${REPORT_LOG}" ไม่ได้: ${e.message || e}`);
+  }
   const norm = v => String(v).replace(/เเ/g, 'แ').trim();          // the sheet spells some labels with "เเ"
   for (let r = 0; r < t.headRow - 1; r++) {
     t.top[r].forEach((v, c) => {
@@ -561,6 +654,62 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     const extra = log.getLastRow() - 1 - LOG_KEEP_ROWS;   // row 1 is the header
     if (extra > 0) log.deleteRows(2, extra);
   }
+}
+
+/**
+ * Sheet "บันทึกรายงานรายวัน": one row per day of the synced month up to today (newest on top): how many plants
+ * have a checked row in that day's sheet, how many have not, and which. Rows of other months are kept, so the
+ * sheet is the record of every day. A day's row changes only when its counts change (a late report counts on
+ * the day it is for); อัปเดตล่าสุด is when that was.
+ */
+const REPORT_LOG_HEAD = ['วันที่', 'ทำรายงานแล้ว', 'ยังไม่ทำรายงาน', 'สถานีทั้งหมด', '% ทำรายงาน', 'สถานีที่ยังไม่ทำรายงาน', 'อัปเดตล่าสุด'];
+function reportLog_(overview, ym, stations) {
+  const days = readDays_(PropertiesService.getScriptProperties(), ym);
+  const lastDay = lastDayToRead_(ym);
+  if (!days || lastDay < 1 || !stations.length) return;
+  const [y, m] = ym.split('-').map(Number);
+  const W = REPORT_LOG_HEAD.length;
+  let sh = overview.getSheetByName(REPORT_LOG);
+  const fresh = !sh;
+  if (fresh) {
+    const after = overview.getSheetByName(REPORTED_TODAY);
+    sh = overview.insertSheet(REPORT_LOG, after ? 2 : 1);   // after รายงานวันนี้
+    ensureSize_(sh, 2, W);
+    trimSheet_(sh, Math.max(sh.getMaxRows(), 2), W);
+    sh.getRange(1, 1, 1, W).setValues([REPORT_LOG_HEAD]).setFontWeight('bold').setBackground(COLOR.BLUE)
+      .setHorizontalAlignment('center');
+    sh.setFrozenRows(1);
+    [110, 110, 120, 110, 100, 480, 140].forEach((px, k) => sh.setColumnWidth(k + 1, px));
+  }
+  const n = Math.max(sh.getLastRow() - 1, 0);
+  const old = n ? sh.getRange(2, 1, n, W).getValues() : [];
+  const byDate = {};
+  old.forEach(r => { const k = String(r[0]).trim(); if (k) byDate[k] = r; });
+  const key = t => { const [d, mo, be] = String(t).split('/').map(Number); return (be - 543) * 10000 + mo * 100 + d; };
+  const stamp = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'dd/MM/') +
+    (Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')) + 543) + Utilities.formatDate(new Date(), 'Asia/Bangkok', ' HH:mm');
+  let changed = false;
+  for (let d = 1; d <= lastDay; d++) {
+    const day = beText_(new Date(y, m - 1, d));
+    const missing = stations.filter(s => !reportedOn_(days[s.code], d)).map(s => s.code);
+    const done = stations.length - missing.length;
+    const row = [day, done, missing.length, stations.length, Math.round(done / stations.length * 1000) / 1000,
+      missing.length ? missing.join(', ') : 'ครบทุกสถานี'];
+    const was = byDate[day];
+    if (was && row.every((v, k) => String(v) === String(was[k]))) continue;
+    byDate[day] = row.concat([stamp]);
+    changed = true;
+  }
+  if (!changed && !fresh) return;
+  const out = Object.keys(byDate).sort((a, b) => key(b) - key(a)).map(k => byDate[k]);
+  ensureSize_(sh, out.length + 1, W);
+  sh.getRange(2, 1, out.length, 1).setNumberFormat('@');   // dd/mm/พ.ศ. stays text
+  sh.getRange(2, 7, out.length, 1).setNumberFormat('@');
+  sh.getRange(2, 5, out.length, 1).setNumberFormat('0.0%');
+  sh.getRange(2, 1, out.length, W).setValues(out);
+  sh.getRange(2, 1, out.length, 5).setHorizontalAlignment('center');
+  sh.getRange(2, 6, out.length, 1).setWrap(true);
+  if (n > out.length) sh.getRange(2 + out.length, 1, n - out.length, W).clearContent();
 }
 
 /**
@@ -621,6 +770,51 @@ function todaySheet_(overview, sHead, nPlants) {
   sh.getRange(5, 1).setFormula(done);
   sh.getRange(5, right).setFormula(notYet);
   sh.setFrozenRows(4);
+}
+
+/**
+ * The problem table's filter, colour rules and dropdowns reach the last row of the sheet. The Overview came
+ * with them sized for a few rows (filter A9:N10, rules and dropdowns to row 210); rows the sync writes below
+ * that were left out of the filter (its lists and sort saw only the first row) and had no dropdown or colour.
+ * Only the parts that end too early are changed; the filter keeps the criteria it has.
+ */
+function fitIssueTable_(t) {
+  const sh = t.sh, r0 = t.headRow + 1, last = sh.getMaxRows();
+  if (last < r0) return;
+  const f = sh.getFilter();
+  if (f) {
+    const g = f.getRange();
+    if (g.getRow() === t.headRow && g.getLastRow() < last) {
+      const c0 = g.getColumn(), w = g.getNumColumns(), criteria = [];
+      for (let c = c0; c < c0 + w; c++) {
+        const cr = f.getColumnFilterCriteria(c);
+        if (cr) criteria.push([c, cr.copy().build()]);
+      }
+      f.remove();
+      const nf = sh.getRange(t.headRow, c0, last - t.headRow + 1, w).createFilter();
+      criteria.forEach(([c, cr]) => nf.setColumnFilterCriteria(c, cr));
+    }
+  }
+  // colour rules whose range starts at the first table row: same rule, down to the last row
+  let changed = false;
+  const rules = sh.getConditionalFormatRules().map(rule => {
+    let mine = false;
+    const ranges = rule.getRanges().map(g => {
+      if (g.getRow() !== r0 || g.getLastRow() >= last) return g;
+      mine = true;
+      return sh.getRange(r0, g.getColumn(), last - r0 + 1, g.getNumColumns());
+    });
+    if (!mine) return rule;
+    changed = true;
+    return rule.copy().setRanges(ranges).build();
+  });
+  if (changed) sh.setConditionalFormatRules(rules);
+  // dropdowns / date checks of the first table row, down to the last row where the last row has none
+  const first = sh.getRange(r0, 1, 1, t.width).getDataValidations()[0];
+  const bottom = sh.getRange(last, 1, 1, t.width).getDataValidations()[0];
+  first.forEach((v, k) => {
+    if (v && !bottom[k]) sh.getRange(r0, k + 1, last - r0 + 1, 1).setDataValidation(v);
+  });
 }
 
 /**

@@ -83,6 +83,8 @@ const CONFIG = {
                                   // until another value is chosen in the menu "ตั้งรอบซิงก์อัตโนมัติ"
   SYNC_FROM_HOUR: 6,              // the interval sync only runs from this hour ...
   SYNC_TO_HOUR: 20,               // ... until this hour (Bangkok), to stay inside Google's daily run time
+  PREV_MONTH_SYNC_DAYS: 7,        // on days 1–7 of a month the automatic sync also reads last month's files when they
+                                  // were edited (a report typed late, after the month ended); 0 = current month only
   RUN_SECONDS: 240,               // work per run (the Apps Script limit is 6 minutes)
   REPLACE_XLSX: true,             // a plant's old "<name>.xlsx" in the month folder goes to the trash once its Google Sheet exists
   TEST_CODE: 'P3-002',            // plant used by createTestPlant()
@@ -106,6 +108,7 @@ const ISSUES = 'รายงานการแก้ไข';   // Overview sheet
 const ISSUE_DATES = ['วันที่พบ', 'วันเข้าแก้ไข', 'วันที่แก้ไขเสร็จ'];   // shown as text dd/mm/พ.ศ. in the Overview
 const LAST_REPORT = 'รายงานล่าสุด';   // Overview "สถานี": the newest day a plant's day sheet was filled (dd/mm/พ.ศ.)
 const REPORTED_TODAY = 'รายงานวันนี้';  // Overview "รายงานการแก้ไข" box: plants with a report today / all plants
+const REPORT_LOG = 'บันทึกรายงานรายวัน';   // Overview: one row per day, plants that reported that day / not yet
 const STATIONS = 'สถานี';
 const INVERTERS = 'Inverter';
 const LOG = '_log';
@@ -121,10 +124,11 @@ const DAY_INV0 = 17;         // first inverter row in a day sheet
 const TEMP_OVERVIEW = '_overview_tmp';
 const JOB_KEYS = ['job', 'ym', 'idx', 'folder', 'ov', 'ovTemp', 'only', 'made', 'skipped', 'errors', 'warn', 'fails',
   'full', 'sig', 'since', 'began', 'same', 'root', 'why'];
-const SYNC_VERSION = '8';            // raised when sync starts repairing something new: every file is read once
+const SYNC_VERSION = '9';            // raised when sync starts repairing something new: every file is read once
 const SYNC_INTERVALS = [1, 5, 10, 15, 30, 60, 120, 240, 360, 720];   // minutes; what a time trigger can do
 const SYNC_MARGIN_MS = 15 * 60000;   // a file with no edit time on record (seen_<ym>) edited this long before the last sync started is read again
 const SEEN_MAX_CHARS = 8500;         // seen_<ym> must fit one script property (9 kB); bigger = not kept, the margin rule applies
+const DAYS_MAX_CHARS = 8500;         // days_<ym> (the days each plant reported) must fit one script property too
 const WATCHDOG_MIN = 7;      // Google stops a run at 6 minutes; this trigger, set before the work, carries the job on
 const NEXT_RUN_MS = 10000;   // pause between two runs of a job
 const COPY_UNTIL_S = 300;    // create job: plants are copied until this second of a run (a copy takes about 5 s)

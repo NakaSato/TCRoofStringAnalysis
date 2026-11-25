@@ -17,7 +17,7 @@ class Sheet {
   deleteRows(a, n) { const c = {}; for (const k in this.cells) { const [r, col] = k.split(',').map(Number); if (r < a) c[k] = this.cells[k]; else if (r >= a + n) c[`${r - n},${col}`] = this.cells[k]; } this.cells = c; this.rows -= n; } deleteColumns(a, n) { this.cols -= n; }
   insertRowsAfter(a, n) { if (a !== this.rows) throw new Error('insertRowsAfter not at end'); this.rows += n; }
   insertColumnsAfter(a, n) { if (a !== this.cols) throw new Error('insertColsAfter not at end'); this.cols += n; }
-  insertImage(b, c, r) { if (!b) throw new Error('no blob'); const sh = this, o = { c, r, setHeight: () => o, setWidth: () => o, getAnchorCell: () => ({ getRow: () => o.r, getColumn: () => o.c }), remove: () => { sh.images = sh.images.filter(x => x !== o); } }; this.images = [...(this.images || []), o]; return o; } getImages() { return [...(this.images || [])]; } setHiddenGridlines() { return this; } clear() { this.cells = {}; return this; } setFrozenRows() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules() {}
+  insertImage(b, c, r) { if (!b) throw new Error('no blob'); const sh = this, o = { c, r, setHeight: () => o, setWidth: () => o, getAnchorCell: () => ({ getRow: () => o.r, getColumn: () => o.c }), remove: () => { sh.images = sh.images.filter(x => x !== o); } }; this.images = [...(this.images || []), o]; return o; } getImages() { return [...(this.images || [])]; } setHiddenGridlines() { return this; } clear() { this.cells = {}; return this; } setFrozenRows() {} hideSheet() { this.hidden = true; } setColumnWidth() {} setRowHeight() {} setRowHeights() {} setConditionalFormatRules(r) { this.cfRules = r; } getConditionalFormatRules() { return [...(this.cfRules || [])]; } getFilter() { return this.filter || null; }
   _ext() { let r = 0, c = 0; for (const k in this.cells) { if (this.cells[k] === '' ) continue; const [a, b] = k.split(',').map(Number); r = Math.max(r, a); c = Math.max(c, b); } return [r, c]; }
   getLastRow() { return this._ext()[0]; } getLastColumn() { return this._ext()[1]; }
   getDataRange() { const [r, c] = this._ext(); return this.getRange(1, 1, Math.max(r, 1), Math.max(c, 1)); }
@@ -51,8 +51,13 @@ class Range { constructor(sh, r, c, nr, nc) { Object.assign(this, { sh, r, c, nr
   setNumberFormat(f) { for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) this.sh.fmt[`${this.r + i},${this.c + j}`] = f; return this; }
   // copyTo(PASTE_FORMAT): formats only; merges are not carried over here (the code must make them itself)
   copyTo(dest, type) { if (type !== 'PASTE_FORMAT') throw new Error('copyTo: only PASTE_FORMAT is mocked'); for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) { const f = this.sh.fmt[`${this.r + i},${this.c + j}`]; const k = `${dest.r + i},${dest.c + j}`; if (f === undefined) delete dest.sh.fmt[k]; else dest.sh.fmt[k] = f; } ctx.__formatCopies = (ctx.__formatCopies || []).concat([[this._box(), dest._box()]]); }
-  copyFormatToRange() {} getFormula() { return this.getFormulas()[0][0]; } }
-for (const m of ['setFontFamily', 'setFontSize', 'setHorizontalAlignment', 'setVerticalAlignment', 'setWrap', 'setFontWeight', 'setBackground', 'setDataValidation', 'setBorder', 'setFontColor']) Range.prototype[m] = function () { return this; };
+  copyFormatToRange() {} getFormula() { return this.getFormulas()[0][0]; }
+  getNumColumns() { return this.nc; } getNumRows() { return this.nr; }
+  // data validation per cell (the object given), a filter and colour rules as Sheets keeps them
+  setDataValidation(v) { this.sh.dv = this.sh.dv || {}; for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) this.sh.dv[`${this.r + i},${this.c + j}`] = v; return this; }
+  getDataValidations() { return this._grid(() => null).map((row, i) => row.map((_, j) => (this.sh.dv || {})[`${this.r + i},${this.c + j}`] || null)); }
+  createFilter() { if (this.sh.filter) throw new Error('sheet has a filter'); const sh = this.sh, g = this, crit = {}; sh.filter = { getRange: () => g, getColumnFilterCriteria: c => crit[c] ? { copy: () => ({ build: () => crit[c] }) } : null, setColumnFilterCriteria: (c, v) => { crit[c] = v; }, remove: () => { sh.filter = null; }, crit }; return sh.filter; } }
+for (const m of ['setFontFamily', 'setFontSize', 'setHorizontalAlignment', 'setVerticalAlignment', 'setWrap', 'setFontWeight', 'setBackground', 'setBorder', 'setFontColor']) Range.prototype[m] = function () { return this; };
 class SS { constructor(id, name) { this.id = id; this.name = name; this.sheets = [new Sheet(this, 'Sheet1', ++seq)]; }
   getId() { return this.id; } getSheets() { return this.sheets; } setSpreadsheetLocale() {} setSpreadsheetTimeZone(z) { this.tz = z; } getSpreadsheetTimeZone() { return this.tz || "Etc/GMT"; }
   getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }
@@ -321,3 +326,84 @@ try {
   api.writeLastReport_(O, '2026-11', { [codeA]: { lastReport: new Date(2026, 10, 20) } });
   console.log('typed date normalised:', S.cells[`3,${lc}`], '(want "03/11/2569") · synced row:', S.cells[`2,${lc}`], '· codes', codeA, codeB);
 } catch (e) { console.log('section 13 failed:', e.stack); }
+// 14) the problem table's filter, colour rules and dropdowns reach the last row (the Overview came with A9:N10 / row 210)
+try {
+  props.archived = '[]'; delete props.job;   // section 13 archived this year
+  const T14 = O.getSheetByName('รายงานการแก้ไข'), hr = 9;
+  T14.filter = null; T14.getRange(hr, 1, 2, 14).createFilter().setColumnFilterCriteria(9, 'only-open');
+  const rule = (r, c, nr, nc) => { const o = { ranges: [T14.getRange(r, c, nr, nc)], getRanges: () => o.ranges, copy: () => { const b = { ranges: o.ranges, setRanges: x => { b.ranges = x; return b; }, build: () => { const n = { ranges: b.ranges, getRanges: () => n.ranges, copy: o.copy }; return n; } }; return b; } }; return o; };
+  T14.cfRules = [rule(hr + 1, 1, 201, 14), rule(hr + 1, 9, 201, 1), rule(1, 1, 3, 3)];
+  T14.dv = {}; T14.getRange(hr + 1, 9, 201, 1).setDataValidation('status-list'); T14.getRange(hr + 1, 12, 201, 1).setDataValidation('date');
+  T14.rows = Math.max(T14.rows, 400);
+  api.syncNow(); drain();
+  const g = T14.getFilter().getRange(), last = T14.getMaxRows();
+  console.log('filter now', `A${g.getRow()}:${A(g.getLastColumn())}${g.getLastRow()}`, `(want A9:N${last}) · criteria kept:`, T14.filter.crit[9] === 'only-open');
+  console.log('colour rules to the last row:', T14.cfRules.slice(0, 2).every(r => r.getRanges()[0].getLastRow() === last), '· other rule untouched:', T14.cfRules[2].getRanges()[0].getLastRow() === 3);
+  console.log('dropdowns to the last row:', T14.dv[`${last},9`] === 'status-list' && T14.dv[`${last},12`] === 'date', '· no dropdown added elsewhere:', !T14.dv[`${last},1`]);
+  const rules0 = T14.cfRules; api.syncNow(); drain(); console.log('second sync leaves them as they are:', T14.cfRules.every((r, i) => r === rules0[i]));
+} catch (e) { console.log('section 14 failed:', e.stack); }
+// 15) บันทึกรายงานรายวัน: one row per day up to today, newest on top; a late report changes its own day only
+try {
+  const R = O.getSheetByName('บันทึกรายงานรายวัน'), S = O.getSheetByName('สถานี');
+  const rowOf = d => { const k = `${pad(d)}/${fmt(new Date(), '', 'MM')}/${+fmt(new Date(), '', 'yyyy') + 543}`; for (let r = 2; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === k) return [1, 2, 3, 4, 5, 6, 7].map(c => R.cells[`${r},${c}`]); return null; };
+  const nPlants = S.getLastRow() - 1;
+  console.log('log sheet:', !!R, '· head', JSON.stringify([1, 2, 3, 4, 5, 6, 7].map(c => R.cells[`1,${c}`])), '· rows', R.getLastRow() - 1, '(want', today, ') · newest on top:', R.cells['2,1'] === rowOf(today)[0]);
+  const t0 = rowOf(today), dd0 = rowOf(d0);
+  console.log('today:', JSON.stringify(t0.slice(0, 5)), '· reported + not = all:', t0[1] + t0[2] === nPlants && t0[3] === nPlants, '· missing list length = not reported:', t0[5].split(', ').length === t0[2]);
+  console.log(`day ${d0}:`, JSON.stringify(dd0.slice(0, 5)), '· P1-001 counted:', !dd0[5].includes('P1-001'), '· P3-002 not counted that day:', dd0[5].includes('P3-002'));
+  // P3-002 reports day d0 late: that day goes up by one, its stamp changes; other days stay
+  const before = rowOf(d1);
+  put(day(p3, d0), 'G17', 0); put(day(p3, d0), 'J17', 'Online');
+  files[Object.values(files).find(f => f.ss === p3).id].editedAt = Date.now() + 3600000;
+  api.syncNow(); drain();
+  const after0 = rowOf(d0);
+  console.log(`late report for day ${d0}:`, dd0[1], '→', after0[1], '· P3-002 off the list:', !after0[5].includes('P3-002'), `· day ${d1} unchanged:`, JSON.stringify(rowOf(d1)) === JSON.stringify(before));
+} catch (e) { console.log('section 15 failed:', e.stack); }
+// 16) sync across months: on days 1–7 of next month, a late report in this month's file is still synced
+try {
+  props.archived = '[]'; delete props.job;
+  const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number);
+  const at = (y, m0, d, h) => class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(Date.UTC(y, m0, d, h - 7)); } static now() { return Date.UTC(y, m0, d, h - 7); } };
+  const R = O.getSheetByName('บันทึกรายงานรายวัน');
+  const rowOf = d => { const k = `${pad(d)}/${pad(mo)}/${yy + 543}`; for (let r = 2; r <= R.getLastRow(); r++) if (R.cells[`${r},1`] === k) return [2, 3].map(c => R.cells[`${r},${c}`]); return null; };
+  const before = rowOf(d1);
+  // the late report: P3-002 fills yesterday's sheet after the month ended
+  put(day(p3, d1), 'G17', 0); put(day(p3, d1), 'J17', 'Online');
+  files[Object.values(files).find(f => f.ss === p3).id].editedAt = Date.now() + 7200000;
+  ctx.Date = at(mo === 12 ? yy + 1 : yy, mo === 12 ? 0 : mo, 3, 10);     // day 3 of next month, 10:00 (no folder for it)
+  api.intervalSync(); drain();
+  const after3 = rowOf(d1);
+  ctx.Date = at(mo === 12 ? yy + 1 : yy, mo === 12 ? 0 : mo, 8, 10);     // day 8: outside the window
+  put(day(p3, d2), 'G17', 0); files[Object.values(files).find(f => f.ss === p3).id].editedAt = Date.now() + 9000000;
+  const runs = triggers.length; api.intervalSync(); const started8 = !!props.job; drain();
+  ctx.Date = RealDate;
+  console.log(`day 3 of next month: day ${d1} reported`, before[0], '→', after3[0], '(want +1) · day 8: no sync of last month:', !started8);
+} catch (e) { ctx.Date = Date; console.log('section 16 failed:', e.stack); }
+// 17) inverters of one plant with the same problem found the same day share one row of the Overview
+try {
+  props.archived = '[]'; delete props.job;
+  const T = O.getSheetByName('รายงานการแก้ไข'), hr = 9, head = {};
+  for (let c = 1; c <= 15; c++) { const v = T.cells[`${hr},${c}`]; if (v) head[String(v).trim()] = c; }
+  const rowsOf = code => { const out = []; for (let r = hr + 1; r <= T.getLastRow(); r++) { const k = String(T.cells[`${r},${head['รหัสปัญหา']}`] || ''); if (k.startsWith(code + '|')) out.push({ r, key: k, sn: T.cells[`${r},${head['Inverter S/N']}`], detail: T.cells[`${r},${head['รายละเอียดปัญหา']}`], st: T.cells[`${r},${head['สถานะ']}`], no: T.cells[`${r},${head['No.']}`] }); } return out; };
+  console.log('P1-001 before:', JSON.stringify(rowsOf('P1-001').map(x => [x.key, x.detail, x.st])));
+  // inverter 3 gets the same AFCI fault as inverter 2, from the same day
+  for (const d of [d1, d2]) { put(day(p1, d), 'J19', 'Fault'); put(day(p1, d), 'K19', 'AFCI'); }
+  files[Object.values(files).find(f => f.ss === p1).id].editedAt = Date.now() + 9e6;
+  api.syncNow(); drain();
+  const g = rowsOf('P1-001');
+  console.log('P1-001 after:', JSON.stringify(g.map(x => [x.key, x.sn, x.detail, x.st])));
+  const afci = g.filter(x => /AFCI/.test(x.detail));
+  console.log('AFCI rows:', afci.length, '(want 1) · S/N lists two:', afci[0] && String(afci[0].sn).split(', ').length === 2, '· No. 1…n:', (() => { const nos = []; for (let r = hr + 1; r <= T.getLastRow(); r++) if (T.cells[`${r},${head['รหัสปัญหา']}`]) nos.push(T.cells[`${r},${head['No.']}`]); return nos.every((v, i) => v === i + 1); })());
+  // a value typed into the grouped row of the Overview survives the next sync
+  const noteCol = head['ผลการตรวจสอบ']; if (noteCol) T.cells[`${afci[0].r},${noteCol}`] = 'ตรวจหน้างานแล้ว';
+  const snap = JSON.stringify(rowsOf('P1-001'));
+  files[Object.values(files).find(f => f.ss === p1).id].editedAt = Date.now() + 9.5e6;
+  api.syncNow(); drain();
+  const again = rowsOf('P1-001'), a2 = again.find(x => /AFCI/.test(x.detail));
+  console.log('typed note kept:', !noteCol || T.cells[`${a2.r},${noteCol}`] === 'ตรวจหน้างานแล้ว', '· rows stable:', JSON.stringify(again.map(x => x.key)) === JSON.stringify(JSON.parse(snap).map(x => x.key)));
+  // one of them is fixed (normal again): the group keeps only the one still in trouble
+  put(day(p1, d2), 'J19', 'Online'); put(day(p1, d2), 'K19', '');
+  files[Object.values(files).find(f => f.ss === p1).id].editedAt = Date.now() + 9.9e6;
+  api.syncNow(); drain();
+  console.log('inverter 3 normal again: its fault days stay in the same row:', JSON.stringify(rowsOf('P1-001').map(x => [x.key, x.st])));
+} catch (e) { console.log('section 17 failed:', e.stack); }
