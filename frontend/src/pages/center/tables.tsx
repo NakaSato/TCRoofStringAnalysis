@@ -3,14 +3,17 @@
  * estimated lost kWh / ฿: the page shows stored measurements, the report and entered costs only. */
 import React from "react";
 import { Link } from "react-router-dom";
-import { Route } from "lucide-react";
+import { MoreHorizontal, Route } from "lucide-react";
 import type { OmCenterIssue, OmCenterPlant, PwaMeterSiteSummary } from "../../api/client";
 import { plantPath } from "../../context/routes";
 import { fmt, fmtInt } from "../../components/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { newClaimHref } from "@/lib/claimLinks";
 import { routeHref } from "../visitRoute/href";
+import { STATUS as CLAIM_STATUS } from "../claims/format";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHead } from "../pwaMeter/tables";
 import { ENTERED, fmtDay, thb } from "./format";
@@ -26,7 +29,26 @@ const issueHref = (i: OmCenterIssue): string =>
       ? `${plantPath(i.plant_id, "inverters")}?sn=${encodeURIComponent(i.device_sn)}&tab=issues`
       : plantPath(i.plant_id);
 
-export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
+/** the issue's linked claims: the newest open one as a badge (others in the tooltip), else the newest closed one muted */
+const LinkedClaims: React.FC<{ claims: OmCenterIssue["claims"] }> = ({ claims }) => {
+  const { t } = useI18n();
+  if (!claims?.length) return <span className="text-muted-foreground">—</span>;
+  const shown = claims.find((c) => c.open) ?? claims[0];
+  const rest = claims.filter((c) => c !== shown);
+  return (
+    <Link
+      to={`/claims?tab=all&claim=${shown.id}`}
+      className="inline-flex items-center gap-1 whitespace-nowrap hover:text-solar-400"
+      title={rest.length ? rest.map((c) => `${c.number} · ${t(CLAIM_STATUS[c.status]?.label ?? c.status)}`).join("\n") : undefined}
+    >
+      <span className={shown.open ? "num" : "num text-muted-foreground"}>{shown.number}</span>
+      <Badge variant={shown.open ? (CLAIM_STATUS[shown.status]?.variant ?? "neutral") : "neutral"}>{t(CLAIM_STATUS[shown.status]?.label ?? shown.status)}</Badge>
+      {rest.length > 0 && <span className="text-[11px] text-muted-foreground">+{rest.length}</span>}
+    </Link>
+  );
+};
+
+export const IssuesTable: React.FC<{ rows: OmCenterIssue[]; onPlanTask?: (i: OmCenterIssue) => void }> = ({ rows, onPlanTask }) => {
   const { t } = useI18n();
   return (
   <Table containerClassName="table-wrap">
@@ -39,8 +61,9 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
         <TableHead className="text-right">{t("Open for")}</TableHead>
         <TableHead>{t("Acknowledged")}</TableHead>
         <TableHead>{t("Next visit")}</TableHead>
-        <TableHead className="w-8">
-          <span className="sr-only">{t("Add to route")}</span>
+        <TableHead>{t("Claim")}</TableHead>
+        <TableHead className="w-16">
+          <span className="sr-only">{t("Actions")}</span>
         </TableHead>
       </TableRow>
     </TableHeader>
@@ -82,17 +105,39 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
               <span className="text-amber-300">{t("None planned")}</span>
             )}
           </TableCell>
-          <TableCell className="w-8 py-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button asChild variant="ghost" size="icon-xs" aria-label={t("Add {plant} to route", { plant: i.plant_name ?? t("Plant {id}", { id: i.plant_id }) })}>
-                  <Link to={routeHref({ plantIds: [i.plant_id] })}>
-                    <Route />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("Add to route")}</TooltipContent>
-            </Tooltip>
+          <TableCell>
+            <LinkedClaims claims={i.claims} />
+          </TableCell>
+          <TableCell className="w-16 py-0.5">
+            <div className="flex items-center justify-end">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button asChild variant="ghost" size="icon-xs" aria-label={t("Add {plant} to route", { plant: i.plant_name ?? t("Plant {id}", { id: i.plant_id }) })}>
+                    <Link to={routeHref({ plantIds: [i.plant_id] })}>
+                      <Route />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("Add to route")}</TooltipContent>
+              </Tooltip>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon-xs" variant="ghost" aria-label={t("Actions for issue #{id}", { id: i.id })}>
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {onPlanTask && <DropdownMenuItem onSelect={() => onPlanTask(i)}>{t("Plan a visit…")}</DropdownMenuItem>}
+                  <DropdownMenuItem asChild>
+                    <Link to={newClaimHref("issue", { plantId: i.plant_id, sn: i.device_sn, stringNo: i.string_no, ref: i.id })}>{t("Open a claim…")}</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link to={issueHref(i)}>{t("Show the evidence")}</Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </TableCell>
         </TableRow>
       ))}
@@ -101,7 +146,7 @@ export const IssuesTable: React.FC<{ rows: OmCenterIssue[] }> = ({ rows }) => {
   );
 };
 
-export const PlantSortKeys = ["issues", "name", "billed", "epi", "pr", "avail", "contract", "clean", "visit", "spend"] as const;
+export const PlantSortKeys = ["issues", "name", "billed", "epi", "pr", "avail", "contract", "clean", "visit", "spend", "claims"] as const;
 export type PlantSort = (typeof PlantSortKeys)[number];
 
 export const plantSortValue = (r: OmCenterPlant, k: PlantSort, sites?: Map<number, PwaMeterSiteSummary>): number | string | null =>
@@ -116,6 +161,7 @@ export const plantSortValue = (r: OmCenterPlant, k: PlantSort, sites?: Map<numbe
     clean: r.days_since_cleaning,
     visit: r.next_visit,
     spend: r.spend_thb,
+    claims: r.open_claims,
   })[k];
 
 const availTone = (v: number | null) => (v == null ? "" : v >= 99 ? "text-emerald-300" : v < 95 ? "text-red-300" : "text-amber-300");
@@ -130,7 +176,8 @@ export const PlantsTable: React.FC<{
   /** the plant's site in the PWA meter report, by Growatt plant id (none = not in the report) */
   sites: Map<number, PwaMeterSiteSummary>;
   onOpenSite: (siteId: string) => void;
-}> = ({ rows, sort, desc, onSort, sites, onOpenSite }) => {
+  onPlanTask?: (plantId: number) => void;
+}> = ({ rows, sort, desc, onSort, sites, onOpenSite, onPlanTask }) => {
   const { t } = useI18n();
   const h = { sort, desc, onSort };
   return (
@@ -147,6 +194,10 @@ export const PlantsTable: React.FC<{
           <SortHead k="clean" label={t("Since cleaning")} className="text-right" title={t("Days since the last cleaning in the Site log")} {...h} />
           <SortHead k="visit" label={t("Next visit")} {...h} />
           <SortHead k="spend" label={t("O&M spend")} className="text-right" title={t(ENTERED)} {...h} />
+          <SortHead k="claims" label={t("Open claims")} className="text-right" {...h} />
+          <TableHead className="w-8">
+            <span className="sr-only">{t("Actions")}</span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -182,6 +233,36 @@ export const PlantsTable: React.FC<{
             <TableCell className="num text-right">{r.days_since_cleaning == null ? <span className="text-muted-foreground">{t("None recorded")}</span> : t("{n} d", { n: r.days_since_cleaning })}</TableCell>
             <TableCell className="num whitespace-nowrap">{r.next_visit ? fmtDay(r.next_visit) : "—"}</TableCell>
             <TableCell className="num text-right">{thb(r.spend_thb)}</TableCell>
+            <TableCell className="num text-right">
+              {r.open_claims ? (
+                <Link to={`/claims?plant=${r.plant_id}`} className="hover:text-solar-400">
+                  {fmtInt(r.open_claims)}
+                </Link>
+              ) : (
+                "—"
+              )}
+            </TableCell>
+            <TableCell className="w-8 py-0.5">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="icon-xs" variant="ghost" aria-label={t("Actions for {plant}", { plant: r.name })}>
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {onPlanTask && <DropdownMenuItem onSelect={() => onPlanTask(r.plant_id)}>{t("Plan a visit…")}</DropdownMenuItem>}
+                  <DropdownMenuItem asChild>
+                    <Link to={routeHref({ plantIds: [r.plant_id] })}>{t("Add to route")}</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to={`/calendar?view=list&plant=${r.plant_id}&user=all`}>{t("Plant's tasks in the Calendar")}</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to={`/claims?plant=${r.plant_id}&tab=all`}>{t("Plant's claims")}</Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>

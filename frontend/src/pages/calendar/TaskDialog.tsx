@@ -31,6 +31,8 @@ export interface TaskDialogTarget {
   plantId?: number | null;
   lockPlant?: boolean;
   day?: string;
+  /** new task from an issue row (Energy & Billing Fix first): type, title, inverter / string and the linked issue */
+  prefill?: { task_type?: OmTaskType; title?: string; device_sn?: string | null; string_no?: number | null; issue_id?: number | null };
 }
 
 interface Draft {
@@ -52,17 +54,18 @@ interface Draft {
 const draftOf = (t: TaskDialogTarget, me: number | undefined): Draft => {
   const x = t.task;
   const day = t.day ?? plantToday();
+  const pre = x ? undefined : t.prefill;
   return {
     plant_id: x?.plant_id ?? t.plantId ?? null,
-    task_type: x?.task_type ?? "cleaning",
-    title: x?.title ?? "",
+    task_type: x?.task_type ?? pre?.task_type ?? "cleaning",
+    title: x?.title ?? pre?.title ?? "",
     start_day: x?.start_day ?? day,
     end_day: x?.end_day ?? day,
-    device_sn: x?.device_sn ?? NONE,
-    string_no: x?.string_no != null ? String(x.string_no) : "",
+    device_sn: x?.device_sn ?? pre?.device_sn ?? NONE,
+    string_no: x?.string_no != null ? String(x.string_no) : pre?.string_no != null ? String(pre.string_no) : "",
     team_id: x?.team ? String(x.team.id) : NONE,
     assignee_ids: x ? x.assignees.map((a) => a.id) : me != null ? [me] : [],
-    issue_id: x?.issue_id != null ? String(x.issue_id) : NONE,
+    issue_id: x?.issue_id != null ? String(x.issue_id) : pre?.issue_id != null ? String(pre.issue_id) : NONE,
     est_cost_thb: x?.est_cost_thb != null ? String(x.est_cost_thb) : "",
     note: x?.note ?? "",
     comment: "",

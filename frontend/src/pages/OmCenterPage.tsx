@@ -27,7 +27,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "../api/client";
-import type { PwaMeterCoverage, PwaMeterCriteria, PwaMeterSiteSummary, PwaMeterWindow } from "../api/client";
+import type { OmCenterIssue, PwaMeterCoverage, PwaMeterCriteria, PwaMeterSiteSummary, PwaMeterWindow } from "../api/client";
+import { TaskDialog } from "./calendar/TaskDialog";
+import type { TaskDialogTarget } from "./calendar/TaskDialog";
+import { WorkResponse } from "./center/work";
 import { isAdmin } from "../auth/access";
 import { useAppContext } from "../context/AppContext";
 import { PanelChart } from "../components/PanelChart";
@@ -202,8 +205,23 @@ const ChartCard: React.FC<{
 
 export const OmCenterPage: React.FC = () => {
   const { t } = useI18n();
-  const { user } = useAppContext();
+  const { user, growattPlants } = useAppContext();
   const admin = isAdmin(user);
+  // "Plan a visit" from a Fix first / Plants row opens the Calendar's task dialog
+  const [taskTarget, setTaskTarget] = useState<TaskDialogTarget | null>(null);
+  const planFromIssue = (i: OmCenterIssue) =>
+    setTaskTarget({
+      task: null,
+      plantId: i.plant_id,
+      lockPlant: true,
+      prefill: {
+        task_type: "repair",
+        title: `${i.rule} ${i.name}`.slice(0, 160),
+        device_sn: i.device_sn,
+        string_no: i.string_no,
+        issue_id: i.id,
+      },
+    });
   const [url, setUrl] = useUrlState();
   const from = pickDay(url.get("from"));
   const to = pickDay(url.get("to"));
@@ -895,6 +913,9 @@ export const OmCenterPage: React.FC = () => {
             </div>
           </div>
 
+          {/* ---- work and response: this week's tasks, response per tier, claims waiting (counts and days, no money) */}
+          <WorkResponse c={c} issuesHref={listHref({ view: "issues" })} />
+
           {/* ---- the lists */}
           <Card className="scroll-mt-4 gap-0 py-0" ref={listsRef} id="lists">
             <div className="flex flex-wrap items-center justify-between gap-x-3 border-b px-4 pt-2 sm:px-5">
@@ -998,9 +1019,17 @@ export const OmCenterPage: React.FC = () => {
                   </Empty>
                 )
               ) : view === "issues" ? (
-                <IssuesTable rows={paged(issueRows)} />
+                <IssuesTable rows={paged(issueRows)} onPlanTask={planFromIssue} />
               ) : view === "plants" ? (
-                <PlantsTable rows={paged(plantRows)} sort={pick(sortKey, PlantSortKeys, "issues")} desc={desc} onSort={onSort} sites={siteByPlant} onOpenSite={openSite} />
+                <PlantsTable
+                  rows={paged(plantRows)}
+                  sort={pick(sortKey, PlantSortKeys, "issues")}
+                  desc={desc}
+                  onSort={onSort}
+                  sites={siteByPlant}
+                  onOpenSite={openSite}
+                  onPlanTask={(plantId) => setTaskTarget({ task: null, plantId, lockPlant: true })}
+                />
               ) : view === "billing" ? (
                 <BillingTable rows={paged(billRows)} sort={pick(sortKey, BillSortKeys, "month")} desc={desc} onSort={onSort} onOpen={openSite} />
               ) : view === "finance" ? (
@@ -1034,6 +1063,8 @@ export const OmCenterPage: React.FC = () => {
         </section>
       )}
 
+      {/* row actions: the Calendar's own task dialog, prefilled from the issue or plant */}
+      <TaskDialog target={taskTarget} plants={growattPlants} me={user?.id} admin={admin} onClose={() => setTaskTarget(null)} onChanged={() => void center.reload()} />
       <ImportDialog open={importing} onClose={() => setImporting(false)} onImported={() => {
           void loadCoverage();
           void pwa.reload();
