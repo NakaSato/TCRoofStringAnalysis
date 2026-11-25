@@ -34,7 +34,7 @@ P1, P2 = 9201, 9202  # P1: the engineer's plant
 SN = "INV_M1"
 
 
-def _issue(plant, rule, daily, *, sn=SN, sno=None, status="open", shadow=False, close_reason=None, per_day=None, safety=False):
+def _issue(plant, rule, daily, *, sn: str | None = SN, sno=None, status="open", shadow=False, close_reason=None, per_day=None, safety=False):
     days = sorted(daily)
     return GrowattIssue(
         plant_id=plant, device_sn=sn, string_no=sno, rule=rule, tier="P2", safety=safety, status=status, shadow=shadow,
