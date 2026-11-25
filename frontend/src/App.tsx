@@ -113,7 +113,7 @@ const GrowattRedirect: React.FC = () => {
   q.delete("plant");
   if (!plant || !/^\d+$/.test(plant)) return <Navigate to="/" replace />;
   const rest = q.toString();
-  return <Navigate to={{ pathname: `/plant/${plant}/billing`, search: rest ? `?${rest}` : "" }} replace />;
+  return <Navigate to={{ pathname: plantPath(Number(plant), "billing"), search: rest ? `?${rest}` : "" }} replace />;
 };
 
 /** Energy & Billing (`/energy-billing`, was Engineering O&M at `/center`). */

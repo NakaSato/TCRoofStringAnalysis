@@ -9,6 +9,7 @@ import { useLocation } from "react-router-dom";
 import { ArrowUp, Check, CircleAlert, Sparkles, SquarePen, Square, X } from "lucide-react";
 import type { AssistantPageContext } from "../../api/client";
 import { parsePlantPath } from "../../context/routes";
+import type { PlantPage } from "../../context/routes";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,15 +30,18 @@ const TOOL_LABEL: Record<string, string> = {
   plant_weather: "Reading plant weather",
 };
 
-const PAGE_NAME: Record<string, string> = {
+// keyed by every plant page, so a renamed or added tab fails the type check instead of becoming "plant page"
+const PAGE_NAME: Record<PlantPage, string> = {
   "": "plant overview",
-  generation: "plant generation & PR",
+  performance: "plant generation & PR",
   inverters: "plant inverters",
   sensors: "plant weather sensors",
   strings: "plant string diagnostics",
   string: "one string in detail",
   "string-layout": "plant string layout",
   maintenance: "plant maintenance",
+  documents: "plant documents",
+  billing: "plant energy & billing",
 };
 
 /** What the user is looking at, from the URL only (the plant and day live there). */
@@ -47,12 +51,12 @@ export function pageContext(pathname: string, search: string): AssistantPageCont
   const plant = parsePlantPath(pathname);
   if (plant && Number.isFinite(plant.plantId)) {
     ctx.plant_id = plant.plantId;
-    ctx.page = PAGE_NAME[plant.page ?? ""] ?? "plant page";
+    ctx.page = plant.page == null ? "plant page" : PAGE_NAME[plant.page];
     return ctx;
   }
   const first = pathname.split("/")[1] ?? "";
   ctx.page =
-    { "": "plant directory", map: "plant map", alarms: "active alarm", sensors: "weather sensors", growatt: "growatt fleet" }[first] ??
+    ({ "": "plant directory", map: "plant map", alarms: "active alarm", sensors: "weather sensors" } as Record<string, string>)[first] ??
     (first || "plant directory");
   return ctx;
 }
