@@ -3,6 +3,8 @@
  * (`useLivePoll`, every 120–300 s), with a short up / down tint. Formatting matches `fmt()`:
  * null or non-finite = "—", never 0. The first value, a value after "—" and a new mount (key it by
  * plant / device) are shown at once, so a number never counts from 0 or from another plant's figure.
+ * `countUp` (counts on a page that loads once, e.g. Devices): the first value, or one after "—",
+ * counts up from 0 instead, without a tint; it never counts from 0 when the value is missing.
  * Reduced motion = no tween, no tint. Screen readers get only the final value.
  */
 import * as React from "react";
@@ -17,6 +19,7 @@ export function AnimatedNumber({
   digits = 1,
   duration = 700,
   flash = true,
+  countUp = false,
   className,
 }: {
   value: number | null | undefined;
@@ -25,15 +28,20 @@ export function AnimatedNumber({
   duration?: number;
   /** tint green / red for a moment when the value goes up / down */
   flash?: boolean;
+  /** the first value (or one after "—") counts up from 0 */
+  countUp?: boolean;
   className?: string;
 }) {
   const target = value != null && Number.isFinite(value) ? value : null;
-  const [shown, setShown] = React.useState<number | null>(target);
+  const startsAtZero = countUp && target != null && target !== 0 && !reducedMotion();
+  const [shown, setShown] = React.useState<number | null>(startsAtZero ? 0 : target);
   const [trend, setTrend] = React.useState<{ dir: "up" | "down"; n: number } | null>(null);
-  const shownRef = React.useRef<number | null>(target);
+  const shownRef = React.useRef<number | null>(startsAtZero ? 0 : target);
 
   React.useEffect(() => {
-    const from = shownRef.current;
+    // count-up: a value arriving after "—" eases from 0 (never shown when the value is missing)
+    const counting = countUp && shownRef.current == null && target != null;
+    const from = counting ? 0 : shownRef.current;
     // nothing to ease from (first value, after "—") or to ("—"): show it as is
     if (target == null || from == null || reducedMotion()) {
       shownRef.current = target;
@@ -46,7 +54,7 @@ export function AnimatedNumber({
       setShown(target);
       return;
     }
-    if (flash) setTrend((p) => ({ dir: target > from ? "up" : "down", n: (p?.n ?? 0) + 1 }));
+    if (flash && !counting && !(countUp && from === 0)) setTrend((p) => ({ dir: target > from ? "up" : "down", n: (p?.n ?? 0) + 1 }));
     let raf = 0;
     const t0 = performance.now();
     const step = (now: number) => {
@@ -59,7 +67,7 @@ export function AnimatedNumber({
     raf = requestAnimationFrame(step);
     // a newer value mid-tween continues from where this one stopped
     return () => cancelAnimationFrame(raf);
-  }, [target, digits, duration, flash]);
+  }, [target, digits, duration, flash, countUp]);
 
   const text = shown == null ? "—" : format(shown, digits);
   return (

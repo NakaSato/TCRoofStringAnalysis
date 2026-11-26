@@ -7,7 +7,8 @@ import { api } from "../../api/client";
 import type { GrowattLive, GrowattWeatherField, SensorList, SensorLiveStatus, SensorRow, SensorStatus } from "../../api/client";
 import { useLivePoll } from "../../context/useLivePoll";
 import { plantPath } from "../../context/routes";
-import { LoadingState, StatusBadge, fmt, fmtInt } from "../../components/ui";
+import { SkeletonKpis, SkeletonTable, StatusBadge, fmt, fmtInt } from "../../components/ui";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -73,7 +74,7 @@ const Tile: React.FC<{
       <span className="eyebrow">{label}</span>
       <Icon className={cn("size-3.5", text)} />
     </span>
-    <span className={cn("num text-2xl font-bold tracking-tight", value ? text : "text-slate-500")}>{fmtInt(value)}</span>
+    <AnimatedNumber value={value} digits={0} countUp flash={false} className={cn("text-2xl font-bold tracking-tight", value ? text : "text-slate-500")} />
     <span className="text-[11px] text-slate-500">{hint}</span>
   </button>
 );
@@ -272,7 +273,20 @@ export const SensorsView: React.FC<{ plantId?: number; viewKey?: string; embedde
       </Tabs>}
 
       {loading && !data ? (
-        <LoadingState label={t("Loading weather sensors…")} shape="table" />
+        <div className="flex flex-col gap-4" aria-busy>
+          <SkeletonKpis count={8} className="xl:grid-cols-8" />
+          <Card className="gap-3">
+            <CardHeader>
+              <CardDescription className="flex items-center gap-2">
+                <Spinner className="size-3" />
+                {t("Loading weather sensors…")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="px-0">
+              <SkeletonTable cols={8} rows={10} />
+            </CardContent>
+          </Card>
+        </div>
       ) : error && !data ? (
         <Alert variant="destructive">
           <AlertTitle>{t("Sensor list unavailable")}</AlertTitle>

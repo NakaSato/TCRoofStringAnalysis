@@ -176,6 +176,43 @@ export const SkeletonRows: React.FC<{ rows?: number; className?: string }> = ({ 
   </div>
 );
 
+/** Cell bar widths of the table placeholder, varied by row and column so it reads like real rows. */
+const SKELETON_CELL_W = ["w-11/12", "w-2/3", "w-4/5", "w-1/2", "w-3/4", "w-3/5"];
+
+/**
+ * Placeholder for a data table while it loads: a header row and `rows` rows of `cols` cells, with
+ * the first column wider (a plant name and id) and a light sheen passing over (`.chart-skel-sheen`,
+ * none under reduced motion), so the table keeps its shape until the rows arrive.
+ */
+export const SkeletonTable: React.FC<{ cols?: number; rows?: number; className?: string }> = ({ cols = 6, rows = 8, className }) => (
+  <div className={cn("relative overflow-hidden", className)} aria-hidden>
+    <div className="grid gap-4 border-b border-white/[0.06] px-4 pb-2.5" style={{ gridTemplateColumns: `2fr repeat(${cols - 1}, minmax(0, 1fr))` }}>
+      {Array.from({ length: cols }, (_, c) => (
+        <Skeleton key={c} className={cn("h-2.5 bg-white/[0.08]", c === 0 ? "w-1/3" : "w-1/2")} />
+      ))}
+    </div>
+    {Array.from({ length: rows }, (_, r) => (
+      <div
+        key={r}
+        className="grid items-center gap-4 border-b border-white/[0.04] px-4 py-3"
+        style={{ gridTemplateColumns: `2fr repeat(${cols - 1}, minmax(0, 1fr))`, opacity: 1 - (r / rows) * 0.6 }}
+      >
+        {Array.from({ length: cols }, (_, c) =>
+          c === 0 ? (
+            <div key={c} className="flex flex-col gap-1.5">
+              <Skeleton className={cn("h-3", SKELETON_CELL_W[r % SKELETON_CELL_W.length])} />
+              <Skeleton className="h-2 w-1/4" />
+            </div>
+          ) : (
+            <Skeleton key={c} className={cn("h-3", SKELETON_CELL_W[(r + c * 2) % SKELETON_CELL_W.length])} />
+          )
+        )}
+      </div>
+    ))}
+    <div className="chart-skel-sheen pointer-events-none absolute inset-0 bg-linear-to-r from-transparent via-white/[0.04] to-transparent" />
+  </div>
+);
+
 /** Placeholder for a row of KPI tiles. */
 export const SkeletonKpis: React.FC<{ count?: number; className?: string }> = ({ count = 4, className }) => (
   <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-4", className)} aria-hidden>

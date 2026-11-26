@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { Download, Search } from "lucide-react";
 import { api } from "../../api/client";
 import type { DeviceDatalogger } from "../../api/client";
-import { LoadingState, Suspended, fmtInt } from "../../components/ui";
+import { Suspended, fmtInt } from "../../components/ui";
 import { TablePager, pageBounds } from "../../components/TablePager";
 import { plantPath } from "../../context/routes";
 import { pick, useUrlState } from "@/lib/useUrlState";
@@ -20,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SortHead } from "../pwaMeter/tables";
 import { downloadCsv } from "../pwaMeter/format";
 import { useI18n } from "../../i18n";
-import { PlantLink, RecordAge, RefreshButton, SyncedLine, TABS_PAGE, ageMinutes, sortNullsLast, useDeviceList } from "./tabsShared";
+import { CountOf, PlantLink, RecordAge, RefreshButton, SyncedLine, TabLoading, TABS_PAGE, ageMinutes, sortNullsLast, useDeviceList } from "./tabsShared";
 
 const SORTS = ["name", "serial", "model", "inverters", "sensors", "meters", "last", "match"] as const;
 type SortKey = (typeof SORTS)[number];
@@ -107,7 +107,7 @@ export const DataloggersTab: React.FC<{ reloadSignal?: number }> = ({ reloadSign
       })
     );
 
-  if (!data && loading) return <LoadingState shape="table" />;
+  if (!data && loading) return <TabLoading title={t("Dataloggers")} cols={8} controls={4} />;
 
   return (
     <div className="flex flex-col gap-4">
@@ -138,7 +138,7 @@ export const DataloggersTab: React.FC<{ reloadSignal?: number }> = ({ reloadSign
           <div className="flex flex-col gap-0.5">
             <CardTitle className="flex items-center gap-2">
               {t("Dataloggers")}
-              {data && <span className="num text-xs font-normal text-muted-foreground">{t("{n} of {total}", { n: rows.length, total: data.dataloggers.length })}</span>}
+              {data && <span className="num text-xs font-normal text-muted-foreground"><CountOf n={rows.length} total={data.dataloggers.length} /></span>}
             </CardTitle>
             <CardDescription>
               <SyncedLine syncedAt={data?.meta.synced_at} />

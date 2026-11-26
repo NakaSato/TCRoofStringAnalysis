@@ -9,10 +9,11 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
-import { SkeletonRows, Suspended, fmtInt } from "../../components/ui";
+import { SkeletonTable, Suspended, fmtInt } from "../../components/ui";
 import { TablePager, pageBounds } from "../../components/TablePager";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { cn } from "@/lib/utils";
+import { CountOf } from "./tabsShared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -132,7 +133,7 @@ export const InvertersTab: React.FC<{ d: DeviceInverters }> = ({ d }) => {
           <div className="flex min-w-0 flex-col gap-0.5">
             <CardTitle className="flex flex-wrap items-center gap-2">
               {t("Inverters")}
-              {list && <span className="num text-xs font-normal text-muted-foreground">{t("{n} of {total}", { n: fmtInt(rows.length), total: fmtInt(all.length) })}</span>}
+              {list && <span className="num text-xs font-normal text-muted-foreground"><CountOf n={rows.length} total={all.length} /></span>}
               {liveBadge}
             </CardTitle>
             <CardDescription>{t("Now = Growatt's newest record (live, never stored) · Stored = our history · a row opens the inverter")}</CardDescription>
@@ -159,7 +160,7 @@ export const InvertersTab: React.FC<{ d: DeviceInverters }> = ({ d }) => {
           </Alert>
         )}
         {!list && loading ? (
-          <SkeletonRows rows={10} className="px-4 py-3" />
+          <SkeletonTable cols={9} rows={10} className="py-3" />
         ) : !list ? null : !rows.length ? (
           <Empty className="py-10">
             <EmptyHeader>

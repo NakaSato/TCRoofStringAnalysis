@@ -15,6 +15,7 @@ import { api } from "../api/client";
 import type { DeviceCheckList } from "../api/client";
 import { fmtInt } from "../components/ui";
 import { pick } from "@/lib/useUrlState";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -83,8 +84,13 @@ export const DevicesPage: React.FC = () => {
   const c = inv.counts;
   const snap = inv.snap;
   const liveTag = !snap ? undefined : inv.sweepDone ? `${t("Live")} ${hhmm(snap.fetched_at)}` : `${fmtInt(c?.checked ?? 0)}/${fmtInt(c?.total ?? 0)}`;
-  const liveNum = (n: number | null | undefined) => (n == null ? "—" : fmtInt(n));
   const installed = inv.list?.summary.installed;
+  // first reads still on the way: skeletons in the tiles (a failed read shows "—" with its reason)
+  const listLoading = !inv.list && inv.loading;
+  const liveLoading = !snap && !inv.snapError;
+  const checksFirst = !checks && checksLoading;
+  /** a live tile's figure counts up when it first arrives */
+  const live = { loading: liveLoading, countUp: true, digits: 0 } as const;
 
   return (
     <div className="flex flex-col gap-4">
@@ -104,7 +110,10 @@ export const DevicesPage: React.FC = () => {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
         <StatTile
           label={t("Inverters installed")}
-          value={installed == null ? "—" : fmtInt(installed)}
+          num={installed ?? null}
+          digits={0}
+          countUp
+          loading={listLoading}
           footer={
             inv.list
               ? t("{plants} plants · {n} not installed", { plants: fmtInt(inv.list.summary.plants), n: fmtInt(inv.list.summary.not_installed) })
@@ -115,20 +124,24 @@ export const DevicesPage: React.FC = () => {
           href="/devices"
           linkLabel={t("Inverters")}
         />
-        <StatTile label={t("Normal")} tag={liveTag} tagWarn={!!snap && !inv.sweepDone} value={liveNum(c?.normal)} tone="text-emerald-300" footer={t("status 1, today")} href={statusHref("normal")} linkLabel={t("Show normal inverters")} />
-        <StatTile label={t("Waiting")} value={liveNum(c?.waiting)} tone="text-amber-300" footer={t("status 0, today")} href={statusHref("waiting")} linkLabel={t("Show waiting inverters")} />
-        <StatTile label={t("Fault")} value={liveNum(c?.fault)} tone="text-red-300" footer={t("status 3, today")} href={statusHref("fault")} linkLabel={t("Show inverters in fault")} />
-        <StatTile label={t("Offline")} value={liveNum(c?.offline)} tone="text-red-300" footer={t("no record today")} href={statusHref("offline")} linkLabel={t("Show offline inverters")} />
+        <StatTile label={t("Normal")} tag={liveTag} tagWarn={!!snap && !inv.sweepDone} num={c?.normal ?? null} {...live} tone="text-emerald-300" footer={t("status 1, today")} href={statusHref("normal")} linkLabel={t("Show normal inverters")} />
+        <StatTile label={t("Waiting")} num={c?.waiting ?? null} {...live} tone="text-amber-300" footer={t("status 0, today")} href={statusHref("waiting")} linkLabel={t("Show waiting inverters")} />
+        <StatTile label={t("Fault")} num={c?.fault ?? null} {...live} tone="text-red-300" footer={t("status 3, today")} href={statusHref("fault")} linkLabel={t("Show inverters in fault")} />
+        <StatTile label={t("Offline")} num={c?.offline ?? null} {...live} tone="text-red-300" footer={t("no record today")} href={statusHref("offline")} linkLabel={t("Show offline inverters")} />
         <StatTile
           label={t("Not checked")}
-          value={liveNum(c?.unchecked)}
+          num={c?.unchecked ?? null}
+          {...live}
           footer={inv.snapError && !snap ? t("Live unavailable") : inv.sweepDone ? t("no live answer") : t("live check in progress")}
           href={statusHref("unchecked")}
           linkLabel={t("Show inverters not checked")}
         />
         <StatTile
           label={t("Open device checks")}
-          value={checks ? fmtInt(checks.summary.total) : "—"}
+          num={checks ? checks.summary.total : null}
+          digits={0}
+          countUp
+          loading={checksFirst}
           tone={checks?.summary.warn ? "text-amber-300" : undefined}
           footer={
             checks
@@ -147,8 +160,8 @@ export const DevicesPage: React.FC = () => {
           {TABS.map((k) => (
             <TabsTrigger key={k} value={k} className="px-3 py-2.5 text-sm">
               {t(TAB_LABEL[k])}
-              {k === "inverters" && installed != null && <span className="num text-muted-foreground">{fmtInt(installed)}</span>}
-              {k === "checks" && checks && checks.summary.total > 0 && <span className="num text-muted-foreground">{fmtInt(checks.summary.total)}</span>}
+              {k === "inverters" && installed != null && <AnimatedNumber value={installed} digits={0} countUp flash={false} className="text-muted-foreground" />}
+              {k === "checks" && checks && checks.summary.total > 0 && <AnimatedNumber value={checks.summary.total} digits={0} countUp flash={false} className="text-muted-foreground" />}
             </TabsTrigger>
           ))}
         </TabsList>

@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, Download, Search, Wrench } from "lucide-react";
 import type { DeviceCheck, DeviceCheckCode, DeviceCheckList, DeviceKind } from "../../api/client";
-import { LoadingState, Suspended, fmtInt } from "../../components/ui";
+import { Suspended, fmtInt } from "../../components/ui";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { TablePager, pageBounds } from "../../components/TablePager";
 import { appPath } from "@/lib/safeUrl";
 import { pick, useUrlState } from "@/lib/useUrlState";
@@ -20,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { cn } from "@/lib/utils";
 import { downloadCsv } from "../pwaMeter/format";
 import { useI18n } from "../../i18n";
-import { PlantLink, RefreshButton, SyncedLine, TABS_PAGE } from "./tabsShared";
+import { PlantLink, RefreshButton, SyncedLine, TABS_PAGE, TabLoading } from "./tabsShared";
 import { checkReason } from "./checkReason";
 
 /** every check code in display order, with its title and a one-line explanation (English keys, Thai in i18n) */
@@ -108,7 +109,7 @@ export const ChecksTab: React.FC<{ data: DeviceCheckList | null; error: string |
       rows.map((c) => [c.severity, c.code, CHECKS[c.code]?.title ?? c.code, c.kind, c.plant_id, c.plant_name, c.device_key, c.device_label, c.reason, c.fix_path])
     );
 
-  if (!data && loading) return <LoadingState shape="table" />;
+  if (!data && loading) return <TabLoading title={t("Device checks")} cols={7} controls={4} />;
 
   const filtered = !!(code || sev !== "all" || plant || query);
   const thresholds = Object.entries(data?.meta.thresholds ?? {});
@@ -193,7 +194,7 @@ export const ChecksTab: React.FC<{ data: DeviceCheckList | null; error: string |
                 >
                   <span className={cn("size-1.5 rounded-full", c.warn ? "bg-amber-400" : "bg-sky-400")} aria-hidden />
                   {t(CHECKS[c.code].title)}
-                  <span className="num text-muted-foreground">{fmtInt(c.n)}</span>
+                  <AnimatedNumber value={c.n} digits={0} countUp flash={false} className="text-muted-foreground" />
                 </Button>
               );
             })}

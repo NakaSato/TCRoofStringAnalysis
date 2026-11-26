@@ -3,7 +3,11 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
 import { plantPath } from "../../context/routes";
+import { SkeletonTable } from "../../components/ui";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { useI18n } from "../../i18n";
@@ -117,5 +121,53 @@ export const SyncedLine: React.FC<{ syncedAt: string | null | undefined }> = ({ 
         ? t("last history sync {time}", { time: d.toLocaleString(locale, { timeZone: "Asia/Bangkok", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) })
         : t("no history sync yet")}
     </span>
+  );
+};
+
+/** First load of a tab: its card with the real title, a "Loading…" line, placeholder filters and a
+ * table skeleton of the tab's column count, so the tab keeps its shape until the rows arrive.
+ * Re-reads keep the table and dim it instead (`Suspended`). */
+export const TabLoading: React.FC<{ title: string; cols: number; rows?: number; controls?: number }> = ({ title, cols, rows = 10, controls = 3 }) => {
+  const { t } = useI18n();
+  return (
+    <Card className="gap-3" aria-busy>
+      <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <CardTitle>{title}</CardTitle>
+          <CardDescription className="flex items-center gap-2">
+            <Spinner className="size-3" />
+            {t("Loading…")}
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap items-center gap-2" aria-hidden>
+          {Array.from({ length: controls }, (_, i) => (
+            <Skeleton key={i} className={cn("h-8", i === controls - 1 ? "w-56" : "w-24")} />
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="px-0">
+        <SkeletonTable cols={cols} rows={rows} />
+      </CardContent>
+    </Card>
+  );
+};
+
+/** "{n} of {total}" in the current language, both numbers counting up when they first arrive
+ * (the sentence is translated with markers, then the markers are swapped for the numbers). */
+export const CountOf: React.FC<{ n: number; total: number }> = ({ n, total }) => {
+  const { t } = useI18n();
+  const parts = t("{n} of {total}", { n: "\u0000n\u0000", total: "\u0000total\u0000" }).split("\u0000");
+  return (
+    <>
+      {parts.map((p, i) =>
+        p === "n" ? (
+          <AnimatedNumber key={i} value={n} digits={0} countUp flash={false} />
+        ) : p === "total" ? (
+          <AnimatedNumber key={i} value={total} digits={0} countUp flash={false} />
+        ) : (
+          <React.Fragment key={i}>{p}</React.Fragment>
+        )
+      )}
+    </>
   );
 };

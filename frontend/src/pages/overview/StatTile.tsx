@@ -6,6 +6,7 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { AnimatedNumber } from "@/components/ui/animated-number";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export type MeterSegment = { pct: number; className: string; title?: string };
 
@@ -35,6 +36,10 @@ export const StatTile: React.FC<{
   num?: number | null;
   /** decimals of `num` */
   digits?: number;
+  /** `num` counts up from 0 when it first arrives */
+  countUp?: boolean;
+  /** still loading: skeletons in place of the value and footer (same height, so nothing jumps) */
+  loading?: boolean;
   unit?: string;
   /** text colour of the value */
   tone?: string;
@@ -44,7 +49,7 @@ export const StatTile: React.FC<{
   /** whole tile links here */
   href?: string;
   linkLabel?: string;
-}> = ({ label, tag, tagWarn, value, num, digits = 1, unit, tone, meter, footer, href, linkLabel }) => {
+}> = ({ label, tag, tagWarn, value, num, digits = 1, countUp, loading, unit, tone, meter, footer, href, linkLabel }) => {
   const empty = num !== undefined ? num == null || !Number.isFinite(num) : (value ?? "—") === "—";
   const body = (
     <Card className="h-full gap-0 px-3.5 py-3 transition-colors group-hover:border-white/[0.14]">
@@ -64,14 +69,26 @@ export const StatTile: React.FC<{
           </span>
         )}
       </div>
-      <div className="num mt-1.5 truncate leading-none">
+      {loading ? (
+        <div className="mt-1.5 flex h-8 items-center" aria-busy>
+          <Skeleton className="h-5 w-14" />
+        </div>
+      ) : (
+      <div className="num mt-1.5 truncate leading-none animate-in fade-in-0">
         <span className={cn("text-2xl font-semibold tracking-tight", empty ? "text-slate-500" : (tone ?? "text-foreground"))}>
-          {num !== undefined ? <AnimatedNumber value={num} digits={digits} /> : (value ?? "—")}
+          {num !== undefined ? <AnimatedNumber value={num} digits={digits} countUp={countUp} flash={!countUp} /> : (value ?? "—")}
         </span>
         {!empty && unit && <span className="ml-1 text-xs text-muted-foreground">{unit}</span>}
       </div>
+      )}
       <div className="mt-2 h-2">{meter}</div>
-      {footer && <div className="mt-1 flex min-h-4 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">{footer}</div>}
+      {loading ? (
+        // two lines: footers often wrap (Thai), so the tile is as tall as when it loads
+        <div className="mt-1 flex h-[2.4rem] flex-col justify-center gap-1.5">
+          <Skeleton className="h-2.5 w-2/3" />
+          <Skeleton className="h-2.5 w-1/3" />
+        </div>
+      ) : footer && <div className="mt-1 flex min-h-4 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">{footer}</div>}
     </Card>
   );
   return href ? (
