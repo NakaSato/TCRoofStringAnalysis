@@ -152,8 +152,28 @@ export const evidenceText = (i: Issue): string => {
       return translate("No data {n} of {total} daylight min", { n: fmtInt(num(e.no_data_min)), total: fmtInt(num(e.daylight_min)) });
     case "R18":
       return translate("Power-limited {n} min", { n: fmtInt(num(e.limited_min)) });
-    case "R3":
-      return Array.isArray(e.alarms) ? (e.alarms as string[]).join(" · ") : translate("Safety alarm");
+    case "R3": {
+      const alarms = Array.isArray(e.alarms) ? (e.alarms as string[]).join(" · ") : translate("Safety alarm");
+      const peers = e.peers_first_power ? String(e.peers_first_power) : null;
+      if (e.dawn)
+        return translate("{alarms} at the dawn start-up check on {n} of {d} days (dew?); started on time", {
+          alarms,
+          n: fmtInt(num(e.days)),
+          d: fmtInt(num(e.window_days)),
+        });
+      if (num(e.late_start_min) != null)
+        return peers
+          ? translate("{alarms}; first power {t}, {n} min after the plant's other inverters ({ref})", {
+              alarms,
+              t: String(e.first_power),
+              n: fmtInt(num(e.late_start_min)),
+              ref: peers,
+            })
+          : translate("{alarms}; first power {t}, {n} min after the alarm", { alarms, t: String(e.first_power), n: fmtInt(num(e.late_start_min)) });
+      if (peers && !e.first_power)
+        return translate("{alarms}; no power yet while the plant's other inverters started at {ref}", { alarms, ref: peers });
+      return alarms;
+    }
     case "R9":
       return translate("{n} grid trips in {d} days", { n: fmtInt(num(e.events)), d: fmtInt(num(e.window_days)) });
     default:

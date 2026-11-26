@@ -269,8 +269,8 @@ Fewer than `MIN_GATED_SLOTS` (12) gated slots = no verdict that day (`null`). Th
 | Rule | Condition | Persistence | Points To | Notes |
 |---|---|---|---|---|
 | **R1** | $R_i <$ `LOW_RATIO` (0.80) for $\ge$ `r1_low_min` (120) gated minutes in a day | today, and on `r1_days_hit` (2) of the last `r1_days` (3) judged days | Weak string | P2 |
-| **R2** | $I_i \le 0.3\text{ A}$ while the peer median $\ge 2.0\text{ A}$ | $\ge$ `r2_open_min` (15) min today | Open string | P1 above `p1_thb_per_day`, else P2 |
-| **R4** | daily median voltage ratio $<1 - 1.2\%$ (`r4_v_drop_pct`) | `r4_days` (2) days in a row | Bypass diode | Only with `voltage_sensing == "per_string"` (below) |
+| **R2** | $I_i \le 0.3\text{ A}$ while the peer median $\ge 2.0\text{ A}$ | $\ge$ `r2_open_min` (60; 15 until 2026-11-26) min today, meter-held slots skipped | Open string | P1 above `p1_thb_per_day`, else P2 |
+| **R4** | daily median voltage ratio $<1 - 1.2\%$ (`r4_v_drop_pct`) | `r4_days` (2) days in a row | Bypass diode | Only with `voltage_sensing == "per_string"` (below) **and** a String Layout with every module count: voltage is compared per module (since 2026-11-26; raw string voltage read string length as a drop, decision-rules.md §4.6) |
 | **R5** | median of daily $R_i$ over `r5_window_days` (30) $<$ `r5_ratio` (0.95) | $\ge$ `r5_min_days` (10) days with a verdict | Mismatch or slow degradation | P3 |
 | **R6** | linear-regression slope of daily median $R_i$ falls by $>$ `r6_drop_pct_per_month` (1.0 %) per 30 days | over `r6_window_days` (30), $\ge$ `r6_min_days` (10) days with a verdict | PID / rapid degradation | P2; when it fires, R5 is not raised for that string |
 

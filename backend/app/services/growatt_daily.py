@@ -38,7 +38,8 @@ from app.db.models import (
     GrowattPlantDaily,
     GrowattStringDaily,
 )
-from app.services import epi_fit
+from app.services import epi_fit, growatt_meter
+from app.services.growatt_curtailment import EXPORT_BAND_FRAC, EXPORT_BAND_KW
 from app.services.growatt_common import INACTIVE_MAX_A, R, S, _bucket, oldest_string_reading, _day_bounds, _integrate_kwh, capacity_check
 from app.services.growatt_layout import load_layout, load_layout_orientations
 from app.services.tariff import Pricer, pricer as load_pricer
@@ -66,6 +67,7 @@ SEVERE_RATIO = 0.60
 OPEN_A = 0.3
 OPEN_MEDIAN_A = 2.0  # an open string counts only while its peers carry at least this
 LOST_MEDIAN_A = 1.0  # deficit (lost kWh) is counted from this median up, not only in gated slots
+METER_ALIVE_SLOTS = 3  # meter slots outside the export band after first production: the meter is alive
 WIRED_LOOKBACK_DAYS = 30
 WIRED_MIN_KWH = 0.05  # a string with a daily row at least this big in the lookback is wired
 
@@ -305,10 +307,40 @@ def compute_plant_day(
     plant_kwp, _ = capacity_check(db, plant)
     kwp = _inverter_kwp(invs, wired, layout, plant_kwp)
 
-    n_str = _strings_day(db, plant.plant_id, day, by_sn, inv_slots, str_slots, str_power, wired, layout, orientations, irr, pr)
-    n_inv = _inverters_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, alarms, kwp, until, pr)
+    producing = [t for slots in inv_slots.values() for t, x in slots.items() if x.pac_w > 0]
+    held = _export_held(db, plant.plant_id, day, plant_kwp, min(producing) if producing else None)
+    n_str = _strings_day(db, plant.plant_id, day, by_sn, inv_slots, str_slots, str_power, wired, layout, orientations, irr, pr, held)
+    n_inv = _inverters_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, alarms, kwp, until, pr, held)
     _plant_day(db, plant, day, invs, inv_slots, eac_points, ppv_points, pac_points, plant_kwp, epi_fit.active_factor(db, plant.plant_id))
     return {"strings": n_str, "inverters": n_inv}
+
+
+def _export_held(
+    db: Session, plant_id: int, day: date, plant_kwp: Optional[float], first_producing: Optional[datetime]
+) -> Set[datetime]:
+    """5-min slots in which the plant's grid meter holds about 0 kW (|grid| within the curtailment
+    model's export band): a zero-export controller is following the site load, parking MPPTs or
+    whole inverters to stay there. Those slots say nothing about strings or inverters (205 of 233
+    plants run this way, 21–25 Nov 2026), so the string comparison skips them and an inverter
+    without power in one is not counted as down. No meter = no slot held.
+
+    The meter must show it is alive after the plant starts producing: at least METER_ALIVE_SLOTS
+    slots outside the band from the first producing slot on (a zero-export site imports again once the PV falls below
+    its load), else nothing is held. On 21 Nov 2026 one meter read 0.0 W from 05:00 on (night import
+    before, one stray 14 kW reading at 08:00) while its plant produced 34 kW; holding that would
+    have silenced every check of the day.
+    A flat 0.0 alone is no sign of a dead meter: 19 % of midday readings on 25 Nov were exactly 0."""
+    if first_producing is None:
+        return set()
+    lo, hi = _day_bounds(day)
+    has, slots = growatt_meter.meter_slots(db, plant_id, lo, hi)
+    if not has:
+        return set()
+    band_w = max(EXPORT_BAND_KW, EXPORT_BAND_FRAC * plant_kwp if plant_kwp else 0.0) * 1000.0
+    at = {datetime.strptime(k, growatt_meter.TS_FMT): w for k, w in slots.items()}
+    if sum(1 for t, w in at.items() if t >= first_producing and abs(w) > band_w) < METER_ALIVE_SLOTS:
+        return set()
+    return {t for t, w in at.items() if abs(w) <= band_w}
 
 
 def _strings_day(
@@ -324,6 +356,7 @@ def _strings_day(
     orientations: Dict[Tuple[str, int], Tuple[Optional[float], Optional[float]]],
     irr: Dict[datetime, float],
     pr: Pricer,
+    held: Set[datetime] = frozenset(),
 ) -> int:
     n = 0
     # Precompute unstable irradiance slots (> MAX_IRR_VARIABILITY step change between adjacent 5-min slots)
@@ -366,7 +399,7 @@ def _strings_day(
         gated = 0
         for slot, vals in sorted(str_slots.get(sn, {}).items()):
             rec = inv_slots.get(sn, {}).get(slot)
-            if rec is None or rec.status != 1:
+            if rec is None or rec.status != 1 or slot in held:
                 continue
             present = {s: vals[s] for s in strings if s in vals}
             if len(present) < MIN_PEERS:
@@ -410,19 +443,14 @@ def _strings_day(
                 s_med = peer_med_for(s)
                 if s_med > 0:
                     ratios[s].append(i / s_med)
+            # voltage per module only: without the module counts a shorter string reads as a voltage
+            # drop (21–25 Nov 2026: 710 R4 on raw voltages, drops spread 1–30 %)
             if per_module:
                 vpm = {s: v / layout[(sn, s)][0] for s, (v, _) in present.items() if layout[(sn, s)][0] > 0}
                 for s, x in vpm.items():
                     gk = peer_group_key.get(s)
                     same_grp_Peers = [y for t, y in vpm.items() if t != s and peer_group_key.get(t) == gk]
                     peer = _median(same_grp_Peers if same_grp_Peers else [y for t, y in vpm.items() if t != s])
-                    if peer:
-                        v_ratios[s].append(x / peer)
-            else:
-                # When module counts are uniform/unspecified, compare raw string voltage against peers
-                v_raw = {s: v for s, (v, _) in present.items() if v > 0}
-                for s, x in v_raw.items():
-                    peer = _median(y for t, y in v_raw.items() if t != s)
                     if peer:
                         v_ratios[s].append(x / peer)
         for s in strings:
@@ -464,6 +492,7 @@ def _inverters_day(
     kwp: Dict[str, Optional[float]],
     until: Optional[datetime] = None,
     pr: Optional[Pricer] = None,
+    held: Set[datetime] = frozenset(),
 ) -> int:
     pr = pr or Pricer({"on_peak_thb": 0, "off_peak_thb": 0, "on_peak_days": []})
     daylight = _daylight(plant, day, inv_slots, until)
@@ -509,6 +538,9 @@ def _inverters_day(
     for inv in invs:
         sn = inv.device_sn
         st = states[sn]
+        # a held slot excuses only a working inverter the controller parks: switched on and producing
+        # at some point of the day (a switched-off or all-day-dead inverter is still down)
+        parkable = inv.on_off != 0 and any(v in ("producing", "limited") for v in st.values())
         mins: Dict[str, int] = defaultdict(int)
         lost: Dict[str, Optional[float]] = {}
         lost_on: Dict[str, Optional[float]] = {}  # on-peak part, keyed "down" / "no_data"
@@ -540,6 +572,8 @@ def _inverters_day(
             if s == "idle":
                 if not any(states[o].get(slot) in ("producing", "limited") for o in states if o != sn):
                     continue  # nobody at the plant produces: dark, not downtime
+                if slot in held and parkable:
+                    continue  # the zero-export controller parked it (meter at ~0 kW), not downtime
                 s = "off" if inv.on_off == 0 else "standby"
             mins[s] += SLOT_MIN
             if s in ("fault", "off", "standby"):

@@ -1,6 +1,6 @@
 # Plan: Decision rules and the Issues queue
 
-Status: **Phases 1–2 built and merged, every rule starts in shadow mode; Phase 3 built (plant daily table, PR', EPI with a per-plant fitted system factor, R10, R11, R16 in shadow mode); Phase 4: site log built (§6.1), cleaning step and R13 built 2026-11-22 in shadow mode (§6.2), soiling wallet R12 built 2026-11-25 in shadow mode (§6.3; rain-forecast gate not built)** · Created 2026-11-15 · Owner: Chanthawat
+Status: **Phases 1–2 built and merged, every rule starts in shadow mode; Phase 3 built (plant daily table, PR', EPI with a per-plant fitted system factor, R10, R11, R16 in shadow mode); shadow review 2026-11-26 (§4.6: zero-export slots skipped, R2 / R3 / R8 tightened, R4 needs a String Layout; R2, R3, R8, R16 live); Phase 4: site log built (§6.1), cleaning step and R13 built 2026-11-22 in shadow mode (§6.2), soiling wallet R12 built 2026-11-25 in shadow mode (§6.3; rain-forecast gate not built)** · Created 2026-11-15 · Owner: Chanthawat
 Source: the research report `docs/plans/Data-Driven Decisions for the TC Roof Solar Dashboard_ KPIs, Thresholds and Decision Rules for Thai Commercial and Industrial Rooftop PV.md` (rule numbers R1–R18 below are its §8 master table).
 
 Turn the data the platform already stores into **issues ranked by baht lost per day**. Each issue has an owner, a tier and evidence, and engineers can acknowledge and close it. Today the platform shows statuses (string Healthy / Warning / Critical, inverter fault codes, PR), but nothing says what to fix first or what a fault costs.
@@ -82,11 +82,11 @@ Columns: minutes per state, `energy_kwh`, `yf_kwh_kwp` (specific yield), `yf_vs_
 | Rule | Signal | Fires when | Tier |
 |---|---|---|---|
 | R1 Weak string | `low_min` | at least 120 min on 2 of the last 3 days | P2 |
-| R2 Open string | `open_min` | at least 15 min (3 slots) on a day | P1 if its loss is above the P1 THB line, else P2 |
-| R3 Insulation / ground fault | Growatt alarm codes for Riso / GFDI (list to be confirmed, §9) | any | P1, safety |
+| R2 Open string | `open_min` | at least 60 min on a day (15 until 2026-11-26, §4.6) | P1 if its loss is above the P1 THB line, else P2 |
+| R3 Insulation / ground fault | Growatt alarm messages (`r3_keywords`; codes to be confirmed, §9) | any; an insulation alarm before the inverter's first power only when it then starts > 60 min late, or repeats on 3 of 7 days (§4.6) | P1, safety; the dawn repeat P3 |
 | R5 Slow drift | 30-day median of `ratio_median` | below 0.95 | P3 |
 | R7 Inverter underperforming | `yf_vs_median_pct` | below −3 % on 2 days in a row | P3 (P2 above the THB line) |
-| R8 Inverter down | Fault minutes during daylight | any | P1 when it is more than 30 % of the plant's kWp, else P2 |
+| R8 Inverter down | Fault / off / standby minutes during daylight | fault + off ≥ 15 min, or standby ≥ 60 min (not counting a working inverter parked in a meter-held slot, §4.6) | P1 when it is more than 30 % of the plant's kWp, else P2 |
 | R9 Grid trips | grid-fault alarm codes | 3 or more in 7 days | P3, owner: engineer |
 | R17 Data gap | No-data minutes / daylight minutes | above 5 % | P4 |
 | R18 Export limiting | Limited minutes | any | Info, reported as lost opportunity |
@@ -165,6 +165,23 @@ Routes (scoped by `allowed_plant_ids`):
 - Revenue (2026-11-18): the plant overview prices the day slot by slot (`kpis.tariff_thb_per_kwh` = the day's energy-weighted rate). The fleet directory's Revenue today sums each plant's live yield × its own rate from `GET /growatt/tariff/rates` (`tariff.day_rates`: flat plant rate, else TOU weighted by the on-peak share of the plant's stored AC power that day, one aggregate query; no stored power yet = off-peak). It used to multiply the whole fleet's yield by the open plant's rate or a hard-coded 4.2. The PWA report shows no revenue.
 - `p1_thb_per_day` = 300 THB/day is a placeholder until §9 Q4 is answered.
 - Dev data (11–12 Nov, all rules shadow): 628 active issues, ฿31,075/day estimated (R2 307 · R17 133 · R1 105 · R8 45 · R7 38). Next: `rules_backfill` on the VM, then calibrate against `String Check.xlsx` in Rule review before turning R2 / R8 live.
+
+### 4.6 Shadow review (2026-11-26, local data 21–25 Nov)
+
+No engineer findings were at hand (the String Check sheets live in Google Sheets), so every rule's shadow issues were checked against the stored 5-min readings.
+
+- **Zero-export plants.** 205 of 233 plants exported under 2 % of their PV on 24 Nov: the grid meter holds about 0 kW and the inverters follow the site load by parking whole MPPTs (string at 0 A for a slot or two, often 2–4 MPPTs at once) or whole inverters. The string and inverter rules read that as faults. Now `growatt_daily._export_held` takes the slots in which the plant's meter reads within the curtailment model's export band (`EXPORT_BAND_KW` / `_FRAC`); the string comparison skips them, and an inverter without power in one is not counted as standby. A plant without a meter has no held slot.
+- **R2** `r2_open_min` 15 → 60. Before: about 370 strings a day, of which ~130 open most of the day, ~185 dropping only together with other strings (export controller), ~55 intermittent alone. After (backfill of 21–25 Nov, 25 Nov): 142 = 126 all-day opens + 8 + 8.
+- **R8** standby-only downtime needs `r8_min_standby_min` (60); fault / off minutes keep 15. The short standby R8s were morning wake-up lags and controller parks worth ~0 kWh. 25 Nov: 17 → 7, every one with fault minutes or a whole day in standby.
+- **R3** `PV Isolation Low` came only at the dawn start-up check (06:00–06:56), mostly dew: an insulation alarm before the inverter's first power is now P1 only when it starts more than `r3_late_start_min` (60) after the median of the plant's other inverters (or not at all), P3 when it repeats on `r3_dawn_days` (3) of `r3_dawn_window_days` (7), else nothing. Arc / ground / residual-current alarms and insulation alarms while producing stay P1. 16 → 13; the P1s left are AFCI faults and starts 64–191 min late.
+- **R4** compares voltage per module only (needs the String Layout's module counts). On raw string voltage it flagged 710 strings with drops spread 1–30 % (string length and MPPT operating points, not diodes); now 0 without a layout.
+- Kept in shadow: **R1** (still 448 strings on 25 Nov, the same strings every day at a ratio ~0.78: orientation / string length, needs the layout or a baseline against the string's own past), **R7** (every inverter of a plant gets the same kWp without a layout; −3 % is inside the spread of string count and roof direction), **R17** (local gaps are mostly the local history job, judge on production), R5 / R6 / R10–R13 (too few days).
+- Independent review of the change (3 reviewers, each finding checked by a refuter), fixed the same day:
+  - a meter must be alive: a day whose meter shows fewer than `METER_ALIVE_SLOTS` (3) slots outside the band from the plant's first producing slot on holds nothing (one meter read 0.0 W from 05:00 on 21 Nov, after night import and with one stray reading at 08:00, while its plant produced 34 kW). Rejecting every exactly-0 W slot instead was tried and dropped: 19 % of midday readings on 25 Nov were exactly 0 on working zero-export meters, and the inverter-event R2s rose from 8 to 30;
+  - a held slot excuses only a working inverter (switched on and producing at some point of the day); a switched-off or all-day-dead inverter is still down;
+  - R3 repeats count only days whose R3 alarms were all dawn insulation alarms (first power per day); with no other inverter producing, lateness is measured from the alarm; during the day (`rules_today`) an inverter not producing yet is late only once the start window has passed;
+  - `growatt_issues.sync` no longer downgrades an open safety issue with a later non-safety finding of its rule.
+- Live since 2026-11-26 (owner's decision): R2, R3, R8, R16 (`decision_rules.rules.<R>.shadow = false` in `app_settings`; set in the local DB, production is stopped and gets the same setting when it reopens).
 
 ## 5. Phase 3: weather-based plant KPIs (weeks 6–10)
 
@@ -249,7 +266,7 @@ The dry season starts now (November to April), so **start recording cleanings im
 
 ## 8. Testing
 
-- Unit tests per rule with fixed readings: a cloud transient (one bad slot, no issue), morning low light (no verdict), an open string (P2 in 15 min), a limited inverter (no fault), a no-data gap that `eac_today` later fills (data issue, no lost kWh).
+- Unit tests per rule with fixed readings: a cloud transient (one bad slot, no issue), morning low light (no verdict), an open string (P2 after 60 min), a limited inverter (no fault), a no-data gap that `eac_today` later fills (data issue, no lost kWh).
 - The `rules_backfill` output on the dev DB, checked by hand for three plants against the String page.
 - Route tests: engineers see only their plants' issues; only admins change rules.
 

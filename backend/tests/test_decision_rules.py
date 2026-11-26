@@ -207,6 +207,90 @@ def test_short_standby_is_not_r8(factory):
         assert ("R8", B, None) not in _rules(db)
 
 
+def test_standby_needs_an_hour_for_r8(factory):
+    with factory() as db:
+        _seed_day(db, status=lambda sn, ts: 0 if sn == B and _between(ts, 11, 11.75) else 1)
+        _, invs = _compute(db)
+        assert invs[B].standby_min == 45
+        assert ("R8", B, None) not in _rules(db)
+        _seed_day(db, day=DAY + timedelta(days=1), status=lambda sn, ts: 0 if sn == B and _between(ts, 11, 12) else 1)
+        _compute(db, DAY + timedelta(days=1))
+        assert ("R8", B, None) in _rules(db, DAY + timedelta(days=1))
+
+
+def _meter_holds_zero(db, h0: float, h1: float, day: date = DAY) -> None:
+    """A grid meter reading ~0 kW from h0 to h1 (zero-export controller), 20 kW import otherwise."""
+    from app.db.models import GrowattMeter, GrowattMeterReading
+
+    db.add(GrowattMeter(datalogger_sn="DL1", address=1, plant_id=PLANT))
+    # evening import once the PV is gone: the meter shows it is alive
+    for m in (0, 5, 10):
+        db.add(GrowattMeterReading(datalogger_sn="DL1", address=1, timestamp=datetime.combine(day, datetime.min.time()) + timedelta(hours=19, minutes=m), active_power_w=15000.0))
+    t = datetime.combine(day, datetime.min.time()) + timedelta(hours=6)
+    while t.hour < 18:
+        db.add(GrowattMeterReading(datalogger_sn="DL1", address=1, timestamp=t, active_power_w=200.0 if _between(t, h0, h1) else 20000.0))
+        t += timedelta(minutes=5)
+    db.commit()
+
+
+def test_slots_held_by_a_zero_export_meter_are_not_judged(factory):
+    with factory() as db:
+        # in the held hour, string A3 at 0 A and inverter B parked: the controller, not faults
+        _seed_day(
+            db,
+            current=lambda sn, s, ts, i: 0.0 if (sn, s) == (A, 3) and _between(ts, 10, 11) else i,
+            status=lambda sn, ts: 0 if sn == B and _between(ts, 10, 11) else 1,
+        )
+        _meter_holds_zero(db, 10, 11)
+        strings, invs = _compute(db)
+        assert strings[(A, 3)].open_min == 0 and strings[(A, 3)].lost_kwh_est == 0
+        assert invs[B].standby_min == 0
+        found = _rules(db)
+        assert ("R2", A, 3) not in found and ("R8", B, None) not in found
+
+
+def test_a_meter_stuck_at_zero_holds_nothing(factory):
+    from app.db.models import GrowattMeter, GrowattMeterReading
+
+    with factory() as db:
+        _seed_day(db, current=lambda sn, s, ts, i: 0.0 if (sn, s) == (A, 3) and _between(ts, 10, 11) else i)
+        db.add(GrowattMeter(datalogger_sn="DL1", address=1, plant_id=PLANT))
+        t = datetime.combine(DAY, datetime.min.time())
+        while t.day == DAY.day:  # night import, then the CT drops out: 0.0 W from 05:00 on
+            stray = t == datetime.combine(DAY, datetime.min.time()) + timedelta(hours=8)  # one blip is not a live meter
+            db.add(GrowattMeterReading(datalogger_sn="DL1", address=1, timestamp=t, active_power_w=20000.0 if t.hour < 5 or stray else 0.0))
+            t += timedelta(minutes=5)
+        db.commit()
+        strings, _ = _compute(db)
+        assert strings[(A, 3)].open_min == 60
+        assert ("R2", A, 3) in _rules(db)
+
+
+def test_held_slots_do_not_hide_a_dead_inverter(factory):
+    with factory() as db:
+        # meter at ~0 kW all day: A covers the load, B never produces (idle all day): still down
+        _seed_day(db, status=lambda sn, ts: 0 if sn == B else 1)
+        _meter_holds_zero(db, 6, 18)
+        _, invs = _compute(db)
+        assert invs[B].standby_min > 300
+        assert ("R8", B, None) in _rules(db)
+
+
+def test_short_open_spell_is_not_r2(factory):
+    with factory() as db:
+        _seed_day(db, current=lambda sn, s, ts, i: 0.0 if (sn, s) == (A, 3) and _between(ts, 10, 10.5) else i)
+        strings, _ = _compute(db)
+        assert strings[(A, 3)].open_min == 30
+        assert ("R2", A, 3) not in _rules(db)
+
+
+def test_string_voltage_is_not_compared_without_a_layout(factory):
+    with factory() as db:
+        _seed_day(db)
+        strings, _ = _compute(db)
+        assert all(r.v_ratio_median is None for r in strings.values())  # R4 needs module counts
+
+
 def test_data_gap_recovered_by_eac_today_is_not_lost(factory):
     with factory() as db:
         _seed_day(db, skip=lambda sn, ts: sn == B and _between(ts, 10, 11))
@@ -273,6 +357,86 @@ def test_alarm_rules_r3_and_r9(factory):
         assert findings[0]["rule"] == "R3" and findings[0]["safety"] and findings[0]["tier"] == "P1"
         r9 = next(f for f in findings if f["rule"] == "R9")
         assert r9["device_sn"] == B and r9["evidence"]["events"] == 3
+
+
+def _iso(db, sn: str, day: date, hh: int, mm: int = 0, message: str = "PV Isolation Low", code: str = "203") -> None:
+    t = datetime.combine(day, datetime.min.time()) + timedelta(hours=hh, minutes=mm)
+    db.add(GrowattAlarm(device_sn=sn, plant_id=PLANT, day=day, start_time=t, alarm_code=code, alarm_message=message, fault_type="Error"))
+
+
+def test_r3_dawn_insulation_alarm_is_dew_unless_late_or_repeated(factory):
+    with factory() as db:
+        # 05:50 = the start-up check before first power (06:05); both inverters start on time
+        _seed_day(db)
+        _iso(db, A, DAY, 5, 50)
+        db.commit()
+        assert not [f for f in growatt_rules.evaluate(db, DAY) if f["rule"] == "R3"]
+        # repeated on 3 of the last 7 days: P3 (not a safety P1)
+        for k in (1, 2):
+            _iso(db, A, DAY - timedelta(days=k), 5, 50)
+        db.commit()
+        f = next(f for f in growatt_rules.evaluate(db, DAY) if f["rule"] == "R3")
+        assert f["tier"] == "P3" and not f["safety"] and f["evidence"]["dawn"] and f["evidence"]["days"] == 3
+        # an arc fault is always P1, at dawn too
+        _iso(db, A, DAY, 5, 55, message="AFCI Fault", code="200")
+        db.commit()
+        f = next(f for f in growatt_rules.evaluate(db, DAY) if f["rule"] == "R3")
+        assert f["tier"] == "P1" and f["safety"]
+
+
+def test_r3_dawn_insulation_alarm_with_a_late_start_is_p1(factory):
+    with factory() as db:
+        _seed_day(db, status=lambda sn, ts: 0 if sn == B and ts.hour < 8 else 1)
+        _iso(db, B, DAY, 5, 50)
+        db.commit()
+        f = next(f for f in growatt_rules.evaluate(db, DAY) if f["rule"] == "R3")
+        assert f["device_sn"] == B and f["tier"] == "P1" and f["safety"]
+        assert f["evidence"]["first_power"] == "08:00" and f["evidence"]["late_start_min"] > 60
+
+
+def test_r3_daytime_insulation_day_is_not_a_dawn_repeat(factory):
+    with factory() as db:
+        _seed_day(db)
+        for k in (1, 2):
+            _seed_day(db, day=DAY - timedelta(days=k))
+        _iso(db, A, DAY - timedelta(days=2), 11)  # while producing: a P1 day, not dew
+        _iso(db, A, DAY - timedelta(days=1), 5, 50)
+        _iso(db, A, DAY, 5, 50)
+        db.commit()
+        assert not [f for f in growatt_rules.evaluate(db, DAY) if f["rule"] == "R3"]  # 2 dawn days < 3
+
+
+def test_r3_waits_for_the_start_window_during_the_day():
+    start = datetime.combine(DAY, datetime.min.time())
+    alarm = GrowattAlarm(device_sn=A, plant_id=PLANT, day=DAY, start_time=start + timedelta(hours=6, minutes=1),
+                         alarm_code="203", alarm_message="PV Isolation Low")
+    cfg = dict(growatt_rules.DEFAULT_RULES)
+    starts = {B: {DAY: start + timedelta(hours=6, minutes=5)}}  # B started, A not yet
+    assert growatt_rules._r3(cfg, PLANT, A, DAY, [alarm], starts, as_of=start + timedelta(hours=6, minutes=10)) is None
+    late = growatt_rules._r3(cfg, PLANT, A, DAY, [alarm], starts, as_of=start + timedelta(hours=7, minutes=10))
+    assert late["tier"] == "P1" and late["evidence"]["safety"]
+    # single inverter: lateness is measured from the alarm
+    own = {A: {DAY: start + timedelta(hours=6, minutes=30)}}
+    assert growatt_rules._r3(cfg, PLANT, A, DAY, [alarm], own) is None
+    own = {A: {DAY: start + timedelta(hours=8)}}
+    f = growatt_rules._r3(cfg, PLANT, A, DAY, [alarm], own)
+    assert f["tier"] == "P1" and f["evidence"]["late_start_min"] == 119 and f["evidence"]["peers_first_power"] is None
+
+
+def test_open_safety_issue_is_not_downgraded(factory):
+    from app.services import growatt_issues
+
+    with factory() as db:
+        p1 = {"rule": "R3", "tier": "P1", "safety": True, "plant_id": PLANT, "device_sn": A, "string_no": None,
+              "evidence": {"alarms": ["203 PV Isolation Low"], "safety": True}, "lost_kwh_est": None, "thb_est": None, "shadow": True}
+        growatt_issues.sync(db, DAY, [p1])
+        p3 = {**p1, "tier": "P3", "safety": False, "evidence": {"alarms": ["203 PV Isolation Low"], "dawn": True}}
+        growatt_issues.sync(db, DAY + timedelta(days=1), [p3])
+        db.commit()
+        from app.db.models import GrowattIssue
+
+        i = db.scalars(select(GrowattIssue)).one()
+        assert i.tier == "P1" and i.safety and i.evidence["dawn"]
 
 
 def test_rule_settings_override_from_app_settings(factory):

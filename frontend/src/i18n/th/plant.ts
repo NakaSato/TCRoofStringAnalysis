@@ -406,6 +406,13 @@ export const TH_PLANT: Record<string, string> = {
   "No data {n} of {total} daylight min": "ไม่มีข้อมูล {n} จาก {total} นาทีช่วงกลางวัน",
   "Power-limited {n} min": "จำกัดกำลัง {n} นาที",
   "Safety alarm": "อลาร์มความปลอดภัย",
+  "{alarms} at the dawn start-up check on {n} of {d} days (dew?); started on time":
+    "{alarms} ตอนตรวจก่อนเริ่มเดินเครื่องช่วงเช้า {n} จาก {d} วัน (น้ำค้าง?) เริ่มผลิตไฟตามเวลา",
+  "{alarms}; first power {t}, {n} min after the plant's other inverters ({ref})":
+    "{alarms} เริ่มผลิตไฟ {t} ช้ากว่าอินเวอร์เตอร์อื่นในโรงไฟฟ้า {n} นาที ({ref})",
+  "{alarms}; first power {t}, {n} min after the alarm": "{alarms} เริ่มผลิตไฟ {t} หลังอลาร์ม {n} นาที",
+  "{alarms}; no power yet while the plant's other inverters started at {ref}":
+    "{alarms} ยังไม่ผลิตไฟ ขณะที่อินเวอร์เตอร์อื่นในโรงไฟฟ้าเริ่มตั้งแต่ {ref}",
   "{n} grid trips in {d} days": "กริดทริป (Grid trip) {n} ครั้งใน {d} วัน",
   "Acknowledge issue": "รับทราบปัญหา",
   "Acknowledge": "รับทราบ",

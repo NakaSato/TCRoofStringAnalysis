@@ -17,8 +17,9 @@ import statistics
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -29,7 +30,10 @@ from app.db.models import (
     GrowattPlantDaily,
     GrowattStringDaily,
 )
+from app.services.growatt_common import R as InvReading, _day_bounds
 from app.services.tariff import Pricer, pricer as load_pricer
+
+PLANT_TZ = ZoneInfo("Asia/Bangkok")
 
 SETTING_KEY = "decision_rules"
 
@@ -38,10 +42,18 @@ DEFAULT_RULES: Dict[str, Any] = {
     "r1_low_min": 120,
     "r1_days": 3,
     "r1_days_hit": 2,
-    # R2 open string
-    "r2_open_min": 15,
+    # R2 open string: 60 min, not 15: zero-export plants drop whole MPPTs for a slot or two
+    # (21–25 Nov 2026: at 60 min with the meter-held slots skipped, 128 of 133 all-day opens kept,
+    # inverter events 178 → 17)
+    "r2_open_min": 60,
     # R3 insulation / ground / arc fault: alarm message keywords (Growatt codes to be confirmed, plan §9)
     "r3_keywords": ["isolation", "insulation", "gfci", "residual current", "ground", "earth", "afci", "arc"],
+    # ... of which an insulation alarm at the dawn start-up check (before the inverter's first power)
+    # is mostly dew: P1 only when the inverter then starts late; else P3 once it repeats
+    "r3_dawn_keywords": ["isolation", "insulation"],
+    "r3_late_start_min": 60,  # after the median first power of the plant's other inverters
+    "r3_dawn_days": 3,
+    "r3_dawn_window_days": 7,
     # R4 bypass diode: string voltage more than 1.2 % below peer voltage for >= 2 days (per-string voltage sensing only)
     "r4_v_drop_pct": 1.2,
     "r4_days": 2,
@@ -60,6 +72,7 @@ DEFAULT_RULES: Dict[str, Any] = {
     # R8 inverter down (fault + off + standby minutes): at least this long, so a 5-min wake-up
     # lag is not an issue; P1 when the inverter carries more than the share of the plant
     "r8_min_down_min": 15,
+    "r8_min_standby_min": 60,  # standby-only downtime (record without power): wake-up lags and short parks
     "r8_p1_share_pct": 30.0,
     # R9 grid trips
     "r9_keywords": ["no ac connection", "grid", "ac v outrange", "ac f outrange", "ac voltage", "ac frequency"],
@@ -401,8 +414,9 @@ def evaluate(
         r = days.get(day)
         if r is None:
             continue
-        down = r.fault_min + r.off_min + r.standby_min
-        if "R8" in on and down >= cfg["r8_min_down_min"]:
+        if "R8" in on and (
+            r.fault_min + r.off_min >= cfg["r8_min_down_min"] or r.standby_min >= cfg["r8_min_standby_min"]
+        ):
             lost = [x for x in (r.lost_fault_kwh_est, r.lost_off_kwh_est, r.lost_standby_kwh_est) if x is not None]
             kwh = sum(lost) if lost else None
             share = r.plant_kwp_share_pct
@@ -563,19 +577,25 @@ def evaluate(
 
     # alarm rules
     A = GrowattAlarm
-    q3 = select(A).where(A.day >= day - timedelta(days=int(cfg["r9_window_days"]) - 1), A.day <= day)
+    alarm_days = max(int(cfg["r9_window_days"]), int(cfg["r3_dawn_window_days"]))
+    q3 = select(A).where(A.day >= day - timedelta(days=alarm_days - 1), A.day <= day)
     if plant_ids is not None:
         q3 = q3.where(A.plant_id.in_(list(plant_ids)))
     alarms = list(db.scalars(q3))
     by_inv: Dict[tuple, List[GrowattAlarm]] = defaultdict(list)
     for a in _alarm_events(alarms):
         by_inv[(a.plant_id, a.device_sn)].append(a)
+    r3_since = day - timedelta(days=int(cfg["r3_dawn_window_days"]) - 1)
+    starts = _first_power(db, r3_since, day, {k[0] for k, ev in by_inv.items() if any(a.day == day for a in ev)}) if "R3" in on else {}
+    now_local = datetime.now(PLANT_TZ).replace(tzinfo=None)
+    as_of = now_local if day >= now_local.date() else None  # today's runs see a partial day
     for (pid, sn), events in by_inv.items():
-        safety = [a for a in events if a.day == day and _matches(a.alarm_message, cfg["r3_keywords"])]
-        if "R3" in on and safety:
-            out.append(_finding("R3", "P1", pid, day, sn, None, None, None, safety=True,
-                                alarms=sorted({f"{a.alarm_code} {a.alarm_message}" for a in safety})))
-        trips = [a for a in events if _matches(a.alarm_message, cfg["r9_keywords"])]
+        if "R3" in on:
+            f3 = _r3(cfg, pid, sn, day, events, starts.get(pid, {}), as_of)
+            if f3:
+                out.append(f3)
+        trips = [a for a in events if a.day >= day - timedelta(days=int(cfg["r9_window_days"]) - 1)
+                 and _matches(a.alarm_message, cfg["r9_keywords"])]
         if "R9" in on and len(trips) >= cfg["r9_events"] and any(a.day == day for a in trips):
             out.append(_finding("R9", "P3", pid, day, sn, None, None, None, events=len(trips),
                                 window_days=int(cfg["r9_window_days"])))
@@ -587,6 +607,80 @@ def evaluate(
         f["shadow"] = cfg["rules"][f["rule"]]["shadow"]
     out.sort(key=lambda f: (not f["safety"], TIER_ORDER[f["tier"]], -(f["thb_est"] or 0), -(f["lost_kwh_est"] or 0)))
     return out
+
+
+def _first_power(db: Session, since: date, day: date, plant_ids: set) -> Dict[int, Dict[str, Dict[date, datetime]]]:
+    """{plant: {inverter: {local day: first record with AC power}}} over [since, day]."""
+    if not plant_ids:
+        return {}
+    from app.db.models import GrowattInverter
+
+    lo, _ = _day_bounds(since)
+    _, hi = _day_bounds(day)
+    d = func.date(InvReading.timestamp)
+    rows = db.execute(
+        select(GrowattInverter.plant_id, InvReading.device_sn, d, func.min(InvReading.timestamp))
+        .join(GrowattInverter, GrowattInverter.device_sn == InvReading.device_sn)
+        .where(GrowattInverter.plant_id.in_(list(plant_ids)), InvReading.timestamp >= lo, InvReading.timestamp < hi, InvReading.pac_w > 0)
+        .group_by(GrowattInverter.plant_id, InvReading.device_sn, d)
+    ).all()
+    out: Dict[int, Dict[str, Dict[date, datetime]]] = defaultdict(lambda: defaultdict(dict))
+    for pid, sn, dd, ts in rows:
+        out[pid][sn][date.fromisoformat(str(dd)[:10])] = ts
+    return out
+
+
+def _r3(cfg: Dict[str, Any], pid: int, sn: str, day: date, events: Sequence[GrowattAlarm],
+        starts: Dict[str, Dict[date, datetime]], as_of: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
+    """R3 for one inverter. An insulation alarm at the dawn start-up check (before the inverter's
+    first power) is mostly dew (21–25 Nov 2026: every one between 06:00 and 06:56, most inverters
+    producing within the hour): P1 only when the inverter then starts more than r3_late_start_min
+    after the median first power of the plant's other inverters (no other inverter producing: after
+    the alarm), or not at all; P3 when dawn alarms repeat on r3_dawn_days of the last
+    r3_dawn_window_days; else nothing. Every other match is P1. `as_of` = now for today (a run
+    during the day): an inverter not producing yet is late only once the start window has passed."""
+    late_after = timedelta(minutes=int(cfg["r3_late_start_min"]))
+
+    def first_on(d: date) -> Optional[datetime]:
+        return starts.get(sn, {}).get(d)
+
+    def dawn(a: GrowattAlarm) -> bool:
+        f = first_on(a.day)
+        return _matches(a.alarm_message, cfg["r3_dawn_keywords"]) and a.start_time is not None and (f is None or a.start_time < f)
+
+    today = [a for a in events if a.day == day and _matches(a.alarm_message, cfg["r3_keywords"])]
+    if not today:
+        return None
+    first = first_on(day)
+    peers = sorted(v[day] for s, v in starts.items() if s != sn and day in v)
+    dawn_today = [a for a in today if dawn(a)]
+    ref = peers[len(peers) // 2] if peers else (min(a.start_time for a in dawn_today) if dawn_today else None)
+    if ref is None or first is not None:
+        late = ref is not None and first is not None and first - ref > late_after
+    else:  # no power yet: late on a finished day, or once the window has passed today
+        late = as_of is None or as_of - ref > late_after
+
+    label = lambda xs: sorted({f"{a.alarm_code} {a.alarm_message}" for a in xs})  # noqa: E731
+    p1 = [a for a in today if not dawn(a)]
+    ev: Dict[str, Any] = {
+        "first_power": first.strftime("%H:%M") if first else None,
+        "peers_first_power": peers[len(peers) // 2].strftime("%H:%M") if peers else None,
+    }
+    if p1 or late:
+        if late and not p1 and first is not None:
+            ev["late_start_min"] = round((first - ref).total_seconds() / 60)
+        return _finding("R3", "P1", pid, day, sn, None, None, None, safety=True, alarms=label(today), **ev)
+    # repeats: days whose R3 alarms were all dawn insulation alarms (a daytime one is a P1 day, not dew)
+    since = day - timedelta(days=int(cfg["r3_dawn_window_days"]) - 1)
+    by_day: Dict[date, List[GrowattAlarm]] = defaultdict(list)
+    for a in events:
+        if a.day >= since and _matches(a.alarm_message, cfg["r3_keywords"]):
+            by_day[a.day].append(a)
+    days = [d for d, xs in by_day.items() if all(dawn(a) for a in xs)]
+    if len(days) >= int(cfg["r3_dawn_days"]):
+        return _finding("R3", "P3", pid, day, sn, None, None, None, dawn=True, alarms=label(today),
+                        days=len(days), window_days=int(cfg["r3_dawn_window_days"]), **ev)
+    return None
 
 
 def summarize(findings: Sequence[Dict[str, Any]]) -> Dict[str, Any]:

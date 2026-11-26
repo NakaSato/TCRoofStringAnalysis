@@ -194,8 +194,11 @@ def sync(
         latest = i.last_seen_day is None or day >= i.last_seen_day
         i.daily = {**(i.daily or {}), dkey: {"kwh": f.get("lost_kwh_est"), "thb": f.get("thb_est")}}
         if latest:
-            i.tier = f["tier"]
-            i.safety = bool(f.get("safety"))
+            # an open safety issue is not downgraded by a later non-safety finding of its rule
+            # (R3: a dawn insulation repeat after a daytime fault); the evidence still follows
+            if not (i.safety and not f.get("safety")):
+                i.tier = f["tier"]
+                i.safety = bool(f.get("safety"))
             i.evidence = {**(f.get("evidence") or {}), "day": dkey}
         _refresh_totals(i)
 
