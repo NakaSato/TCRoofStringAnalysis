@@ -304,6 +304,7 @@ def test_overdue_and_summary(api, monkeypatch):
     assert (s["failed_open"], s["failed_unsent_overdue"]) == (2, 1)
 
 
+@pytest.mark.sqlite_only
 def test_startup_relaxes_part_id_on_an_old_sqlite_table(tmp_path):
     """A local SQLite DB from phase 1 has stock_movements.part_id NOT NULL with its indexes: startup
     rebuilds the table (rows and indexes kept) and a second startup changes nothing."""

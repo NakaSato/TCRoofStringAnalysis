@@ -278,6 +278,7 @@ def test_requeue_keeps_the_newest_failed_records_when_new_ones_arrived(tmp_path)
     assert [r["message"] for r in h._buf] == ["b", "logged meanwhile", "also meanwhile"]
 
 
+@pytest.mark.sqlite_only
 def test_sqlite_engine_uses_wal_and_a_long_busy_timeout(tmp_path):
     from sqlalchemy import text
 

@@ -8,6 +8,7 @@ Backend-specific guidance. Run all commands from the **repo root**, not from `ba
 PYTHONPATH=backend uv run uvicorn app.main:app --reload --port 8000   # API, Swagger at /docs
 uv run pytest -q                                                    # all tests (pythonpath: backend, .)
 uv run pytest backend/tests/test_growatt_routes.py -v
+backend/scripts/test_postgres.sh                                     # all tests on Postgres 16 (Docker / OrbStack; tests/pg_plugin.py: a fresh DB per test engine; args go to pytest)
 pyright --pythonpath .venv/bin/python backend/app backend/solar_core # type check
 
 uv run alembic -c backend/alembic.ini upgrade head

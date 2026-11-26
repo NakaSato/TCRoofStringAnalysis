@@ -149,7 +149,7 @@ def test_spare_and_failed_marks(api):
         db.add(p)
         db.flush()
         u = SpareUnit(part_id=p.id, serial="rtr-a1", serial_key="RTR-A1", state="installed", plant_id=P1)
-        tag = RedTag(number=9001, code="RT-9001", batch="T", status="bound")
+        tag = RedTag(number=9001, code="RT-9001", batch=1, status="bound")
         db.add_all([u, tag])
         db.flush()
         db.add(FailedUnit(red_tag_id=tag.id, part_id=p.id, serial="CW-1", serial_key="CW-1", plant_id=P1, removed_day=datetime.now(timezone.utc).date(), fault="dead", status="tagged"))
@@ -204,7 +204,7 @@ def test_models_spare_counts(api):
         db.add(p)
         db.flush()
         db.add_all([SpareUnit(part_id=p.id, serial=f"S{i}", serial_key=f"S{i}", state="in_stock") for i in range(3)])
-        tags = [RedTag(number=9000 + i, code=f"RT-90{i}", batch="T", status="bound") for i in range(3)]
+        tags = [RedTag(number=9000 + i, code=f"RT-90{i}", batch=1, status="bound") for i in range(3)]
         db.add_all(tags)
         db.flush()
         today = datetime.now(timezone.utc).date()

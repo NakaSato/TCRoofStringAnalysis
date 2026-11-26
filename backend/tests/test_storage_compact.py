@@ -29,6 +29,7 @@ def _inverter(db) -> None:
     db.commit()
 
 
+@pytest.mark.sqlite_only
 def test_mppt_list_is_stored_compact_and_read_back_as_dicts(factory):
     with factory() as db:
         _inverter(db)
