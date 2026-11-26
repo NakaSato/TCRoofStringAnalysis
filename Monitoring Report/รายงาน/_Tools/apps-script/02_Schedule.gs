@@ -157,15 +157,16 @@ function nothingNew_(ym) {
       pageSize: 1000, fields: 'nextPageToken, files(id,modifiedTime)' });
     if (page.nextPageToken) return false;
     if ((page.files || []).some(f => !seen || seen[fileKey_(f.id)] !== stamp_(new Date(f.modifiedTime).getTime()))) return false;
-    // the Overview: untouched since the sync wrote it, or already compared at this edit time
+    // the Overview: untouched since the sync wrote it, or already compared at this edit time for this month
+    // (per month: this month matching the Overview says nothing about last month's sig / os)
     const at = Drive.Files.get(last.ov, { fields: 'modifiedTime' }).modifiedTime;
-    if (new Date(at).getTime() <= Number(last.fin) || props.getProperty('ovSame') === at) return true;
+    if (new Date(at).getTime() <= Number(last.fin) || props.getProperty(`ovSame_${ym}`) === at) return true;
     const overview = SpreadsheetApp.openById(last.ov);
     const stations = readStations_(overview);
     if (signature_([stations, readInverters_(overview)]) !== last.sig) return false;
     // a name typed in "ผู้รับผิดชอบ": the report log shows it, so sync (reads no plant file, the plants are the same)
     if (signature_(readOwners_(overview, stations)) !== last.os) return false;
-    props.setProperty('ovSame', at);
+    props.setProperty(`ovSame_${ym}`, at);
     return true;
   } catch (e) {
     console.warn(`ตรวจการแก้ไขไม่ได้ — ซิงก์ตามปกติ: ${e}`);

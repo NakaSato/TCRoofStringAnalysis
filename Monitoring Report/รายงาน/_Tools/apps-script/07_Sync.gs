@@ -164,6 +164,9 @@ function dropOldSeen_(props, keep) {
     if (dm && dm < prev && dm !== keep) props.deleteProperty(k);
     const nf = k.indexOf('noFolder_') === 0 ? k.slice(9) : '';  // the day the missing month folder was last reported
     if (nf && nf < prev) props.deleteProperty(k);
+    const os = k.indexOf('ovSame_') === 0 ? k.slice(7) : '';    // the Overview edit time last compared, per month
+    if (os && os < prev && os !== keep) props.deleteProperty(k);
+    if (k === 'ovSame') props.deleteProperty(k);                // before it was kept per month
   });
 }
 function saveSeen_(props, ym, seen) {

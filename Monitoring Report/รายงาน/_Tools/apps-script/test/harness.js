@@ -103,7 +103,7 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(readCode(codePath) + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,removeLogos,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,writeLastReport_,addBox_,issueTable_,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_,upsertIssues_,reportLog_,nothingNew_,writeInverterStatus_};', ctx);
+vm.createContext(ctx); vm.runInContext(readCode(codePath) + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,removeLogos,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,writeLastReport_,addBox_,issueTable_,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_,upsertIssues_,reportLog_,nothingNew_,writeInverterStatus_,groupIssues_};', ctx);
 const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
@@ -174,7 +174,7 @@ console.log('after adding an event in 1 h:', triggers.filter(t => t.at).map(t =>
 // 6) interval sync
 console.log('default after setup():', api.status().split(' · ').pop(), '· intervalSync triggers:', triggers.filter(t => t.fn === 'intervalSync').length);
 try { console.log(api.setSyncInterval(30)); console.log('triggers:', triggers.map(t => t.fn).join(' · ')); const n0 = O.getSheetByName('_log').getLastRow(); api.intervalSync(); drain(); console.log('interval run:', props.last, '· new _log rows:', O.getSheetByName('_log').getLastRow() - n0); console.log(api.status()); try { api.setSyncInterval(7); } catch (e) { console.log('bad value →', e.message); } { delete props.last; const last = undefined, o0 = JSON.stringify(O.sheets.map(x => x.cells)); globalThis.__old = true; ctx.__lists = 0; api.intervalSync(); console.log('nothing edited → skipped:', props.last === last && !props.job && JSON.stringify(O.sheets.map(x => x.cells)) === o0, '· Drive lists:', ctx.__lists);
-    ctx.__ovEdit = Date.now() + 1000; api.intervalSync(); console.log('Overview touched, same plants → skipped:', props.last === last && !props.job, '· remembered:', !!props.ovSame);
+    ctx.__ovEdit = Date.now() + 1000; api.intervalSync(); console.log('Overview touched, same plants → skipped:', props.last === last && !props.job, '· remembered:', !!props['ovSame_' + api.ym_(new Date())]);
     const c = st.cells['2,6']; st.cells['2,6'] = 502; ctx.__ovEdit = Date.now() + 2000; api.intervalSync(); drain(); console.log('Overview plant changed → synced:', !!props.last, '·', props.last); st.cells['2,6'] = c; api.syncNow(); drain();
     delete props.last; api.intervalSync(); console.log('still nothing edited → skipped:', !props.last); globalThis.__old = false; api.intervalSync(); drain(); console.log('plant file edited → synced:', !!props.last, '·', props.last); }
   console.log(api.setSyncInterval(0), '· left:', triggers.filter(t => t.fn === 'intervalSync').length); api.planTriggers(); console.log('off stays off after planTriggers/setup:', triggers.filter(t => t.fn === 'intervalSync').length === 0, '·', api.status().split(' · ').pop()); } catch (e) { console.log('interval test failed:', e.message); }
@@ -602,3 +602,25 @@ try {
     after.some(r => r.key === 'P1-002|SN-C|20261030' && r.done === '02/11/2569') && after.some(r => r.key === 'P1-003|SN-D|20260929' && r.done === '03/11/2569') &&
     own === 'ตรวจซ้ำ');
 } catch (e) { console.log('section 20e failed:', e.stack); }
+// 20f) the Overview edit time compared is kept per month: this month matching the Overview does not stand for last month,
+//      whose owners (os) are still behind it (#146 manual finding 1); and "a / a" joined before collapses to "a" (finding 2)
+try {
+  const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number), ny = mo === 12 ? yy + 1 : yy, nm = mo === 12 ? 0 : mo, nym = `${ny}-${pad(nm + 1)}`;
+  const recNew = props['synced_' + nym], recOld = props['synced_' + ym];
+  if (!recNew || !recOld) throw new Error('needs section 18 (both months synced)');
+  ctx.Date = class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(Date.UTC(ny, nm, 2, 5)); } static now() { return Date.UTC(ny, nm, 2, 5); } };
+  globalThis.__old = true;
+  const n = JSON.parse(recNew); n.fin = Date.UTC(ny, nm, 2, 4); props['synced_' + nym] = JSON.stringify(n);
+  const o = JSON.parse(recOld); o.fin = Date.UTC(ny, nm, 2, 4); o.os = 'behind'; props['synced_' + ym] = JSON.stringify(o);   // an owner typed, not synced into last month yet
+  delete props['ovSame_' + nym]; delete props['ovSame_' + ym];   // left by earlier sections
+  ctx.__ovEdit = Date.UTC(ny, nm, 2, 4, 30);   // an unrelated Overview edit after both syncs
+  const newQuiet = api.nothingNew_(nym), oldQuiet = api.nothingNew_(ym), kept = !!props['ovSame_' + nym], oldKept = !!props['ovSame_' + ym];
+  props['synced_' + nym] = recNew; props['synced_' + ym] = recOld; delete props['ovSame_' + nym]; delete props['ovSame_' + ym];
+  ctx.Date = RealDate; globalThis.__old = false;
+  const g = api.groupIssues_([
+    { 'รหัสปัญหา': 'P1-001|SN-A|20261101', 'Inverter S/N': 'SN-A', 'รายละเอียดปัญหา': 'AFCI', 'การแก้ไข / หมายเหตุ': 'เปลี่ยนฟิวส์ / เปลี่ยนฟิวส์', 'ระยะ': 1, 'สถานะ': 'แก้ไขแล้ว' },
+    { 'รหัสปัญหา': 'P1-001|SN-B|20261101', 'Inverter S/N': 'SN-B', 'รายละเอียดปัญหา': 'AFCI', 'การแก้ไข / หมายเหตุ': 'เปลี่ยนฟิวส์', 'ระยะ': 1, 'สถานะ': 'แก้ไขแล้ว' }])[0];
+  console.log('this month quiet:', newQuiet, '(want true) · last month with owners behind quiet:', oldQuiet, '(want false) · remembered for', kept ? nym : '-', oldKept ? '+ ' + ym : '',
+    '· grouped fix:', JSON.stringify(g['การแก้ไข / หมายเหตุ']), '· ระยะ:', JSON.stringify(g['ระยะ']),
+    '· 20f PASS:', newQuiet === true && oldQuiet === false && kept && !oldKept && g['การแก้ไข / หมายเหตุ'] === 'เปลี่ยนฟิวส์' && g['ระยะ'] === 1);
+} catch (e) { ctx.Date = Date; globalThis.__old = false; console.log('section 20f failed:', e.stack); }

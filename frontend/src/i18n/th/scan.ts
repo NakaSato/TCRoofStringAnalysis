@@ -100,6 +100,7 @@ export const TH_SCAN: Record<string, string> = {
   "Did you mean (O / 0 and I / 1 swapped)?": "หมายถึงรหัสนี้หรือเปล่า (สลับ O / 0 และ I / 1)",
   "Picked as remembered for {model}.": "เลือกให้ตามที่จำไว้สำหรับ {model}",
   "Another field is remembered for {model}; only an admin can change it.": "{model} มีช่องที่จำไว้แล้วเป็นช่องอื่น เฉพาะแอดมินเปลี่ยนได้",
+  "The field remembered for {model} could not be read; this pick is not remembered.": "อ่านช่องที่จำไว้ของ {model} ไม่ได้ ช่องที่เลือกครั้งนี้จะไม่ถูกจำไว้",
   "Using this field will be remembered for {model} instead.": "ถ้าใช้ช่องนี้ ระบบจะจำช่องนี้สำหรับ {model} แทน",
   "The field you use is remembered for {model}, so the next label picks it.": "ระบบจะจำช่องที่ใช้สำหรับ {model} ฉลากรุ่นเดียวกันครั้งหน้าจะเลือกให้เอง",
   "Remembered label fields": "ช่องบนฉลากที่จำไว้",

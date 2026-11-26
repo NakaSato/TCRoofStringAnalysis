@@ -59,7 +59,8 @@ function groupIssues_(rows) {
       if (vals.some(v => typeof v === 'string' && v.charAt(0) === '=')) { row[h] = vals[0]; return; }
       // each different value once, also inside values that were joined before ("a / b" and "a" give "a / b")
       const uniq = [].concat(...vals.map(v => String(v).split(' / '))).filter((v, i, a) => a.indexOf(v) === i);
-      row[h] = uniq.length === 1 ? vals[0] : uniq.join(' / ');
+      // one value: kept as it is (a number stays a number), unless it was joined before ("a / a" gives "a")
+      row[h] = uniq.length === 1 && String(vals[0]) === uniq[0] ? vals[0] : uniq.join(' / ');
     });
     row['รหัสปัญหา'] = `${code}|${sns.join(',')}|${day}`;
     row['Inverter S/N'] = sns.join(', ');

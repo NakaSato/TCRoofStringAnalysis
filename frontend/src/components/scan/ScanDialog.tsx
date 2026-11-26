@@ -314,7 +314,9 @@ const PickResult: React.FC<{ read: ScanRead; fieldHint?: FieldHintContext; onUse
   const fields = useMemo(() => splitFields(base), [base]);
   const model = fieldHint?.model?.trim() || null;
   const remembers = fields.length > 1 && !!fieldHint && !!model;
+  // undefined = not known: still loading, or the read failed (then nothing is saved: it could overwrite a remembered field)
   const [hint, setHint] = useState<ScanFieldHint | null | undefined>(remembers ? undefined : null);
+  const [hintFailed, setHintFailed] = useState(false);
   const sim = isSimCategory(fieldHint?.category);
   // before a remembered hint: the ICCID for a SIM field, the labelled serial otherwise
   const defaultAt = () => {
@@ -337,7 +339,7 @@ const PickResult: React.FC<{ read: ScanRead; fieldHint?: FieldHintContext; onUse
         const f = pickByHint(fields, h);
         if (f && !touched.current) setChosen(fields.indexOf(f));
       })
-      .catch(() => alive && setHint(null));
+      .catch(() => alive && setHintFailed(true));
     return () => {
       alive = false;
     };
@@ -379,6 +381,9 @@ const PickResult: React.FC<{ read: ScanRead; fieldHint?: FieldHintContext; onUse
           <p className="text-[11px] text-muted-foreground">
             {sim ? t("The SIM number is the ICCID; the serial and IMEI are not it.") : t("IMEI and SIM numbers are not the device serial.")}
           </p>
+          {remembers && hintFailed && (
+            <p className="text-[11px] text-muted-foreground">{t("The field remembered for {model} could not be read; this pick is not remembered.", { model: model! })}</p>
+          )}
           {remembers && hint !== undefined && (
             <p className="text-[11px] text-muted-foreground">
               {usesHint
