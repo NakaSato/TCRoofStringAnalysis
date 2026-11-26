@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -357,13 +356,13 @@ export const ScanningSettings: React.FC = () => {
             <NumberField id="scan-gap" label={t("Longest gap between keys")} unit="ms" value={gap} onChange={setGap} hint={t("Scanners: 2–15 ms; people: over 80 ms")} />
             <NumberField id="scan-min" label={t("Shortest code")} unit={t("characters")} value={minLen} onChange={setMinLen} />
             <NumberField id="scan-idle" label={t("End without Enter after")} unit="ms" value={idle} onChange={setIdle} hint={t("For scanners with no suffix")} />
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="scan-prefix" className="text-xs">
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="scan-prefix" className="text-[11px] font-medium text-muted-foreground">
                 {t("Prefix")}
-              </Label>
+              </FieldLabel>
               <Input id="scan-prefix" value={prefix} maxLength={4} onChange={(e) => setPrefix(e.target.value)} placeholder={t("none")} className="font-mono" />
               <span className="text-[11px] text-muted-foreground">{t("Programmed on the scanner; a code that starts with it is a scan even inside a text field")}</span>
-            </div>
+            </Field>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="ghost" disabled={isDefault} onClick={() => fill(DEFAULT_SCAN_SETTINGS)}>

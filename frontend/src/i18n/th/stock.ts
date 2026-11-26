@@ -86,7 +86,6 @@ export const TH_STOCK: Record<string, string> = {
   "Failed units": "อุปกรณ์เสีย",
   "Tag a failed unit": "ติดป้ายแดงอุปกรณ์เสีย",
   "Failed units open": "อุปกรณ์เสียที่ค้างอยู่",
-  "Failed, not sent yet (overdue)": "เสียแต่ยังไม่ได้ส่ง (เกินกำหนด)",
   "Not sent": "ยังไม่ได้ส่ง",
   "All open": "ที่ค้างอยู่ทั้งหมด",
   "Red tag or serial…": "ป้ายแดงหรือซีเรียล…",
@@ -297,4 +296,6 @@ export const TH_STOCK: Record<string, string> = {
   "Could not load the movements: {error}": "โหลดประวัติการเคลื่อนไหวไม่สำเร็จ: {error}",
   "CSV export failed: {error}": "ส่งออก CSV ไม่สำเร็จ: {error}",
   "Could not load the failed units: {error}": "โหลดรายการอุปกรณ์เสียไม่สำเร็จ: {error}",
+  "Overdue to send": "ค้างส่งเกินกำหนด",
+  "Failed units not sent to the supplier in time": "อุปกรณ์เสียที่ยังไม่ได้ส่งผู้ขายภายในกำหนด",
 };

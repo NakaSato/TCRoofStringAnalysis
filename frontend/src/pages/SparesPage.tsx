@@ -146,12 +146,12 @@ export const SparesPage: React.FC = () => {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:max-w-4xl lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           <StatTile label={t("Units in stock")} num={summary.in_stock} digits={0} countUp />
           <StatTile label={t("Installed from stock")} num={summary.installed} digits={0} countUp />
           <StatTile label={t("Parts below minimum")} num={summary.parts_below_min} digits={0} countUp tone={summary.parts_below_min > 0 ? WARN : undefined} />
           <StatTile label={t("Failed units open")} num={summary.failed_open} digits={0} countUp />
-          <StatTile label={t("Failed, not sent yet (overdue)")} num={summary.failed_unsent_overdue} digits={0} countUp tone={summary.failed_unsent_overdue > 0 ? WARN : undefined} />
+          <StatTile label={t("Overdue to send")} num={summary.failed_unsent_overdue} digits={0} countUp tone={summary.failed_unsent_overdue > 0 ? WARN : undefined} footer={t("Failed units not sent to the supplier in time")} />
           <StatTile label={t("Missing units")} num={summary.missing_units ?? null} digits={0} countUp tone={summary.missing_units > 0 ? WARN : undefined} />
         </div>
       )}
