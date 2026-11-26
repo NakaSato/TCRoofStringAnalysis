@@ -250,15 +250,32 @@ def compute_plant_day(
 ) -> Dict[str, int]:
     """Replace the plant's daily string and inverter rows for `day`. Returns row counts.
     `until`: newest stored record of the fleet; daylight after it is not judged (today).
-    `pricer`: the tariff, for splitting lost kWh into on-peak / off-peak hours."""
+    `pricer`: the tariff, for splitting lost kWh into on-peak / off-peak hours.
+
+    Everything is read and computed first, the old rows are deleted last: on SQLite the write lock
+    is taken at the first DELETE and held to the caller's commit, so it then covers only the writes
+    (deleting first held it through the whole computation, ~40 ms a plant back to back, and a
+    waiting API write could miss every gap for seconds). The new rows stay pending (no autoflush)
+    and are inserted after the DELETEs at the commit."""
+
+    def clear() -> None:
+        db.execute(delete(GrowattStringDaily).where(GrowattStringDaily.plant_id == plant.plant_id, GrowattStringDaily.day == day))
+        db.execute(delete(GrowattInverterDaily).where(GrowattInverterDaily.plant_id == plant.plant_id, GrowattInverterDaily.day == day))
+        db.execute(delete(GrowattPlantDaily).where(GrowattPlantDaily.plant_id == plant.plant_id, GrowattPlantDaily.day == day))
+
+    with db.no_autoflush:
+        n = _compute_plant_day(db, plant, day, until, pricer)
+        clear()
+    return n
+
+
+def _compute_plant_day(db: Session, plant: GrowattPlant, day: date, until: Optional[datetime], pricer: Optional[Pricer]) -> Dict[str, int]:
+    """compute_plant_day without the DELETEs: reads, then stages the new rows (`db.add`)."""
     pr = pricer or load_pricer(db)
     invs = list(db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant.plant_id, inverter_installed())))
     sns = [i.device_sn for i in invs]
     by_sn = {i.device_sn: i for i in invs}
     lo, hi = _day_bounds(day)
-    db.execute(delete(GrowattStringDaily).where(GrowattStringDaily.plant_id == plant.plant_id, GrowattStringDaily.day == day))
-    db.execute(delete(GrowattInverterDaily).where(GrowattInverterDaily.plant_id == plant.plant_id, GrowattInverterDaily.day == day))
-    db.execute(delete(GrowattPlantDaily).where(GrowattPlantDaily.plant_id == plant.plant_id, GrowattPlantDaily.day == day))
     if not sns:
         return {"strings": 0, "inverters": 0}
 

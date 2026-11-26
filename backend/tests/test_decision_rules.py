@@ -17,6 +17,7 @@ from app.db.models import (
     GrowattInverterDaily,
     GrowattInverterReading,
     GrowattPlant,
+    GrowattPlantDaily,
     GrowattStringDaily,
     GrowattStringReading,
 )
@@ -336,6 +337,21 @@ def test_recompute_replaces_rows(factory):
         _compute(db)
         assert len(list(db.scalars(select(GrowattStringDaily)))) == 8
         assert len(list(db.scalars(select(GrowattInverterDaily)))) == 2
+
+
+def test_recompute_replaces_rows_in_an_autoflush_session(factory):
+    """The old rows are deleted after the new ones are staged: an autoflushing session must not
+    insert the new rows before that DELETE (and so lose them)."""
+    with factory() as db:
+        _seed_day(db)
+    with sessionmaker(bind=factory.kw["bind"], autoflush=True, expire_on_commit=False)() as db:
+        for _ in range(2):
+            plant = db.get(GrowattPlant, PLANT)
+            growatt_daily.compute_plant_day(db, plant, DAY)
+            db.commit()
+        assert len(list(db.scalars(select(GrowattStringDaily)))) == 8
+        assert len(list(db.scalars(select(GrowattInverterDaily)))) == 2
+        assert len(list(db.scalars(select(GrowattPlantDaily)))) == 1
 
 
 # --------------------------------------------------------------------------- alarms, settings
