@@ -51,7 +51,7 @@ GS = "\x1d"
 APP_KINDS = ("rt", "sp", "loc", "tool", "dev", "df")
 RESOLVABLE_KINDS = ("tool", "dev", "sp", "loc")
 # spare unit states a raw serial matches (a voided receive is not in the register)
-SPARE_MATCH_STATES = ("in_stock", "installed", "failed", "missing")
+SPARE_MATCH_STATES = ("in_stock", "installed", "failed", "at_supplier", "missing")
 LOCATION_KIND_LABEL = {"store": "Store", "bin": "Bin", "van": "Van", "supplier": "Supplier"}
 _SITE_DEVICE_LABEL = {
     "datalogger": "Data logger",
@@ -306,7 +306,7 @@ def _raw_matches_many(db: Session, values: Set[str], allowed: Optional[Set[int]]
     ):
         if _failed_visible(allowed, fu.plant_id):
             add(fu.serial_key, _failed_unit_match(fu, tag_code, "serial"))
-    # 5. spare units (in stock, installed, failed) by serial, any part
+    # 5. spare units (in stock, installed, failed, at the supplier, missing) by serial, any part
     for u, p in db.execute(
         select(SpareUnit, Part).join(Part, Part.id == SpareUnit.part_id).where(SpareUnit.serial_key.in_(vals), SpareUnit.state.in_(SPARE_MATCH_STATES))
     ):

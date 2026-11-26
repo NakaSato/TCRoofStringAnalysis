@@ -16,7 +16,7 @@ and a `StockCount` row:
 
 Rows that block a confirm: `needs_part` (a new serial without a part), `ambiguous` (several units
 share the serial and no part picks one), `blocked` (installed / failed / at the supplier /
-scrapped, or not countable). `duplicate` and `not_a_unit` rows are ignored. Each scan resolves
+scrapped, or not countable; a new serial held under another part or by an open failed unit). `duplicate` and `not_a_unit` rows are ignored. Each scan resolves
 the way the batch page does (`stock_lookup.lookup`): units installed on a plant the user may not
 see are treated as not found. Nothing is estimated: the count only records what was scanned.
 """
@@ -132,7 +132,7 @@ def _plan(db: Session, user: User, loc: StockLocation, scans: List[Dict[str, Any
                         row.update(result="ambiguous", message=f"{len(units)} units share serial {value}: choose the part ({', '.join(u['part_code'] for u in units)})")
                         continue
                 else:  # not in the register (or only on a plant the user may not see)
-                    _new_serial(db, row, value, s["part_id"], parts, seen)
+                    _new_serial(db, row, value, s["part_id"], parts, seen, allowed)
                     continue
             else:
                 row["message"] = {"location": "A location label, not a unit", "part": "A part label, not a unit"}.get(kind, "Not a unit of the register")
@@ -165,7 +165,9 @@ def _plan(db: Session, user: User, loc: StockLocation, scans: List[Dict[str, Any
     return {"rows": rows, "expected": expected, "missing": missing, "parts": parts, "locs": locs}
 
 
-def _new_serial(db: Session, row: Dict[str, Any], value: str, part_id: Optional[int], parts: Dict[int, Part], seen: Set[Tuple[Any, ...]]) -> None:
+def _new_serial(
+    db: Session, row: Dict[str, Any], value: str, part_id: Optional[int], parts: Dict[int, Part], seen: Set[Tuple[Any, ...]], allowed: Optional[Set[int]]
+) -> None:
     key = serial_key(value)
     if len(value) > 64:
         row["message"] = "Longer than a serial (64 characters)"
@@ -192,6 +194,14 @@ def _new_serial(db: Session, row: Dict[str, Any], value: str, part_id: Optional[
     held = db.scalars(select(SpareUnit).where(SpareUnit.part_id == part.id, SpareUnit.serial_key == key)).first()
     if held is not None and held.state != "void":  # a unit on a plant the user may not see
         row.update(result="blocked", message=f"{part.code} {value} cannot be counted in here")
+        return
+    # one serial, one place (plan §3): not under another part, nor an open failed unit
+    holder = stock.serial_holder(db, key, exclude_unit_id=held.id if held is not None else None)
+    if holder is not None:
+        if not stock._visible(allowed, holder.plant_id):  # hidden: counted as not found, as above
+            row.update(result="blocked", message=f"{part.code} {value} cannot be counted in here")
+        else:
+            row.update(result="blocked", message=f"{part.code} {value} {stock.holder_text(db, holder, allowed)}")
         return
     row["_unit"] = held  # a voided unit of this part + serial is reused
     row.update(result="new", message=f"New: {part.code} {value} counted into stock")

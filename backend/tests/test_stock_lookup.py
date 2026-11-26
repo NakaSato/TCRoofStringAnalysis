@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import GrowattPlant, User, UserPlantAssignment
+from app.db.models import GrowattPlant, SpareUnit, User, UserPlantAssignment
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
@@ -59,16 +59,22 @@ def api(tmp_path, monkeypatch):
         {"kind": "receive", "part_id": router["id"], "serial": "R1", "to_location_id": bin_["id"]},
         {"kind": "receive", "part_id": router["id"], "serial": "R2", "to_location_id": bin_["id"]},
         {"kind": "receive", "part_id": router["id"], "serial": "R3", "to_location_id": bin_["id"]},
-        {"kind": "receive", "part_id": logger["id"], "serial": "R1", "to_location_id": van["id"]},  # same serial, another part
     ]
     r = c.post("/stock/movements/batch", json={"rows": rows}, headers=keeper)
     assert r.status_code == 201, r.text
     units = {(m["part_code"], m["serial"]): m["unit_id"] for m in r.json()["movements"]}
+    # the same serial under another part: refused by `receive` now (one serial, one place), so
+    # written straight to the table, as data from before that rule would be
+    with f() as db:
+        u = SpareUnit(part_id=logger["id"], serial="R1", serial_key="R1", state="in_stock", location_id=van["id"])
+        db.add(u)
+        db.commit()
+        units[("P-LOGGER", "R1")] = u.id
     # R2 installed on P1 (the engineer's), R3 on P2 (hidden from the engineer)
     for serial, plant in (("R2", P1), ("R3", P2)):
         r = c.post("/stock/movements/batch", json={"rows": [{"kind": "issue", "part_id": router["id"], "serial": serial, "plant_id": plant}]}, headers=adm)
         assert r.status_code == 201, r.text
-    return {"c": c, "adm": adm, "eng": eng, "store": store, "bin": bin_, "van": van, "old": old, "router": router, "logger": logger, "units": units}
+    return {"c": c, "adm": adm, "eng": eng, "store": store, "bin": bin_, "van": van, "old": old, "router": router, "logger": logger, "units": units, "f": f}
 
 
 def _resolve(t, h, code, status=200):
@@ -271,3 +277,29 @@ def test_lookup_value_error_is_422(api, monkeypatch):
     t = api
     r = t["c"].get("/stock/lookup", params={"code": "x"}, headers=t["eng"])
     assert r.status_code == 422 and r.json()["detail"] == "bad code"
+
+
+def test_lookup_units_scoped_before_the_limit(api, monkeypatch):
+    """#144: units on hidden plants do not use up the list limit before the scope is applied."""
+    from app.services import stock
+
+    t = api
+    monkeypatch.setattr(stock, "MAX_LIST", 1)
+    # LIM: the logger's unit is installed on hidden P2 and sorts first (P-LOGGER < P-ROUTER-RUT)
+    f = t["f"]
+    with f() as db:
+        db.add(SpareUnit(part_id=t["logger"]["id"], serial="LIM", serial_key="LIM", state="installed", plant_id=P2))
+        db.add(SpareUnit(part_id=t["router"]["id"], serial="LIM", serial_key="LIM", state="in_stock", location_id=t["bin"]["id"]))
+        db.commit()
+    assert [u["part_code"] for u in _lookup(t, t["eng"], "LIM")["units"]] == ["P-ROUTER-RUT"]
+
+
+def test_resolver_matches_a_spare_at_the_supplier(api):
+    """#144: a spare unit at the supplier is still found by its serial."""
+    t = api
+    with t["f"]() as db:
+        u = db.get(SpareUnit, t["units"][("P-ROUTER-RUT", "R1")])
+        u.state, u.location_id = "at_supplier", None
+        db.commit()
+    m = [x for x in _resolve(t, t["eng"], "R1")["matches"] if x["label"].startswith("P-ROUTER-RUT")]
+    assert len(m) == 1 and m[0]["kind"] == "spare_unit" and m[0]["detail"].startswith("at supplier")

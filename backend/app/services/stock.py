@@ -23,7 +23,7 @@ import re
 import uuid
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select
@@ -31,8 +31,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids, can_manage_stock
-from app.db.models import GrowattPlant, Part, SpareUnit, StockCount, StockLocation, StockMovement, User
-from app.db.models.stock import INPUT_METHODS, LOCATION_KINDS, PART_CATEGORIES
+from app.db.models import FailedUnit, GrowattPlant, Part, RedTag, SpareUnit, StockCount, StockLocation, StockMovement, User
+from app.db.models.stock import FAILED_OPEN, INPUT_METHODS, LOCATION_KINDS, PART_CATEGORIES
 from app.services.scan import clean
 
 CODE = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{0,39}$")
@@ -347,6 +347,47 @@ def _unit_scope(allowed: Optional[Set[int]]):
     return or_(SpareUnit.plant_id.is_(None), SpareUnit.plant_id.in_(allowed or {-1}))
 
 
+# a serial is in one place (plan §3): a spare unit of any part in one of these states, or an open failed unit
+HOLDING_STATES = ("in_stock", "installed", "failed", "at_supplier", "missing")
+
+
+def serial_holders(
+    db: Session, key: str, *, exclude_unit_id: Optional[int] = None, exclude_failed_id: Optional[int] = None
+) -> List[Union[SpareUnit, FailedUnit]]:
+    """Everything that already holds serial `key`: spare units of any part in a live state, then open
+    failed units. Callers decide what to say about a holder on a plant the user may not see."""
+    q = select(SpareUnit).where(SpareUnit.serial_key == key, SpareUnit.state.in_(HOLDING_STATES)).order_by(SpareUnit.id)
+    if exclude_unit_id is not None:
+        q = q.where(SpareUnit.id != exclude_unit_id)
+    f = select(FailedUnit).where(FailedUnit.serial_key == key, FailedUnit.status.in_(FAILED_OPEN)).order_by(FailedUnit.id)
+    if exclude_failed_id is not None:
+        f = f.where(FailedUnit.id != exclude_failed_id)
+    return [*db.scalars(q), *db.scalars(f)]
+
+
+def serial_holder(
+    db: Session, key: str, *, exclude_unit_id: Optional[int] = None, exclude_failed_id: Optional[int] = None
+) -> Optional[Union[SpareUnit, FailedUnit]]:
+    """The first of `serial_holders`, or None when the serial is free."""
+    found = serial_holders(db, key, exclude_unit_id=exclude_unit_id, exclude_failed_id=exclude_failed_id)
+    return found[0] if found else None
+
+
+def holder_text(db: Session, holder: Union[SpareUnit, FailedUnit], allowed: Optional[Set[int]]) -> str:
+    """What holds a serial, for a refusal: `is an open failed unit (RT-0001)` / `is already in the
+    register as P-INV (in stock)`. A holder on a plant the user may not see is `another plant`, never
+    its id or red tag."""
+    hidden = not _visible(allowed, holder.plant_id)
+    if isinstance(holder, FailedUnit):
+        if hidden:
+            return "is an open failed unit on another plant"
+        tag = db.get(RedTag, holder.red_tag_id)
+        return f"is an open failed unit ({tag.code if tag else holder.id})"
+    part = db.get(Part, holder.part_id)
+    state = holder.state.replace("_", " ")
+    return f"is already in the register as {part.code if part else holder.part_id} ({state}{', another plant' if hidden else ''})"
+
+
 def unit_out(u: SpareUnit, part: Part, locs: Dict[int, StockLocation], names: Dict[int, str]) -> Dict[str, Any]:
     loc = locs.get(u.location_id) if u.location_id else None
     return {
@@ -497,6 +538,7 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
     errors: List[Dict[str, Any]] = []
     plan: List[Dict[str, Any]] = []
     seen_units: Set[Tuple[int, str]] = set()
+    seen_received: Set[str] = set()  # serial keys received in this batch, any part
 
     def stock_loc(lid: Any, what: str) -> StockLocation:
         loc = locs.get(lid) if isinstance(lid, int) else None
@@ -547,6 +589,13 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
                 if unit is not None and unit.state != "void":
                     where = locs[unit.location_id].code if unit.location_id in locs else (("another plant" if not _visible(allowed, unit.plant_id) else f"plant {unit.plant_id}") if unit.plant_id else "—")
                     raise StockError(f"{part.code} {unit.serial} is already in the register ({unit.state}, {where})")
+                # one serial, one place: not under another part, nor an open failed unit (plan §3)
+                if key[1] in seen_received:
+                    raise StockError(f"{serial} is twice in this batch")
+                seen_received.add(key[1])
+                holder = serial_holder(db, key[1], exclude_unit_id=unit.id if unit is not None else None)
+                if holder is not None:
+                    raise StockError(f"{part.code} {serial} {holder_text(db, holder, allowed)}")
                 to = stock_loc(r.get("to_location_id"), "To")
                 plan.append({"kind": kind, "part": part, "unit": unit, "serial": serial, "to": to, "plant": None, "from": None,
                              "from_state": unit.state if unit else None, "to_state": "in_stock", "note": row_note, "method": method, "raw": raw})
@@ -563,6 +612,8 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
                     if kind == "return":
                         plant_id = unit.plant_id if plant_id is None else plant_id
                         if plant_id != unit.plant_id:
+                            if not _visible(allowed, unit.plant_id):  # never name a plant the user may not see
+                                raise StockError(f"{part.code} {serial} is not in the register")
                             raise StockError(f"{unit.serial} is installed at plant {unit.plant_id}, not {plant_id}")
                     if not isinstance(plant_id, int) or plant_id not in known_plants or not _visible(allowed, plant_id):
                         raise StockError("Plant: one of your plants")

@@ -40,7 +40,10 @@ def _part(db: Session, code: str) -> Optional[Dict[str, Any]]:
 def _units(db: Session, user: User, where: Any) -> List[Dict[str, Any]]:
     allowed = allowed_plant_ids(db, user)
     stmt = select(SpareUnit, Part).join(Part, Part.id == SpareUnit.part_id).where(where, SpareUnit.state != "void").order_by(Part.code, SpareUnit.id)
-    rows = [(u, p) for u, p in db.execute(stmt.limit(stock.MAX_LIST)) if stock._visible(allowed, u.plant_id)]
+    scope = stock._unit_scope(allowed)
+    if scope is not None:  # in SQL before the limit, so other plants' units do not use it up
+        stmt = stmt.where(scope)
+    rows = [(u, p) for u, p in db.execute(stmt.limit(stock.MAX_LIST))]
     if not rows:
         return []
     locs = {loc.id: loc for loc in db.scalars(select(StockLocation))}

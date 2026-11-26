@@ -180,7 +180,9 @@ def test_later_count_matched_moved_missing_found_again(api):
 def test_ambiguous_and_blocked_rows_block_confirm(api):
     t = api
     _receive(t, ["DUP1"], "bin", "router")
-    _receive(t, ["DUP1"], "van", "logger")
+    with t["f"]() as db:  # the same serial under another part (data from before `receive` refused it)
+        db.add(SpareUnit(part_id=t["logger"]["id"], serial="DUP1", serial_key="DUP1", state="in_stock", location_id=t["van"]["id"]))
+        db.commit()
     _receive(t, ["INST1", "KEEP1"], "store")
     _batch(t, t["eng"], [{"kind": "issue", "part_id": t["router"]["id"], "serial": "INST1", "plant_id": P1}])
     scans = [{"raw": "DUP1"}, {"raw": "INST1"}, {"raw": "KEEP1"}]
@@ -288,3 +290,23 @@ def test_corrections_of_count_rows(api):
     c = correct(fmv["K2"])
     assert c["to_state"] == "missing" and c["to_location_id"] is None and _units(t)["K2"]["state"] == "missing"
     _replay(t)
+
+
+def test_new_serial_held_elsewhere_is_blocked(api):
+    """#144: a new serial already an open failed unit, or under another part on a hidden plant, is
+    blocked (the hidden one counted as not found, never named)."""
+    t = api
+    assert t["c"].post("/scan/labels/redtags", json={"count": 2}, headers=t["adm"]).status_code == 200
+    r = t["c"].post("/stock/failed-units", json={"red_tag": "RT-0001", "fault": "dead", "serial": "FU-9", "plant_id": P1, "to_location_id": t["van"]["id"]}, headers=t["eng"])
+    assert r.status_code == 201, r.text
+    _receive(t, ["HID-1"], "store", "logger")
+    _batch(t, t["adm"], [{"kind": "issue", "part_id": t["logger"]["id"], "serial": "HID-1", "plant_id": P2}])
+    scans = [{"raw": "FU-9", "part_id": t["router"]["id"]}, {"raw": "HID-1", "part_id": t["router"]["id"]}]
+    p = _preview(t, "store", scans, h=t["eng"])
+    assert [r["result"] for r in p["rows"]] == ["blocked", "blocked"]
+    assert "open failed unit (RT-0001)" in p["rows"][0]["message"]
+    assert p["rows"][1]["message"] == "P-ROUTER HID-1 cannot be counted in here" and str(P2) not in p["rows"][1]["message"]
+    r = _confirm(t, "store", scans, p["expected_ids"], status=409)
+    assert [e["row"] for e in r["detail"]["errors"]] == [0, 1]
+    with t["f"]() as db:
+        assert db.scalars(select(SpareUnit).where(SpareUnit.serial_key == "FU-9")).first() is None

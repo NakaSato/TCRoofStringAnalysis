@@ -39,6 +39,7 @@ from app.config import settings
 from app.db.models import Claim, FailedUnit, GrowattPlant, Part, RedTag, SiteDevice, SiteRegister, SpareUnit, StockLocation, StockMovement, User
 from app.db.models.stock import FAILED_OPEN, INPUT_METHODS
 from app.services import claims as claims_svc
+from app.services import stock as stock_svc
 from app.services.growatt_common import GrowattNotFound
 from app.services.scan import _SITE_DEVICE_LABEL, parse_app_code
 from app.services.scan_labels import parse_red_tag, red_tag_code
@@ -354,23 +355,29 @@ def _create(db: Session, user: User, body: Dict[str, Any], batch_id: Optional[st
     key = serial_key(serial) if serial else None
     spare: Optional[SpareUnit] = None
     if key:
-        other = _open_with_serial(db, key, part.id if part else None)
-        if other is not None:
+        # a serial is in one place (plan §3): an open failed unit or a spare unit of any part holds it
+        holders = stock_svc.serial_holders(db, key)
+        failed = [h for h in holders if isinstance(h, FailedUnit)]
+        spares = [h for h in holders if isinstance(h, SpareUnit)]
+        if failed:
+            other = failed[0]
+            if not _visible(allowed, other.plant_id):
+                raise _conflict(f"{serial} is already an open failed unit on another plant")
             held = db.get(RedTag, other.red_tag_id)
             raise _conflict(f"{serial} is already an open failed unit ({held.code if held else other.id})")
-        # a serial is in one place (plan §3): the spare register's unit of that serial, if it is one
-        q = select(SpareUnit).where(SpareUnit.serial_key == key, SpareUnit.state.in_(("installed", "in_stock", "missing")))
-        if part is not None:
-            q = q.where(SpareUnit.part_id == part.id)
-        found = list(db.scalars(q))
-        if len(found) == 1:
-            u = found[0]
+        if len(spares) > 1:
+            raise _conflict(f"{serial} is held by {len(spares)} spare units in the register: tag it without the serial, or sort the register out first")
+        if spares:
+            u = spares[0]
+            if not _visible(allowed, u.plant_id):
+                raise _conflict(f"{serial} is installed on another plant" if u.state == "installed" else f"{serial} is a spare unit on another plant")
             if u.state != "installed":
                 raise _conflict(f"{serial} is a spare unit {u.state.replace('_', ' ')} in the register, not on a plant: install it first, or tag it without the serial")
-            if not _visible(allowed, u.plant_id):
-                raise _conflict(f"{serial} is installed on another plant")
             if plant_id is not None and u.plant_id != plant_id:
                 raise StockError(f"{serial} is installed at plant {u.plant_id}, not {plant_id}")
+            if part is not None and part.id != u.part_id:
+                theirs = db.get(Part, u.part_id)
+                raise StockError(f"{serial} is installed as {theirs.code if theirs else u.part_id}, not {part.code}: choose that part, or leave the part empty")
             spare = u
             if part is None:
                 part = db.get(Part, spare.part_id)
@@ -452,13 +459,19 @@ def update_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Di
     return failed_out(db, fu)
 
 
-def _spare_for(db: Session, part_id: int, serial: str, keep: Optional[SpareUnit]) -> SpareUnit:
-    """A spare unit of `part_id` + `serial` to put in stock: a voided one is reused, an active one
-    other than `keep` is a conflict."""
+def _spare_for(
+    db: Session, part_id: int, serial: str, keep: Optional[SpareUnit], *, failed_id: Optional[int] = None, allowed: Optional[Set[int]] = None
+) -> SpareUnit:
+    """A spare unit of `part_id` + `serial` to put in stock: a voided one is reused. The serial held by
+    anything else (a spare unit of any part other than `keep`, an open failed unit other than
+    `failed_id`, the one coming back) is a conflict: one serial, one place (plan §3)."""
     key = serial_key(serial)
     u = db.scalars(select(SpareUnit).where(SpareUnit.part_id == part_id, SpareUnit.serial_key == key)).first()
     if u is not None and u is not keep and u.state != "void":
         raise _conflict(f"{serial} is already a spare unit of this part ({u.state.replace('_', ' ')})")
+    holder = stock_svc.serial_holder(db, key, exclude_unit_id=keep.id if keep is not None else None, exclude_failed_id=failed_id)
+    if holder is not None:
+        raise _conflict(f"{serial} {stock_svc.holder_text(db, holder, allowed)}")
     if u is None:
         u = SpareUnit(part_id=part_id, serial=serial, serial_key=key, state="void")
         db.add(u)
@@ -529,13 +542,13 @@ def move_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict
         if outcome == "repaired":
             if not fu.serial:
                 raise StockError(f"{tag_code} has no serial: a repaired unit comes back under its serial")
-            unit = spare if spare is not None and spare.part_id == fu.part_id else _spare_for(db, fu.part_id, fu.serial, None)
+            unit = spare if spare is not None and spare.part_id == fu.part_id else _spare_for(db, fu.part_id, fu.serial, None, failed_id=fu.id, allowed=allowed)
             unit_from = unit.state if unit.state != "void" else None
             new_serial = unit.serial
             fu.location_id = to.id
         else:
             new_serial = _text(body.get("new_serial"), "New serial", 64, required=True) or ""
-            unit = _spare_for(db, fu.part_id, new_serial, None)
+            unit = _spare_for(db, fu.part_id, new_serial, None, failed_id=fu.id, allowed=allowed)
             unit_from = None
             fu.location_id = None  # the supplier kept it: the failed unit is nowhere now
             if spare is not None and spare.state not in ("scrapped", "void"):

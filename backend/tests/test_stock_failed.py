@@ -424,3 +424,68 @@ def test_linked_spare_follows_the_failed_unit(api):
     _move(t, keeper, fu2["id"], kind="scrap")
     with t["f"]() as db:
         assert db.scalars(select(SpareUnit.state).where(SpareUnit.serial_key == "LS-NEW")).one() == "scrapped"
+
+
+def test_tag_checks_the_serial_across_parts_and_states(api):
+    """#144: tagging looks at spare units of every part, at the supplier too, and refuses anything but
+    exactly one installed spare on a visible plant; a part that differs from that spare's is 422."""
+    t = api
+    c, adm, eng, keeper = t["c"], t["adm"], t["eng"], t["keeper"]
+    pid = t["part"]["id"]
+    other = c.post("/stock/parts", json={"code": "P-ROUTER-OTHER", "name": "Other router", "category": "router"}, headers=keeper).json()
+
+    def batch(h, rows):
+        r = c.post("/stock/movements/batch", json={"rows": rows}, headers=h)
+        assert r.status_code == 201, r.text
+
+    batch(keeper, [{"kind": "receive", "part_id": other["id"], "serial": s, "to_location_id": t["locs"]["store"]} for s in ("OT-P1", "OT-P2")])
+    batch(adm, [{"kind": "issue", "part_id": other["id"], "serial": "OT-P1", "plant_id": P1}, {"kind": "issue", "part_id": other["id"], "serial": "OT-P2", "plant_id": P2}])
+    # installed under another part: the part given must be that one (422 naming both), none = linked
+    msg = _new(t, eng, 422, serial="OT-P1", part_id=pid)["detail"]
+    assert "P-ROUTER-OTHER" in msg and "P-ROUTER-RUT241" in msg
+    fu = _new(t, eng, serial="OT-P1", plant_id=None)
+    assert fu["part_id"] == other["id"] and fu["plant_id"] == P1
+    # installed on a hidden plant under another part: 409, the plant not named
+    msg = _new(t, eng, 409, red_tag="RT-0002", serial="OT-P2", part_id=pid)["detail"]["errors"][0]["error"]
+    assert "another plant" in msg and str(P2) not in msg
+    # at the supplier (not linked), or held twice: 409, nothing created
+    with t["f"]() as db:
+        db.add(SpareUnit(part_id=pid, serial="AS-1", serial_key="AS-1", state="at_supplier"))
+        db.add(SpareUnit(part_id=pid, serial="TW-1", serial_key="TW-1", state="installed", plant_id=P1))
+        db.add(SpareUnit(part_id=other["id"], serial="TW-1", serial_key="TW-1", state="in_stock", location_id=t["locs"]["store"]))
+        db.commit()
+    assert "at supplier" in _new(t, eng, 409, red_tag="RT-0002", serial="AS-1")["detail"]["errors"][0]["error"]
+    assert "2 spare units" in _new(t, eng, 409, red_tag="RT-0002", serial="TW-1")["detail"]["errors"][0]["error"]
+    assert _tag_status(t, "RT-0002") == "reserved"
+
+
+def test_supplier_return_checks_the_serial_everywhere(api):
+    """#144: a unit back from the supplier is refused when its serial is held under another part or by
+    another open failed unit; the failed unit being returned does not count against itself."""
+    t = api
+    c, adm, eng, keeper, locs = t["c"], t["adm"], t["eng"], t["keeper"], t["locs"]
+    pid = t["part"]["id"]
+    other = c.post("/stock/parts", json={"code": "P-ROUTER-OTHER", "name": "Other router", "category": "router"}, headers=keeper).json()
+    fu = _new(t, eng, serial="SR-1", part_id=pid)
+    fu2 = _new(t, eng, red_tag="RT-0002", serial="SR-2", part_id=pid)
+    _move(t, keeper, fu["id"], kind="ship_out", to_location_id=locs["supplier"])
+    # a unit of another part with the same serial (data from before `receive` refused it)
+    with t["f"]() as db:
+        u = SpareUnit(part_id=other["id"], serial="SR-1", serial_key="SR-1", state="in_stock", location_id=locs["store"])
+        db.add(u)
+        db.commit()
+        uid = u.id
+    msg = _move(t, keeper, fu["id"], 409, kind="supplier_return", outcome="repaired", to_location_id=locs["store"])["detail"]["errors"][0]["error"]
+    assert msg == "SR-1 is already in the register as P-ROUTER-OTHER (in stock)"
+    # replaced by a serial that is another open failed unit
+    msg = _move(t, keeper, fu["id"], 409, kind="supplier_return", outcome="replaced", new_serial="sr-2", to_location_id=locs["store"])["detail"]["errors"][0]["error"]
+    assert msg == "sr-2 is an open failed unit (RT-0002)"
+    assert fu2["status"] == "tagged"
+    # with the other unit gone, the repaired one comes back under its own serial
+    with t["f"]() as db:
+        db.get(SpareUnit, uid).state = "void"
+        db.commit()
+    d = _move(t, keeper, fu["id"], kind="supplier_return", outcome="repaired", to_location_id=locs["store"])
+    assert d["status"] == "repaired"
+    with t["f"]() as db:
+        assert db.scalars(select(SpareUnit.state).where(SpareUnit.serial_key == "SR-1", SpareUnit.part_id == pid)).one() == "in_stock"

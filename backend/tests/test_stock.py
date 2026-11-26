@@ -235,3 +235,36 @@ def test_same_unit_twice_in_one_batch_is_refused(api):
     assert "twice in this batch" in str(r)
     units = c.get("/stock/units", params={"part_id": part["id"]}, headers=eng).json()
     assert [u["location_id"] for u in units] == [bin_["id"]]
+
+
+def test_receive_refuses_a_serial_held_anywhere(api):
+    """#144: one serial, one place (plan §3): `receive` refuses a serial held under another part, by an
+    open failed unit or on a hidden plant (never named); a mismatching return names no hidden plant."""
+    c, adm, eng, keeper, f = api
+    store, bin_, van, part = _setup(c, keeper)
+    other = c.post("/stock/parts", json={"code": "P-LOGGER", "name": "Logger", "category": "datalogger"}, headers=keeper).json()
+    _batch(c, keeper, [{"kind": "receive", "part_id": part["id"], "serial": s, "to_location_id": bin_["id"]} for s in ("X-1", "X-HIDDEN")])
+    _batch(c, adm, [{"kind": "issue", "part_id": part["id"], "serial": "X-HIDDEN", "plant_id": P2}])
+
+    def refused(serial, pid=other["id"]):
+        r = _batch(c, keeper, [{"kind": "receive", "part_id": pid, "serial": serial, "to_location_id": bin_["id"]}], status=409)
+        return r["detail"]["errors"][0]["error"]
+
+    assert refused("x-1") == "P-LOGGER x-1 is already in the register as P-ROUTER-RUT241 (in stock)"
+    msg = refused("X-HIDDEN")
+    assert "another plant" in msg and str(P2) not in msg
+    # an open failed unit (tagged without a part) holds its serial too
+    assert c.post("/scan/labels/redtags", json={"count": 2}, headers=adm).status_code == 200
+    r = c.post("/stock/failed-units", json={"red_tag": "RT-0001", "fault": "dead", "serial": "FU-1", "plant_id": P1, "to_location_id": van["id"]}, headers=eng)
+    assert r.status_code == 201, r.text
+    assert refused("FU-1", part["id"]) == "P-ROUTER-RUT241 FU-1 is an open failed unit (RT-0001)"
+    # the same serial under two parts in one batch
+    r = _batch(c, keeper, [{"kind": "receive", "part_id": p, "serial": "TWIN", "to_location_id": bin_["id"]} for p in (part["id"], other["id"])], status=409)
+    assert [e["row"] for e in r["detail"]["errors"]] == [1]
+    with f() as db:
+        assert db.scalars(select(SpareUnit).where(SpareUnit.serial_key.in_(("TWIN", "FU-1")))).first() is None
+    # return to the wrong plant: a hidden plant is never named
+    r = _batch(c, keeper, [{"kind": "return", "part_id": part["id"], "serial": "X-HIDDEN", "plant_id": P1, "to_location_id": bin_["id"]}], status=409)
+    assert str(P2) not in r["detail"]["errors"][0]["error"]
+    r = _batch(c, adm, [{"kind": "return", "part_id": part["id"], "serial": "X-HIDDEN", "plant_id": P1, "to_location_id": bin_["id"]}], status=409)
+    assert r["detail"]["errors"][0]["error"] == f"X-HIDDEN is installed at plant {P2}, not {P1}"
