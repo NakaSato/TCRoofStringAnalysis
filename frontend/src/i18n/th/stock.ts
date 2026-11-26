@@ -290,4 +290,7 @@ export const TH_STOCK: Record<string, string> = {
   "Nothing you scanned is counted here: all {n} units in the register at this location will be marked missing.":
     "ไม่มีรายการที่สแกนนับเข้าที่นี่: อะไหล่ทั้ง {n} ชิ้นที่ทะเบียนบอกว่าอยู่ที่นี่จะถูกบันทึกว่าหาไม่พบ",
   "Mark all {n} missing": "บันทึกทั้ง {n} ชิ้นว่าหาไม่พบ",
+  "Could not load the units: {error}": "โหลดรายการอะไหล่ไม่สำเร็จ: {error}",
+  "Could not load the movements: {error}": "โหลดประวัติการเคลื่อนไหวไม่สำเร็จ: {error}",
+  "CSV export failed: {error}": "ส่งออก CSV ไม่สำเร็จ: {error}",
 };

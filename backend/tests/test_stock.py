@@ -180,6 +180,48 @@ def test_plant_scoping(api):
     assert "not in the register" in r["detail"]["errors"][0]["error"]
     hidden = c.get("/stock/movements", params={"plant_id": P2}, headers=adm).json()["movements"][0]
     assert c.post(f"/stock/movements/{hidden['id']}/correct", json={"note": "x"}, headers=keeper).status_code == 404
+    # the summary counts installed units only on the user's plants (#136)
+    assert c.get("/stock/summary", headers=adm).json()["installed"] == 1
+    assert c.get("/stock/summary", headers=eng).json()["installed"] == 0
+    # a hidden unit by id is "not found", with no part code or serial (#136)
+    z1 = next(u for u in c.get("/stock/units", headers=adm).json() if u["serial"] == "Z1")
+    r = _batch(c, eng, [{"kind": "return", "unit_id": z1["id"], "to_location_id": van["id"]}], 409)
+    assert r["detail"]["errors"][0]["error"] == f"Unit {z1['id']} not found"
+    # receiving a serial installed on a hidden plant does not name the plant (#136)
+    r = _batch(c, keeper, [{"kind": "receive", "part_id": part["id"], "serial": "Z1", "to_location_id": bin_["id"]}], 409)
+    err = r["detail"]["errors"][0]["error"]
+    assert "another plant" in err and str(P2) not in err
+
+
+def test_units_list_is_scoped_before_the_limit(api, monkeypatch):
+    """An engineer's units are not cut off by other plants' units filling the list limit (#136)."""
+    from app.services import stock as svc
+
+    c, adm, eng, keeper, _ = api
+    store, bin_, van, part = _setup(c, keeper)
+    _batch(c, keeper, [{"kind": "receive", "part_id": part["id"], "serial": s, "to_location_id": bin_["id"]} for s in ("A1", "A2", "Z9")])
+    _batch(c, adm, [{"kind": "issue", "part_id": part["id"], "serial": s, "plant_id": P2} for s in ("A1", "A2")])
+    monkeypatch.setattr(svc, "MAX_LIST", 2)
+    assert [u["serial"] for u in c.get("/stock/units", headers=eng).json()] == ["Z9"]
+
+
+def test_batch_day_is_the_bangkok_day(api, monkeypatch):
+    """At 06:30 Bangkok (23:30 UTC the day before) a move is stamped with the Bangkok day (#136)."""
+    from datetime import datetime as real_dt
+    from app.services import stock as svc
+
+    class FakeDT(real_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return real_dt(2026, 11, 25, 23, 30, tzinfo=svc.timezone.utc).astimezone(tz) if tz else real_dt(2026, 11, 26, 6, 30)
+
+    c, adm, eng, keeper, _ = api
+    store, bin_, van, part = _setup(c, keeper)
+    monkeypatch.setattr(svc, "datetime", FakeDT)
+    out = _batch(c, keeper, [{"kind": "receive", "part_id": part["id"], "serial": "D1", "to_location_id": bin_["id"]}])
+    assert out["movements"][0]["day"] == "2026-11-26"
+    fixed = c.post(f"/stock/movements/{out['movements'][0]['id']}/correct", json={"note": "typo"}, headers=keeper)
+    assert fixed.status_code == 201 and fixed.json()["day"] == "2026-11-26"
 
 
 def test_same_unit_twice_in_one_batch_is_refused(api):

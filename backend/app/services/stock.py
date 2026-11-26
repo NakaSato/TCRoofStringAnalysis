@@ -24,6 +24,7 @@ import uuid
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -321,8 +322,23 @@ def update_location(db: Session, user: User, location_id: int, data: Dict[str, A
 # ----------------------------------------------------------------------------------------- units
 
 
+PLANT_TZ = ZoneInfo("Asia/Bangkok")
+
+
+def _today() -> date:
+    """The plant-local (Bangkok) day: a move at 06:30 belongs to today, not to UTC's yesterday."""
+    return datetime.now(PLANT_TZ).date()
+
+
 def _visible(allowed: Optional[Set[int]], plant_id: Optional[int]) -> bool:
     return plant_id is None or allowed is None or plant_id in allowed
+
+
+def _unit_scope(allowed: Optional[Set[int]]):
+    """SQL condition for the units a user may see: unplaced ones and those on their plants."""
+    if allowed is None:
+        return None
+    return or_(SpareUnit.plant_id.is_(None), SpareUnit.plant_id.in_(allowed or {-1}))
 
 
 def unit_out(u: SpareUnit, part: Part, locs: Dict[int, StockLocation], names: Dict[int, str]) -> Dict[str, Any]:
@@ -367,7 +383,10 @@ def list_units(
     stmt = stmt.where(SpareUnit.state == state) if state else stmt.where(SpareUnit.state != "void")
     if q:
         stmt = stmt.where(SpareUnit.serial_key.contains(serial_key(q)))
-    rows = [(u, p) for u, p in db.execute(stmt.limit(MAX_LIST)) if _visible(allowed, u.plant_id)]
+    scope = _unit_scope(allowed)
+    if scope is not None:  # before the limit, so an engineer's units are not cut off by other plants'
+        stmt = stmt.where(scope)
+    rows = [(u, p) for u, p in db.execute(stmt.limit(MAX_LIST))]
     locs = {loc.id: loc for loc in db.scalars(select(StockLocation))}
     names = _plant_names(db, (u.plant_id for u, _ in rows))
     return [unit_out(u, p, locs, names) for u, p in rows]
@@ -462,7 +481,7 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
         raise StockError("No rows")
     if len(rows) > MAX_BATCH:
         raise StockError(f"At most {MAX_BATCH} rows in one batch")
-    day = day or datetime.now(timezone.utc).date()
+    day = day or _today()
     batch_note = _text(note, "Note", 2000)
     allowed = allowed_plant_ids(db, user)
     keeper = can_manage_stock(user)
@@ -496,7 +515,7 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
             unit: Optional[SpareUnit] = None
             if isinstance(r.get("unit_id"), int):
                 unit = db.get(SpareUnit, r["unit_id"])
-                if unit is None:
+                if unit is None or not _visible(allowed, unit.plant_id):
                     raise StockError(f"Unit {r['unit_id']} not found")
                 part = parts[unit.part_id]
                 serial = unit.serial
@@ -520,7 +539,7 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
                 if unit is not None and unit.state == "missing":
                     raise StockError(f"{part.code} {unit.serial} is missing since the count of {_missing_since(db, unit.id) or '—'}; count it in instead")
                 if unit is not None and unit.state != "void":
-                    where = locs[unit.location_id].code if unit.location_id in locs else (f"plant {unit.plant_id}" if unit.plant_id else "—")
+                    where = locs[unit.location_id].code if unit.location_id in locs else (("another plant" if not _visible(allowed, unit.plant_id) else f"plant {unit.plant_id}") if unit.plant_id else "—")
                     raise StockError(f"{part.code} {unit.serial} is already in the register ({unit.state}, {where})")
                 to = stock_loc(r.get("to_location_id"), "To")
                 plan.append({"kind": kind, "part": part, "unit": unit, "serial": serial, "to": to, "plant": None, "from": None,
@@ -645,7 +664,7 @@ def correct(db: Session, user: User, movement_id: int, note: Optional[str]) -> D
         to_state=back_state,
         corrects_id=m.id,
         by=_by(user),
-        day=datetime.now(timezone.utc).date(),
+        day=_today(),
         note=why,
     )
     unit.state = back_state
@@ -658,8 +677,13 @@ def correct(db: Session, user: User, movement_id: int, note: Optional[str]) -> D
 
 def summary(db: Session, user: Optional[User] = None) -> Dict[str, Any]:
     """Counts for the page header; failed units only of the plants `user` may see."""
-    states = Counter(dict(db.execute(select(SpareUnit.state, func.count()).group_by(SpareUnit.state)).all()))
+    allowed = allowed_plant_ids(db, user) if user is not None else None
+    q = select(SpareUnit.state, func.count()).group_by(SpareUnit.state)
+    scope = _unit_scope(allowed)
+    if scope is not None:  # installed units only on the user's plants
+        q = q.where(scope)
+    states = Counter(dict(db.execute(q).all()))
     below = sum(1 for p in list_parts(db) if p["below_min"])
     from app.services.stock_failed import failed_counts  # imports this module
 
-    return {"in_stock": int(states.get("in_stock", 0)), "installed": int(states.get("installed", 0)), "missing_units": int(states.get("missing", 0)), "parts_below_min": below, **failed_counts(db, allowed_plant_ids(db, user) if user is not None else None)}
+    return {"in_stock": int(states.get("in_stock", 0)), "installed": int(states.get("installed", 0)), "missing_units": int(states.get("missing", 0)), "parts_below_min": below, **failed_counts(db, allowed)}

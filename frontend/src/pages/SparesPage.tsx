@@ -30,10 +30,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EmptyState, SkeletonRows } from "../components/ui";
+import { EmptyState, SkeletonRows, Suspended } from "../components/ui";
+import { StatTile } from "./overview/StatTile";
+import { notify } from "@/lib/notify";
 import { MethodBadge } from "../components/scan/ScanDialog";
 import { useAppContext } from "../context/AppContext";
 import { useI18n } from "../i18n";
@@ -47,18 +50,14 @@ import { InstalledTab } from "./spares/InstalledTab";
 import { ModelsTab } from "./spares/ModelsTab";
 import { FromModelsDialog } from "./spares/FromModelsDialog";
 import { RegistryChip, registryKey, useClearRegistryOn, useRegistryWhere } from "./spares/RegistryWhere";
-import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, STATE_VARIANT, canManageStock, download, fmtStockAt } from "./spares/shared";
+import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, STATE_VARIANT, canManageStock, download, errorText, fmtStockAt } from "./spares/shared";
 
 const TABS = ["stock", "failed", "installed", "models", "movements", "catalogue", "locations"] as const;
 const MOVE_KINDS = ["all", "receive", "transfer", "issue", "return", "failed_in", "ship_out", "supplier_return", "scrap", "count_adjust", "correction"] as const;
 const PAGE = 100;
-
-const Stat: React.FC<{ label: string; value: number | string; tone?: "warn" }> = ({ label, value, tone }) => (
-  <div className="flex flex-col rounded-lg border border-white/[0.07] px-3 py-2">
-    <span className={tone === "warn" ? "num text-lg font-semibold text-amber-300" : "num text-lg font-semibold text-slate-100"}>{value}</span>
-    <span className="text-[11px] text-muted-foreground">{label}</span>
-  </div>
-);
+/** rows per request when the CSV collects every matching movement (the API's own maximum) */
+const EXPORT_PAGE = 1000;
+const WARN = "text-amber-300";
 
 export const SparesPage: React.FC = () => {
   const { t } = useI18n();
@@ -148,12 +147,12 @@ export const SparesPage: React.FC = () => {
 
       {summary && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:max-w-4xl lg:grid-cols-6">
-          <Stat label={t("Units in stock")} value={summary.in_stock} />
-          <Stat label={t("Installed from stock")} value={summary.installed} />
-          <Stat label={t("Parts below minimum")} value={summary.parts_below_min} tone={summary.parts_below_min ? "warn" : undefined} />
-          <Stat label={t("Failed units open")} value={summary.failed_open} />
-          <Stat label={t("Failed, not sent yet (overdue)")} value={summary.failed_unsent_overdue} tone={summary.failed_unsent_overdue > 0 ? "warn" : undefined} />
-          <Stat label={t("Missing units")} value={summary.missing_units ?? "—"} tone={summary.missing_units > 0 ? "warn" : undefined} />
+          <StatTile label={t("Units in stock")} num={summary.in_stock} digits={0} countUp />
+          <StatTile label={t("Installed from stock")} num={summary.installed} digits={0} countUp />
+          <StatTile label={t("Parts below minimum")} num={summary.parts_below_min} digits={0} countUp tone={summary.parts_below_min > 0 ? WARN : undefined} />
+          <StatTile label={t("Failed units open")} num={summary.failed_open} digits={0} countUp />
+          <StatTile label={t("Failed, not sent yet (overdue)")} num={summary.failed_unsent_overdue} digits={0} countUp tone={summary.failed_unsent_overdue > 0 ? WARN : undefined} />
+          <StatTile label={t("Missing units")} num={summary.missing_units ?? null} digits={0} countUp tone={summary.missing_units > 0 ? WARN : undefined} />
         </div>
       )}
       {error && (
@@ -264,22 +263,34 @@ const StockTab: React.FC<{
   const { t } = useI18n();
   const setOpen = onOpen;
   const [units, setUnits] = useState<StockUnit[] | null>(null);
+  const [unitsError, setUnitsError] = useState<string | null>(null);
+  const [unitsBusy, setUnitsBusy] = useState(false);
   const hlRef = React.useRef<HTMLLIElement | null>(null);
   useEffect(() => {
     if (units && highlight != null) hlRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [units, highlight]);
   useEffect(() => {
+    // another part: drop the old units so they never show under its name
+    setUnits(null);
+    setUnitsError(null);
+  }, [open]);
+  useEffect(() => {
     if (open == null) return;
     let alive = true;
-    setUnits(null);
+    setUnitsBusy(true);
     api
       .listStockUnits({ part_id: open })
-      .then((u) => alive && setUnits(u))
-      .catch(() => alive && setUnits([]));
+      .then((u) => {
+        if (!alive) return;
+        setUnits(u);
+        setUnitsError(null);
+      })
+      .catch((e) => alive && setUnitsError(errorText(e, t)))
+      .finally(() => alive && setUnitsBusy(false));
     return () => {
       alive = false;
     };
-  }, [open, version]);
+  }, [open, version, t]);
   // L-3: where the registry has these serials (a spare in stock that is also installed = amber)
   useClearRegistryOn(version);
   const where = useRegistryWhere(units?.map((u) => u.serial) ?? []);
@@ -323,12 +334,17 @@ const StockTab: React.FC<{
                 {open === p.id && (
                   <TableRow className="hover:bg-transparent">
                     <TableCell colSpan={5} className="bg-white/[0.015] px-4 py-3">
+                      {unitsError && (
+                        <Alert variant="destructive" className="mb-2">
+                          <AlertDescription>{t("Could not load the units: {error}", { error: unitsError })}</AlertDescription>
+                        </Alert>
+                      )}
                       {!units ? (
-                        <SkeletonRows rows={2} />
+                        !unitsError && <SkeletonRows rows={2} />
                       ) : !units.length ? (
                         <p className="text-xs text-muted-foreground">{t("No units of this part yet.")}</p>
                       ) : (
-                        <div className="flex flex-col gap-2">
+                        <Suspended busy={unitsBusy} pill={false} contentClassName="flex flex-col gap-2">
                         {units.some((u) => u.state === "in_stock") && (
                           <Button asChild size="xs" variant="outline" className="self-start">
                             <Link to={`/labels?kind=sp&part_id=${p.id}`}>
@@ -371,7 +387,7 @@ const StockTab: React.FC<{
                             </li>
                           ))}
                         </ul>
-                        </div>
+                        </Suspended>
                       )}
                     </TableCell>
                   </TableRow>
@@ -395,34 +411,44 @@ const MovementsTab: React.FC<{
   onOpenFailed: (id: number) => void;
 }> = ({ parts, version, keeper, onChanged, onOpenFailed }) => {
   const { t } = useI18n();
-  const [kind, setKind] = useState<(typeof MOVE_KINDS)[number]>("all");
-  const [partId, setPartId] = useState("all");
-  const [serial, setSerial] = useState("");
+  // filters in the URL: `mvk` move kind, `mvp` part id, `mvq` serial contains
+  const [url, setUrl] = useUrlState();
+  const kind = pick(url.get("mvk"), MOVE_KINDS, "all");
+  const mvp = url.get("mvp") ?? "";
+  const partId = /^\d+$/.test(mvp) ? mvp : "all";
+  const serial = url.get("mvq") ?? "";
   const [page, setPage] = useState(0);
   const [data, setData] = useState<StockMovementList | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [correcting, setCorrecting] = useState<StockMovement | null>(null);
   useClearRegistryOn(version);
   const where = useRegistryWhere(data?.movements.map((m) => m.serial) ?? []);
-  useEffect(() => setPage(0), [kind, partId, serial]);
+  const filters = useMemo(
+    () => ({ kind: kind === "all" ? undefined : kind, part_id: partId === "all" ? undefined : Number(partId), serial: serial.trim() || undefined }),
+    [kind, partId, serial]
+  );
+  useEffect(() => setPage(0), [filters]);
   useEffect(() => {
     let alive = true;
+    setBusy(true);
     const h = window.setTimeout(() => {
       api
-        .listStockMovements({
-          kind: kind === "all" ? undefined : kind,
-          part_id: partId === "all" ? undefined : Number(partId),
-          serial: serial.trim() || undefined,
-          limit: PAGE,
-          offset: page * PAGE,
+        .listStockMovements({ ...filters, limit: PAGE, offset: page * PAGE })
+        .then((d) => {
+          if (!alive) return;
+          setData(d);
+          setError(null);
         })
-        .then((d) => alive && setData(d))
-        .catch(() => alive && setData({ total: 0, movements: [] }));
+        .catch((e) => alive && setError(errorText(e, t)))
+        .finally(() => alive && setBusy(false));
     }, 200);
     return () => {
       alive = false;
       window.clearTimeout(h);
     };
-  }, [kind, partId, serial, page, version]);
+  }, [filters, page, version, t]);
   const corrected = useMemo(() => new Set((data?.movements ?? []).map((m) => m.corrects_id).filter((x): x is number => x != null)), [data]);
   // only a unit's latest movement can be corrected (the list is newest first; filters may hide later ones, the API checks)
   const latest = useMemo(() => {
@@ -435,17 +461,31 @@ const MovementsTab: React.FC<{
     }
     return out;
   }, [data]);
-  const exportCsv = () =>
-    data &&
-    download("spares-movements.csv", [
-      ["id", "day", "kind", "part", "serial", "from", "to", "plant", "from_state", "to_state", "by", "input", "note", "corrects", "failed_unit_id"],
-      ...data.movements.map((m) => [m.id, m.day, m.kind, m.part_code, m.serial, m.from_location_code, m.to_location_code, m.plant_name ?? m.plant_id, m.from_state, m.to_state, m.by, m.input_method, m.note, m.corrects_id, m.failed_unit_id]),
-    ]);
+  // every movement matching the filters, not only the page on screen
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const all: StockMovement[] = [];
+      for (let offset = 0; ; offset += EXPORT_PAGE) {
+        const d = await api.listStockMovements({ ...filters, limit: EXPORT_PAGE, offset });
+        all.push(...d.movements);
+        if (d.movements.length < EXPORT_PAGE || all.length >= d.total) break;
+      }
+      download("spares-movements.csv", [
+        ["id", "day", "kind", "part", "serial", "from", "to", "plant", "from_state", "to_state", "by", "input", "note", "corrects", "failed_unit_id"],
+        ...all.map((m) => [m.id, m.day, m.kind, m.part_code, m.serial, m.from_location_code, m.to_location_code, m.plant_name ?? m.plant_id, m.from_state, m.to_state, m.by, m.input_method, m.note, m.corrects_id, m.failed_unit_id]),
+      ]);
+    } catch (e) {
+      notify("crit", t("CSV export failed: {error}", { error: errorText(e, t) }));
+    } finally {
+      setExporting(false);
+    }
+  };
   return (
     <Card className="gap-3 py-3">
       <CardContent className="flex flex-col gap-3 px-0">
         <div className="flex flex-wrap items-center gap-2 px-4">
-          <Select value={kind} onValueChange={(v) => setKind(v as (typeof MOVE_KINDS)[number])}>
+          <Select value={kind} onValueChange={(v) => setUrl({ mvk: v === "all" ? null : v })}>
             <SelectTrigger size="sm" className="w-44" aria-label={t("Move")}>
               <SelectValue />
             </SelectTrigger>
@@ -457,7 +497,7 @@ const MovementsTab: React.FC<{
               ))}
             </SelectContent>
           </Select>
-          <Select value={partId} onValueChange={setPartId}>
+          <Select value={partId} onValueChange={(v) => setUrl({ mvp: v === "all" ? null : v })}>
             <SelectTrigger size="sm" className="w-52" aria-label={t("Part")}>
               <SelectValue />
             </SelectTrigger>
@@ -470,16 +510,23 @@ const MovementsTab: React.FC<{
               ))}
             </SelectContent>
           </Select>
-          <Input value={serial} onChange={(e) => setSerial(e.target.value)} placeholder={t("Serial contains…")} className="h-8 w-44 font-mono" aria-label={t("Serial no.")} />
+          <Input value={serial} onChange={(e) => setUrl({ mvq: e.target.value })} placeholder={t("Serial contains…")} className="h-8 w-44 font-mono" aria-label={t("Serial no.")} />
           <span className="flex-1" />
-          <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data?.movements.length}>
-            <Download data-icon="inline-start" />
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data?.movements.length || exporting}>
+            {exporting ? <Spinner data-icon="inline-start" className="size-3" /> : <Download data-icon="inline-start" />}
             CSV
           </Button>
         </div>
+        {error && (
+          <Alert variant="destructive" className="mx-4 w-auto">
+            <AlertDescription>{t("Could not load the movements: {error}", { error })}</AlertDescription>
+          </Alert>
+        )}
         {!data ? (
-          <SkeletonRows rows={5} className="px-4" />
-        ) : !data.movements.length ? (
+          !error && <SkeletonRows rows={5} className="px-4" />
+        ) : (
+          <Suspended busy={busy}>
+          {!data.movements.length ? (
           <EmptyState title={t("No movements yet.")} />
         ) : (
           <Table containerClassName="table-wrap">
@@ -533,6 +580,8 @@ const MovementsTab: React.FC<{
               ))}
             </TableBody>
           </Table>
+        )}
+          </Suspended>
         )}
         {data && data.total > PAGE && (
           <div className="flex items-center justify-end gap-2 px-4 text-xs text-muted-foreground">
