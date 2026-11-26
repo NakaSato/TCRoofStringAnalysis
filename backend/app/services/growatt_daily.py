@@ -21,7 +21,7 @@ import statistics
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import AbstractSet, Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -373,7 +373,7 @@ def _strings_day(
     orientations: Dict[Tuple[str, int], Tuple[Optional[float], Optional[float]]],
     irr: Dict[datetime, float],
     pr: Pricer,
-    held: Set[datetime] = frozenset(),
+    held: AbstractSet[datetime] = frozenset(),
 ) -> int:
     n = 0
     # Precompute unstable irradiance slots (> MAX_IRR_VARIABILITY step change between adjacent 5-min slots)
@@ -509,7 +509,7 @@ def _inverters_day(
     kwp: Dict[str, Optional[float]],
     until: Optional[datetime] = None,
     pr: Optional[Pricer] = None,
-    held: Set[datetime] = frozenset(),
+    held: AbstractSet[datetime] = frozenset(),
 ) -> int:
     pr = pr or Pricer({"on_peak_thb": 0, "off_peak_thb": 0, "on_peak_days": []})
     daylight = _daylight(plant, day, inv_slots, until)
