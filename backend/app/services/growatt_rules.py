@@ -654,7 +654,7 @@ def _r3(cfg: Dict[str, Any], pid: int, sn: str, day: date, events: Sequence[Grow
     first = first_on(day)
     peers = sorted(v[day] for s, v in starts.items() if s != sn and day in v)
     dawn_today = [a for a in today if dawn(a)]
-    ref = peers[len(peers) // 2] if peers else (min(a.start_time for a in dawn_today) if dawn_today else None)
+    ref = peers[len(peers) // 2] if peers else (min(a.start_time for a in dawn_today if a.start_time is not None) if dawn_today else None)
     if ref is None or first is not None:
         late = ref is not None and first is not None and first - ref > late_after
     else:  # no power yet: late on a finished day, or once the window has passed today
@@ -667,7 +667,7 @@ def _r3(cfg: Dict[str, Any], pid: int, sn: str, day: date, events: Sequence[Grow
         "peers_first_power": peers[len(peers) // 2].strftime("%H:%M") if peers else None,
     }
     if p1 or late:
-        if late and not p1 and first is not None:
+        if late and not p1 and first is not None and ref is not None:
             ev["late_start_min"] = round((first - ref).total_seconds() / 60)
         return _finding("R3", "P1", pid, day, sn, None, None, None, safety=True, alarms=label(today), **ev)
     # repeats: days whose R3 alarms were all dawn insulation alarms (a daytime one is a P1 day, not dew)
