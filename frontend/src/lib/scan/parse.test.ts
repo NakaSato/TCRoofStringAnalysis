@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GS, hintFor, isIccid, isImei, normalise, parseAppCode, parseGs1, pickByHint, serialField, splitFields } from "./parse";
+import { GS, defaultField, hintFor, isIccid, isImei, isSimCategory, normalise, parseAppCode, parseGs1, pickByHint, serialField, splitFields } from "./parse";
 
 describe("normalise", () => {
   test("prefix, case, controls", () => {
@@ -58,6 +58,17 @@ describe("splitFields", () => {
     const f = splitFields("SN:1102345678;IMEI:490154203237518;MAC:00:1E:42:AA:BB:CC");
     expect(f.map((x) => x.role)).toEqual(["serial", "imei", "mac"]);
     expect(serialField(f)?.value).toBe("1102345678");
+  });
+  test("a SIM field pre-selects the ICCID, never the serial", () => {
+    const f = splitFields("S/N:1102345678;IMEI:490154203237518;ICCID:8966012345678901234");
+    expect(isSimCategory("router:sim")).toBe(true);
+    expect(isSimCategory("router")).toBe(false);
+    expect(isSimCategory(undefined)).toBe(false);
+    expect(defaultField(f, "router:sim")?.value).toBe("8966012345678901234");
+    expect(defaultField(f, "router")?.value).toBe("1102345678");
+    expect(defaultField(f)?.value).toBe("1102345678");
+    // no ICCID on the label: nothing pre-selected for the SIM field
+    expect(defaultField(splitFields("SN:1102345678;IMEI:490154203237518"), "router:sim")).toBeNull();
   });
   test("unkeyed list: roles from the values", () => {
     const f = splitFields("RUT241|1102345678|490154203237518");

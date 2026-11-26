@@ -22,6 +22,8 @@ export const TH_SCAN: Record<string, string> = {
   "This label holds several values. Pick one to look up:": "ฉลากนี้มีหลายค่า เลือกค่าที่จะค้นหา:",
   "This label holds several values. Pick the one for this field:": "ฉลากนี้มีหลายค่า เลือกค่าสำหรับช่องนี้:",
   "IMEI and SIM numbers are not the device serial.": "IMEI และเลข SIM ไม่ใช่หมายเลขเครื่อง",
+  "The SIM number is the ICCID; the serial and IMEI are not it.": "เลข SIM คือ ICCID ไม่ใช่หมายเลขเครื่องหรือ IMEI",
+  "Kept on this device only.": "เก็บไว้บนเครื่องนี้เท่านั้น",
   "Use {value}": "ใช้ {value}",
   "Scan a code": "สแกนรหัส",
   "QR label, barcode or serial number: opens the instrument, inverter, datalogger or site device it belongs to.": "ฉลาก QR บาร์โค้ด หรือหมายเลขเครื่อง: เปิดเครื่องมือวัด อินเวอร์เตอร์ ดาต้าล็อกเกอร์ หรืออุปกรณ์หน้างานที่เป็นเจ้าของรหัส",

@@ -115,7 +115,7 @@ def test_inverter_and_datalogger_scoped(api):
     body = _resolve(client, eng, "bne4c1z00a")
     (m,) = body["matches"]
     assert m["kind"] == "inverter" and m["plant_id"] == P1 and m["plant_name"] == f"Plant {P1}"
-    assert m["path"] == f"/plant/{P1}/inverters?q=BNE4C1Z00A"
+    assert m["path"] == f"/plant/{P1}/inverters?sn=BNE4C1Z00A"
     assert m["detail"] == "MAX 80KTL3 LV"
     # one datalogger row per plant, though two inverters share it
     body = _resolve(client, eng, "XGD6CHB01B")
@@ -124,6 +124,35 @@ def test_inverter_and_datalogger_scoped(api):
     assert _resolve(client, eng, "OTHERPLANT1")["matches"] == []
     assert _resolve(client, eng, "XGDOTHER01")["matches"] == []
     assert len(_resolve(client, adm, "OTHERPLANT1")["matches"]) == 1
+
+
+def test_datalogger_sources_match_devices_tab(api, tmp_path):
+    """Dataloggers come from installed inverters, weather sensors and meters (as /devices?tab=dataloggers)."""
+    from datetime import datetime, timezone
+
+    from app.db.models import GrowattEnvSensor, GrowattMeter
+
+    client, adm, eng, _, _ = api
+    engine = build_engine(f"sqlite:///{tmp_path / 'scan.db'}")
+    with sessionmaker(bind=engine)() as db:
+        db.add(GrowattInverter(device_sn="GONE00001", plant_id=P1, datalogger_sn="XGDGONE001", not_installed_at=datetime.now(timezone.utc)))
+        db.add(GrowattEnvSensor(datalogger_sn="XGDSENSOR1", address=1, plant_id=P1))
+        db.add(GrowattMeter(datalogger_sn="XGDMETER01", address=1, plant_id=P1))
+        db.add(GrowattMeter(datalogger_sn="XGDMETER02", address=1, plant_id=P2))
+        # a logger with installed inverters and a sensor: still one match for the plant
+        db.add(GrowattEnvSensor(datalogger_sn="XGD6CHB01B", address=1, plant_id=P1))
+        db.commit()
+    # behind only a not-installed inverter: not a datalogger match (the inverter itself still is)
+    assert [m["kind"] for m in _resolve(client, adm, "XGDGONE001")["matches"]] == []
+    assert [m["kind"] for m in _resolve(client, adm, "GONE00001")["matches"]] == ["inverter"]
+    (m,) = _resolve(client, eng, "xgdsensor1")["matches"]
+    assert (m["kind"], m["plant_id"], m["path"]) == ("datalogger", P1, "/devices?tab=dataloggers&dq=XGDSENSOR1")
+    assert [m["kind"] for m in _resolve(client, eng, "XGDMETER01")["matches"]] == ["datalogger"]
+    # a meter's logger on a hidden plant is left out
+    assert _resolve(client, eng, "XGDMETER02")["matches"] == []
+    assert len(_resolve(client, adm, "XGDMETER02")["matches"]) == 1
+    (m,) = _resolve(client, eng, "XGD6CHB01B")["matches"]
+    assert m["kind"] == "datalogger" and m["plant_id"] == P1
 
 
 def test_site_devices_serial_sim_and_scope(api):

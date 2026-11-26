@@ -27,9 +27,12 @@ from sqlalchemy.orm import Session
 from app.auth import allowed_plant_ids
 from app.db.models import (
     FailedUnit,
+    GrowattEnvSensor,
     GrowattInverter,
+    GrowattMeter,
     GrowattPlant,
     Instrument,
+    inverter_installed,
     Part,
     RedTag,
     SiteDevice,
@@ -276,13 +279,21 @@ def _raw_matches_many(db: Session, values: Set[str], allowed: Optional[Set[int]]
             detail = f"{detail} · not installed" if detail else "not installed"
         add(
             inv.device_sn,
-            Match("inverter", inv.device_sn, f"{label} · {inv.device_sn}", "device_sn", f"/plant/{inv.plant_id}/inverters?q={quote(inv.device_sn)}", plant_id=inv.plant_id, detail=detail),
+            Match("inverter", inv.device_sn, f"{label} · {inv.device_sn}", "device_sn", f"/plant/{inv.plant_id}/inverters?sn={quote(inv.device_sn)}", plant_id=inv.plant_id, detail=detail),
         )
-    # 3. dataloggers (one row per plant the serial serves)
+    # 3. dataloggers (one row per plant the serial serves), from the same sources as the Devices
+    # page's Dataloggers tab: installed inverters, weather sensors and energy meters
     seen: Set[Tuple[str, int]] = set()
-    for sn, pid, dmodel in db.execute(
-        select(GrowattInverter.datalogger_sn, GrowattInverter.plant_id, GrowattInverter.datalogger_model).where(func.upper(GrowattInverter.datalogger_sn).in_(vals))
-    ):
+    logger_rows: List[Tuple[Optional[str], int, Optional[str]]] = list(
+        db.execute(
+            select(GrowattInverter.datalogger_sn, GrowattInverter.plant_id, GrowattInverter.datalogger_model).where(
+                func.upper(GrowattInverter.datalogger_sn).in_(vals), inverter_installed()
+            )
+        ).tuples()
+    )
+    for model_cls in (GrowattEnvSensor, GrowattMeter):
+        logger_rows += [(sn, pid, None) for sn, pid in db.execute(select(model_cls.datalogger_sn, model_cls.plant_id).where(func.upper(model_cls.datalogger_sn).in_(vals)))]
+    for sn, pid, dmodel in logger_rows:
         if sn is None or (sn, pid) in seen or not _visible(allowed, pid):
             continue
         seen.add((sn, pid))

@@ -37,6 +37,10 @@ export const ScanField: React.FC<
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [method, setMethod] = useState<InputMethod | null>(null);
+  // the value this field last handed out: a value set from outside (a reused dialog opening another
+  // record, a reset) drops the badge, which only describes how this field's own input came in
+  const [emitted, setEmitted] = useState<string | null>(null);
+  if (method !== null && value !== emitted) setMethod(null);
   const check = useSerialCheck(checkSerial && !inputProps.disabled ? fieldHint : undefined, value);
 
   const set = (v: string, m: InputMethod) => {
@@ -44,6 +48,7 @@ export const ScanField: React.FC<
     if (upper) out = out.toUpperCase();
     if (maxLength) out = out.slice(0, Number(maxLength));
     setMethod(m);
+    setEmitted(out);
     onValueChange(out, m, m === "manual" ? undefined : v);
   };
 

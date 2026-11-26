@@ -248,6 +248,14 @@ export const splitFields = (raw: string): LabelField[] => {
 /** The field a person most likely wants as the device SN: a labelled serial, else none. */
 export const serialField = (fields: LabelField[]): LabelField | null => fields.find((f) => f.role === "serial") ?? null;
 
+/** A field-hint category for a device's SIM field (`<kind>:sim`), not its serial. */
+export const isSimCategory = (category: string | null | undefined): boolean => !!category && category.endsWith(":sim");
+
+/** The field pre-selected before any remembered hint: a SIM field (`<kind>:sim`) takes the ICCID
+ *  (a labelled `ICCID` / `SIM`, else a value shaped like one), any other field the labelled serial. */
+export const defaultField = (fields: LabelField[], category?: string | null): LabelField | null =>
+  isSimCategory(category) ? (fields.find((f) => f.role === "iccid") ?? null) : serialField(fields);
+
 /** what a remembered field hint holds (`scan_field_hints`) */
 export interface FieldHintLike {
   field_key: string | null;

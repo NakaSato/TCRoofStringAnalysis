@@ -16,7 +16,7 @@ import { signal, unlockAudio } from "../../lib/scan/feedback";
 import { rememberScan } from "../../lib/scan/lastScan";
 import { pushScanTarget, useFieldScanner, type Burst } from "../../lib/scan/hidScanner";
 import { hasThai, thaiToUs } from "../../lib/scan/keymap";
-import { clean, hintFor, pickByHint, serialField, splitFields, type LabelField } from "../../lib/scan/parse";
+import { clean, defaultField, hintFor, isSimCategory, pickByHint, splitFields, type LabelField } from "../../lib/scan/parse";
 import { CameraScanner } from "./CameraScanner";
 import { cn } from "@/lib/utils";
 
@@ -315,11 +315,13 @@ const PickResult: React.FC<{ read: ScanRead; fieldHint?: FieldHintContext; onUse
   const model = fieldHint?.model?.trim() || null;
   const remembers = fields.length > 1 && !!fieldHint && !!model;
   const [hint, setHint] = useState<ScanFieldHint | null | undefined>(remembers ? undefined : null);
-  const serialAt = () => {
-    const f = serialField(fields);
+  const sim = isSimCategory(fieldHint?.category);
+  // before a remembered hint: the ICCID for a SIM field, the labelled serial otherwise
+  const defaultAt = () => {
+    const f = defaultField(fields, fieldHint?.category);
     return f ? fields.indexOf(f) : null;
   };
-  const [chosen, setChosen] = useState<number | null>(serialAt);
+  const [chosen, setChosen] = useState<number | null>(defaultAt);
   // a pick made before the hint arrives wins over it
   const touched = useRef(false);
 
@@ -348,7 +350,8 @@ const PickResult: React.FC<{ read: ScanRead; fieldHint?: FieldHintContext; onUse
   const canChange = !hint || user?.role === "admin";
 
   const use = () => {
-    if (remembers && chosen != null && !usesHint && canChange) {
+    // only once the remembered hint is known: before that a click must not overwrite it
+    if (remembers && hint !== undefined && chosen != null && !usesHint && canChange) {
       // remembered for the next label of this model; a failure only means it is not remembered
       void api.putScanFieldHint({ category: fieldHint!.category, model: model!, ...hintFor(fields, chosen) }).catch(() => undefined);
     }
@@ -373,7 +376,9 @@ const PickResult: React.FC<{ read: ScanRead; fieldHint?: FieldHintContext; onUse
               setChosen(i);
             }}
           />
-          <p className="text-[11px] text-muted-foreground">{t("IMEI and SIM numbers are not the device serial.")}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {sim ? t("The SIM number is the ICCID; the serial and IMEI are not it.") : t("IMEI and SIM numbers are not the device serial.")}
+          </p>
           {remembers && hint !== undefined && (
             <p className="text-[11px] text-muted-foreground">
               {usesHint

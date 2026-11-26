@@ -134,7 +134,7 @@ def _collect(db: Session, allowed: Optional[Set[int]], serials: Optional[Set[str
             key=f"inv:{inv.device_sn}", source="inverter", category="inverter", label=inv.alias or inv.device_sn,
             serial=inv.device_sn, model=inv.device_model or inv.model, site_code=site_of_plant.get(inv.plant_id),
             **plant_fields(inv.plant_id), inverter_sn=inv.device_sn,
-            path=f"/plant/{inv.plant_id}/inverters?q={quote(inv.device_sn)}",
+            path=f"/plant/{inv.plant_id}/inverters?sn={quote(inv.device_sn)}",
         ))
     for (sn, pid), dmodel in loggers.items():
         if (pid, serial_key(sn)) in register_loggers:

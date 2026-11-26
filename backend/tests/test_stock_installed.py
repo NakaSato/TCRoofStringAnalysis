@@ -302,7 +302,7 @@ def test_registry_where(api):
     d = where(t["adm"], " inva000001 ,RTR-B1,dl-extra,DL-ALPHA,INVGONE001,RTR-NOPLANT,unknown,,")
     assert sorted(d) == ["DL-ALPHA", "DL-EXTRA", "INVA000001", "RTR-B1", "RTR-NOPLANT"]  # not installed: no hit
     assert d["INVA000001"] == [{"source": "inverter", "category": "inverter", "label": "INVERTER 2", "plant_id": P1, "plant_name": "Alpha plant",
-                                "site_code": "P1-001", "ip": None, "network": None, "sim": None, "path": f"/plant/{P1}/inverters?q=INVA000001"}]
+                                "site_code": "P1-001", "ip": None, "network": None, "sim": None, "path": f"/plant/{P1}/inverters?sn=INVA000001"}]
     assert [h["source"] for h in d["DL-ALPHA"]] == ["site_device"]  # the register's, deduped
     assert d["DL-EXTRA"][0]["source"] == "datalogger" and d["DL-EXTRA"][0]["path"] == "/devices?tab=dataloggers&dq=DL-EXTRA"
     assert d["RTR-NOPLANT"][0]["plant_id"] is None

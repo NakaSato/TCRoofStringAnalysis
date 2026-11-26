@@ -7,7 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { SkeletonRows } from "../../components/ui";
 import { useAuth } from "../../context/AuthContext";
 import { useI18n } from "../../i18n";
 import { notify } from "../../lib/notify";
@@ -15,7 +18,7 @@ import { signal, unlockAudio } from "../../lib/scan/feedback";
 import { BurstDetector, DEFAULT_SCAN_SETTINGS, keyLike, readScanSettings, saveScanSettings, type KeyLike, type ScanSettings } from "../../lib/scan/hidScanner";
 import { hasThai } from "../../lib/scan/keymap";
 import { GS } from "../../lib/scan/parse";
-import { NumberField, SectionHeader, num } from "./shared";
+import { NumberField, SaveBar, SectionHeader, num } from "./shared";
 
 interface TestResult {
   value: string;
@@ -144,6 +147,8 @@ const FieldHints: React.FC = () => {
   const { t } = useI18n();
   const [hints, setHints] = useState<ScanFieldHint[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // hints whose Forget is in flight: a second click would send a second DELETE (404 after the first)
+  const [removing, setRemoving] = useState<ReadonlySet<number>>(() => new Set());
   useEffect(() => {
     api
       .listScanFieldHints()
@@ -156,12 +161,20 @@ const FieldHints: React.FC = () => {
     return t(HINT_CATEGORY[c] ?? c);
   };
   const remove = async (h: ScanFieldHint) => {
+    if (removing.has(h.id)) return;
+    setRemoving((cur) => new Set(cur).add(h.id));
     try {
       await api.deleteScanFieldHint(h.id);
       setHints((cur) => cur?.filter((x) => x.id !== h.id) ?? null);
       notify("ok", t("Forgotten: the next {model} label asks again.", { model: h.model }));
     } catch (e) {
       notify("crit", e instanceof Error ? e.message : String(e));
+    } finally {
+      setRemoving((cur) => {
+        const next = new Set(cur);
+        next.delete(h.id);
+        return next;
+      });
     }
   };
   return (
@@ -174,6 +187,12 @@ const FieldHints: React.FC = () => {
           {t("When a label holds several values with no SN key, the field picked first is remembered for that model and pre-selected for everyone. Forget one to have the next label ask again.")}
         </p>
         {error && <p className="text-amber-200">{error}</p>}
+        {hints === null && !error && (
+          <div aria-busy>
+            <span className="sr-only">{t("Loading…")}</span>
+            <SkeletonRows rows={3} />
+          </div>
+        )}
         {hints && hints.length === 0 && <p className="text-muted-foreground">{t("Nothing remembered yet.")}</p>}
         {hints && hints.length > 0 && (
           <ul className="flex flex-col divide-y divide-white/[0.06] rounded-md border border-white/[0.07]">
@@ -184,8 +203,14 @@ const FieldHints: React.FC = () => {
                 <span className="shrink-0 font-mono text-slate-300">
                   {h.field_key ?? t("field {n} of {total}", { n: h.field_index + 1, total: h.field_count })}
                 </span>
-                <Button size="icon-xs" variant="ghost" aria-label={t("Forget {model}", { model: h.model })} onClick={() => void remove(h)}>
-                  <Trash2 className="size-3.5" />
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={t("Forget {model}", { model: h.model })}
+                  disabled={removing.has(h.id)}
+                  onClick={() => void remove(h)}
+                >
+                  {removing.has(h.id) ? <Spinner className="size-3.5" /> : <Trash2 className="size-3.5" />}
                 </Button>
               </li>
             ))}
@@ -287,14 +312,25 @@ export const ScanningSettings: React.FC = () => {
   };
   const dirty = draft.maxGapMs !== saved.maxGapMs || draft.minLength !== saved.minLength || draft.idleEndMs !== saved.idleEndMs || draft.prefix !== saved.prefix;
 
-  const save = (s: ScanSettings) => {
-    saveScanSettings(s);
+  const isDefault =
+    draft.maxGapMs === DEFAULT_SCAN_SETTINGS.maxGapMs &&
+    draft.minLength === DEFAULT_SCAN_SETTINGS.minLength &&
+    draft.idleEndMs === DEFAULT_SCAN_SETTINGS.idleEndMs &&
+    draft.prefix === DEFAULT_SCAN_SETTINGS.prefix;
+
+  /** puts `s`'s keyboard-scanner values in the fields (saved only with Save in the bar) */
+  const fill = (s: ScanSettings) => {
+    setGap(String(s.maxGapMs));
+    setMinLen(String(s.minLength));
+    setIdle(String(s.idleEndMs));
+    setPrefix(s.prefix);
+  };
+
+  const save = () => {
+    saveScanSettings(draft);
     const back = readScanSettings();
     setSaved(back);
-    setGap(String(back.maxGapMs));
-    setMinLen(String(back.minLength));
-    setIdle(String(back.idleEndMs));
-    setPrefix(back.prefix);
+    fill(back);
     notify("ok", t("Saved on this device."));
   };
 
@@ -330,10 +366,7 @@ export const ScanningSettings: React.FC = () => {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={!dirty} onClick={() => save(draft)}>
-              {t("Save")}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => save({ ...DEFAULT_SCAN_SETTINGS, sound: saved.sound })}>
+            <Button size="sm" variant="ghost" disabled={isDefault} onClick={() => fill(DEFAULT_SCAN_SETTINGS)}>
               {t("Back to defaults")}
             </Button>
           </div>
@@ -346,7 +379,8 @@ export const ScanningSettings: React.FC = () => {
         <CardHeader>
           <CardTitle className="text-sm">{t("Feedback")}</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center gap-3 text-xs">
+        <CardContent className="flex flex-col gap-1.5 text-xs">
+          <Field orientation="horizontal" className="w-auto gap-2">
           <Switch
             id="scan-sound"
             checked={saved.sound}
@@ -357,12 +391,16 @@ export const ScanningSettings: React.FC = () => {
               if (on) window.setTimeout(() => signal("ok"), 50);
             }}
           />
-          <Label htmlFor="scan-sound">{t("Beep on each read")}</Label>
+          <FieldLabel htmlFor="scan-sound" className="text-xs font-normal">
+            {t("Beep on each read")}
+          </FieldLabel>
+          </Field>
           <span className="text-muted-foreground">{t("The box flashes green either way; phones that support it also vibrate (not iPhone).")}</span>
         </CardContent>
       </Card>
       {user?.role === "admin" && <RedTags />}
       {user?.role === "admin" && <FieldHints />}
+      <SaveBar dirty={dirty} saving={false} onSave={save} onReset={() => fill(saved)} note={t("Kept on this device only.")} />
     </div>
   );
 };
