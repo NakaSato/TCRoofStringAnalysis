@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.services import stock as svc
 from app.services import stock_count as count_svc
 from app.services import stock_failed as failed_svc
+from app.services import stock_installed as installed_svc
 from app.services import stock_lookup as lookup_svc
 from app.services import stock_replace as replace_svc
 
@@ -319,3 +320,58 @@ def confirm_count(body: CountConfirmIn, db: Session = Depends(get_db), user: Use
     rows that need a decision (needs_part / ambiguous / blocked), or `code: stock_changed` when the
     location's stock is not what the preview showed (`expected_ids`)."""
     return _call(count_svc.confirm, db, user, body.location_id, [s.model_dump() for s in body.scans], body.expected_ids, body.note)
+
+
+# ------------------------------------------------------- installed equipment (registry links)
+# docs/plans/inventory-installed-base.md: read from the Growatt registry and the site register.
+
+
+class FromModelItem(BaseModel):
+    # loose limits: the catalogue's own validation answers per row (409 `errors`)
+    category: Optional[str] = Field(None, max_length=200)
+    model: Optional[str] = Field(None, max_length=200)
+    make: Optional[str] = Field(None, max_length=200)
+    code: Optional[str] = Field(None, max_length=200)
+    name: Optional[str] = Field(None, max_length=200)
+
+
+class FromModelsIn(BaseModel):
+    apply: bool = False
+    items: Optional[List[FromModelItem]] = Field(None, max_length=svc.MAX_BATCH)
+
+
+@router.get("/installed")
+def list_installed(
+    category: Optional[str] = Query(None, max_length=24),
+    plant_id: Optional[int] = None,
+    phase: Optional[int] = None,
+    q: Optional[str] = Query(None, max_length=120),
+    limit: int = Query(500, ge=1, le=installed_svc.MAX_INSTALLED_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Every installed device the user may see (inverters, dataloggers, site register devices, grid
+    meters); `counts` per category over every filter but `category`, before limit."""
+    return installed_svc.installed(db, user, category or None, plant_id, phase, q, limit, offset)
+
+
+@router.get("/installed/models")
+def list_installed_models(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Installed vs in stock vs failed per (category, model) and phase; counts only."""
+    return installed_svc.models(db, user)
+
+
+@router.post("/parts/from-models")
+def parts_from_models(body: FromModelsIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Admin or store keeper: `apply: false` proposes catalogue parts for the installed models;
+    `apply: true` creates `items`, all or nothing (409 `errors` [{row, error}])."""
+    if not body.apply:
+        return _call(installed_svc.proposals, db, user)
+    return _call(installed_svc.apply, db, user, [i.model_dump() for i in body.items or []])
+
+
+@router.get("/registry-where")
+def registry_where(serials: str = Query("", max_length=20000), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Where the registry has each serial (≤ 200, each ≤ 64; 422 otherwise); plants the user may not see are left out."""
+    return _call(installed_svc.registry_where, db, user, serials)

@@ -42,10 +42,14 @@ import { CorrectDialog, LocationDialog, PartDialog } from "./spares/dialogs";
 import { MoveDialog, type MoveKind } from "./spares/MoveDialog";
 import { FailedUnitDialog, TagFailedDialog } from "./spares/FailedDialogs";
 import { FailedTab } from "./spares/FailedTab";
-import { ReplaceDialog } from "./spares/ReplaceDialog";
+import { ReplaceDialog, type ReplacePreset } from "./spares/ReplaceDialog";
+import { InstalledTab } from "./spares/InstalledTab";
+import { ModelsTab } from "./spares/ModelsTab";
+import { FromModelsDialog } from "./spares/FromModelsDialog";
+import { RegistryChip, registryKey, useClearRegistryOn, useRegistryWhere } from "./spares/RegistryWhere";
 import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, STATE_VARIANT, canManageStock, download, fmtStockAt } from "./spares/shared";
 
-const TABS = ["stock", "failed", "movements", "catalogue", "locations"] as const;
+const TABS = ["stock", "failed", "installed", "models", "movements", "catalogue", "locations"] as const;
 const MOVE_KINDS = ["all", "receive", "transfer", "issue", "return", "failed_in", "ship_out", "supplier_return", "scrap", "count_adjust", "correction"] as const;
 const PAGE = 100;
 
@@ -81,6 +85,8 @@ export const SparesPage: React.FC = () => {
   const [move, setMove] = useState<{ kind: MoveKind; unit?: StockUnit | null } | null>(null);
   const [editPart, setEditPart] = useState<StockPart | null | undefined>(undefined);
   const [editLoc, setEditLoc] = useState<StockLocation | null | undefined>(undefined);
+  const [fromModels, setFromModels] = useState(false);
+  const [replacePreset, setReplacePreset] = useState<ReplacePreset | null>(null);
   const reload = useCallback(() => setVersion((v) => v + 1), []);
 
   useEffect(() => {
@@ -167,6 +173,8 @@ export const SparesPage: React.FC = () => {
         <TabsList variant="line" className="max-w-full overflow-x-auto">
           <TabsTrigger value="stock">{t("Stock")}</TabsTrigger>
           <TabsTrigger value="failed">{t("Failed units")}</TabsTrigger>
+          <TabsTrigger value="installed">{t("Installed")}</TabsTrigger>
+          <TabsTrigger value="models">{t("Spares per model")}</TabsTrigger>
           <TabsTrigger value="movements">{t("Movements")}</TabsTrigger>
           <TabsTrigger value="catalogue">{t("Catalogue")}</TabsTrigger>
           <TabsTrigger value="locations">{t("Locations")}</TabsTrigger>
@@ -187,10 +195,21 @@ export const SparesPage: React.FC = () => {
         />
       ) : tab === "failed" ? (
         <FailedTab version={version} />
+      ) : tab === "installed" ? (
+        <InstalledTab
+          version={version}
+          keeper={keeper}
+          onReplace={(r) => {
+            setReplacePreset({ plantId: r.plant_id, siteDeviceId: r.site_device_id, inverterSn: r.inverter_sn });
+            setReplacing(true);
+          }}
+        />
+      ) : tab === "models" ? (
+        <ModelsTab version={version} keeper={keeper} onChanged={reload} />
       ) : tab === "movements" ? (
         <MovementsTab parts={parts} locations={locations} version={version} keeper={keeper} onChanged={reload} onOpenFailed={(id) => setUrl({ fu: id })} />
       ) : tab === "catalogue" ? (
-        <CatalogueTab parts={parts} keeper={keeper} onEdit={setEditPart} />
+        <CatalogueTab parts={parts} keeper={keeper} onEdit={setEditPart} onFromModels={() => setFromModels(true)} />
       ) : (
         <LocationsTab locations={locations} locById={locById} keeper={keeper} onEdit={setEditLoc} />
       )}
@@ -204,9 +223,17 @@ export const SparesPage: React.FC = () => {
         locations={locations ?? []}
         onDone={reload}
       />
-      <ReplaceDialog open={replacing} onOpenChange={setReplacing} locations={locations ?? []} onDone={reload} />
+      <ReplaceDialog
+        open={replacing}
+        onOpenChange={(o) => {
+          setReplacing(o);
+          if (!o) setReplacePreset(null);
+        }}
+        preset={replacePreset}
+        locations={locations ?? []} onDone={reload} />
       <TagFailedDialog open={tagging} onOpenChange={setTagging} parts={parts ?? []} locations={locations ?? []} onDone={reload} />
       <FailedUnitDialog id={fu} onOpenChange={(o) => !o && setUrl({ fu: null })} parts={parts ?? []} locations={locations ?? []} onChanged={reload} />
+      <FromModelsDialog open={fromModels} onOpenChange={setFromModels} onDone={reload} />
       <PartDialog part={editPart ?? null} open={editPart !== undefined} onOpenChange={(o) => !o && setEditPart(undefined)} onDone={reload} />
       <LocationDialog
         location={editLoc ?? null}
@@ -251,6 +278,9 @@ const StockTab: React.FC<{
       alive = false;
     };
   }, [open, version]);
+  // L-3: where the registry has these serials (a spare in stock that is also installed = amber)
+  useClearRegistryOn(version);
+  const where = useRegistryWhere(units?.map((u) => u.serial) ?? []);
   if (!parts.length) return <EmptyState title={t("No parts in the catalogue yet.")} />;
   return (
     <Card className="py-0">
@@ -318,6 +348,8 @@ const StockTab: React.FC<{
                               <span className="min-w-36 font-mono text-slate-100">{u.serial}</span>
                               <Badge variant={STATE_VARIANT[u.state] ?? "neutral"}>{t(STATE_LABEL[u.state] ?? u.state)}</Badge>
                               <span className="min-w-0 flex-1 truncate text-muted-foreground">{u.location_code ?? u.plant_name ?? "—"}</span>
+                              {(u.state === "in_stock" || u.state === "missing") && <RegistryChip hits={where[registryKey(u.serial)]} warn className="basis-full sm:basis-auto" />}
+                              {u.state === "installed" && <RegistryChip hits={where[registryKey(u.serial)]} className="basis-full sm:basis-auto" />}
                               {u.state === "in_stock" && (
                                 <>
                                   <Button size="xs" variant="ghost" onClick={() => onMove("transfer", u)}>
@@ -366,6 +398,8 @@ const MovementsTab: React.FC<{
   const [page, setPage] = useState(0);
   const [data, setData] = useState<StockMovementList | null>(null);
   const [correcting, setCorrecting] = useState<StockMovement | null>(null);
+  useClearRegistryOn(version);
+  const where = useRegistryWhere(data?.movements.map((m) => m.serial) ?? []);
   useEffect(() => setPage(0), [kind, partId, serial]);
   useEffect(() => {
     let alive = true;
@@ -468,6 +502,7 @@ const MovementsTab: React.FC<{
                   <TableCell className="text-xs">
                     <span className="font-mono text-slate-100">{m.serial ?? "—"}</span>
                     <span className="block text-[11px] text-muted-foreground">{m.part_code ?? "—"}</span>
+                    <RegistryChip hits={where[registryKey(m.serial)]} className="mt-0.5 max-w-56" />
                     {m.failed_unit_id != null && (
                       <Button size="xs" variant="link" className="h-auto px-0 text-[11px]" onClick={() => onOpenFailed(m.failed_unit_id!)}>
                         {t("Failed unit")}
@@ -513,16 +548,19 @@ const MovementsTab: React.FC<{
   );
 };
 
-const CatalogueTab: React.FC<{ parts: StockPart[]; keeper: boolean; onEdit: (p: StockPart | null) => void }> = ({ parts, keeper, onEdit }) => {
+const CatalogueTab: React.FC<{ parts: StockPart[]; keeper: boolean; onEdit: (p: StockPart | null) => void; onFromModels: () => void }> = ({ parts, keeper, onEdit, onFromModels }) => {
   const { t } = useI18n();
   return (
     <Card className="gap-3 py-3">
       <CardContent className="flex flex-col gap-3 px-0">
         {keeper && (
-          <div className="px-4">
+          <div className="flex flex-wrap gap-2 px-4">
             <Button size="sm" variant="outline" onClick={() => onEdit(null)}>
               <Plus data-icon="inline-start" />
               {t("Add part")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onFromModels}>
+              {t("From installed models")}
             </Button>
           </div>
         )}

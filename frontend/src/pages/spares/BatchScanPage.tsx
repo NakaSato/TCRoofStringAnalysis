@@ -11,7 +11,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Check, Printer, ScanLine, Trash2, X } from "lucide-react";
-import { ApiError, api, type InputMethod, type StockBatchError, type StockLocation, type StockLookup, type StockPart } from "../../api/client";
+import { ApiError, api, type InputMethod, type RegistryHit, type StockBatchError, type StockLocation, type StockLookup, type StockPart } from "../../api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -54,6 +54,7 @@ import {
 } from "../../lib/scan/batch";
 import { KIND_LABEL, STATE_LABEL, canManageStock, errorText } from "./shared";
 import { CountScanPage } from "./CountScanPage";
+import { RegistryReceiveWarning, registryKey, useRegistryWhere } from "./RegistryWhere";
 import { STATUS_ICON, STATUS_ROW, STATUS_TEXT, ScanInputs, ScanModeTabs, isMoveMode, newRowId as newId, scanModes } from "./scanShared";
 import { cn } from "@/lib/utils";
 
@@ -135,6 +136,8 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
     if (list.key === key) writeRows(key, list.rows);
   }, [list, key]);
   const rows = list.rows;
+  // L-3: a received serial the registry has installed on a plant warns (never blocks)
+  const where = useRegistryWhere(mode === "receive" ? rows.map((r) => r.serial) : []);
   const setRows = useCallback((fn: (r: BatchRow[]) => BatchRow[]) => {
     setList((l) => {
       const next = { ...l, rows: fn(l.rows) };
@@ -424,6 +427,7 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
               mode={mode}
               parts={parts}
               flash={flashId === r.id}
+              registry={mode === "receive" ? where[registryKey(r.serial)] : undefined}
               text={evalText}
               onRemove={() => removeRow(r.id)}
               onPatch={(p) => patchRow(r.id, p)}
@@ -485,10 +489,12 @@ const BatchRowItem: React.FC<{
   mode: BatchMode;
   parts: StockPart[];
   flash: boolean;
+  /** receive: where the registry has this serial installed */
+  registry?: RegistryHit[];
   text: (ev: RowEval) => string;
   onRemove: () => void;
   onPatch: (p: Partial<BatchRow>) => void;
-}> = ({ row, ev, mode, parts, flash, text, onRemove, onPatch }) => {
+}> = ({ row, ev, mode, parts, flash, registry, text, onRemove, onPatch }) => {
   const { t } = useI18n();
   const unit = row.units.length === 1 ? row.units[0] : (row.units.find((u) => u.id === row.unit_id) ?? null);
   const newSerial = mode === "receive" && row.kind === "serial" && !row.units.length;
@@ -509,6 +515,7 @@ const BatchRowItem: React.FC<{
         </span>
         {partLine && <span className="truncate text-xs text-muted-foreground">{partLine}</span>}
         <span className={cn("text-sm", STATUS_TEXT[ev.status])}>{text(ev)}</span>
+        <RegistryReceiveWarning hits={registry} className="mt-1" />
       </div>
       {ev.pick && (
         <Select value={row.unit_id != null ? String(row.unit_id) : NONE} onValueChange={(v) => onPatch({ unit_id: v === NONE ? null : Number(v) })}>

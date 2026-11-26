@@ -30,6 +30,7 @@ export type * from "./types/kbDocs";
 export type * from "./types/visitRoute";
 export type * from "./types/scan";
 export * from "./types/stock";
+export type * from "./types/stockInstalled";
 export type * from "./types/devices";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
@@ -67,6 +68,7 @@ import type {
   StockSummary,
   StockUnit,
 } from "./types/stock";
+import type { FromModelsItem, InstalledList, InstalledQuery, ModelProposal, ModelRow, RegistryHit } from "./types/stockInstalled";
 import type { RedTagBatch, RedTagReserved, ScanFieldHint, ScanFieldHintBody, ScanLabelList, ScanLabelQuery, ScanResolve, SerialCheck } from "./types/scan";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
@@ -648,6 +650,19 @@ export const api = {
   // ---- spares register (/stock): catalogue, locations, units, movement ledger (DB only, no money)
   stockLookup: (code: string) => apiFetch<StockLookup>(`/stock/lookup?code=${encodeURIComponent(code)}`),
   getStockSummary: () => apiFetch<StockSummary>("/stock/summary"),
+  // installed equipment from the registry (docs/plans/inventory-installed-base.md); read only
+  listInstalled: (q: InstalledQuery = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<InstalledList>(`/stock/installed${qs ? `?${qs}` : ""}`);
+  },
+  listInstalledModels: () => apiFetch<{ items: ModelRow[] }>("/stock/installed/models"),
+  previewPartsFromModels: () => apiFetch<{ proposals: ModelProposal[] }>("/stock/parts/from-models", { method: "POST", body: JSON.stringify({ apply: false }) }),
+  applyPartsFromModels: (items: FromModelsItem[]) =>
+    apiFetch<{ created: StockPart[] }>("/stock/parts/from-models", { method: "POST", body: JSON.stringify({ apply: true, items }) }),
+  registryWhere: (serials: string[]) =>
+    apiFetch<{ items: Record<string, RegistryHit[]> }>(`/stock/registry-where?serials=${encodeURIComponent(serials.join(","))}`),
   listStockParts: (includeInactive = false) => apiFetch<StockPart[]>(`/stock/parts${includeInactive ? "?include_inactive=true" : ""}`),
   createStockPart: (body: StockPartBody) => apiFetch<StockPart>("/stock/parts", { method: "POST", body: JSON.stringify(body) }),
   updateStockPart: (id: number, body: StockPartBody) => apiFetch<StockPart>(`/stock/parts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),

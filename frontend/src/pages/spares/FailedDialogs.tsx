@@ -21,6 +21,7 @@ import { PlantPicker } from "../calendar/fields";
 import { STATUS as CLAIM_STATUS } from "../claims/format";
 import { FailedStatusBadges } from "./FailedTab";
 import { KIND_LABEL, MOVE_LABEL, canManageStock, errorText } from "./shared";
+import { RegistryChip, registryKey, useRegistryWhere } from "./RegistryWhere";
 
 const NONE = "__none";
 
@@ -274,6 +275,8 @@ export const FailedUnitDialog: React.FC<{
   const [claims, setClaims] = useState<Claim[] | null>(null);
   const [fault, setFault] = useState("");
   const [partId, setPartId] = useState(NONE);
+  // L-3: the registry device with this serial
+  const registryHits = useRegistryWhere([unit?.serial])[registryKey(unit?.serial)];
 
   const load = (fid: number) =>
     api
@@ -413,6 +416,12 @@ export const FailedUnitDialog: React.FC<{
               </Fact>
               <Fact label={t("Plant")}>{unit.plant_name ?? (unit.plant_id != null ? t("Plant {id}", { id: unit.plant_id }) : "—")}</Fact>
               <Fact label={t("Device")}>{unit.site_device_label ?? unit.inverter_sn ?? "—"}</Fact>
+              {registryHits && (
+                <div className="col-span-2 flex min-w-0 flex-col gap-0.5 sm:col-span-3">
+                  <span className="text-[11px] text-muted-foreground">{t("In the registry")}</span>
+                  <RegistryChip hits={registryHits} />
+                </div>
+              )}
               <Fact label={t("Removed on")}>
                 <span className="num">{unit.removed_day}</span> · {t("{n} days", { n: unit.age_days })}
               </Fact>

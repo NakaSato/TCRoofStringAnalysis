@@ -45,6 +45,9 @@ import { CATEGORY_LABEL, KIND_LABEL, errorText } from "./shared";
 export interface ReplacePreset {
   plantId: number;
   device?: { id?: number; kind: SiteDeviceKind; seq: number; serial: string | null };
+  /** from Inventory → Installed: the row's target as `POST /stock/replacements` takes it */
+  siteDeviceId?: number | null;
+  inverterSn?: string | null;
 }
 
 const STEPS = ["Device", "Old unit", "Red tag", "New spare", "Goes to", "Confirm"] as const;
@@ -194,9 +197,14 @@ export const ReplaceDialog: React.FC<{
 
   // preset from a Site register tile: select its device once and go on to the old unit
   useEffect(() => {
-    if (!open || presetDone || !targets || !preset?.device || targets.plant_id !== preset.plantId) return;
+    if (!open || presetDone || !targets || !preset || targets.plant_id !== preset.plantId) return;
+    if (!preset.device && preset.siteDeviceId == null && !preset.inverterSn) return;
     setPresetDone(true);
-    const m = matchPreset(targets.devices, preset.device);
+    const m = preset.device
+      ? matchPreset(targets.devices, preset.device)
+      : (targets.devices.find((d) =>
+          preset.inverterSn ? d.kind === "inverter" && norm(d.inverter_sn) === norm(preset.inverterSn) : d.kind === "site_device" && d.site_device_id === preset.siteDeviceId
+        ) ?? null);
     if (m) {
       setTargetKey(keyOf(m));
       setStep(1);

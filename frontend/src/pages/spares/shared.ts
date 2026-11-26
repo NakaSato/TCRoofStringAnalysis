@@ -9,6 +9,7 @@ export const CATEGORY_LABEL: Record<PartCategory, string> = {
   router: "4G router",
   pqm: "PQM",
   shinemaster: "ShineMaster",
+  grid_meter: "Grid meter",
   module: "PV module",
   other: "Other",
 };

@@ -11,6 +11,7 @@ import { EmptyState, SkeletonRows } from "../../components/ui";
 import { useI18n } from "../../i18n";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { FAILED_STATUS_LABEL, FAILED_STATUS_VARIANT, download } from "./shared";
+import { RegistryChip, registryKey, useClearRegistryOn, useRegistryWhere } from "./RegistryWhere";
 
 /** status filter: open (default) = tagged, in store or at the supplier */
 const FILTERS = ["open", "all", ...FAILED_STATUSES] as const;
@@ -38,6 +39,9 @@ export const FailedTab: React.FC<{ version: number }> = ({ version }) => {
   const q = url.get("fq") ?? "";
   const [rows, setRows] = useState<FailedUnit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // L-3: the registry device each serial belongs to
+  useClearRegistryOn(version);
+  const where = useRegistryWhere(rows?.map((u) => u.serial) ?? []);
 
   useEffect(() => {
     let alive = true;
@@ -153,6 +157,7 @@ export const FailedTab: React.FC<{ version: number }> = ({ version }) => {
                   <TableCell className="text-xs">
                     <span className="font-mono text-slate-100">{u.serial ?? "—"}</span>
                     <span className="block text-[11px] text-muted-foreground">{u.part_code ?? t("Not in the catalogue")}</span>
+                    <RegistryChip hits={where[registryKey(u.serial)]} className="mt-0.5 max-w-56" />
                   </TableCell>
                   <TableCell className="max-w-48 truncate text-xs">{u.plant_name ?? (u.plant_id != null ? t("Plant {id}", { id: u.plant_id }) : "—")}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.session import Base
 from app.db.models.base import _utcnow
 
-PART_CATEGORIES = ("inverter", "datalogger", "weather_station", "revenue_meter", "router", "pqm", "shinemaster", "module", "other")
+PART_CATEGORIES = ("inverter", "datalogger", "weather_station", "revenue_meter", "router", "pqm", "shinemaster", "grid_meter", "module", "other")
 LOCATION_KINDS = ("store", "bin", "van", "supplier")
 UNIT_STATES = ("in_stock", "installed", "failed", "at_supplier", "scrapped", "void", "missing")
 MOVEMENT_KINDS = ("receive", "transfer", "issue", "return", "correction", "failed_in", "ship_out", "supplier_return", "scrap", "count_adjust")

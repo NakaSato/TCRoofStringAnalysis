@@ -1,5 +1,6 @@
 /** Thai: Spares register (pages/SparesPage.tsx, pages/spares/*, Users & Access store keeper). */
 export const TH_STOCK: Record<string, string> = {
+  "Grid meter": "มิเตอร์จุดเชื่อมต่อ",
   Spares: "อะไหล่สำรอง",
   Inventory: "คลังอะไหล่",
   "Spare units in the store and the crews' vans, failed units, and every move in and out": "อะไหล่ในคลังและในรถของแต่ละทีม อุปกรณ์เสีย พร้อมทุกการเคลื่อนย้ายเข้าออก",

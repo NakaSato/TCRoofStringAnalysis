@@ -1,6 +1,6 @@
 /** Spares register (`/stock`, docs/plans/spares-failed-units.md), phase 1. No money anywhere. */
 
-export const PART_CATEGORIES = ["inverter", "datalogger", "weather_station", "revenue_meter", "router", "pqm", "shinemaster", "module", "other"] as const;
+export const PART_CATEGORIES = ["inverter", "datalogger", "weather_station", "revenue_meter", "router", "pqm", "shinemaster", "grid_meter", "module", "other"] as const;
 export type PartCategory = (typeof PART_CATEGORIES)[number];
 export const LOCATION_KINDS = ["store", "bin", "van", "supplier"] as const;
 export type LocationKind = (typeof LOCATION_KINDS)[number];

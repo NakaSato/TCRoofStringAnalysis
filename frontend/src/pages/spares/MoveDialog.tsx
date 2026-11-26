@@ -13,6 +13,7 @@ import { useI18n } from "../../i18n";
 import { notify } from "../../lib/notify";
 import { PlantPicker } from "../calendar/fields";
 import { KIND_LABEL, MOVE_LABEL, canManageStock, errorText } from "./shared";
+import { RegistryReceiveWarning, registryKey, useRegistryWhere } from "./RegistryWhere";
 
 export type MoveKind = Exclude<StockMovementRow["kind"], never>;
 
@@ -58,6 +59,8 @@ export const MoveDialog: React.FC<{
     setError(null);
   }, [open, initialKind, unit]);
 
+  // L-3: receiving a serial the registry has installed on a plant warns (never blocks)
+  const receiveHits = useRegistryWhere(open && kind === "receive" ? [serial] : [])[registryKey(serial)];
   const part = parts.find((p) => String(p.id) === partId) ?? null;
   const stockLocs = useMemo(() => locations.filter((l) => l.active && l.kind !== "supplier"), [locations]);
   const needsTo = kind !== "issue";
@@ -154,6 +157,7 @@ export const MoveDialog: React.FC<{
               }}
             />
           </div>
+          {kind === "receive" && <RegistryReceiveWarning hits={receiveHits} />}
           {needsTo && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="mv-to" className="text-xs">
