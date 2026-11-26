@@ -1,6 +1,6 @@
 /** Barcode / QR scans (`/scan/resolve`, docs/plans/barcode-scanning.md §9). */
 
-export type ScanMatchKind = "instrument" | "inverter" | "datalogger" | "site_device" | "failed_unit" | "spare_unit" | "part" | "location";
+export type ScanMatchKind = "instrument" | "inverter" | "datalogger" | "site_device" | "failed_unit" | "spare_unit" | "part" | "location" | "field_fault";
 
 export interface ScanMatch {
   kind: ScanMatchKind;

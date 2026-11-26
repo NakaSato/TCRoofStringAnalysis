@@ -16,6 +16,7 @@ from app.api.routes import (
     calendar_feed,
     claims,
     datasets,
+    faults,
     growatt,
     kb,
     kb_docs,
@@ -88,6 +89,8 @@ def create_app() -> FastAPI:
     api_router.include_router(push.router, dependencies=[Depends(get_current_user)])
     # Claims: scoped to the user's plants per route; status changes and delete are admin only
     api_router.include_router(claims.router, dependencies=[Depends(get_current_user)])
+    # Field faults (defect register): scoped to the user's plants per route; nothing is deleted
+    api_router.include_router(faults.router, dependencies=[Depends(get_current_user)])
     # Measuring Tools: everyone views and checks out / in; add, edit, delete, calibrations admin only
     api_router.include_router(tools.router, dependencies=[Depends(get_current_user)])
     # Barcode / QR scans: resolve a code to the record it names (scoped like the records themselves)

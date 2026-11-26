@@ -1328,3 +1328,79 @@ class RouteCandidatesResponse(BaseModel):
     candidates: List[RouteCandidate]
     counts: Dict[str, int]  # plants per reason kind
     labels: Dict[str, str]
+
+
+# --------------------------------------------------------------------------- field faults (docs/plans/defects.md)
+# Values are checked by services/faults.py (one list of kinds, statuses, …); these models bound sizes and types.
+
+
+class FaultMeterRef(BaseModel):
+    datalogger_sn: str = Field(min_length=1, max_length=64)
+    address: int
+
+
+class FaultLinkBody(BaseModel):
+    kind: str = Field(max_length=16)
+    ref_id: Optional[int] = Field(None, ge=1)
+    ref_key: Optional[str] = Field(None, max_length=200)
+
+
+class FaultCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plant_id: int
+    kind: str = Field(max_length=20)
+    sub_kind: Optional[str] = Field(None, max_length=12)
+    severity: str = Field(max_length=2)
+    how_found: str = Field(max_length=16)
+    symptom: str = Field(max_length=4000)
+    cause: Optional[str] = Field(None, max_length=24)
+    found_at: Optional[datetime] = None
+    found_by: Optional[str] = Field(None, max_length=64)
+    inverter_sn: Optional[str] = Field(None, max_length=64)
+    site_device_id: Optional[int] = None
+    meter: Optional[FaultMeterRef] = None
+    stock_unit_id: Optional[int] = None
+    position: Optional[Dict[str, Any]] = None
+    serial: Optional[str] = Field(None, max_length=64)
+    serial_input: Optional[InputMethodName] = None
+    serial_raw: Optional[str] = Field(None, max_length=512)
+    owner_user_id: Optional[int] = None
+    next_action_day: Optional[date] = None
+    evidence_urls: List[str] = Field(default_factory=list, max_length=20)
+    reference: Optional[str] = Field(None, max_length=120)
+    links: List[FaultLinkBody] = Field(default_factory=list, max_length=20)
+    allow_duplicate: bool = False
+
+
+class FaultPatch(BaseModel):
+    """Only the fields sent change; null clears an optional one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    symptom: Optional[str] = Field(None, max_length=4000)
+    cause: Optional[str] = Field(None, max_length=24)
+    severity: Optional[str] = Field(None, max_length=2)
+    owner_user_id: Optional[int] = None
+    next_action_day: Optional[date] = None
+    evidence_urls: Optional[List[str]] = Field(None, max_length=20)
+    reference: Optional[str] = Field(None, max_length=120)
+    position: Optional[Dict[str, Any]] = None
+    sub_kind: Optional[str] = Field(None, max_length=12)
+    found_at: Optional[datetime] = None
+
+
+class FaultStatusChange(BaseModel):
+    status: str = Field(max_length=12)
+    waiting_reason: Optional[str] = Field(None, max_length=12)
+    restored_at: Optional[datetime] = None
+    note: Optional[str] = Field(None, max_length=4000)
+
+
+class FaultDecision(BaseModel):
+    decision: str = Field(max_length=16)
+    reason: str = Field(min_length=1, max_length=4000)
+
+
+class FaultNote(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)

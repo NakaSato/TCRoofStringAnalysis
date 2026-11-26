@@ -49,7 +49,7 @@ GS = "\x1d"
 # kinds of app label (§6.1); `tool`, `dev`, `sp` (spare unit id or part code) and `loc` (stock
 # location code) open records, `rt` a bound red tag's failed unit
 APP_KINDS = ("rt", "sp", "loc", "tool", "dev", "df")
-RESOLVABLE_KINDS = ("tool", "dev", "sp", "loc")
+RESOLVABLE_KINDS = ("tool", "dev", "sp", "loc", "df")
 # spare unit states a raw serial matches (a voided receive is not in the register)
 SPARE_MATCH_STATES = ("in_stock", "installed", "failed", "at_supplier", "missing")
 LOCATION_KIND_LABEL = {"store": "Store", "bin": "Bin", "van": "Van", "supplier": "Supplier"}
@@ -245,6 +245,11 @@ def _app_code_matches(db: Session, kind: str, code: str, allowed: Optional[Set[i
         if p is None:
             raise GrowattNotFound(f"No part {code}")
         return [_part_match(db, p)]
+    if kind == "df":  # a field fault label (DF-2026-0042); a hidden plant's fault is not revealed
+        from app.services import faults
+
+        f = faults.by_no(db, code, allowed)  # GrowattNotFound otherwise
+        return [Match("field_fault", str(f.id), f"{f.no} · {f.kind.replace('_', ' ')}", "no", f"/faults?fault={f.id}", plant_id=f.plant_id, detail=f"{f.severity} · {f.status.replace('_', ' ')}")]
     if kind == "loc":
         loc = db.scalars(select(StockLocation).where(func.upper(StockLocation.code) == code.upper())).first()
         if loc is None:
@@ -400,7 +405,7 @@ def resolve(db: Session, user: User, raw: str, suggest: bool = False) -> Dict[st
             else:
                 unsupported, matches = kind, []
         else:
-            # a label kind whose register is not built yet (defects)
+            # a label kind with nothing to resolve here (every APP_KINDS kind has a register now)
             unsupported, matches, value = kind, [], code.upper()
     else:
         value, part = normalise(raw)

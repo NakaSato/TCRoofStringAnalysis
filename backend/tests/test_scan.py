@@ -178,8 +178,7 @@ def test_site_devices_serial_sim_and_scope(api):
 
 def test_unsupported_kind_unknown_and_bad_input(api):
     client, adm, eng, _, _ = api
-    body = _resolve(client, eng, "/s/df/D-0001")
-    assert body["unsupported_kind"] == "df" and body["matches"] == [] and body["code"] == "D-0001"
+    _resolve(client, eng, "/s/df/DF-2026-0001", 404)  # field faults have a register now: an unknown number
     _resolve(client, eng, "/s/sp/P-ROUTER-RUT", 404)  # spares have records now: an unknown part code
     # an `sp` id: ASCII digits within the INTEGER key only, else no such unit (404, never a 500)
     for code in ("sp:²", "sp:١٢", "sp:0", "sp:2147483648", "sp:99999999999999999999999999"):

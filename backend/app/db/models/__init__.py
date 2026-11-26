@@ -3,7 +3,7 @@
 One module per domain: `users`, `legacy` (local plants of the upload / analysis pages), `growatt`
 (Growatt mirror and Google Weather hours), `rules` (daily rows, I-V sweeps, issues, site events),
 `om` (Calendar Team: planned O&M tasks, crews, recurring plans, per-plant planning figures), `claims`
-(warranty / insurance claims), `tools` (Measuring Tools: instruments, check-outs, calibrations), `kb` (Knowledge Base: manuals and their revisions, the PDF document library), `pwa` (PWA daily meter report), `route` (Visit Route offices), `scan` (label field hints, red tags), `stock` (Spares: parts, locations, units, movements, failed units, counts) and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
+(warranty / insurance claims), `faults` (field faults: the defect register), `tools` (Measuring Tools: instruments, check-outs, calibrations), `kb` (Knowledge Base: manuals and their revisions, the PDF document library), `pwa` (PWA daily meter report), `route` (Visit Route offices), `scan` (label field hints, red tags), `stock` (Spares: parts, locations, units, movements, failed units, counts) and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
 them all on `Base.metadata` and `from app.db.models import X` works as before.
 """
 
@@ -80,6 +80,11 @@ from app.db.models.claims import (  # noqa: F401
     ClaimEvent,
     ClaimEvidence,
     ClaimLink,
+)
+from app.db.models.faults import (  # noqa: F401
+    FieldFault,
+    FieldFaultEvent,
+    FieldFaultLink,
 )
 from app.db.models.tools import (  # noqa: F401
     Instrument,
