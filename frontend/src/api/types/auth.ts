@@ -7,6 +7,8 @@ export interface UserProfile {
   full_name: string;
   role: UserRole;
   is_active: boolean;
+  /** Spares: may receive, correct and edit the catalogue / locations (admins always may) */
+  store_keeper: boolean;
   /** Growatt plants this user may see: null = every plant (admin), else the ids an admin assigned. */
   plant_ids: number[] | null;
 }
@@ -22,4 +24,4 @@ export interface UserCreate {
   plant_ids: number[];
 }
 
-export type UserUpdate = Partial<Pick<UserCreate, "email" | "full_name" | "password" | "role">> & { is_active?: boolean };
+export type UserUpdate = Partial<Pick<UserCreate, "email" | "full_name" | "password" | "role">> & { is_active?: boolean; store_keeper?: boolean };

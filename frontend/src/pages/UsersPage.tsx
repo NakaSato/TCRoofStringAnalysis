@@ -67,6 +67,12 @@ export const UsersPage: React.FC = () => {
     run(() => api.updateUser(u.id, { is_active: !u.is_active }), u.is_active ? t("{user} disabled.", { user: u.username }) : t("{user} enabled.", { user: u.username }));
   const resetPassword = (u: UserProfile, pw: string) =>
     run(() => api.updateUser(u.id, { password: pw }), t("Password for {user} changed.", { user: u.username }));
+  const toggleKeeper = (u: UserProfile) =>
+    run(
+      () => api.updateUser(u.id, { store_keeper: !u.store_keeper }),
+      u.store_keeper ? t("{user} is no longer a store keeper.", { user: u.username }) : t("{user} is now a store keeper.", { user: u.username })
+    );
+
   const admins = users?.filter((u) => u.role === "admin" && u.is_active).length ?? 0;
   const engineers = users?.filter((u) => u.role === "engineer" && u.is_active).length ?? 0;
 
@@ -114,6 +120,7 @@ export const UsersPage: React.FC = () => {
                   <TableHead>{t("Name")}</TableHead>
                   <TableHead>{t("Role")}</TableHead>
                   <TableHead>{t("Plants")}</TableHead>
+                  <TableHead title={t("Receives stock, corrects movements, edits the spares catalogue and locations")}>{t("Store keeper")}</TableHead>
                   <TableHead>{t("Status")}</TableHead>
                   <TableHead className="pr-4 text-right">{t("Actions")}</TableHead>
                 </TableRow>
@@ -148,6 +155,13 @@ export const UsersPage: React.FC = () => {
                             <MapPin className="size-3.5" />
                             {t("{n} assigned", { n: u.plant_ids?.length ?? 0 })}
                           </Button>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {u.role === "admin" ? (
+                          <span className="text-[11px] text-muted-foreground">{t("As admin")}</span>
+                        ) : (
+                          <Checkbox checked={u.store_keeper} onCheckedChange={() => toggleKeeper(u)} aria-label={t("Store keeper: {user}", { user: u.username ?? u.email })} />
                         )}
                       </TableCell>
                       <TableCell>

@@ -1,6 +1,6 @@
 # Plan & Spec: Spares and failed units (store register)
 
-Status: **Planned 2026-11-26, decisions taken (§9), not built** · Owner: Chanthawat
+Status: **Phase 1 built 2026-11-26** (catalogue, locations, serialised units, movement ledger with corrections, store keeper flag, `/spares` Stock / Movements / Catalogue / Locations; §8 step 1). Phases 2–6 not built · Owner: Chanthawat
 
 A register of the **spare parts** the O&M team keeps (in the store and in the crews' vans) and of the **failed units** taken off site, with every move between them recorded. It is the piece the scanning plan is waiting on (docs/plans/barcode-scanning.md §7.2, §7.3, §12 steps 5–6): binding a red tag to a failed unit, labels for bins and spares, and batch receive / issue / count at the store desk.
 
@@ -118,7 +118,7 @@ POST            /stock/counts  → proposal;  POST /stock/counts/{id}/confirm �
 
 ## 8. Build order
 
-1. Catalogue, locations, ledger, on-hand query; receive / transfer / issue by hand (no scanning yet); Stock and Movements tabs. Tests: every quantity equals the ledger sum; a serial is in one place.
+1. **Built 2026-11-26.** Catalogue, locations, ledger, on-hand query; receive / transfer / issue / return by hand (the serial field takes a scanner or the camera; batch scanning is step 4); corrections (a unit's latest movement, store keeper, reason required); Stock, Movements, Catalogue and Locations tabs; store keeper column in Users & Access. Tests (`backend/tests/test_stock.py`): replaying the ledger gives every unit's state and place; a serial is in one place; all-or-nothing batches; permissions; plant scoping. A store keeper is still scoped to the plants assigned.
 2. Failed units + red tag binding; Failed units tab; claim link and ship action.
 3. Replacement on site (§5.3) from the Site register card, with the register update (D-4).
 4. Batch scan page (receive / transfer / return), `sp` / `loc` resolver and labels.

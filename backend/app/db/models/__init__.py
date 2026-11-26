@@ -3,7 +3,7 @@
 One module per domain: `users`, `legacy` (local plants of the upload / analysis pages), `growatt`
 (Growatt mirror and Google Weather hours), `rules` (daily rows, I-V sweeps, issues, site events),
 `om` (Calendar Team: planned O&M tasks, crews, recurring plans, per-plant planning figures), `claims`
-(warranty / insurance claims), `tools` (Measuring Tools: instruments, check-outs, calibrations), `kb` (Knowledge Base: manuals and their revisions, the PDF document library), `pwa` (PWA daily meter report), `route` (Visit Route offices), `scan` (label field hints, red tags) and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
+(warranty / insurance claims), `tools` (Measuring Tools: instruments, check-outs, calibrations), `kb` (Knowledge Base: manuals and their revisions, the PDF document library), `pwa` (PWA daily meter report), `route` (Visit Route offices), `scan` (label field hints, red tags), `stock` (Spares: parts, locations, units, movements) and `system` (bookkeeping). Every model is imported here, so `import app.db.models` registers
 them all on `Base.metadata` and `from app.db.models import X` works as before.
 """
 
@@ -116,6 +116,7 @@ from app.db.models.plant_docs import PlantDocument  # noqa: F401
 from app.db.models.site_register import SiteDevice, SiteRegister  # noqa: F401
 from app.db.models.route import RouteOffice  # noqa: F401
 from app.db.models.scan import RedTag, ScanFieldHint  # noqa: F401
+from app.db.models.stock import Part, SpareUnit, StockLocation, StockMovement  # noqa: F401
 from app.db.models.system import (  # noqa: F401
     AiUsage,
     AppLog,

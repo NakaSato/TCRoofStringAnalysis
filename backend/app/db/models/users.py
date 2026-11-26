@@ -26,6 +26,8 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="engineer")  # admin | engineer
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Spares (docs/plans/spares-failed-units.md D-1): may receive, count and edit the catalogue and locations
+    store_keeper: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 

@@ -29,6 +29,7 @@ export type * from "./types/kb";
 export type * from "./types/kbDocs";
 export type * from "./types/visitRoute";
 export type * from "./types/scan";
+export * from "./types/stock";
 export type * from "./types/devices";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
@@ -40,6 +41,18 @@ import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/sy
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { PlantSoiling, SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
+import type {
+  StockLocation,
+  StockLocationBody,
+  StockMovement,
+  StockMovementList,
+  StockMovementQuery,
+  StockMovementRow,
+  StockPart,
+  StockPartBody,
+  StockSummary,
+  StockUnit,
+} from "./types/stock";
 import type { RedTagBatch, RedTagReserved, ScanFieldHint, ScanFieldHintBody, ScanLabelList, ScanLabelQuery, ScanResolve } from "./types/scan";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
@@ -611,6 +624,33 @@ export const api = {
   },
   reserveRedTags: (count: number) => apiFetch<RedTagReserved>("/scan/labels/redtags", { method: "POST", body: JSON.stringify({ count }) }),
   listRedTagBatches: () => apiFetch<RedTagBatch[]>("/scan/labels/redtags"),
+
+  // ---- spares register (/stock): catalogue, locations, units, movement ledger (DB only, no money)
+  getStockSummary: () => apiFetch<StockSummary>("/stock/summary"),
+  listStockParts: (includeInactive = false) => apiFetch<StockPart[]>(`/stock/parts${includeInactive ? "?include_inactive=true" : ""}`),
+  createStockPart: (body: StockPartBody) => apiFetch<StockPart>("/stock/parts", { method: "POST", body: JSON.stringify(body) }),
+  updateStockPart: (id: number, body: StockPartBody) => apiFetch<StockPart>(`/stock/parts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  listStockLocations: (includeInactive = false) => apiFetch<StockLocation[]>(`/stock/locations${includeInactive ? "?include_inactive=true" : ""}`),
+  createStockLocation: (body: StockLocationBody) => apiFetch<StockLocation>("/stock/locations", { method: "POST", body: JSON.stringify(body) }),
+  updateStockLocation: (id: number, body: StockLocationBody) =>
+    apiFetch<StockLocation>(`/stock/locations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  listStockPeople: () => apiFetch<{ id: number; name: string }[]>("/stock/people"),
+  listStockUnits: (q: { part_id?: number; location_id?: number; state?: string; q?: string } = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<StockUnit[]>(`/stock/units${qs ? `?${qs}` : ""}`);
+  },
+  listStockMovements: (q: StockMovementQuery = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<StockMovementList>(`/stock/movements${qs ? `?${qs}` : ""}`);
+  },
+  postStockBatch: (rows: StockMovementRow[], note?: string) =>
+    apiFetch<{ batch_id: string; movements: StockMovement[] }>("/stock/movements/batch", { method: "POST", body: JSON.stringify({ rows, note }) }),
+  correctStockMovement: (id: number, note: string) =>
+    apiFetch<StockMovement>(`/stock/movements/${id}/correct`, { method: "POST", body: JSON.stringify({ note }) }),
 
   // ---- measuring tools (instruments, check-outs, calibration / document due dates; DB only)
   listInstruments: (includeRetired = false) =>

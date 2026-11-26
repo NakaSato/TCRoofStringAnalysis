@@ -28,6 +28,8 @@ class UserOut(BaseModel):
     full_name: str
     role: str
     is_active: bool
+    # Spares: may receive, count and edit the catalogue / locations (admins always may)
+    store_keeper: bool = False
     # Growatt plants this user may see: null = every plant (admin), else the assigned ids.
     plant_ids: Optional[List[int]] = None
 
@@ -41,6 +43,7 @@ class UserCreate(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
     role: Role = "engineer"
+    store_keeper: bool = False
     plant_ids: List[int] = Field(default_factory=list)
 
 
@@ -52,6 +55,7 @@ class UserUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=8, max_length=128)
     role: Optional[Role] = None
     is_active: Optional[bool] = None
+    store_keeper: Optional[bool] = None
 
 
 class PlantAssignment(BaseModel):

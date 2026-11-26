@@ -28,6 +28,7 @@ from app.api.routes import (
     rca,
     report,
     scan,
+    stock,
     system,
     tools,
     users,
@@ -91,6 +92,8 @@ def create_app() -> FastAPI:
     api_router.include_router(tools.router, dependencies=[Depends(get_current_user)])
     # Barcode / QR scans: resolve a code to the record it names (scoped like the records themselves)
     api_router.include_router(scan.router, dependencies=[Depends(get_current_user)])
+    # Spares register: everyone reads and makes field moves; receive / correct / catalogue / locations: admin or store keeper
+    api_router.include_router(stock.router, dependencies=[Depends(get_current_user)])
     # Knowledge Base: everyone reads (engineers: published + own drafts); publish / archive / delete admin only
     api_router.include_router(kb.router, dependencies=[Depends(get_current_user)])
     # Knowledge Base library (PDF documents): plant scope per document; release / withdraw admin only

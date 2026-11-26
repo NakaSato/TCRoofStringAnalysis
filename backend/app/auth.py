@@ -126,6 +126,17 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def can_manage_stock(user: User) -> bool:
+    """Spares: receive, confirm counts, edit the catalogue and locations (admin or store keeper)."""
+    return user.role == "admin" or bool(user.store_keeper)
+
+
+def require_store_keeper(user: User = Depends(get_current_user)) -> User:
+    if not can_manage_stock(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or store keeper required.")
+    return user
+
+
 def allowed_plant_ids(db: Session, user: User) -> Optional[Set[int]]:
     """Growatt plants the user may see: None = every plant (admin), else the assigned set."""
     if user.role == "admin":

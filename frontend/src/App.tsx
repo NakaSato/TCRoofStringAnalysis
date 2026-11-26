@@ -48,6 +48,7 @@ const PlantBillingPage = page(() => import("./pages/PlantBillingPage"), "PlantBi
 const VisitRoutePage = page(() => import("./pages/VisitRoutePage"), "VisitRoutePage");
 const ScanRedirectPage = page(() => import("./pages/ScanRedirectPage"), "ScanRedirectPage");
 const LabelsPage = page(() => import("./pages/LabelsPage"), "LabelsPage");
+const SparesPage = page(() => import("./pages/SparesPage"), "SparesPage");
 
 /** `/kb/doc/:docId/rev/:rev`: one revision, read only = the viewer on that revision. */
 const KbRevisionRedirect: React.FC = () => {
@@ -182,6 +183,7 @@ export const App: React.FC = () => {
             {/* app labels (QR): `/s/<kind>/<code>` opens the record it names */}
             <Route path="s/:kind/:code" element={<ScanRedirectPage />} />
             <Route path="labels" element={<LabelsPage />} />
+            <Route path="spares" element={<SparesPage />} />
             <Route path="claims" element={<ClaimsPage />} />
             <Route path="kb" element={<KnowledgeBasePage />} />
             <Route path="kb/new" element={<KbEditorPage />} />

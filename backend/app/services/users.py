@@ -41,6 +41,7 @@ def user_out(db: Session, user: User) -> Dict[str, Any]:
         "full_name": user.full_name,
         "role": user.role,
         "is_active": user.is_active,
+        "store_keeper": bool(user.store_keeper),
         "plant_ids": plant_ids,
     }
 
@@ -91,6 +92,7 @@ def create_user(db: Session, data: Dict[str, Any], by: str) -> Dict[str, Any]:
         hashed_password=hash_password(data["password"]),
         role=data.get("role") or "engineer",
         is_active=True,
+        store_keeper=bool(data.get("store_keeper")),
     )
     db.add(user)
     db.flush()
@@ -118,6 +120,8 @@ def update_user(db: Session, user_id: int, data: Dict[str, Any], acting: User) -
         user.hashed_password = hash_password(data["password"])
     if data.get("is_active") is not None:
         user.is_active = bool(data["is_active"])
+    if data.get("store_keeper") is not None:
+        user.store_keeper = bool(data["store_keeper"])
     if data.get("role") is not None and data["role"] != user.role:
         user.role = data["role"]
         if user.role == "admin":
