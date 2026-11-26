@@ -2,7 +2,8 @@
 
 /**
  * full = read every plant file. Otherwise only the files edited since the last complete sync are read,
- * unless the Overview's สถานี / Inverter sheets changed (then every file is read).
+ * unless the Overview's สถานี / Inverter sheets changed (then every file is read). True when the sync of `ym`
+ * started (or carries on); a quiet call that does not start returns nothing.
  */
 function startSync_(ym, quiet, full) {
   checkYm_(ym);
@@ -13,7 +14,7 @@ function startSync_(ym, quiet, full) {
   const props = PropertiesService.getScriptProperties();
   const cur = dropStaleJob_(props, props.getProperties());
   if (cur.job) {
-    if (cur.job === 'sync' && cur.ym === ym) { kick_(); return; }   // the same sync: carry on where it stopped
+    if (cur.job === 'sync' && cur.ym === ym) { kick_(); return true; }   // the same sync: carry on where it stopped
     if (quiet) {                                        // a scheduled sync waits for the next slot
       if (!hasTrigger_('continueJob')) after_(NEXT_RUN_MS);         // ... and restarts a job whose runs stopped
       return;
@@ -35,6 +36,7 @@ function startSync_(ym, quiet, full) {
     root: rootId_(),
   });
   kick_();
+  return true;
 }
 
 /** One run of the sync job; true when every plant is done. */
@@ -61,7 +63,10 @@ function syncBatch_(props, p, t0) {
   let since = Number(p.since || 0);
   if (!p.began) {
     const sig = signature_([stations, inverters]);
-    const noDays = !readDays_(props, p.ym);              // the days each plant reported are not on record yet
+    const noDays = !daysOnRecord_(props, p.ym);          // the days each plant reported are not on record yet
+    // they are rebuilt plant by plant: until the last one is read, the record is partial (a job stopped or
+    // cancelled half-way must not leave it looking complete to nothingNew_ and the next sync)
+    if (noDays) props.setProperty(`daysPart_${p.ym}`, '1');
     since = !p.full && !noDays && last && last.sig === sig && last.v === SYNC_VERSION ? Number(last.t) - SYNC_MARGIN_MS : 0;
     // why every file is read (shown in _log)
     const why = since ? '' : p.full ? 'สั่งอ่านทุกไฟล์' : otherFolder ? 'โฟลเดอร์เดือนเปลี่ยน'
@@ -102,7 +107,7 @@ function syncBatch_(props, p, t0) {
 
   // The Overview is written before the position is saved: a run that is cut short repeats its batch.
   upsertIssues_(overview, y, m, results);
-  writeInverterStatus_(overview, invStatus);
+  writeInverterStatus_(overview, p.ym, invStatus);
   writeLastReport_(overview, p.ym, results);
   saveDays_(props, p.ym, results);
   props.setProperties({ idx: String(i), made: String(made), skipped: String(skipped), same: String(same),
@@ -118,6 +123,7 @@ function syncBatch_(props, p, t0) {
       else if (seen[k] !== undefined) kept[k] = seen[k];
     });
     saveSeen_(props, p.ym, kept);
+    props.deleteProperty(`daysPart_${p.ym}`);           // every plant read: days_<ym> is complete
     dropOldSeen_(props, p.ym);
   } else {
     saveSeen_(props, p.ym, seen);
@@ -132,10 +138,10 @@ function syncBatch_(props, p, t0) {
     (skipped ? `, ยังไม่มีไฟล์ ${skipped} สถานี` : '') +
     (errors.length ? `, อ่านไม่ได้ ${errors.length} สถานี (${errors.join(', ')}) — จะอ่านใหม่ในการซิงก์ครั้งถัดไป` : '');
   // a sync that found nothing new leaves no line in _log (an interval sync would fill it)
-  finishSync_(overview, p.ym, stations, files, summary, warnings, made > 0 || errors.length > 0 || !!p.full);
+  const os = finishSync_(overview, p.ym, stations, files, summary, warnings, made > 0 || errors.length > 0 || !!p.full);
   SpreadsheetApp.flush();                               // fin = after the last write to the Overview (nothingNew_)
   props.setProperty(`synced_${p.ym}`, JSON.stringify({ t: Number(p.began), sig: p.sig, err: errors, v: SYNC_VERSION,
-    f: p.folder, ov: p.ov, root: p.root, fin: Date.now() }));
+    f: p.folder, ov: p.ov, root: p.root, fin: Date.now(), os: os }));
   note_(props, summary);
   console.log(summary + (warnings.length ? `\n${warnings.join('\n')}` : ''));
   return true;
@@ -154,7 +160,7 @@ function dropOldSeen_(props, keep) {
   props.getKeys().forEach(k => {
     const ym = k.indexOf('seen_') === 0 ? k.slice(5) : '';
     if (ym && ym < prev && ym !== keep) props.deleteProperty(k);
-    const dm = k.indexOf('days_') === 0 ? k.slice(5) : '';   // the days each plant reported: the sheet keeps the counts
+    const dm = k.indexOf('days_') === 0 ? k.slice(5) : k.indexOf('daysPart_') === 0 ? k.slice(9) : '';   // the days each plant reported: the sheet keeps the counts
     if (dm && dm < prev && dm !== keep) props.deleteProperty(k);
     const nf = k.indexOf('noFolder_') === 0 ? k.slice(9) : '';  // the day the missing month folder was last reported
     if (nf && nf < prev) props.deleteProperty(k);
@@ -172,6 +178,10 @@ function saveSeen_(props, ym, seen) {
  */
 function readDays_(props, ym) {
   try { return JSON.parse(props.getProperty(`days_${ym}`) || 'null'); } catch (e) { return null; }
+}
+/** days_<ym> is there and complete (not left half-built by a sync that stopped: daysPart_<ym>). */
+function daysOnRecord_(props, ym) {
+  return !!props.getProperty(`days_${ym}`) && !props.getProperty(`daysPart_${ym}`);
 }
 function saveDays_(props, ym, results) {
   const codes = Object.keys(results).filter(c => results[c].days);
@@ -197,7 +207,10 @@ function lastDayToRead_(ym) {
   return daysIn_(y, m);
 }
 
-/** After the last plant: summary boxes, "as of" line, the link columns of "สถานี", one line in "_log". */
+/**
+ * After the last plant: summary boxes, "as of" line, the link columns of "สถานี", one line in "_log".
+ * Returns the signature of the owners (ผู้รับผิดชอบ) written into the report log.
+ */
 function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
   const t = issueTable_(overview), sh = t.sh, r0 = t.headRow + 1;
   const col = h => (t.col[h] ? `$${letter_(t.col[h])}$${r0}:$${letter_(t.col[h])}` : null);
@@ -268,13 +281,19 @@ function finishSync_(overview, ym, stations, files, summary, warnings, logIt) {
     };
     if (code && used) put('จำนวน Inverter', (c, r) => `=COUNTIFS(${code},$A${r},${used},"<>N")`);
     if (code && used && strings) put('จำนวนสตริงรวม', (c, r) => `=SUMIFS(${strings},${code},$A${r},${used},"<>N")`);
-    put('ไฟล์รายงาน', c => {
+    const linkCol = sHead.indexOf('ไฟล์รายงาน');
+    put('ไฟล์รายงาน', (c, r) => {
+      // a sync of last month (days 1–7) leaves the link to a later month's file as it is
+      const was = linkCol >= 0 ? String(formulas[r - 2][linkCol] || '') : '';
+      const later = /,"(\d{4}-\d{2})"\)\s*$/.exec(was);
+      if (later && later[1] > ym) return was;
       const file = byCode[c] && plantFile_(files, byCode[c], ym);
       return file ? `=HYPERLINK("https://docs.google.com/spreadsheets/d/${file.id}/edit","${ym}")` : '';
     });
   }
 
   logLines_(overview, (logIt ? [summary] : []).concat(warnings));
+  return signature_(owners);                            // the owners the report log shows (nothingNew_)
 }
 
 /** Appends lines to "_log" (one write, however many), each with the time; keeps the newest LOG_KEEP_ROWS. */

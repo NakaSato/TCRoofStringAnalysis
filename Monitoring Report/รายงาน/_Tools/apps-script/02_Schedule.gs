@@ -146,8 +146,10 @@ function nothingNew_(ym) {
     if (last.root !== rootId_()) return false;   // the last sync was of another root folder
     // บันทึกรายงานรายวัน: a new day of this month gets its column (✗ for everyone) even when nobody edits anything that day
     const day = t => Utilities.formatDate(new Date(t), 'Asia/Bangkok', 'yyyyMMdd');
-    if (!props.getProperty(`days_${ym}`)) return false;
+    if (!daysOnRecord_(props, ym)) return false;
     if (ym === ym_(new Date()) && day(Number(last.fin)) !== day(Date.now())) return false;
+    // ... and last month's final days get theirs once the month is over, though its last sync was before then
+    if (ym < ym_(new Date()) && ym_(new Date(Number(last.fin))) <= ym) return false;
     // files edited lately: nothing new when each one still has the edit time it had when it was last read
     const since = new Date(Number(last.t) - SYNC_MARGIN_MS).toISOString();
     const seen = readSeen_(props, ym);
@@ -159,7 +161,10 @@ function nothingNew_(ym) {
     const at = Drive.Files.get(last.ov, { fields: 'modifiedTime' }).modifiedTime;
     if (new Date(at).getTime() <= Number(last.fin) || props.getProperty('ovSame') === at) return true;
     const overview = SpreadsheetApp.openById(last.ov);
-    if (signature_([readStations_(overview), readInverters_(overview)]) !== last.sig) return false;
+    const stations = readStations_(overview);
+    if (signature_([stations, readInverters_(overview)]) !== last.sig) return false;
+    // a name typed in "ผู้รับผิดชอบ": the report log shows it, so sync (reads no plant file, the plants are the same)
+    if (signature_(readOwners_(overview, stations)) !== last.os) return false;
     props.setProperty('ovSame', at);
     return true;
   } catch (e) {
@@ -168,8 +173,13 @@ function nothingNew_(ym) {
   }
 }
 
-/** Fired at the start of a "ซิงก์" event. */
-function calendarSync() { startSync_(ym_(new Date()), true); }
+/**
+ * Fired at the start of a "ซิงก์" event. When this month's sync does not start (no month folder yet on days
+ * 1–7), last month's late edits are still synced, as intervalSync does.
+ */
+function calendarSync() {
+  if (!startSync_(ym_(new Date()), true)) syncPrevAfter_(PropertiesService.getScriptProperties());
+}
 
 /** Fired at the start of a "สร้าง" event: the month in the event's title, else next month. */
 function calendarCreate() {

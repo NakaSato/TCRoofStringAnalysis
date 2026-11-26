@@ -36,7 +36,7 @@ function reportLog_(overview, ym, stations, owners) {
   for (let d = 1; d <= nDays; d++) {
     const k = d > lastDay ? '' : grid.filter(r => r[L + d - 1] === DONE_MARK).length;
     done.push(k);
-    pct.push(k === '' ? '' : Math.round(k / n * 1000) / 1000);
+    pct.push(k === '' ? '' : Math.floor(k * 100 / n) / 100);   // rounded down: 232 of 233 shows 99 %, never 100 % in yellow
   }
   const pad = v => v.concat(Array(L - v.length).fill(''));
   const body = [pad(['ทำรายงานแล้ว (สถานี)']).concat(done), pad([`% ทำรายงาน (จาก ${n} สถานี)`]).concat(pct),
@@ -241,5 +241,18 @@ function ownersSheet_(overview, stations) {
   }
   const out = {};
   rows.forEach(r => { if (r[3]) out[r[0]] = r[3]; });
+  return out;
+}
+
+/**
+ * { รหัส: ผู้รับผิดชอบ } as ownersSheet_ would return it, read without writing anything (nothingNew_: a name
+ * typed in "ผู้รับผิดชอบ" is new when this differs from the one the last sync wrote into the report log).
+ */
+function readOwners_(overview, stations) {
+  const sh = overview.getSheetByName(OWNERS) || overview.getSheetByName(OWNERS_OLD);
+  const typed = {};
+  if (sh) sh.getDataRange().getValues().slice(1).forEach(r => { const c = String(r[0]).trim(); if (c) typed[c] = String(r[3] === undefined ? '' : r[3]).trim(); });
+  const out = {};
+  stations.forEach(s => { if (typed[s.code]) out[s.code] = typed[s.code]; });
   return out;
 }

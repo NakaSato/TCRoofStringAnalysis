@@ -57,7 +57,8 @@ function groupIssues_(rows) {
       if (!vals.length) { row[h] = ''; return; }
       if (vals.some(v => v instanceof Date)) { row[h] = vals.find(v => v instanceof Date); return; }
       if (vals.some(v => typeof v === 'string' && v.charAt(0) === '=')) { row[h] = vals[0]; return; }
-      const uniq = vals.map(String).filter((v, i, a) => a.indexOf(v) === i);
+      // each different value once, also inside values that were joined before ("a / b" and "a" give "a / b")
+      const uniq = [].concat(...vals.map(v => String(v).split(' / '))).filter((v, i, a) => a.indexOf(v) === i);
       row[h] = uniq.length === 1 ? vals[0] : uniq.join(' / ');
     });
     row['รหัสปัญหา'] = `${code}|${sns.join(',')}|${day}`;
@@ -83,6 +84,7 @@ function upsertIssues_(overview, y, m, results) {
   const t = issueTable_(overview), sh = t.sh;
   const n = Math.max(sh.getLastRow() - t.headRow, 0);
   let rows = [], current = [];                          // current = the table as it is now: formula, else value
+  const origin = new Map();
   if (n) {
     const range = sh.getRange(t.headRow + 1, 1, n, t.width);
     const values = range.getValues(), formulas = range.getFormulas();
@@ -93,7 +95,12 @@ function upsertIssues_(overview, y, m, results) {
       return row;
     }).filter(row => String(row['รหัสปัญหา'] || '').trim() !== '');
     rows.forEach(row => ISSUE_DATES.forEach(h => { if (row[h] !== undefined) row[h] = typedDate_(row[h]); }));
-    rows = [].concat(...rows.map(splitIssue_));          // one row per inverter while the rows are worked out
+    // one row per inverter while the rows are worked out; origin = the shared row each one came from
+    rows = [].concat(...rows.map(row => {
+      const parts = splitIssue_(row);
+      if (parts.length > 1) parts.forEach(x => origin.set(x, row['รหัสปัญหา']));
+      return parts;
+    }));
   }
   const monthStart = new Date(y, m - 1, 1), monthEnd = new Date(y, m, 1);
   const inMonth = v => v instanceof Date && v >= monthStart && v < monthEnd;
@@ -113,8 +120,10 @@ function upsertIssues_(overview, y, m, results) {
       const key = `${code}|${ep.sn}|${ymd(ep.start)}`;
       let row = mine.find(r => r['รหัสปัญหา'] === key);
       if (!row && ep.fromFirstDay) {                    // still there from the month before: same row goes on
-        row = mine.find(r => String(r['รหัสปัญหา']).split('|')[1] === ep.sn && r['วันที่พบ'] instanceof Date &&
-          r['วันที่พบ'] < monthStart && DONE_STATUSES.indexOf(String(r['สถานะ'])) < 0);
+        const before = r => String(r['รหัสปัญหา']).split('|')[1] === ep.sn && r['วันที่พบ'] instanceof Date && r['วันที่พบ'] < monthStart;
+        // ... the open one, else one this month closed (done in this month), so the next sync finds it again
+        row = mine.find(r => before(r) && DONE_STATUSES.indexOf(String(r['สถานะ'])) < 0) ||
+          mine.find(r => before(r) && inMonth(r['วันที่แก้ไขเสร็จ']));
       }
       if (!row) row = { 'รหัสปัญหา': key };
       if (row['รหัสปัญหา'] === key) row['วันที่พบ'] = ep.start;      // a row continued from an earlier month keeps its day
@@ -126,8 +135,18 @@ function upsertIssues_(overview, y, m, results) {
         'การแก้ไข / หมายเหตุ': ep.fix, 'วันเข้าแก้ไข': ep.enter, 'วันที่แก้ไขเสร็จ': ep.done, 'รายงาน': ep.link,
       });
     });
+    // A shared row of an earlier month that goes on in this month for some of its inverters only: the others'
+    // problem ended in that month (their own status was lost when the row was shared), so they take the values
+    // of an inverter that goes on. The row then closes when that one is fixed, and is not split or doubled.
+    const goesOn = {};
+    used.forEach(row => { const o = origin.get(row); if (o && !goesOn[o]) goesOn[o] = row; });
     // a row of this month that the day sheets no longer show was typed by mistake and then cleared
-    mine.forEach(row => { if (used.indexOf(row) < 0 && !inMonth(row['วันที่พบ'])) used.push(row); });
+    mine.forEach(row => {
+      if (used.indexOf(row) >= 0 || inMonth(row['วันที่พบ'])) return;
+      const twin = goesOn[origin.get(row)];
+      if (twin) Object.keys(twin).forEach(h => { if (h !== 'รหัสปัญหา' && h !== 'Inverter S/N') row[h] = twin[h]; });
+      used.push(row);
+    });
     used.forEach(row => kept.push(row));
   });
 
@@ -162,8 +181,12 @@ function upsertIssues_(overview, y, m, results) {
   if (n > out.length) sh.getRange(t.headRow + 1 + out.length, 1, n - out.length, t.width).clearContent();
 }
 
-/** Overview "Inverter": the newest Inverter Status typed in the day sheets, and its day. */
-function writeInverterStatus_(overview, invStatus) {
+/**
+ * Overview "Inverter": the newest Inverter Status typed in the day sheets, and its day. Like รายงานล่าสุด,
+ * a sync of a month never moves them back from a later month (syncing last month on days 1–7), but within
+ * its own month it follows the day sheets.
+ */
+function writeInverterStatus_(overview, ym, invStatus) {
   if (!Object.keys(invStatus).length) return;
   const sh = overview.getSheetByName(INVERTERS);
   let head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
@@ -179,8 +202,11 @@ function writeInverterStatus_(overview, invStatus) {
   const sns = sh.getRange(2, snCol, n, 1).getValues();
   const st = sh.getRange(2, stCol, n, 1).getValues(), day = sh.getRange(2, dayCol, n, 1).getValues();
   let stChanged = false, dayChanged = false;
+  const [y, m] = ym.split('-').map(Number);
+  const later = d => d instanceof Date && d.getFullYear() * 100 + d.getMonth() + 1 > y * 100 + m;
   sns.forEach((r, k) => {
-    const v = invStatus[String(r[0]).trim()];
+    let v = invStatus[String(r[0]).trim()];
+    if (v && later(typedDate_(day[k][0]))) v = null;   // a later month's status stays
     let d = v ? v.date : day[k][0];
     if (d instanceof Date) d = beText_(typedDate_(d));   // shown as พ.ศ., like the problem table
     if (v && v.status !== st[k][0]) { st[k][0] = v.status; stChanged = true; }

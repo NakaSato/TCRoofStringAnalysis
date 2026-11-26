@@ -54,7 +54,9 @@ function typedDate_(v) {
     const t = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})$/.exec(String(v === null || v === undefined ? '' : v).trim());
     if (!t) return v;
     d = Number(t[1]); m = Number(t[2]); y = Number(t[3]);
-    if (y < 100) y += 2500;                             // a short Buddhist year: 26/11/69 = 26/11/2569
+    // a short year as Sheets reads it in a date cell: 00–42 A.D. (26/11/26 = 2026), 43–99 Buddhist
+    // (26/11/69 = 2569); either way already a real year, so the 1930–1999 repair below never applies to it
+    if (y < 100) y += y >= 43 ? 2500 : 2000;
   }
   if (y >= 2400) y -= 543;                              // typed as a Buddhist year
   // 26/11/69 typed into a date cell: Sheets reads the short year as 1969 (shown as 2512 in the Overview);

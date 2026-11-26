@@ -103,7 +103,7 @@ const ctx = { console, Set, Map, Date, Object, Math, Number, String, JSON, isNaN
   ScriptApp: { getProjectTriggers: () => triggers.map(t => ({ getHandlerFunction: () => t.fn, _t: t })), deleteTrigger: t => triggers.splice(triggers.indexOf(t._t), 1), newTrigger: fn => { const t = { fn }; const o = new Proxy({}, { get: (_, k) => k === 'create' ? () => triggers.push(t) : (...a) => { if (k === 'at') t.at = a[0]; if (k === 'forUserCalendar') t.cal = a[0]; return o; } }); return o; } },
   LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
   Utilities: { formatDate: fmt } };
-vm.createContext(ctx); vm.runInContext(readCode(codePath) + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,removeLogos,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,writeLastReport_,addBox_,issueTable_,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_};', ctx);
+vm.createContext(ctx); vm.runInContext(readCode(codePath) + '\n;globalThis.__api={calendarCreate,cancelJob,plantFile_,folderFiles_,rootId_,monthFolder_,findMonthFolder_,overviewFile_,removeLogos,typedDate_,setSyncInterval,intervalSync,archiveYear,syncMonth,status,writeLastReport_,addBox_,issueTable_,menuSyncAll,createThisMonth,continueJob,syncNow,convertOverview,setup,planTriggers,calendarSync,CONFIG,layout_,ym_,upsertIssues_,reportLog_,nothingNew_,writeInverterStatus_};', ctx);
 const api = ctx.__api; api.CONFIG.ROOT_FOLDER_ID = '1Z84sAP79HRmdkoUI09Yr3T3auhctsRdV';   /* first as a standalone script: fixed ids, Overview found by name */ const drain = () => { let n = 0; while (triggers.some(t => t.fn === 'continueJob')) { api.continueJob(); if (++n > 5000) throw new Error('loop'); } };
 const A = n => { let s = ''; while (n) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); } return s; };
 const show = (sh, rows, maxc = 99) => rows.forEach(r => { const o = []; for (let c = 1; c <= Math.min(sh.cols, maxc); c++) { const v = sh.cells[`${r},${c}`]; if (v !== undefined && v !== '') o.push(A(c) + r + '=' + (v instanceof Date ? fmt(v, '', 'dd/MM/yyyy') : String(v).slice(0, 95))); } if (o.length) console.log('   ' + o.join(' | ')); });
@@ -195,7 +195,7 @@ try { api.CONFIG.ROOT_FOLDER_ID = ''; ctx.__bound = O;
 
 // 7) dates typed as พ.ศ.
 { const f = v => { const r = api.typedDate_(v); return r instanceof Date ? r.getFullYear() + '-' + (r.getMonth() + 1) + '-' + r.getDate() : JSON.stringify(r); };
-  console.log('typed dates:', [244668.375, 46342, '15/11/2569', '15/11/2026', '29/02/2571', '31/02/2569', 'รออะไหล่', '', '26/11/69', 25533, '26/11/2512', new Date(1969, 10, 26)].map(v => JSON.stringify(v) + ' → ' + f(v)).join(' | ')); }
+  console.log('typed dates:', [244668.375, 46342, '15/11/2569', '15/11/2026', '29/02/2571', '31/02/2569', 'รออะไหล่', '', '26/11/69', '26/11/26', 25533, '26/11/2512', new Date(1969, 10, 26)].map(v => JSON.stringify(v) + ' → ' + f(v)).join(' | ')); }
 
 // 8) folder listing, renamed plant, the problem table is never cleared first, calendar create waits for a sync
 try { const ymNow = api.ym_(new Date());
@@ -381,6 +381,14 @@ try {
   W.setName('ผู้รับผิดชอบสถานี'); W.cells[`${wRow('P1-001')},4`] = 'สมหญิง';
   api.syncNow(); drain();
   console.log('old owners sheet renamed:', O.getSheetByName('ผู้รับผิดชอบ') === W, '· old name gone:', !O.getSheetByName('ผู้รับผิดชอบสถานี'), '· name kept:', G.plant('P1-001')[3]);
+  // #128: a name typed in ผู้รับผิดชอบ reaches the grid through the interval sync too (no plant file edited)
+  globalThis.__old = true; api.syncNow(); drain();
+  W.cells[`${wRow('P1-001')},4`] = 'สมศักดิ์'; ctx.__ovEdit = Date.now() + 60000; delete props.last; api.intervalSync(); drain();
+  const ownerSynced = G.plant('P1-001')[3], ownerRun = props.last || '';
+  delete props.last; api.intervalSync(); drain(); const thenSkipped = !props.last;
+  globalThis.__old = false;
+  console.log('owner typed → intervalSync:', ownerSynced, '(want สมศักดิ์) · read no plant file:', /อ่าน 0 สถานี/.test(ownerRun), '· then nothing new → skipped:', thenSkipped,
+    '· PASS:', ownerSynced === 'สมศักดิ์' && thenSkipped);
 } catch (e) { console.log('section 15 failed:', e.stack); }
 // 16) sync across months: on days 1–7 of next month, a late report in this month's file is still synced
 try {
@@ -429,21 +437,50 @@ try {
   api.syncNow(); drain();
   console.log('inverter 3 normal again: its fault days stay in the same row:', JSON.stringify(rowsOf('P1-001').map(x => [x.key, x.st])));
 } catch (e) { console.log('section 17 failed:', e.stack); }
-// 18) a calendar sync of the new month (its folder made, nothing in it yet) goes straight on to last month's edits
+// 18) a calendar sync of the new month goes on to last month's edits; on day 1 (no folder yet) too. Last month's sync
+//     never takes ไฟล์รายงาน or Inverter Status back from the new month (#124)
+const realLog = console.log;
 try {
   props.archived = '[]'; delete props.job;
-  const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number), ny = mo === 12 ? yy + 1 : yy, nm = mo === 12 ? 0 : mo;
+  const RealDate = ctx.Date, [yy, mo] = ym.split('-').map(Number), ny = mo === 12 ? yy + 1 : yy, nm = mo === 12 ? 0 : mo, nym = `${ny}-${pad(nm + 1)}`;
   const at = d => class extends RealDate { constructor(...a) { if (a.length) super(...a); else super(Date.UTC(ny, nm, d, 5)); } static now() { return Date.UTC(ny, nm, d, 5); } };
   const G = logGrid(yy, mo), rowOf = d => G.reported(d);
   const lastDayOfMonth = new RealDate(yy, mo, 0).getDate(), before = rowOf(lastDayOfMonth);
-  root.createFolder(`${ny}-${pad(nm + 1)}`);
-  const p2 = plant('P1-002').ss; put(day(p2, lastDayOfMonth), 'G17', 0); put(day(p2, lastDayOfMonth), 'J17', 'Online');   // a late report for the last day
-  files[Object.values(files).find(f => f.ss === p2).id].editedAt = RealDate.now() + 2e7;
-  const logs = []; const real = console.log; console.log = (...a) => { logs.push(a.join(' ')); };
+  const real = console.log, synced = logs => logs.filter(l => /^ซิงก์ \d{4}-\d{2}:/.test(l)).map(l => l.slice(0, 13));
+  const p2 = plant('P1-002').ss, p2f = files[Object.values(files).find(f => f.ss === p2).id];
+  // day 1: the new month's folder is not made yet; a late report of last month is still synced by the calendar
+  put(day(p2, lastDayOfMonth - 1), 'G17', 0); put(day(p2, lastDayOfMonth - 1), 'J17', 'Online'); p2f.editedAt = Date.UTC(ny, nm, 1, 4);   // day 1, 11:00
+  const logs1 = []; console.log = (...a) => { logs1.push(a.join(' ')); };
+  ctx.Date = at(1); api.calendarSync(); drain(); ctx.Date = RealDate; console.log = real;
+  // day 2: the new month's folder with a file for P1-002 (Inverter Status typed on day 1), then a late report of last month's last day
+  const nf = root.createFolder(nym);
+  const dec = p2f.makeCopy(p2f.name.replace(ym, nym), nf).ss;
+  put(day(dec, 1), 'G17', 0); put(day(dec, 1), 'J17', 'Waiting');
+  put(day(p2, lastDayOfMonth), 'G17', 0); put(day(p2, lastDayOfMonth), 'J17', 'Online');   // a late report for the last day
+  p2f.editedAt = Date.UTC(ny, nm, 1, 6);   // day 1, 13:00: after last month's sync of day 1
+  const logs2 = []; console.log = (...a) => { logs2.push(a.join(' ')); };
   ctx.Date = at(2); api.calendarSync(); drain(); ctx.Date = RealDate; console.log = real;
-  const synced = logs.filter(l => /^ซิงก์ \d{4}-\d{2}:/.test(l)).map(l => l.slice(0, 13));
-  console.log('calendar sync on day 2:', JSON.stringify(synced), '(want the new month, then last month) · last day reported', before, '→', rowOf(lastDayOfMonth));
-} catch (e) { ctx.Date = Date; console.log('section 18 failed:', e.stack); }
+  console.log('calendar sync on day 1 (no folder):', JSON.stringify(synced(logs1)), '(want last month) · day 2:', JSON.stringify(synced(logs2)),
+    '(want the new month, then last month) · last day reported', before, '→', rowOf(lastDayOfMonth));
+  // ไฟล์รายงาน: P1-002 keeps the new month's file, P1-001 (no file in the new month) gets last month's
+  const S = O.getSheetByName('สถานี'), sCol = h => { for (let c = 1; c <= S.cols; c++) if (String(S.cells[`1,${c}`] || '').trim() === h) return c; return 0; };
+  const sRow = code => { for (let r = 2; r <= S.getLastRow(); r++) if (S.cells[`${r},1`] === code) return r; return 0; };
+  const link = code => String(S.cells[`${sRow(code)},${sCol('ไฟล์รายงาน')}`] || '');
+  const linkOk = link('P1-002').includes(`"${nym}")`) && link('P1-001').includes(`"${ym}")`);
+  // Inverter: P1-002's first inverter keeps the new month's status and day
+  const I = O.getSheetByName('Inverter'), iCol = h => { for (let c = 1; c <= I.cols; c++) if (String(I.cells[`1,${c}`] || '').trim() === h) return c; return 0; };
+  const p2inv = []; for (let r = 2; r <= I.getLastRow(); r++) if (I.cells[`${r},${iCol('รหัส')}`] === 'P1-002') p2inv.push([I.cells[`${r},${iCol('Inverter Status')}`], I.cells[`${r},${iCol('สถานะ ณ วันที่')}`]]);
+  const want = `01/${pad(nm + 1)}/${ny + 543}`, statusOk = p2inv.some(([st, d]) => st === 'Waiting' && d === want) && !p2inv.some(([, d]) => /^30\//.test(String(d)));
+  console.log('ไฟล์รายงาน P1-002:', link('P1-002').slice(-10), `(want "${nym}") · P1-001:`, link('P1-001').slice(-10), `(want "${ym}") · P1-002 Inverter Status:`, JSON.stringify(p2inv[0]), `(want Waiting @ ${want})`,
+    '· PASS:', synced(logs1).join() === `ซิงก์ ${ym}` && synced(logs2).join() === `ซิงก์ ${nym},ซิงก์ ${ym}` && linkOk && statusOk);
+  // nothingNew_ of last month: a record made before the month ended is not final (its last day has no column yet)
+  globalThis.__old = true; ctx.Date = at(2);
+  const rec = props['synced_' + ym], quiet = api.nothingNew_(ym);
+  const early = JSON.parse(rec); early.fin = Date.UTC(yy, mo - 1, lastDayOfMonth - 1, 5); props['synced_' + ym] = JSON.stringify(early);
+  const stale = api.nothingNew_(ym); props['synced_' + ym] = rec;
+  ctx.Date = RealDate; globalThis.__old = false;
+  console.log('last month synced after it ended → nothing new:', quiet, '(want true) · last synced before its last day → sync:', !stale, '(want true) · PASS:', quiet === true && stale === false);
+} catch (e) { ctx.Date = Date; console.log = realLog; globalThis.__old = false; console.log('section 18 failed:', e.stack); }
 // 19) the new month has no folder (its files were never created): the automatic sync says so once a day in _log and status()
 try {
   props.archived = '[]'; delete props.job; delete props.last;
@@ -460,3 +497,64 @@ try {
   console.log(`no folder ${want}: _log lines day 1:`, day1, '(want 1) · day 2:', day2, '(want 2) · names the month:', line.includes(`createMonth('${want}')`),
     '· status():', /ยังไม่มีโฟลเดอร์เดือน/.test(api.status()), '· no job left:', !props.job);
 } catch (e) { ctx.Date = Date; console.log('section 19 failed:', e.stack); }
+// 20) audit fixes #124, #126, #128
+// 20a) a shared row of two inverters spanning the month end: SN-B fixed in the first month, SN-A goes on and is fixed in the next (#124)
+try {
+  const ss = ctx.SpreadsheetApp.create('t20'), sh = ss.insertSheet('รายงานการแก้ไข');
+  const head = ['No.', 'รหัสปัญหา', 'ระยะ', 'สถานี', 'Inverter S/N', 'วันที่พบ', 'รายละเอียดปัญหา', 'สถานะ', 'ผู้รับผิดชอบ', 'การแก้ไข / หมายเหตุ', 'วันเข้าแก้ไข', 'วันที่แก้ไขเสร็จ', 'รายงาน', '_open_station'];
+  head.forEach((h, k) => { sh.cells[`1,${k + 1}`] = h; });
+  const station = { phase: 1, name: 'สถานีทดสอบ' };
+  const ep = (sn, start, o) => Object.assign({ sn, start, fromFirstDay: false, strings: '', detail: 'AFCI', status: 'กำลังแก้ไข', owner: '', fix: '', enter: '', done: '', link: '' }, o);
+  const rows = () => { const out = []; for (let r = 2; r <= sh.getLastRow(); r++) { const v = h => sh.cells[`${r},${head.indexOf(h) + 1}`]; if (v('รหัสปัญหา')) out.push({ key: v('รหัสปัญหา'), status: v('สถานะ'), done: v('วันที่แก้ไขเสร็จ'), fix: v('การแก้ไข / หมายเหตุ'), detail: v('รายละเอียดปัญหา') }); } return out; };
+  const oct30 = new Date(2026, 9, 30);
+  api.upsertIssues_(ss, 2026, 10, { 'P1-001': { station, episodes: [ep('SN-A', oct30, { fix: 'ตรวจแล้ว' }), ep('SN-B', oct30, { fix: 'ตรวจแล้ว', status: 'แก้ไขแล้ว', done: new Date(2026, 9, 31) })] } });
+  const oct = rows();
+  const nov = o => api.upsertIssues_(ss, 2026, 11, { 'P1-001': { station, episodes: [ep('SN-A', new Date(2026, 10, 1), Object.assign({ fromFirstDay: true }, o))] } });
+  nov({ fix: 'เปลี่ยนฟิวส์' }); nov({ fix: 'เปลี่ยนฟิวส์' }); nov({ fix: 'เปลี่ยนฟิวส์' });
+  const open3 = rows();
+  nov({ fix: 'เปลี่ยนฟิวส์', detail: 'AFCI 2' });
+  const renamed = rows();
+  nov({ fix: 'เปลี่ยนฟิวส์', detail: 'AFCI 2', status: 'แก้ไขแล้ว', done: new Date(2026, 10, 5) }); const closed = rows();
+  nov({ fix: 'เปลี่ยนฟิวส์', detail: 'AFCI 2', status: 'แก้ไขแล้ว', done: new Date(2026, 10, 5) }); const again = rows();
+  console.log('shared row, first month:', JSON.stringify(oct));
+  console.log('next month, 3 syncs:', JSON.stringify(open3), '· detail changed:', JSON.stringify(renamed));
+  console.log('fixed in the next month:', JSON.stringify(closed), '· next sync same:', JSON.stringify(again) === JSON.stringify(closed));
+  console.log('20a PASS:', oct.length === 1 && oct[0].status === 'กำลังแก้ไข' &&
+    open3.length === 1 && open3[0].fix === 'เปลี่ยนฟิวส์' && open3[0].key === 'P1-001|SN-A,SN-B|20261030' &&
+    renamed.length === 1 && renamed[0].key === 'P1-001|SN-A,SN-B|20261030' &&
+    closed.length === 1 && closed[0].status === 'แก้ไขแล้ว' && closed[0].done === '05/11/2569' && JSON.stringify(again) === JSON.stringify(closed));
+} catch (e) { console.log('section 20a failed:', e.stack); }
+// 20b) report log: 232 of 233 plants is 99 % (not 100 % in yellow); frozen columns set though rows 1–4 were merged before (#126, #128)
+try {
+  const ss = ctx.SpreadsheetApp.create('t20b'), stations = Array.from({ length: 233 }, (_, i) => ({ code: `T-${pad(i + 1, 3)}`, phase: 1, name: `สถานี ${i + 1}` }));
+  const days = {}; stations.forEach((s, i) => { days[s.code] = i === 0 ? 2 : 3; });   // everybody days 1–2, but one plant missed day 1
+  props['days_2026-10'] = JSON.stringify(days);
+  const sh = ss.insertSheet('บันทึกรายงานรายวัน 10/2569'); sh.getRange(1, 1, 1, 26).merge(); sh.getRange(3, 1, 1, 7).merge();   // as an older version left it
+  let err = ''; try { api.reportLog_(ss, '2026-10', stations, {}); } catch (e) { err = e.message; }
+  delete props['days_2026-10'];
+  const pct1 = sh.cells['4,8'], pct2 = sh.cells['4,9'];
+  console.log('% day 1 (232/233):', pct1, '(want 0.99) · day 2:', pct2, '(want 1) · error:', err || 'none', '· frozen columns:', sh.getFrozenColumns(), '· filter:', !!sh.getFilter(),
+    '· 20b PASS:', pct1 === 0.99 && pct2 === 1 && !err && sh.getFrozenColumns() === 4 && !!sh.getFilter());
+} catch (e) { console.log('section 20b failed:', e.stack); }
+// 20c) a short year typed as text: 00–42 A.D. (26/11/26), 43–99 พ.ศ. (26/11/69), never shifted twice (#128)
+try {
+  const f = v => { const r = api.typedDate_(v); return r instanceof Date ? `${r.getFullYear()}-${r.getMonth() + 1}-${r.getDate()}` : JSON.stringify(r); };
+  const cases = [['26/11/26', '2026-11-26'], ['26/11/69', '2026-11-26'], ['01/01/00', '2000-1-1'], ['31/12/42', '2042-12-31'], ['01/01/43', '2000-1-1'], ['26/11/2569', '2026-11-26'], ['26/11/2512', '2026-11-26'], [25533, '2026-11-26'], [new Date(1969, 10, 26), '2026-11-26']];
+  const got = cases.map(([v, want]) => [v, f(v), want]);
+  console.log('short years:', got.map(([v, g]) => `${JSON.stringify(v)} → ${g}`).join(' | '), '· 20c PASS:', got.every(([, g, w]) => g === w));
+} catch (e) { console.log('section 20c failed:', e.stack); }
+// 20d) a rebuild of days_<ym> stopped after its first batch is not taken as complete: the next sync reads every file again (#124)
+try {
+  props.archived = '[]'; delete props.job; delete props.last;
+  globalThis.__old = true; api.syncNow(); drain();
+  delete props['days_' + ym];
+  api.CONFIG.RUN_SECONDS = 0.05; api.syncNow(); if (props.idx === '0') api.continueJob();   // one batch (a few plants), then stopped
+  const part = props.idx, partial = !!props['days_' + ym];
+  api.cancelJob(); api.CONFIG.RUN_SECONDS = 240;
+  const quiet = api.nothingNew_(ym);
+  delete props.last; api.syncNow(); drain();
+  const why = props.last || '';
+  globalThis.__old = false;
+  console.log('stopped after', part, 'plants · partial days_ kept:', partial, '· nothingNew_:', quiet, '(want false) · next sync:', why.slice(0, 90),
+    '· complete again:', !props['daysPart_' + ym], '· 20d PASS:', partial && quiet === false && /ยังไม่มีบันทึกวันที่ทำรายงาน/.test(why) && !props['daysPart_' + ym]);
+} catch (e) { api.CONFIG.RUN_SECONDS = 240; globalThis.__old = false; console.log('section 20d failed:', e.stack); }
