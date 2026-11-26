@@ -351,8 +351,20 @@ def test_assistant_om_dashboard_tool_scoped_live_only_kwh(api):
     assert fleet["plants_most_lost"][0]["plant_id"] == P1
     assert fleet["shadow_issues_left_out"] == 1 and eng["shadow_issues_left_out"] is None
 
+    # EPI / PR' are modelled (om_center meta.modelled): the keys say so, the bare names never reach the model
+    row = fleet["plants_most_lost"][0]
+    assert "epi_median_modelled" in row and "pr_temp_corrected_median_pct_modelled" in row
+    assert "epi_median" not in row and "pr_temp_corrected_median_pct" not in row
+    assert any("epi_median_modelled" in n and "MODELLED" in n for n in fleet["notes"])
+
     one, _ = call({"plant_id": P2})
     assert one["scope"] == "one plant" and one["summary"]["lost_kwh_est"] == 40.0
+    # admin narrowed to one plant: shadow count scoped to that plant (audit #127); engineers never get it
+    assert one["shadow_issues_left_out"] == 0
+    one_p1, _ = call({"plant_id": P1})
+    assert one_p1["shadow_issues_left_out"] == 1
+    eng_p1, _ = call({"plant_id": P1}, allowed={P1})
+    assert eng_p1["shadow_issues_left_out"] is None
     hidden, err = call({"plant_id": P2}, allowed={P1})
     assert err and "not found" in hidden["error"]
 

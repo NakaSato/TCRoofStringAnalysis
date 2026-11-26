@@ -261,6 +261,20 @@ def test_logger_sn_mismatch_from_site_register(db):
     assert c[0]["fix_path"] == "/plant/1/documents"
 
 
+def test_logger_sn_mismatch_ignores_not_installed_inverter_logger(db):
+    """A not-installed inverter is not on site: its datalogger neither satisfies the register's SN
+    nor is listed among the plant's Growatt loggers (audit #125)."""
+    _plant(db, 1, "Alpha")
+    _inv(db, "A", 1)
+    _inv(db, "GONE", 1, datalogger_sn="DLGONE", not_installed_at=NOW)
+    db.add(SiteRegister(site_code="P1-001", plant_id=1, name="Alpha"))
+    db.flush()
+    db.add(SiteDevice(site_code="P1-001", kind="datalogger", seq=1, serial="DLGONE"))
+    out = _run(db)
+    (c,) = _codes(out, code="logger_sn_mismatch")
+    assert c["params"]["register_sn"] == "DLGONE" and c["params"]["growatt_sns"] == "DL1"
+
+
 def test_sensor_flags_mapped(db):
     _plant(db)
     _inv(db, "A")

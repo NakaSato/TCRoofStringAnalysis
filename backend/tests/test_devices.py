@@ -234,3 +234,37 @@ def test_dataloggers_second_logger_not_a_register_mismatch(tmp_path):
         rows = {d["datalogger_sn"]: d for d in list_dataloggers(s, None)["dataloggers"]}
         assert rows["DLA12345"]["register_match"] == "differs"
         assert rows["DLB999"]["register_match"] == "differs"
+
+
+def test_checks_route_auth_scope_and_not_installed_logger(client):
+    """`/devices/checks` needs a login, scopes engineers to their plants, and a not-installed
+    inverter's datalogger is not one of the plant's Growatt loggers (audit #125)."""
+    assert client.get("/api/growatt/devices/checks").status_code == 401
+    res = _get(client, "checks", client.admin)
+    assert res["meta"]["source"] == "db"
+    (mis,) = [c for c in res["checks"] if c["code"] == "logger_sn_mismatch"]
+    assert mis["plant_id"] == PLANT and mis["params"]["register_sn"] == "DLA1234"
+    assert mis["params"]["growatt_sns"] == "DLA12345"  # GONE's "DLA" left out (not installed)
+    assert all(c["device_key"] != "GONE" for c in res["checks"])
+    eng = _get(client, "checks", client.eng)
+    assert {c["plant_id"] for c in eng["checks"]} <= {OTHER}
+    assert not [c for c in eng["checks"] if c["code"] == "logger_sn_mismatch"]
+    assert eng["summary"]["total"] == len(eng["checks"])
+
+
+def test_inverters_summary_plants_count_installed_only(tmp_path):
+    """A plant whose inverters are all marked not installed is not counted in `summary.plants`."""
+    from app.services.devices import list_inverters
+
+    engine = build_engine(f"sqlite:///{tmp_path / 'ni.db'}")
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+    with Session() as s:
+        ensure_seeded(s)
+        _seed_growatt(s)
+        _seed_devices(s)
+        s.get(GrowattInverter, "OTH1").not_installed_at = datetime(2026, 11, 2, tzinfo=timezone.utc)
+        s.commit()
+        res = list_inverters(s, None)
+        assert res["summary"] == {"inverters": 5, "installed": 3, "not_installed": 2, "plants": 1}
+        assert list_inverters(s, {OTHER})["summary"] == {"inverters": 1, "installed": 0, "not_installed": 1, "plants": 0}

@@ -94,7 +94,8 @@ export const InvertersTab: React.FC<{ d: DeviceInverters }> = ({ d }) => {
     () =>
       (list?.inverters ?? []).map((inv) => {
         const live = inv.not_installed ? undefined : snap?.data.inverters[inv.device_sn];
-        return { inv, live, st: inv.not_installed ? null : liveState(live, day) };
+        const recToday = !!day && !!live?.record_time && live.record_time.slice(0, 10) === day;
+        return { inv, live, st: inv.not_installed ? null : liveState(live, day), recToday };
       }),
     [list, snap, day]
   );
@@ -202,7 +203,7 @@ export const InvertersTab: React.FC<{ d: DeviceInverters }> = ({ d }) => {
               </TableHeader>
               <TableBody>
                 {pageRows.map((r) => (
-                  <InverterTableRow key={r.inv.device_sn} row={r} day={day} listDay={list.meta.day} now={now} />
+                  <InverterTableRow key={r.inv.device_sn} row={r} listDay={list.meta.day} now={now} />
                 ))}
               </TableBody>
             </Table>

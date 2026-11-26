@@ -310,9 +310,13 @@ def overview(
     end: date,
     *,
     include_shadow: bool = False,
+    count_shadow: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """The O&M Dashboard for the plants in `plant_ids` (None = every plant) over `start` … `end`.
-    `include_shadow` (admins only, decided by the route) adds issues of rules still in shadow mode."""
+    `include_shadow` (admins only, decided by the route) adds issues of rules still in shadow mode.
+    `count_shadow`: whether the caller may see shadow issues, so `shadow_hidden` counts the active ones of
+    `plant_ids` that were left out (None = only when `plant_ids` is None, i.e. the `/growatt/center` admin
+    call; the AI Assistant passes it for an admin narrowed to one plant). Never set it for an engineer."""
     today = jobs._today()
     G, ID, PD = GrowattIssue, GrowattInverterDaily, GrowattPlantDaily
 
@@ -332,9 +336,14 @@ def overview(
     issues = [i for i in db.scalars(q) if i.plant_id in plants]
     active = [i for i in issues if i.status in growatt_issues.ACTIVE]
     shadow_hidden = None
-    if plant_ids is None and not include_shadow:
+    if (plant_ids is None if count_shadow is None else count_shadow) and not include_shadow:
         shadow_hidden = int(
-            db.scalar(select(func.count()).select_from(G).where(G.status.in_(growatt_issues.ACTIVE), G.shadow.is_(True))) or 0
+            db.scalar(
+                scoped(select(func.count()).select_from(G), G.plant_id).where(
+                    G.status.in_(growatt_issues.ACTIVE), G.shadow.is_(True)
+                )
+            )
+            or 0
         )
 
     lo, hi = start.isoformat(), end.isoformat()

@@ -34,6 +34,7 @@ from app.db.models import (
     PwaMeterSite,
     SiteDevice,
     SiteRegister,
+    inverter_installed,
 )
 
 log = logging.getLogger(__name__)
@@ -336,10 +337,15 @@ def _check_doc(doc: Any) -> List[Dict[str, Any]]:
 
 
 def _logger_plants(db: Session) -> Dict[str, Set[int]]:
-    """Every datalogger serial Growatt reports (inverters, weather sensors, meters) → its plants."""
+    """Every datalogger serial Growatt reports (inverters, weather sensors, meters) → its plants.
+
+    An inverter marked not installed is not on site, so its datalogger is left out (`inverter_installed()`)."""
     out: Dict[str, Set[int]] = defaultdict(set)
     for model in (GrowattInverter, GrowattEnvSensor, GrowattMeter):
-        for sn, pid in db.execute(select(model.datalogger_sn, model.plant_id).where(model.datalogger_sn.is_not(None)).distinct()):
+        where = [model.datalogger_sn.is_not(None)]
+        if model is GrowattInverter:
+            where.append(inverter_installed())
+        for sn, pid in db.execute(select(model.datalogger_sn, model.plant_id).where(*where).distinct()):
             if sn and pid is not None:
                 out[str(sn).strip().upper()].add(int(pid))
     return out

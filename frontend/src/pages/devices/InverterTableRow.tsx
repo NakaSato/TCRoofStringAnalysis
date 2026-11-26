@@ -15,13 +15,12 @@ import type { Row } from "./invertersTable";
 
 const SEP = "border-l border-white/[0.06]";
 
-/** `day`: the snapshot's day (a live record from it is current); `listDay`: the DB list's day; `now`: plant-local now. */
-export const InverterTableRow: React.FC<{ row: Row; day: string | undefined; listDay: string; now: string }> = ({ row, day, listDay, now }) => {
+/** `row.recToday`: the live record is from the snapshot's day (only then current); `listDay`: the DB list's day; `now`: plant-local now. */
+export const InverterTableRow: React.FC<{ row: Row; listDay: string; now: string }> = ({ row, listDay, now }) => {
   const { t, locale } = useI18n();
   const navigate = useNavigate();
-  const { inv: i, live, st } = row;
+  const { inv: i, live, st, recToday } = row;
   const href = `${plantPath(i.plant_id, "inverters")}?sn=${encodeURIComponent(i.device_sn)}`;
-  const recToday = !!live?.record_time && live.record_time.slice(0, 10) === day;
   const lastToday = !!i.last_record && i.last_record.slice(0, 10) === listDay;
   const ni0 = i.not_installed;
   const stamp = (ts: string | null | undefined) => fmtStamp(ts, now, locale);

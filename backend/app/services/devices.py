@@ -208,7 +208,7 @@ def list_inverters(
         "inverters": len(invs),
         "installed": len(installed),
         "not_installed": len(invs) - len(installed),
-        "plants": len({i.plant_id for i in invs}),
+        "plants": len({i.plant_id for i in installed}),
     }
     rows = invs if include_not_installed else installed
     sns = [i.device_sn for i in rows]

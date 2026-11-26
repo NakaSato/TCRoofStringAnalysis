@@ -677,6 +677,14 @@ _PLANT_KEYS = [
 ]
 
 
+# om_center marks these modelled (`meta.modelled`); the key says so, as `expected_kw_mean_modelled` does
+_PLANT_MODELLED = {"epi_median": "epi_median_modelled", "pr_temp_corrected_median_pct": "pr_temp_corrected_median_pct_modelled"}
+
+
+def _modelled_keys(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {_PLANT_MODELLED.get(k, k): v for k, v in row.items()}
+
+
 def om_dashboard(args: OmDashboardIn, ctx: ToolContext, db: Session) -> Dict[str, Any]:
     """The Energy & Billing (O&M Dashboard) figures for a period: loss by cause, issues to fix first, plants
     losing the most, this week's work, response times and claims. Live issues only (never shadow rules);
@@ -695,7 +703,8 @@ def om_dashboard(args: OmDashboardIn, ctx: ToolContext, db: Session) -> Dict[str
     if args.plant_id is not None:
         _check_plant(args.plant_id, ctx)
         scope = {args.plant_id}
-    o = om_center.overview(db, scope, start, end, include_shadow=False)
+    # admins (ctx.allowed None) get the shadow count for one plant too; engineers never
+    o = om_center.overview(db, scope, start, end, include_shadow=False, count_shadow=ctx.allowed is None)
 
     m = o["money"]
     families = {f["key"]: f["label"] for f in o["loss_by_cause"]["families"]}
@@ -704,7 +713,7 @@ def om_dashboard(args: OmDashboardIn, ctx: ToolContext, db: Session) -> Dict[str
         key=lambda r: -(r["lost_kwh_est"] or 0),
     )
     plants = sorted(o["plants"], key=lambda r: (-(r["lost_kwh_est"] or 0), r["name"] or ""))
-    losing = [_pick(r, _PLANT_KEYS, 2) for r in plants if r["lost_kwh_est"]][: args.limit]
+    losing = [_modelled_keys(_pick(r, _PLANT_KEYS, 2)) for r in plants if r["lost_kwh_est"]][: args.limit]
     top = o["issues"]["top"]
     issues = []
     for d in top[: args.limit]:
@@ -745,6 +754,8 @@ def om_dashboard(args: OmDashboardIn, ctx: ToolContext, db: Session) -> Dict[str
             "lost_kwh_est is ESTIMATED by the detection rules, each kWh counted once across overlapping rules",
             "produced_kwh and availability_pct are measured (stored inverter days); null = no stored data, not 0",
             "spend_thb_entered is typed in by the team; null = no cost entered",
+            "epi_median_modelled and pr_temp_corrected_median_pct_modelled are MODELLED (measured energy against a "
+            "model of what the plant should give), not measured; say so when quoting them",
             "top_issues are the active issues in fix-first order (safety, tier, loss); issues of rules in shadow mode are left out "
             "(shadow_issues_left_out counts them): with none live, no loss estimate means rules not live yet, not no loss",
             "response counts issues first seen in the window; days are whole plant-local days",
@@ -799,8 +810,9 @@ _TOOLS: Dict[str, Tuple[type[_In], ToolFn, str]] = {
         om_dashboard,
         "The O&M dashboard for a period (default: month to date) over the user's plants, or one plant_id: produced "
         "kWh, ESTIMATED lost kWh by cause and its share, availability, the active issues to fix first, the plants "
-        "losing the most, this week's Calendar tasks and overdue backlog, response times per tier vs targets, and "
-        "open claims. Use it for 'what are we losing / what to fix first / is the work keeping up'. No baht estimates.",
+        "losing the most (with EPI and temperature-corrected PR', both MODELLED), this week's Calendar tasks and "
+        "overdue backlog, response times per tier vs targets, and open claims. Use it for 'what are we losing / what "
+        "to fix first / is the work keeping up'. No baht estimates.",
     ),
     "plant_overview": (
         PlantOverviewIn,

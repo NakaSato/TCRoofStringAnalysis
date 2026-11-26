@@ -29,6 +29,8 @@ export interface Row {
   live: GrowattInverterSnapshotRow | undefined;
   /** null = not installed (never swept) */
   st: LiveState | null;
+  /** the live record is from the snapshot's day: only then are its AC kW and °C current (an older record is never read as current) */
+  recToday: boolean;
 }
 
 /** The table's filters, as read from the URL. */
@@ -90,11 +92,11 @@ const sortValue = (r: Row, k: SortKey): number | string | null => {
     case "status":
       return r.st == null ? null : STATE_RANK[r.st];
     case "pac":
-      return r.live?.pac_w ?? null;
+      return r.recToday ? (r.live?.pac_w ?? null) : null;
     case "eac":
       return r.live?.eac_today_kwh ?? null;
     case "temp":
-      return r.live?.temperature_c ?? null;
+      return r.recToday ? (r.live?.temperature_c ?? null) : null;
     case "rec":
       return r.live?.record_time ?? null;
     case "last":
@@ -161,11 +163,11 @@ export const exportInvertersCsv = (rows: Row[], day: string) =>
       "power_limit_source", "on_off", "open_issues", "top_tier", "alarms_today", "alarms_open", "has_string_layout",
       "not_installed_at", "not_installed_by", "not_installed_note",
     ],
-    rows.map(({ inv: i, live, st }) => [
+    rows.map(({ inv: i, live, st, recToday }) => [
       i.plant_id, i.plant_name, i.phase, i.province, i.site_code, i.label, i.alias, i.device_sn, i.model, i.device_model, i.rated_kw, i.fw_version,
       i.datalogger_sn, i.datalogger_model, i.not_installed ? "no" : "yes", st == null ? "not_installed" : st === "unchecked" ? "not_checked" : st,
-      live?.status ?? null, live?.status_label ?? null, kw(live?.pac_w), live?.eac_today_kwh ?? null,
-      live?.temperature_c ?? null, live?.record_time ?? null, i.last_record, i.yield_today_kwh, i.pct_of_plant_avg, i.power_limit_pct,
+      live?.status ?? null, live?.status_label ?? null, recToday ? kw(live?.pac_w) : null, live?.eac_today_kwh ?? null,
+      recToday ? (live?.temperature_c ?? null) : null, live?.record_time ?? null, i.last_record, i.yield_today_kwh, i.pct_of_plant_avg, i.power_limit_pct,
       i.power_limit_source, i.on_off == null ? null : i.on_off === 1 ? "on" : "off", i.open_issues, i.top_tier, i.alarms_today, i.alarms_open,
       i.has_string_layout ? "yes" : "no", i.not_installed?.at ?? null, i.not_installed?.by ?? null, i.not_installed?.note ?? null,
     ])
