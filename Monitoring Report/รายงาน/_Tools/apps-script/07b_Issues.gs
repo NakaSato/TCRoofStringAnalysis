@@ -105,6 +105,11 @@ function upsertIssues_(overview, y, m, results) {
   const monthStart = new Date(y, m - 1, 1), monthEnd = new Date(y, m, 1);
   const inMonth = v => v instanceof Date && v >= monthStart && v < monthEnd;
   const ymd = d => Utilities.formatDate(d, 'Asia/Bangkok', 'yyyyMMdd');
+  // Syncing last month on days 1–7: a row the new month's sync took on (its รายงาน links the plant's file of a
+  // later month) is that month's now. This month's day sheets do not write it back to how it was at the month
+  // end (fix, status, done day), nor add a second open row beside it.
+  const later = laterFiles_(overview, `${y}-${String(m).padStart(2, '0')}`);
+  const taken = (code, r) => !!later[code] && sheetFileId_(r['รายงาน']) === later[code];
 
   let kept = []; const byCode = {};                     // rows of other plants are kept; the scanned plants' rows by code
   codes.forEach(code => { byCode[code] = []; });
@@ -123,8 +128,9 @@ function upsertIssues_(overview, y, m, results) {
         const before = r => String(r['รหัสปัญหา']).split('|')[1] === ep.sn && r['วันที่พบ'] instanceof Date && r['วันที่พบ'] < monthStart;
         // ... the open one, else one this month closed (done in this month), so the next sync finds it again
         row = mine.find(r => before(r) && DONE_STATUSES.indexOf(String(r['สถานะ'])) < 0) ||
-          mine.find(r => before(r) && inMonth(r['วันที่แก้ไขเสร็จ']));
+          mine.find(r => before(r) && (inMonth(r['วันที่แก้ไขเสร็จ']) || taken(code, r)));
       }
+      if (row && taken(code, row)) { if (used.indexOf(row) < 0) used.push(row); return; }   // a later month's row
       if (!row) row = { 'รหัสปัญหา': key };
       if (row['รหัสปัญหา'] === key) row['วันที่พบ'] = ep.start;      // a row continued from an earlier month keeps its day
       used.push(row);
@@ -179,6 +185,34 @@ function upsertIssues_(overview, y, m, results) {
     sh.getRange(t.headRow + 1, 1, out.length, t.width).setValues(out);
   }
   if (n > out.length) sh.getRange(t.headRow + 1 + out.length, 1, n - out.length, t.width).clearContent();
+}
+
+/**
+ * { plant code: file id } of the plants whose "สถานี" ไฟล์รายงาน links a month later than `ym` (finishSync_
+ * writes =HYPERLINK(".../d/<id>/edit","<ym>") and a sync of last month leaves a later one as it is).
+ */
+function laterFiles_(overview, ym) {
+  const out = {};
+  const sh = overview.getSheetByName(STATIONS);
+  const n = sh ? sh.getLastRow() - 1 : 0;
+  if (n < 1) return out;
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  const codeCol = head.indexOf('รหัส'), linkCol = head.indexOf('ไฟล์รายงาน');
+  if (codeCol < 0 || linkCol < 0) return out;
+  const all = sh.getRange(2, 1, n, head.length);
+  const values = all.getValues(), formulas = all.getFormulas();
+  values.forEach((r, i) => {
+    const link = /,"(\d{4}-\d{2})"\)\s*$/.exec(String(formulas[i][linkCol] || ''));
+    const id = link && link[1] > ym && sheetFileId_(formulas[i][linkCol]);
+    if (id) out[String(r[codeCol]).trim()] = id;
+  });
+  return out;
+}
+
+/** The spreadsheet id in a link (=HYPERLINK("https://docs.google.com/spreadsheets/d/<id>/edit…")), else ''. */
+function sheetFileId_(v) {
+  const m = /\/spreadsheets\/d\/([^/"#?]+)/.exec(String(v || ''));
+  return m ? m[1] : '';
 }
 
 /**

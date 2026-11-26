@@ -558,3 +558,47 @@ try {
   console.log('stopped after', part, 'plants · partial days_ kept:', partial, '· nothingNew_:', quiet, '(want false) · next sync:', why.slice(0, 90),
     '· complete again:', !props['daysPart_' + ym], '· 20d PASS:', partial && quiet === false && /ยังไม่มีบันทึกวันที่ทำรายงาน/.test(why) && !props['daysPart_' + ym]);
 } catch (e) { api.CONFIG.RUN_SECONDS = 240; globalThis.__old = false; console.log('section 20d failed:', e.stack); }
+// 20e) last month synced on days 1–7 after the new month's sync: rows the new month already took on (their รายงาน
+//      links the plant's new-month file, as "สถานี" ไฟล์รายงาน shows) keep the new month's fix, status and done day (#146)
+try {
+  const ss = ctx.SpreadsheetApp.create('t20e'), sh = ss.insertSheet('รายงานการแก้ไข'), st = ss.insertSheet('สถานี');
+  const head = ['No.', 'รหัสปัญหา', 'ระยะ', 'สถานี', 'Inverter S/N', 'วันที่พบ', 'รายละเอียดปัญหา', 'สถานะ', 'ผู้รับผิดชอบ', 'การแก้ไข / หมายเหตุ', 'วันเข้าแก้ไข', 'วันที่แก้ไขเสร็จ', 'รายงาน', '_open_station'];
+  head.forEach((h, k) => { sh.cells[`1,${k + 1}`] = h; });
+  const codes = ['P1-001', 'P1-002', 'P1-003'];
+  st.cells['1,1'] = 'รหัส'; st.cells['1,2'] = 'ชื่อสถานี'; st.cells['1,3'] = 'ไฟล์รายงาน';
+  codes.forEach((c, i) => { st.cells[`${i + 2},1`] = c; st.cells[`${i + 2},2`] = c; });
+  const setLinks = ym => codes.forEach((c, i) => { st.cells[`${i + 2},3`] = `=HYPERLINK("https://docs.google.com/spreadsheets/d/${c}-${ym}/edit","${ym}")`; });   // as finishSync_ leaves สถานี
+  const station = { phase: 1, name: 'สถานีทดสอบ' };
+  const dayLink = (code, ym) => `=HYPERLINK("https://docs.google.com/spreadsheets/d/${code}-${ym}/edit#gid=7","เปิด")`;
+  const ep = (code, ym, sn, start, o) => Object.assign({ sn, start, fromFirstDay: false, strings: '', detail: 'AFCI', status: 'กำลังแก้ไข', owner: '', fix: '', enter: '', done: '', link: dayLink(code, ym) }, o);
+  const rows = s => { const out = []; for (let r = 2; r <= s.getLastRow(); r++) { const v = h => s.cells[`${r},${head.indexOf(h) + 1}`]; if (v('รหัสปัญหา')) out.push({ key: v('รหัสปัญหา'), status: v('สถานะ'), done: v('วันที่แก้ไขเสร็จ'), fix: v('การแก้ไข / หมายเหตุ'), detail: v('รายละเอียดปัญหา') }); } return out; };
+  const sep29 = new Date(2026, 8, 29), oct1 = new Date(2026, 9, 1), oct30 = new Date(2026, 9, 30), nov1 = new Date(2026, 10, 1);
+  // September: P1-003 SN-D found on the 29th
+  setLinks('2026-09');
+  api.upsertIssues_(ss, 2026, 9, { 'P1-003': { station, episodes: [ep('P1-003', '2026-09', 'SN-D', sep29)] } });
+  // October: P1-001 SN-A + SN-B share a row (SN-B fixed on the 31st); P1-002 SN-C found on the 30th; SN-D goes on all month
+  const october = () => ({ 'P1-001': { station, episodes: [ep('P1-001', '2026-10', 'SN-A', oct30, { fix: 'ตรวจแล้ว' }), ep('P1-001', '2026-10', 'SN-B', oct30, { fix: 'ตรวจแล้ว', status: 'แก้ไขแล้ว', done: new Date(2026, 9, 31) })] },
+    'P1-002': { station, episodes: [ep('P1-002', '2026-10', 'SN-C', oct30, { fix: 'ตรวจแล้ว' })] },
+    'P1-003': { station, episodes: [ep('P1-003', '2026-10', 'SN-D', oct1, { fromFirstDay: true, fix: 'รออะไหล่' })] } });
+  setLinks('2026-10'); api.upsertIssues_(ss, 2026, 10, october());
+  // November: each goes on from day 1; SN-A's detail changes and it is fixed on the 5th, SN-C on the 2nd, SN-D on the 3rd
+  setLinks('2026-11');
+  api.upsertIssues_(ss, 2026, 11, { 'P1-001': { station, episodes: [ep('P1-001', '2026-11', 'SN-A', nov1, { fromFirstDay: true, fix: 'เปลี่ยนฟิวส์', detail: 'AFCI 2', status: 'แก้ไขแล้ว', done: new Date(2026, 10, 5) })] },
+    'P1-002': { station, episodes: [ep('P1-002', '2026-11', 'SN-C', nov1, { fromFirstDay: true, fix: 'รีเซ็ต', status: 'แก้ไขแล้ว', done: new Date(2026, 10, 2) })] },
+    'P1-003': { station, episodes: [ep('P1-003', '2026-11', 'SN-D', nov1, { fromFirstDay: true, fix: 'เปลี่ยนบอร์ด', status: 'แก้ไขแล้ว', done: new Date(2026, 10, 3) })] } });
+  const nov = rows(sh);
+  // November 3: a late edit of October's files, October synced again (syncPrevAfter_): its day sheets say what they said
+  api.upsertIssues_(ss, 2026, 10, october());
+  const after = rows(sh);
+  // a row the new month did not take on is still written by its own month's sync (no สถานี sheet here: nothing is later)
+  const ss2 = ctx.SpreadsheetApp.create('t20e2'), sh2 = ss2.insertSheet('รายงานการแก้ไข'); head.forEach((h, k) => { sh2.cells[`1,${k + 1}`] = h; });
+  api.upsertIssues_(ss2, 2026, 10, { 'P1-002': { station, episodes: [ep('P1-002', '2026-10', 'SN-C', oct30)] } });
+  api.upsertIssues_(ss2, 2026, 10, { 'P1-002': { station, episodes: [ep('P1-002', '2026-10', 'SN-C', oct30, { fix: 'ตรวจซ้ำ' })] } });
+  const own = rows(sh2).map(r => r.fix).join();
+  console.log('new month:', JSON.stringify(nov));
+  console.log('last month synced after it:', JSON.stringify(after), '· a row of its own still updated:', own, '(want ตรวจซ้ำ)');
+  console.log('20e PASS:', nov.length === 3 && nov.every(r => r.status === 'แก้ไขแล้ว') && JSON.stringify(after) === JSON.stringify(nov) &&
+    after.some(r => r.key === 'P1-001|SN-A,SN-B|20261030' && r.detail === 'AFCI 2' && r.done === '05/11/2569') &&
+    after.some(r => r.key === 'P1-002|SN-C|20261030' && r.done === '02/11/2569') && after.some(r => r.key === 'P1-003|SN-D|20260929' && r.done === '03/11/2569') &&
+    own === 'ตรวจซ้ำ');
+} catch (e) { console.log('section 20e failed:', e.stack); }
