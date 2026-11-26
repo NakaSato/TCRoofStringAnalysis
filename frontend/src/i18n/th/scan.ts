@@ -146,4 +146,13 @@ export const TH_SCAN: Record<string, string> = {
   "Red tag {code}: blank (reserved in batch {batch}). Tying it to a failed unit comes with the failed-unit register.":
     "ป้ายแดง {code} ยังว่าง (จองไว้ในชุดที่ {batch}) การผูกป้ายกับอุปกรณ์เสียจะมาพร้อมทะเบียนอุปกรณ์เสีย",
   "Red tag {code}: {status}.": "ป้ายแดง {code}: {status}",
+  "this model": "รุ่นนี้",
+  "this device type": "อุปกรณ์ประเภทนี้",
+  "Serials of {what} have {n} characters; this one has {got}.": "SN ของ{what}มี {n} ตัวอักษร แต่ค่านี้มี {got}",
+  "Serials of {what} have {min}–{max} characters; this one has {got}.": "SN ของ{what}มี {min}–{max} ตัวอักษร แต่ค่านี้มี {got}",
+  "Serials of {what} are digits only.": "SN ของ{what}เป็นตัวเลขล้วน",
+  "Serials of {what} have only letters and digits.": "SN ของ{what}มีแต่ตัวอักษรและตัวเลข",
+  "Serials of {what} start with {prefix}.": "SN ของ{what}ขึ้นต้นด้วย {prefix}",
+  "This looks like an IMEI (15 digits), not the serial number.": "ค่านี้ดูเหมือน IMEI (ตัวเลข 15 หลัก) ไม่ใช่ SN",
+  "This looks like a SIM card number (ICCID), not the serial number.": "ค่านี้ดูเหมือนหมายเลขซิมการ์ด (ICCID) ไม่ใช่ SN",
 };

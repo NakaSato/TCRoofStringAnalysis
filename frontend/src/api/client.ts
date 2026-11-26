@@ -67,7 +67,7 @@ import type {
   StockSummary,
   StockUnit,
 } from "./types/stock";
-import type { RedTagBatch, RedTagReserved, ScanFieldHint, ScanFieldHintBody, ScanLabelList, ScanLabelQuery, ScanResolve } from "./types/scan";
+import type { RedTagBatch, RedTagReserved, ScanFieldHint, ScanFieldHintBody, ScanLabelList, ScanLabelQuery, ScanResolve, SerialCheck } from "./types/scan";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
   OmAssignees,
@@ -620,6 +620,12 @@ export const api = {
   // ---- barcode / QR scans: what a scanned or typed code opens (DB only, scoped)
   resolveScan: (code: string, suggest = false) =>
     apiFetch<ScanResolve>(`/scan/resolve?code=${encodeURIComponent(code)}${suggest ? "&suggest=true" : ""}`),
+  // does a serial look like the registered ones of its category (+ model)? warnings only (§6.3)
+  checkSerial: (category: string, serial: string, model?: string | null) => {
+    const q = new URLSearchParams({ category, serial });
+    if (model) q.set("model", model);
+    return apiFetch<SerialCheck>(`/scan/serial-check?${q.toString()}`);
+  },
   // which field of a multi-field label is the serial (first hint: anyone; change / delete: admin)
   listScanFieldHints: (category?: string, model?: string) => {
     const q = new URLSearchParams();

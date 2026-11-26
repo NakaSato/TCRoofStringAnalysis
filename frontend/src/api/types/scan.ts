@@ -111,3 +111,17 @@ export interface RedTagReserved {
   last: string;
   count: number;
 }
+
+/** §6.3: how a serial differs from the registered serials of its category (+ model); warnings only */
+export type SerialWarning =
+  | { code: "length"; min: number; max: number; got: number }
+  | { code: "digits" | "alnum" | "imei" | "iccid" }
+  | { code: "prefix"; prefix: string };
+
+export interface SerialCheck {
+  serial: string;
+  warnings: SerialWarning[];
+  /** the shape learned from the registry; null = too few known serials to expect anything */
+  expected: { count: number; min_len: number; max_len: number; charset: "digits" | "alnum" | null; prefix: string | null } | null;
+  basis: "model" | "category" | null;
+}

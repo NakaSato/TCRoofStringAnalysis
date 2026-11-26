@@ -19,6 +19,7 @@ from app.db.session import get_db
 from app.services import scan as svc
 from app.services import scan_hints as hints
 from app.services import scan_labels as labels
+from app.services import scan_serials as serials
 from app.services.growatt_common import GrowattNotFound
 from app.services.visit_route import RateLimited
 
@@ -42,6 +43,22 @@ def resolve_code(
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+# ---------------------------------------------------------------- serial shape warnings (§6.3)
+
+
+@router.get("/serial-check")
+def serial_check(
+    category: str = Query(..., min_length=1, max_length=40),
+    serial: str = Query(..., max_length=64),
+    model: Optional[str] = Query(None, max_length=120),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Warnings (never a refusal) when `serial` does not look like the registered serials of
+    `category` (site device kind, `<kind>:sim`, `tool:<category>`, spare part category) + `model`."""
+    return serials.check(db, category, model, serial)
 
 
 # ---------------------------------------------------------------- label field hints (§6.3)
