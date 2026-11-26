@@ -16,7 +16,7 @@ The service owns: numbering (DF-YYYY-NNNN per Bangkok year), the allowed status 
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 
@@ -695,6 +695,7 @@ def create_fault(db: Session, body: Dict[str, Any], who: str, *, allow_shadow: b
         found_at=found_at,
         found_by=_text(body.get("found_by"), "found_by", 64) or who,
         severity=severity,
+        s1_at=_now() if severity == "S1" else None,
         cause=cause,
         status="open",
         owner_user_id=_check_owner(db, body.get("owner_user_id"), plant_id),
@@ -767,6 +768,8 @@ def update_fault(db: Session, f: FieldFault, changes: Dict[str, Any], who: str) 
     old_sev = f.severity
     for k in changed:
         setattr(f, k, vals[k])
+    if "severity" in changed and f.severity == "S1":  # raised to S1: pushed once more (faults_push)
+        f.s1_at, f.s1_pushed_at = _now(), None
     if "severity" in changed:
         _event(db, f, "severity", who, frm=old_sev, to=f.severity)
     rest = [k for k in changed if k != "severity"]
@@ -906,3 +909,157 @@ def delete_link(db: Session, f: FieldFault, link_id: int, who: str, *, allow_sha
     _event(db, f, "unlink", who, f"{link.kind} {link.ref_id if link.ref_id is not None else link.ref_key}")
     db.commit()
 
+
+
+# --------------------------------------------------------------------------- from other records (plan §6.3–6.5)
+
+
+def check_attach(db: Session, user: User, fault_id: Any, plant_id: int) -> Optional[FieldFault]:
+    """The fault a replacement / failed unit / claim / Calendar task is recorded for (`fault_id`,
+    None = none), checked before the caller writes anything: visible to the user (GrowattNotFound
+    otherwise), of the same plant and not closed / cancelled (ValueError)."""
+    if fault_id in (None, ""):
+        return None
+    from app.auth import allowed_plant_ids
+
+    f = get_fault(db, int(fault_id), allowed_plant_ids(db, user))
+    if f.plant_id != plant_id:
+        raise ValueError(f"Fault {f.no} is not a fault of plant {plant_id}")
+    if f.status in ("closed", "cancelled"):
+        raise ValueError(f"Fault {f.no} is {f.status}: reopen it first")
+    return f
+
+
+def attach(
+    db: Session,
+    f: FieldFault,
+    who: str,
+    kind: str,
+    *,
+    ref_id: Optional[int] = None,
+    ref_key: Optional[str] = None,
+    to_status: Optional[str] = None,
+    waiting_reason: Optional[str] = None,
+    next_action_day: Optional[date] = None,
+) -> None:
+    """Link the caller's new record to the fault, in the caller's transaction (no commit), and
+    move the fault on when that step is allowed from where it is (`to_status`; otherwise only the
+    link is written). `restored` stamps now as the restore time."""
+    q = select(FieldFaultLink).where(FieldFaultLink.fault_id == f.id, FieldFaultLink.kind == kind)
+    q = q.where(FieldFaultLink.ref_id == ref_id) if ref_id is not None else q.where(FieldFaultLink.ref_key == ref_key)
+    if db.scalars(q).first() is None:
+        db.add(FieldFaultLink(fault_id=f.id, kind=kind, ref_id=ref_id, ref_key=ref_key, created_by=who))
+        _event(db, f, "link", who, f"{kind} {ref_id if ref_id is not None else ref_key}")
+    if next_action_day is not None and f.status in ACTIVE:
+        f.next_action_day = next_action_day
+    if to_status is None or (to_status == f.status and waiting_reason == f.waiting_reason):
+        return
+    if to_status != f.status and to_status not in TRANSITIONS.get(f.status, ()):
+        return
+    frm = f.status
+    f.status = to_status
+    f.waiting_reason = waiting_reason if to_status == "waiting" else None
+    if to_status == "restored":
+        f.restored_at = _now()
+    _event(db, f, "status", who, f"{waiting_reason + ': ' if waiting_reason else ''}from {kind.replace('_', ' ')}", frm=frm, to=to_status)
+
+
+# --------------------------------------------------------------------------- report (plan §9)
+
+REPORT_GROUPS = ("kind", "model", "plant", "phase")
+REPORT_MAX_DAYS = 366
+
+
+def _pctl(xs: List[float], p: float) -> Optional[float]:
+    """Nearest-rank percentile; None without values."""
+    if not xs:
+        return None
+    s = sorted(xs)
+    k = max(1, -(-len(s) * p // 100))  # ceil(n * p / 100)
+    return round(s[int(k) - 1], 1)
+
+
+def _models(db: Session, rows: List[FieldFault]) -> Dict[int, Optional[str]]:
+    """The recorded model of each fault's device (Growatt inverter model, Site Register brand /
+    model, spare part make + model); None = not recorded, never guessed."""
+    from app.db.models import Part
+
+    sns = {f.inverter_sn for f in rows if f.inverter_sn}
+    devs = {f.site_device_id for f in rows if f.site_device_id is not None}
+    units = {f.stock_unit_id for f in rows if f.stock_unit_id is not None}
+    inv = {sn: m for sn, m in db.execute(select(GrowattInverter.device_sn, GrowattInverter.device_model).where(GrowattInverter.device_sn.in_(sns)))} if sns else {}
+    dev = {i: m for i, m in db.execute(select(SiteDevice.id, SiteDevice.brand_model).where(SiteDevice.id.in_(devs)))} if devs else {}
+    unit: Dict[int, Optional[str]] = {}
+    if units:
+        for uid, make, model in db.execute(select(SpareUnit.id, Part.make, Part.model).join(Part, Part.id == SpareUnit.part_id).where(SpareUnit.id.in_(units))):
+            unit[uid] = " ".join(x for x in (make, model) if x) or None
+    out: Dict[int, Optional[str]] = {}
+    for f in rows:
+        m = inv.get(f.inverter_sn) if f.inverter_sn else dev.get(f.site_device_id) if f.site_device_id is not None else unit.get(f.stock_unit_id) if f.stock_unit_id is not None else None  # type: ignore[arg-type]
+        out[f.id] = (m or "").strip() or None
+    return out
+
+
+def report(db: Session, plant_ids: Optional[Set[int]], *, start: date, end: date, group: str) -> Dict[str, Any]:
+    """Faults found in [start, end] (plant-local days), per `group`: how many were found, are still
+    active, restored and closed, per severity, and the restore time (found → restored, hours) of the
+    closed ones: median and p90 (nearest rank). A group with no closed fault has no restore time."""
+    if group not in REPORT_GROUPS:
+        raise ValueError(f"group must be one of {', '.join(REPORT_GROUPS)}")
+    if end < start:
+        raise ValueError("end is before start")
+    if (end - start).days + 1 > REPORT_MAX_DAYS:
+        raise ValueError(f"At most {REPORT_MAX_DAYS} days")
+    lo = datetime(start.year, start.month, start.day, tzinfo=PLANT_TZ).astimezone(timezone.utc)
+    hi = datetime(end.year, end.month, end.day, tzinfo=PLANT_TZ).astimezone(timezone.utc) + timedelta(days=1)
+    q = select(FieldFault).where(FieldFault.found_at >= lo, FieldFault.found_at < hi, FieldFault.status != "cancelled")
+    if plant_ids is not None:
+        q = q.where(FieldFault.plant_id.in_(plant_ids or {-1}))
+    rows = list(db.scalars(q))
+    names = _plant_names(db, {f.plant_id for f in rows})
+    phases: Dict[int, Optional[int]] = {}
+    if group == "phase" and rows:
+        phases = {pid: ph for pid, ph in db.execute(select(GrowattPlant.plant_id, GrowattPlant.phase).where(GrowattPlant.plant_id.in_({f.plant_id for f in rows})))}
+    models = _models(db, rows) if group == "model" else {}
+
+    def key(f: FieldFault) -> Tuple[str, Optional[str]]:
+        if group == "kind":
+            return f.kind, f.kind.replace("_", " ")
+        if group == "plant":
+            return str(f.plant_id), names.get(f.plant_id)
+        if group == "phase":
+            ph = phases.get(f.plant_id)
+            return (str(ph), f"Phase {ph}") if ph is not None else ("none", None)
+        m = models.get(f.id)
+        return (f"{f.kind}|{m.upper()}", m) if m else (f"{f.kind}|", None)
+
+    groups: Dict[str, Dict[str, Any]] = {}
+    hours: Dict[str, List[float]] = {}
+    for f in rows:
+        k, label = key(f)
+        g = groups.setdefault(k, {"key": k, "label": label, "kind": f.kind if group == "model" else None, "found": 0, "active": 0, "restored": 0, "closed": 0, "by_severity": {s: 0 for s in SEVERITIES}})
+        g["found"] += 1
+        g["by_severity"][f.severity] += 1
+        if f.status in ACTIVE:
+            g["active"] += 1
+        elif f.status == "restored":
+            g["restored"] += 1
+        elif f.status == "closed":
+            g["closed"] += 1
+            h = restore_hours(f)
+            if h is not None:
+                hours.setdefault(k, []).append(h)
+    out = []
+    for k, g in groups.items():
+        hs = hours.get(k, [])
+        out.append({**g, "restore_hours_n": len(hs), "restore_hours_median": _pctl(hs, 50), "restore_hours_p90": _pctl(hs, 90)})
+    out.sort(key=lambda g: (-g["found"], g["key"]))
+    every = [h for hs in hours.values() for h in hs]
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "group": group,
+        "groups": out,
+        "total": {"found": len(rows), "closed_with_restore": len(every), "restore_hours_median": _pctl(every, 50), "restore_hours_p90": _pctl(every, 90)},
+        "meta": {"source": "db", "restore_basis": "closed faults: restored_at − found_at", "percentile": "nearest rank"},
+    }

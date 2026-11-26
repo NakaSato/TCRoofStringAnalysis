@@ -128,6 +128,8 @@ _ADDED_COLUMNS = [
     ("claims", "serial_inputs", "JSON", None),
     ("instrument_checkouts", "input_method", "VARCHAR(8)", None),
     ("instrument_checkouts", "raw_scan", "VARCHAR(512)", None),
+    ("field_faults", "s1_at", "TIMESTAMP WITH TIME ZONE", None),
+    ("field_faults", "s1_pushed_at", "TIMESTAMP WITH TIME ZONE", None),
 ]
 
 

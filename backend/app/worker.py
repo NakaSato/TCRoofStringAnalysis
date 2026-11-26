@@ -35,10 +35,13 @@ Schedule (plant-local time, Asia/Bangkok):
                                then pushes the new alarm events of the logs it read (services/push.py)
     alarms_yesterday   00:30   yesterday's alarm log once more (evening alarms, late closings)
     push_test          not scheduled: queued by POST /push/test, sends the test notifications
+    faults_push        not scheduled: queued when a field fault becomes S1 (also flushed by `alarms`),
+                               pushes it to whoever may see the plant (services/fault_push.py)
     om_plans           00:40   Calendar Team recurring plans: planned tasks up to 90 days ahead
     om_reminders       18:00   Calendar Team: push "Tomorrow: …" to each person with planned work
                                starting tomorrow (services/om_reminders.py; off without push)
-    om_weekly          Mon 07:30  Calendar Team: push each person's week and overdue count
+    om_weekly          Mon 07:30  Calendar Team: push each person's week and overdue count, and each
+                               fault owner's follow-ups past due
     rules_yesterday    00:45   daily string / inverter rows for yesterday + decision rules (counts only),
                                then the EPI system factor of plants not fitted yet (services/epi_fit.py)
     rules_today        every WORKER_HISTORY_INTERVAL_MIN (10) min, 06–20: the same for today so far

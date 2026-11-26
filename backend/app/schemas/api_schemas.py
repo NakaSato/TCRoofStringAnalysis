@@ -489,6 +489,7 @@ class OmTaskCreate(BaseModel):
     issue_id: Optional[int] = None
     est_cost_thb: Optional[float] = Field(default=None, ge=0, le=10_000_000)
     note: Optional[str] = Field(default=None, max_length=2000)
+    fault_id: Optional[int] = None  # the field fault this visit is for (docs/plans/defects.md §6.5)
 
 
 class OmTaskPatch(BaseModel):
@@ -762,6 +763,7 @@ class ClaimCreate(ClaimPatch):
     plant_id: int  # type: ignore[assignment]
     counterparty: str = Field(min_length=1, max_length=120)  # type: ignore[assignment]
     links: List[ClaimLinkBody] = Field(default_factory=list, max_length=50)
+    fault_id: Optional[int] = None  # the field fault the claim is for (docs/plans/defects.md §6.4)
 
 
 class ClaimStatusChange(BaseModel):

@@ -292,9 +292,33 @@ def _commit(db: Session) -> None:
         raise _conflict("Another change got there first; reload and try again") from exc
 
 
+def fault_for(db: Session, user: User, fault_id: Any, plant_id: Optional[int]):
+    """The field fault (`fault_id`, docs/plans/defects.md §6.3) the record is made for, checked
+    before anything is written; the faults service's errors as stock errors (404 / 422)."""
+    if fault_id in (None, ""):
+        return None
+    from app.services import faults
+    from app.services.growatt_common import GrowattNotFound
+
+    if plant_id is None:
+        raise StockError("A failed unit without a plant cannot be linked to a fault")
+    try:
+        return faults.check_attach(db, user, fault_id, plant_id)
+    except GrowattNotFound as exc:
+        raise StockNotFound(str(exc)) from exc
+    except ValueError as exc:
+        raise StockError(str(exc)) from exc
+
+
 def create(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
-    """Bind a red tag to a failed unit off site (`failed_in`). Anyone signed in (a field move)."""
+    """Bind a red tag to a failed unit off site (`failed_in`). Anyone signed in (a field move).
+    `fault_id`: the field fault it came off, linked in the same transaction."""
+    from app.services import faults
+
+    fault = fault_for(db, user, body.get("fault_id"), body.get("plant_id"))
     fu = _create(db, user, body)
+    if fault is not None:
+        faults.attach(db, fault, _by(user), "failed_unit", ref_id=fu.id)
     _commit(db)
     return failed_out(db, fu)
 

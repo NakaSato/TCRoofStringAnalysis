@@ -8,6 +8,7 @@ fault is cancelled). Every write is logged to `app.audit`.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -32,6 +33,16 @@ def _who(user: User) -> str:
 
 def _admin(user: User) -> bool:
     return user.role == "admin"
+
+
+def _queue_s1_push(db: Session) -> None:
+    """The worker pushes it within a minute (the API never sends: no Firebase credentials there)."""
+    from app.services import jobs
+
+    try:
+        jobs.enqueue(db, "faults_push", "api")
+    except jobs.JobBusy:
+        pass  # a queued or running one, or the next `alarms` run, sends it
 
 
 def _errors(exc: Exception) -> HTTPException:
@@ -105,6 +116,24 @@ def open_on_device(
     return {"faults": rows}
 
 
+@router.get("/report")
+def fault_report(
+    start: Optional[date] = Query(None, description="first plant-local day found (default: 90 days before end)"),
+    end: Optional[date] = Query(None, description="last day (default today)"),
+    group: str = Query("kind", pattern="^(" + "|".join(svc.REPORT_GROUPS) + ")$"),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_write_access),
+) -> Dict[str, Any]:
+    """Faults found in the window per kind / model / plant / phase: counts, and the restore time
+    of the closed ones (median, p90). Cancelled faults are left out."""
+    end = end or svc._today()
+    start = start or end - timedelta(days=89)
+    try:
+        return svc.report(db, allowed_plant_ids(db, user), start=start, end=end, group=group)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/{fault_id}")
 def get_fault(fault_id: int, db: Session = Depends(get_db), user: User = Depends(require_write_access)) -> Dict[str, Any]:
     """One fault with its links (labels resolved) and timeline."""
@@ -124,6 +153,8 @@ def create_fault(payload: FaultCreate, db: Session = Depends(get_db), user: User
     except _HANDLED as exc:
         raise _errors(exc) from exc
     audit.info("%s recorded fault %s (%s %s) on plant %s", _who(user), f.no, f.severity, f.kind, f.plant_id)
+    if f.severity == "S1":
+        _queue_s1_push(db)
     return svc.detail(db, f, allow_shadow=_admin(user))
 
 
@@ -136,6 +167,8 @@ def update_fault(fault_id: int, payload: FaultPatch, db: Session = Depends(get_d
         raise _errors(exc) from exc
     if changed:
         audit.info("%s edited fault %s (%s)", _who(user), f.no, ", ".join(changed))
+    if "severity" in changed and f.severity == "S1":
+        _queue_s1_push(db)
     return svc.detail(db, f, allow_shadow=_admin(user))
 
 

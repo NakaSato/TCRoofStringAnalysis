@@ -81,8 +81,12 @@ def create_claim(payload: ClaimCreate, db: Session = Depends(get_db), user: User
     _ensure_plant(db, user, payload.plant_id)
     fields = payload.changes()
     links: List[Dict[str, Any]] = fields.pop("links", [])
+    fault_id = fields.pop("fault_id", None)
     try:
-        c = svc.create_claim(db, fields, links, _who(user), allow_shadow=user.role == "admin")
+        from app.services import faults
+
+        fault = faults.check_attach(db, user, fault_id, payload.plant_id)
+        c = svc.create_claim(db, fields, links, _who(user), allow_shadow=user.role == "admin", fault=fault)
     except _HANDLED as exc:
         raise _errors(exc) from exc
     audit.info("%s opened claim %s (%s) for plant %s", _who(user), c.number, c.claim_type, c.plant_id)

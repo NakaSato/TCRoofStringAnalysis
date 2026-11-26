@@ -193,6 +193,7 @@ class FailedUnitIn(BaseModel):
     input_method: Optional[Literal["hid", "camera", "photo", "manual"]] = None
     raw_scan: Optional[str] = Field(None, max_length=512)
     note: Optional[str] = Field(None, max_length=2000)
+    fault_id: Optional[int] = None  # the field fault it came off (docs/plans/defects.md §6.3)
 
 
 class FailedUnitPatch(BaseModel):
@@ -271,6 +272,8 @@ class ReplacementIn(BaseModel):
     failed_to_location_id: int
     removed_day: Optional[date] = None
     note: Optional[str] = Field(None, max_length=2000)
+    fault_id: Optional[int] = None  # the field fault it answers (docs/plans/defects.md §6.3)
+    restore_fault: bool = False  # and mark it restored now
 
 
 @router.get("/replacements/targets")

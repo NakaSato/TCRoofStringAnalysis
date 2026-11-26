@@ -266,3 +266,138 @@ def test_df_label_resolves_to_the_fault(api):
     assert m["kind"] == "field_fault" and m["path"] == f"/faults?fault={mine['id']}" and m["plant_id"] == P1 and m["plant_name"] == f"Roof {P1}"
     assert client.get("/scan/resolve", params={"code": f"/s/df/{other['no']}"}, headers=eng).status_code == 404  # another plant: not revealed
     assert client.get("/scan/resolve", params={"code": f"/s/df/{other['no']}"}, headers=adm).status_code == 200
+
+
+def test_claim_task_and_failed_unit_for_a_fault(api):
+    """docs/plans/defects.md §6.3–6.5: `fault_id` on a new claim, Calendar task or failed unit links
+    it to the fault in the same transaction and moves the fault on where that step is allowed."""
+    _, client, adm, eng = api
+    d = _new(client, eng, inverter_sn=SN).json()
+    url = f"/faults/{d['id']}"
+    other = _new(client, adm, plant_id=P2).json()
+    # a visit: linked, scheduled on its day
+    day = (date.today() + timedelta(days=3)).isoformat()
+    r = client.post(f"/growatt/plants/{P1}/tasks", headers=eng, json={"task_type": "repair", "start_day": day, "fault_id": d["id"]})
+    assert r.status_code == 201, r.text
+    f1 = client.get(url, headers=eng).json()
+    assert f1["status"] == "scheduled" and f1["next_action_day"] == day and f1["links"] == {"om_task": 1}
+    assert client.post(f"/growatt/plants/{P1}/tasks", headers=eng, json={"task_type": "repair", "start_day": day, "fault_id": other["id"]}).status_code == 404
+    assert client.post(f"/growatt/plants/{P1}/tasks", headers=adm, json={"task_type": "repair", "start_day": day, "fault_id": other["id"]}).status_code == 422
+    # a claim: linked; the fault waits on it only when the decision is claim
+    claim = {"type": "inverter_warranty", "cause": "manufacturing_defect", "plant_id": P1, "counterparty": "Growatt", "device_sn": SN}
+    r = client.post("/claims", headers=eng, json={**claim, "fault_id": d["id"]})
+    assert r.status_code == 201, r.text
+    assert client.get(url, headers=eng).json()["status"] == "scheduled"
+    client.post(f"{url}/decision", headers=eng, json={"decision": "claim", "reason": "under warranty"})
+    client.post("/claims", headers=eng, json={**claim, "fault_id": d["id"]})
+    f2 = client.get(url, headers=eng).json()
+    assert f2["status"] == "waiting" and f2["waiting_reason"] == "claim" and f2["links"] == {"om_task": 1, "claim": 2}
+    assert [x["label"].split(" · ")[1] for x in f2["link_list"] if x["kind"] == "claim"] == ["draft", "draft"]
+    assert client.post("/claims", headers=eng, json={**claim, "plant_id": P1, "fault_id": other["id"]}).status_code == 404
+    # a failed unit tagged off the fault
+    assert client.post("/scan/labels/redtags", headers=adm, json={"count": 1}).status_code == 200
+    loc = client.post("/stock/locations", headers=adm, json={"code": "STORE", "name": "Store", "kind": "store"}).json()
+    body = {"red_tag": "RT-0001", "plant_id": P1, "inverter_sn": SN, "serial": "OLD-INV-1", "fault": "dead", "to_location_id": loc["id"]}
+    r = client.post("/stock/failed-units", headers=eng, json={**body, "fault_id": other["id"]})
+    assert r.status_code == 404
+    r = client.post("/stock/failed-units", headers=eng, json={**body, "fault_id": d["id"]})
+    assert r.status_code == 201, r.text
+    f3 = client.get(url, headers=eng).json()
+    assert f3["links"]["failed_unit"] == 1 and f3["status"] == "waiting"
+    assert any(x["kind"] == "failed_unit" and x["label"].startswith("RT-0001") for x in f3["link_list"])
+
+
+class _Sender:
+    def __init__(self):
+        self.msgs = []
+
+    def __call__(self, msgs):
+        self.msgs.extend(msgs)
+        return [None] * len(msgs)
+
+
+def test_s1_push_and_weekly_followups(api, monkeypatch):
+    """plan §9: an S1 fault (recorded or raised) is pushed once to whoever may see its plant, not to
+    the person who raised it; owners get their follow-ups past due once a week."""
+    from app.db.models import PushToken, SyncRun
+    from app.services import fault_push
+
+    f, client, adm, eng = api
+    with f() as db:
+        ids = {u.username: u.id for u in db.scalars(select(User))}
+        other = User(username="eng9", email="eng9@example.com", hashed_password="x", role="engineer")
+        db.add(other)
+        db.flush()  # assigned to P2 only: never told about P1
+        db.add(UserPlantAssignment(user_id=other.id, plant_id=P2))
+        for uid, tok in ((ids["admin"], "tok-admin"), (ids["engineer"], "tok-eng"), (other.id, "tok-other")):
+            db.add(PushToken(user_id=uid, token=tok, created_at=NOW, last_seen_at=NOW))
+        db.commit()
+    s1 = _new(client, eng, severity="S1", kind="dc_bos", symptom="Burnt MC4 on string 3", position={"location": "Roof B"}).json()
+    with f() as db:  # the API queued the worker job
+        assert db.scalars(select(SyncRun).where(SyncRun.job == "faults_push", SyncRun.status == "queued")).first() is not None
+        s = _Sender()
+        detail = fault_push.notify_s1(db, sender=s)
+        assert detail["s1_faults"] == 1 and detail["sent"] == 1
+        [m] = s.msgs
+        assert m.token == "tok-admin" and m.data["url"] == f"/faults?fault={s1['id']}" and m.data["title"] == f"S1 safety fault · Roof {P1}"
+        assert m.data["body"] == f"{s1['no']} dc bos · Roof B · Burnt MC4 on string 3"
+        assert fault_push.notify_s1(db, sender=_Sender()) == {"s1_faults": 0}  # once
+    # raised to S1 by the admin: pushed again, to the engineer this time
+    s2 = _new(client, eng, kind="other").json()
+    client.patch(f"/faults/{s2['id']}", headers=adm, json={"severity": "S1"})
+    with f() as db:
+        s = _Sender()
+        fault_push.notify_s1(db, sender=s)
+        assert [m.token for m in s.msgs] == ["tok-eng"]
+        # an S1 older than 6 h is never pushed (push switched on later sends no backlog)
+        old = _new(client, adm, kind="structure", severity="S1").json()
+        db.get(FieldFault, old["id"]).s1_at = NOW - timedelta(hours=7)
+        db.commit()
+        assert fault_push.notify_s1(db, sender=_Sender())["s1_faults"] == 0
+        # without FCM credentials nothing is marked
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "firebase_credentials_file", "")
+        fresh = _new(client, adm, kind="ac_bos", severity="S1").json()
+        assert fault_push.notify_s1(db)["skipped"]
+        assert db.get(FieldFault, fresh["id"]).s1_pushed_at is None
+    # follow-ups past due, to the owner, once a week
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    client.patch(f"/faults/{s2['id']}", headers=eng, json={"owner_user_id": ids["engineer"], "next_action_day": (today - timedelta(days=1)).isoformat()})
+    with f() as db:
+        s = _Sender()
+        detail = fault_push.fault_followups(db, monday, today, sender=s)
+        assert detail["faults"] == 1 and [m.token for m in s.msgs] == ["tok-eng"]
+        assert s.msgs[0].data["title"] == "1 fault follow-up past due" and s.msgs[0].data["body"].startswith(s2["no"])
+        assert fault_push.fault_followups(db, monday, today, sender=_Sender())["people"] == 0
+
+
+def test_report_counts_and_restore_time(api):
+    _, client, adm, eng = api
+    base = NOW - timedelta(days=5)
+    hours = [2, 10, 30]
+    for h in hours:
+        d = _new(client, eng, kind="pv_module", found_at=base.isoformat(), serial=f"M{h}", serial_input="manual").json()
+        client.post(f"/faults/{d['id']}/status", headers=eng, json={"status": "restored", "restored_at": (base + timedelta(hours=h)).isoformat()})
+        client.post(f"/faults/{d['id']}/status", headers=eng, json={"status": "closed"})
+    restored = _new(client, eng, kind="pv_module", found_at=base.isoformat(), serial="MR", serial_input="manual").json()
+    client.post(f"/faults/{restored['id']}/status", headers=eng, json={"status": "restored", "restored_at": (base + timedelta(hours=99)).isoformat()})
+    _new(client, eng, inverter_sn=SN, severity="S1")
+    x = _new(client, eng, kind="other").json()
+    client.post(f"/faults/{x['id']}/status", headers=eng, json={"status": "cancelled"})
+    _new(client, adm, plant_id=P2)
+    r = client.get("/faults/report", headers=eng).json()
+    by = {g["key"]: g for g in r["groups"]}
+    assert set(by) == {"pv_module", "inverter"}  # cancelled left out; P2 not visible
+    pv = by["pv_module"]
+    assert (pv["found"], pv["active"], pv["restored"], pv["closed"]) == (4, 0, 1, 3)
+    # restore time of the closed ones only (the restored-not-closed 99 h is not in it); nearest rank
+    assert (pv["restore_hours_n"], pv["restore_hours_median"], pv["restore_hours_p90"]) == (3, 10.0, 30.0)
+    assert by["inverter"]["by_severity"]["S1"] == 1 and by["inverter"]["restore_hours_median"] is None
+    assert r["total"]["found"] == 5 and r["total"]["closed_with_restore"] == 3
+    assert client.get("/faults/report?group=plant", headers=adm).json()["total"]["found"] == 6
+    model = client.get("/faults/report?group=model", headers=eng).json()["groups"]
+    assert {(g["kind"], g["label"]) for g in model} == {("pv_module", None), ("inverter", None)}  # no model recorded: never guessed
+    assert client.get("/faults/report?start=2026-01-01&end=2027-12-31", headers=eng).status_code == 422
+    assert client.get("/faults/report?group=colour", headers=eng).status_code == 422

@@ -143,7 +143,8 @@ def test_site_device_replacement(api):
     c, eng = t["c"], t["eng"]
     d = _post(t, eng)
     fu, unit, reg = d["failed_unit"], d["installed_unit"], d["register"]
-    assert set(d) == {"batch_id", "failed_unit", "installed_unit", "register", "warnings", "claim_prefill"}
+    assert set(d) == {"batch_id", "failed_unit", "installed_unit", "register", "warnings", "claim_prefill", "fault"}
+    assert d["fault"] is None
     assert (fu["red_tag"], fu["status"], fu["location_code"], fu["serial"], fu["plant_id"], fu["part_id"]) == ("RT-0001", "tagged", "VAN-CREW1", "RTR-OLD-1", P1, t["router"]["id"])
     assert fu["site_device_label"] == "4G router · P1-001" and fu["inverter_sn"] is None
     assert (unit["serial"], unit["state"], unit["plant_id"], unit["location_id"]) == ("RTR-NEW-1", "installed", P1, None)
@@ -353,3 +354,33 @@ def test_inverter_mismatch_does_not_promise_a_register_update(api):
     r = _post(t, t["eng"], 409, site_device_id=None, inverter_sn="INVOLD0001", old_serial="INVLABEL01", new_unit_id=t["units"]["INVNEW0001"])
     msg = r["detail"]["message"]
     assert r["detail"]["code"] == "register_mismatch" and "update the register" not in msg and "failed unit" in msg
+
+
+def test_replacement_for_a_field_fault(api):
+    """docs/plans/defects.md §6.3: `fault_id` links the batch and the failed unit to the fault in the
+    same transaction and, with `restore_fault`, marks it restored; a fault of another plant, a
+    hidden or closed one is refused before anything is written."""
+    t = api
+    c, eng, adm = t["c"], t["eng"], t["adm"]
+    rid = t["devs"][("P1-001", "router")]
+    fault = c.post("/faults", headers=eng, json={"plant_id": P1, "kind": "router_4g", "site_device_id": rid, "severity": "S3",
+                                                "how_found": "device_check", "symptom": "No 4G link"}).json()
+    other = c.post("/faults", headers=adm, json={"plant_id": P2, "kind": "router_4g", "severity": "S3", "how_found": "other", "symptom": "x"}).json()
+    before = _snapshot(t)
+    _post(t, eng, 404, fault_id=other["id"])  # another plant's fault: not revealed
+    _post(t, adm, 422, fault_id=other["id"])  # admin: not this plant's
+    _post(t, eng, 404, fault_id=99999)
+    assert _snapshot(t) == before
+    d = _post(t, eng, fault_id=fault["id"], restore_fault=True)
+    assert d["fault"] == {"id": fault["id"], "no": fault["no"], "status": "restored"}
+    out = c.get(f"/faults/{fault['id']}", headers=eng).json()
+    assert out["status"] == "restored" and out["restored_at"] is not None and out["links"] == {"stock_batch": 1, "failed_unit": 1}
+    assert {(x["kind"], x["ref_id"], x["ref_key"]) for x in out["link_list"]} == {("stock_batch", None, d["batch_id"]), ("failed_unit", d["failed_unit"]["id"], None)}
+    assert out["events"][0]["kind"] == "status" and out["events"][0]["to"] == "restored"
+    # closed: reopen it first
+    c.post(f"/faults/{fault['id']}/status", headers=eng, json={"status": "closed", "note": "router swapped"})
+    before = _snapshot(t)
+    r = _post(t, eng, 422, fault_id=fault["id"], red_tag="RT-0002", site_device_id=t["devs"][("P1-001", "revenue_meter")], old_serial="MTR-1",
+              new_unit_id=t["units"]["RTR-NEW-3"])
+    assert "reopen" in r["detail"]
+    assert _snapshot(t) == before

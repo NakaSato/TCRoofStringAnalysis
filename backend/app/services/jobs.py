@@ -267,7 +267,7 @@ def job_alarms(db: Session) -> Tuple[str, Dict[str, Any]]:
     tier: hot (open alarm / fault status) often, cold (no alarms today) rarely."""
     started = datetime.now(timezone.utc)
     status, detail = _alarms(db, _today(), tiered=True)
-    detail["push"] = _push(db, lambda push: {**push.notify_new_alarms(db, _today(), started), **push.send_tests(db)})
+    detail["push"] = _push(db, lambda push: {**push.notify_new_alarms(db, _today(), started), **push.send_tests(db), **_fault_s1(db)})
     return status, detail
 
 
@@ -282,6 +282,19 @@ def _push(db: Session, fn: Callable[[Any], Dict[str, Any]]) -> Dict[str, Any]:
         db.rollback()
         log.exception("push notifications failed")
         return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _fault_s1(db: Session) -> Dict[str, Any]:
+    from app.services import fault_push
+
+    return {"faults": fault_push.notify_s1(db)}
+
+
+def job_faults_push(db: Session) -> Tuple[str, Dict[str, Any]]:
+    """Field faults recorded as S1 or raised to it: pushed to whoever may see the plant (queued by
+    the API; every `alarms` run flushes them too; services/fault_push.py)."""
+    detail = _push(db, lambda _push_mod: _fault_s1(db)["faults"])
+    return ("partial" if "error" in detail or detail.get("failed") else "ok"), detail
 
 
 def job_push_test(db: Session) -> Tuple[str, Dict[str, Any]]:
@@ -488,8 +501,13 @@ def job_om_weekly(db: Session) -> Tuple[str, Dict[str, Any]]:
     """Calendar Team: push each person's week (this Monday … Sunday) and overdue count."""
     from app.services import om_reminders
 
+    from app.services import fault_push
+
     detail = _push(db, lambda _push_mod: om_reminders.notify_week(db))
-    return ("partial" if "error" in detail or detail.get("failed") else "ok"), detail
+    today = _today()
+    detail["faults"] = _push(db, lambda _push_mod: fault_push.fault_followups(db, today - timedelta(days=today.weekday()), today))
+    bad = "error" in detail or detail.get("failed") or "error" in detail["faults"] or detail["faults"].get("failed")
+    return ("partial" if bad else "ok"), detail
 
 
 JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
@@ -508,6 +526,7 @@ JOBS: Dict[str, Callable[[Session], Tuple[str, Dict[str, Any]]]] = {
     "alarms": job_alarms,
     "alarms_yesterday": job_alarms_yesterday,
     "push_test": job_push_test,
+    "faults_push": job_faults_push,
     "pwa_sheet": job_pwa_sheet,
     "rules_today": job_rules_today,
     "rules_yesterday": job_rules_yesterday,

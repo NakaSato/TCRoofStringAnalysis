@@ -454,6 +454,9 @@ def create_task(db: Session, user: User, plant_id: int, payload: Dict[str, Any])
     _check_team(db, payload.get("team_id"))
     ids = _check_assignees(db, user, plant_id, payload.get("assignee_ids") or [])
     _check_issue(db, plant_id, payload.get("issue_id"), allow_shadow=user.role == "admin")
+    from app.services import faults
+
+    fault = faults.check_attach(db, user, payload.get("fault_id"), plant_id)
     t = OmTask(
         plant_id=plant_id,
         task_type=payload["task_type"],
@@ -474,6 +477,8 @@ def create_task(db: Session, user: User, plant_id: int, payload: Dict[str, Any])
     db.flush()
     _set_assignees(db, t, ids)
     _history(db, t, who, {"created": {"start_day": start.isoformat(), "end_day": end.isoformat(), "task_type": t.task_type}})
+    if fault is not None:  # the visit planned for a field fault: linked, the fault scheduled on its day
+        faults.attach(db, fault, who, "om_task", ref_id=t.id, to_status="scheduled", next_action_day=start)
     db.commit()
     return t
 

@@ -159,6 +159,7 @@ def _replace(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
     new_method, new_raw = _method(body, "new")
     _method(body, "red_tag")  # checked; the ledger keeps one scan per row (the old unit's on `failed_in`)
     user_note = _text(body.get("note"), "Note", 2000)
+    fault = stock_failed.fault_for(db, user, body.get("fault_id"), plant.plant_id)  # docs/plans/defects.md §6.3
 
     # 1. the old unit against the register
     register_serial: Optional[str] = target["serial"]
@@ -249,6 +250,11 @@ def _replace(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
                     "old_serial": register_serial, "new_serial": unit.serial,
                     "note": f"The Growatt registry is not changed: the next fleet run brings {unit.serial}; "
                             f"an admin marks {register_serial} not installed."}
+    if fault is not None:  # the fault it answers: batch + failed unit linked, restored when asked
+        from app.services import faults
+
+        faults.attach(db, fault, _by(user), "stock_batch", ref_key=batch_id)
+        faults.attach(db, fault, _by(user), "failed_unit", ref_id=fu.id, to_status="restored" if body.get("restore_fault") else None)
     stock_failed._commit(db)
     audit.info("replacement on plant %s by %s: %s, batch %s", plant.plant_id, _by(user), target["label"], batch_id)
 
@@ -260,6 +266,7 @@ def _replace(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
         "installed_unit": unit_out(unit, part, locs, _plant_names(db, [plant.plant_id])),
         "register": register,
         "warnings": warnings,
+        "fault": None if fault is None else {"id": fault.id, "no": fault.no, "status": fault.status},
         "claim_prefill": {
             "type": "inverter_warranty" if inv is not None else "equipment_warranty",
             "plant_id": plant.plant_id,

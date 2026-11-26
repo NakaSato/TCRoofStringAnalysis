@@ -506,9 +506,11 @@ def _check_link(db: Session, plant_id: int, kind: str, ref_id: int, allow_shadow
 
 
 def create_claim(
-    db: Session, fields: Dict[str, Any], links: List[Dict[str, Any]], who: str, *, allow_shadow: bool
+    db: Session, fields: Dict[str, Any], links: List[Dict[str, Any]], who: str, *, allow_shadow: bool, fault: Any = None
 ) -> Claim:
-    """A new draft. `links` are checked first, so a bad one leaves nothing behind."""
+    """A new draft. `links` are checked first, so a bad one leaves nothing behind. `fault` (a
+    `FieldFault` the route checked with `faults.check_attach`): linked in the same transaction, and
+    waiting on the claim when its decision is `claim` (docs/plans/defects.md §6.4)."""
     for k in REQUIRED_FIELDS:
         if fields.get(k) in (None, ""):
             raise ValueError(f"{k} is required")
@@ -543,6 +545,13 @@ def create_claim(
         db.add(ClaimLink(claim_id=c.id, kind=kind, ref_id=ref_id, created_by=who))
     _event(db, c, "created", who, "Claim created")
     c.updated_by = None
+    if fault is not None:
+        from app.services import faults
+
+        if fault.plant_id != c.plant_id:
+            raise ValueError(f"Fault {fault.no} is not a fault of plant {c.plant_id}")
+        decided = fault.decision == "claim"
+        faults.attach(db, fault, who, "claim", ref_id=c.id, to_status="waiting" if decided else None, waiting_reason="claim" if decided else None)
     db.commit()
     return c
 
