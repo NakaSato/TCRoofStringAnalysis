@@ -40,7 +40,7 @@ import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/sy
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { PlantSoiling, SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
-import type { ScanFieldHint, ScanFieldHintBody, ScanResolve } from "./types/scan";
+import type { RedTagBatch, RedTagReserved, ScanFieldHint, ScanFieldHintBody, ScanLabelList, ScanLabelQuery, ScanResolve } from "./types/scan";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
   OmAssignees,
@@ -603,6 +603,14 @@ export const api = {
   },
   putScanFieldHint: (body: ScanFieldHintBody) => apiFetch<ScanFieldHint>("/scan/field-hints", { method: "PUT", body: JSON.stringify(body) }),
   deleteScanFieldHint: (id: number) => apiFetch<void>(`/scan/field-hints/${id}`, { method: "DELETE" }),
+  // printable labels (the browser draws the QR codes); red tags reserved in batches (admin)
+  getScanLabels: (q: ScanLabelQuery) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    return apiFetch<ScanLabelList>(`/scan/labels?${p.toString()}`);
+  },
+  reserveRedTags: (count: number) => apiFetch<RedTagReserved>("/scan/labels/redtags", { method: "POST", body: JSON.stringify({ count }) }),
+  listRedTagBatches: () => apiFetch<RedTagBatch[]>("/scan/labels/redtags"),
 
   // ---- measuring tools (instruments, check-outs, calibration / document due dates; DB only)
   listInstruments: (includeRetired = false) =>

@@ -8,7 +8,8 @@
  * `tool` (detail dialog open).
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { Link } from "react-router-dom";
+import { MoreHorizontal, Plus, Tag } from "lucide-react";
 import type { DueKind, DueState, Instrument, InstrumentStatus } from "../api/client";
 import { useAppContext } from "../context/AppContext";
 import { useI18n } from "../i18n";
@@ -334,6 +335,12 @@ export const ToolsPage: React.FC = () => {
           <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
             {loading && <Spinner data-icon="inline-start" className="size-3" />}
             {loading ? t("Refreshing…") : t("Refresh")}
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/labels?kind=tool">
+              <Tag data-icon="inline-start" />
+              {t("Print labels")}
+            </Link>
           </Button>
           {admin && (
             <Button size="sm" onClick={() => setEditing({ instrument: null })}>

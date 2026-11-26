@@ -254,7 +254,16 @@ const ResolveResult: React.FC<{
       )}
       {res && res.matches.length === 0 && (
         <div className="flex flex-col gap-2 text-xs">
-          {res.unsupported_kind ? (
+          {res.red_tag ? (
+            <p className="text-slate-200">
+              {res.red_tag.status === "reserved"
+                ? t("Red tag {code}: blank (reserved in batch {batch}). Tying it to a failed unit comes with the failed-unit register.", {
+                    code: res.red_tag.code,
+                    batch: res.red_tag.batch,
+                  })
+                : t("Red tag {code}: {status}.", { code: res.red_tag.code, status: res.red_tag.status })}
+            </p>
+          ) : res.unsupported_kind ? (
             <p className="text-amber-200">
               {t("{what} are not in the app yet, so this label opens nothing.", { what: t(UNSUPPORTED_LABEL[res.unsupported_kind] ?? res.unsupported_kind) })}
             </p>

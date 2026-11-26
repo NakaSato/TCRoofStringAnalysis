@@ -65,7 +65,18 @@ export const ScanRedirectPage: React.FC = () => {
             </ul>
           ) : (
             <EmptyState
-              title={res?.unsupported_kind ? t("This kind of label is not in the app yet.") : t("Nothing in the app has this code.")}
+              title={
+                res?.red_tag
+                  ? res.red_tag.status === "reserved"
+                    ? t("Red tag {code}: blank (reserved in batch {batch}). Tying it to a failed unit comes with the failed-unit register.", {
+                        code: res.red_tag.code,
+                        batch: res.red_tag.batch,
+                      })
+                    : t("Red tag {code}: {status}.", { code: res.red_tag.code, status: res.red_tag.status })
+                  : res?.unsupported_kind
+                    ? t("This kind of label is not in the app yet.")
+                    : t("Nothing in the app has this code.")
+              }
             />
           )}
         </CardContent>

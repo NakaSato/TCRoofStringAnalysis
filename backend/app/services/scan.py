@@ -254,12 +254,21 @@ def resolve(db: Session, user: User, raw: str, suggest: bool = False) -> Dict[st
     allowed = allowed_plant_ids(db, user)
     app = parse_app_code(raw)
     unsupported: Optional[str] = None
+    red_tag: Optional[Dict[str, Any]] = None
     part = False
     if app is not None:
         kind, code = app
         if kind in RESOLVABLE_KINDS:
             matches = _app_code_matches(db, kind, code, allowed)
             value = code.upper()
+        elif kind == "rt":
+            # a pre-printed red tag: known (blank or bound), but there is no failed-unit register to open yet
+            from app.services.scan_labels import red_tag_info
+
+            red_tag = red_tag_info(db, code)
+            if red_tag is None:
+                raise GrowattNotFound(f"No red tag {code}")
+            unsupported, matches, value = kind, [], red_tag["code"]
         else:
             # a label kind whose register is not built yet (red tags, spares, bins, defects)
             unsupported, matches, value = kind, [], code.upper()
@@ -279,6 +288,8 @@ def resolve(db: Session, user: User, raw: str, suggest: bool = False) -> Dict[st
         "code": value,
         "app_code": {"kind": app[0], "code": app[1]} if app else None,
         "unsupported_kind": unsupported,
+        # an `rt` app code: the reserved tag (`{code, status, batch, reserved_at}`)
+        "red_tag": red_tag,
         # the label said P/N: a part number, not a serial
         "part_number": part,
         "matches": [asdict(m) for m in matches],

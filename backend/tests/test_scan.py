@@ -149,8 +149,8 @@ def test_site_devices_serial_sim_and_scope(api):
 
 def test_unsupported_kind_unknown_and_bad_input(api):
     client, adm, eng, _, _ = api
-    body = _resolve(client, eng, "/s/rt/RT-0103")
-    assert body["unsupported_kind"] == "rt" and body["matches"] == [] and body["code"] == "RT-0103"
+    body = _resolve(client, eng, "/s/sp/P-ROUTER-RUT")
+    assert body["unsupported_kind"] == "sp" and body["matches"] == [] and body["code"] == "P-ROUTER-RUT"
     body = _resolve(client, eng, "NOTHING-HERE")
     assert body["matches"] == [] and body["app_code"] is None
     assert _resolve(client, eng, "P/N:ABC")["part_number"] is True
@@ -230,3 +230,69 @@ def test_field_hints_first_by_anyone_changes_by_admin(api):
     assert client.delete(f"/scan/field-hints/{hint['id']}", headers=eng).status_code == 403
     assert client.delete(f"/scan/field-hints/{hint['id']}", headers=adm).status_code == 204
     assert client.delete(f"/scan/field-hints/{hint['id']}", headers=adm).status_code == 404
+
+
+# ------------------------------------------------------------------ labels and red tags (step 5)
+
+
+def test_red_tag_code_parsing():
+    from app.services import scan_labels as labels
+
+    assert labels.red_tag_code(7) == "RT-0007" and labels.red_tag_code(12345) == "RT-12345"
+    assert labels.parse_red_tag("rt-103") == 103 and labels.parse_red_tag("RT0103") == 103
+    assert labels.parse_red_tag("RX-1") is None and labels.parse_red_tag("RT-") is None
+
+
+def test_reserve_red_tags_batches_and_resolve(api):
+    client, adm, eng, _, _ = api
+    assert client.post("/scan/labels/redtags", json={"count": 3}, headers=eng).status_code == 403
+    assert client.post("/scan/labels/redtags", json={"count": 0}, headers=adm).status_code == 422
+    assert client.post("/scan/labels/redtags", json={"count": 501}, headers=adm).status_code == 422
+    r = client.post("/scan/labels/redtags", json={"count": 3}, headers=adm).json()
+    assert r == {"batch": 1, "first": "RT-0001", "last": "RT-0003", "count": 3}
+    r = client.post("/scan/labels/redtags", json={"count": 2}, headers=adm).json()
+    assert (r["batch"], r["first"], r["last"]) == (2, "RT-0004", "RT-0005")
+    batches = client.get("/scan/labels/redtags", headers=adm).json()
+    assert [(b["batch"], b["first"], b["last"], b["count"], b["bound"], b["reserved_by"]) for b in batches] == [
+        (2, "RT-0004", "RT-0005", 2, 0, "admin"),
+        (1, "RT-0001", "RT-0003", 3, 0, "admin"),
+    ]
+    assert client.get("/scan/labels/redtags", headers=eng).status_code == 403
+    # labels of a batch
+    items = client.get("/scan/labels", params={"kind": "rt", "batch": 1}, headers=eng).json()["items"]
+    assert [(i["title"], i["code"], i["path"]) for i in items] == [
+        ("RT-0001", "rt:RT-0001", "/s/rt/RT-0001"),
+        ("RT-0002", "rt:RT-0002", "/s/rt/RT-0002"),
+        ("RT-0003", "rt:RT-0003", "/s/rt/RT-0003"),
+    ]
+    assert client.get("/scan/labels", params={"kind": "rt", "batch": 9}, headers=adm).status_code == 404
+    assert client.get("/scan/labels", params={"kind": "rt"}, headers=adm).status_code == 422
+    # scanning a reserved tag: known and blank; an unknown number: 404
+    body = _resolve(client, eng, "https://x.example/s/rt/RT-0002")
+    assert body["unsupported_kind"] == "rt" and body["matches"] == []
+    assert body["red_tag"]["code"] == "RT-0002" and body["red_tag"]["status"] == "reserved"
+    assert _resolve(client, eng, "rt:rt-2")["red_tag"]["code"] == "RT-0002"
+    _resolve(client, eng, "/s/rt/RT-0103", 404)
+    assert _resolve(client, eng, "BNE4C1Z00A")["red_tag"] is None
+
+
+def test_tool_and_device_labels_scoped(api):
+    client, adm, eng, ids, tool_id = api
+    (t,) = client.get("/scan/labels", params={"kind": "tool"}, headers=eng).json()["items"]
+    assert t["code"] == "tool:MT-INS-02" and t["path"] == "/s/tool/MT-INS-02" and t["key"] == str(tool_id)
+    assert t["lines"] == ["Insulation tester", "Fluke", "S/N FL1587-0042"]
+    # the label's path resolves to the instrument
+    assert _resolve(client, eng, "https://x.example" + t["path"])["matches"][0]["kind"] == "instrument"
+    # devices of a plant the engineer is assigned to
+    items = client.get("/scan/labels", params={"kind": "dev", "plant_id": P1}, headers=eng).json()["items"]
+    assert [(i["title"], i["code"]) for i in items] == [("4G router · P1-001", f"dev:{ids['1102345678']}")]
+    assert items[0]["lines"] == ["Teltonika RUT241", "S/N 1102345678", f"Plant {P1}"]
+    assert _resolve(client, eng, items[0]["path"])["matches"][0]["kind"] == "site_device"
+    # another plant / an unmatched station / ids of hidden devices: not revealed
+    assert client.get("/scan/labels", params={"kind": "dev", "plant_id": P2}, headers=eng).status_code == 404
+    assert client.get("/scan/labels", params={"kind": "dev", "site_code": "P1-099"}, headers=eng).status_code == 404
+    assert client.get("/scan/labels", params={"kind": "dev", "ids": str(ids["WP12345"])}, headers=eng).json()["items"] == []
+    assert len(client.get("/scan/labels", params={"kind": "dev", "site_code": "P1-099"}, headers=adm).json()["items"]) == 1
+    assert client.get("/scan/labels", params={"kind": "dev"}, headers=adm).status_code == 422
+    assert client.get("/scan/labels", params={"kind": "dev", "ids": "1,x"}, headers=adm).status_code == 422
+    assert client.get("/scan/labels", params={"kind": "nope"}, headers=adm).status_code == 422

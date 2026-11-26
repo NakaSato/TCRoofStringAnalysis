@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
-import { api, type ScanFieldHint } from "../../api/client";
+import { Printer, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { api, type RedTagBatch, type ScanFieldHint } from "../../api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -195,6 +196,75 @@ const FieldHints: React.FC = () => {
   );
 };
 
+/** Admin: reserve pre-printed red tag numbers in batches and print them (plan §13 decision 3). */
+const RedTags: React.FC = () => {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const [batches, setBatches] = useState<RedTagBatch[] | null>(null);
+  const [count, setCount] = useState("40");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api
+      .listRedTagBatches()
+      .then(setBatches)
+      .catch(() => setBatches([]));
+  }, []);
+  const n = num(count);
+  const valid = n != null && Number.isInteger(n) && n >= 1 && n <= 500;
+  const reserve = async () => {
+    if (!valid) return;
+    setBusy(true);
+    try {
+      const r = await api.reserveRedTags(n!);
+      notify("ok", t("Reserved {first} – {last}.", { first: r.first, last: r.last }));
+      navigate(`/labels?kind=rt&batch=${r.batch}`);
+    } catch (e) {
+      notify("crit", e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">{t("Red tags")}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-xs">
+        <p className="text-[11px] text-muted-foreground">
+          {t("Pre-printed tags for failed units. Reserve the next numbers, print them on paper tags, and crews tag a failed unit on site. Numbers are never reused.")}
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <NumberField id="rt-count" label={t("How many")} unit={t("tags")} value={count} onChange={setCount} hint={t("1–500; 8 a sheet")} />
+          <Button size="sm" disabled={!valid || busy} onClick={() => void reserve()}>
+            {t("Reserve and print")}
+          </Button>
+        </div>
+        {batches && batches.length > 0 && (
+          <ul className="flex flex-col divide-y divide-white/[0.06] rounded-md border border-white/[0.07]">
+            {batches.map((b) => (
+              <li key={b.batch} className="flex min-w-0 items-center gap-3 px-3 py-2">
+                <span className="num shrink-0 font-mono text-slate-100">
+                  {b.first} – {b.last}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                  {t("{n} tags · {used} used", { n: b.count, used: b.bound })}
+                  {b.reserved_by ? ` · ${b.reserved_by}` : ""}
+                  {b.reserved_at ? ` · ${b.reserved_at.slice(0, 10)}` : ""}
+                </span>
+                <Button asChild size="icon-xs" variant="ghost" aria-label={t("Print {first} – {last}", { first: b.first, last: b.last })}>
+                  <Link to={`/labels?kind=rt&batch=${b.batch}`}>
+                    <Printer className="size-3.5" />
+                  </Link>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 /**
  * Settings → Scanning (docs/plans/barcode-scanning.md §4, §8): keyboard-scanner timing, prefix and
  * sound, kept per device in this browser (not on the server), and a scanner test box.
@@ -291,6 +361,7 @@ export const ScanningSettings: React.FC = () => {
           <span className="text-muted-foreground">{t("The box flashes green either way; phones that support it also vibrate (not iPhone).")}</span>
         </CardContent>
       </Card>
+      {user?.role === "admin" && <RedTags />}
       {user?.role === "admin" && <FieldHints />}
     </div>
   );

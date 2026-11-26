@@ -107,4 +107,43 @@ export const TH_SCAN: Record<string, string> = {
   "field {n} of {total}": "ช่องที่ {n} จาก {total}",
   "Forget {model}": "ลืม {model}",
   "Forgotten: the next {model} label asks again.": "ลบแล้ว ฉลาก {model} ครั้งหน้าจะถามใหม่",
+  // plan step 5: labels and red tags
+  "Instrument labels": "ฉลากเครื่องมือวัด",
+  "Site device labels": "ฉลากอุปกรณ์หน้างาน",
+  "QR with the app link, the short code printed under it. Phones open the record from their own camera.":
+    "QR มีลิงก์ของแอป และพิมพ์รหัสสั้นไว้ใต้ QR โทรศัพท์สแกนด้วยกล้องของเครื่องก็เปิดรายการได้เลย",
+  "Print {n}": "พิมพ์ {n} ดวง",
+  "This page is open on {host}: the QR codes would point there, which phones in the field cannot open. Print from the production app.":
+    "หน้านี้เปิดจาก {host} QR จะชี้ไปที่นั่น ซึ่งโทรศัพท์หน้างานเปิดไม่ได้ ให้พิมพ์จากแอปตัวจริง (production)",
+  "Nothing to print here.": "ไม่มีรายการให้พิมพ์",
+  "Label sheet": "แผ่นฉลาก",
+  "Polyester 63.5 × 33.9 mm, 24 a sheet": "โพลีเอสเตอร์ 63.5 × 33.9 มม. แผ่นละ 24 ดวง",
+  "Paper tag 99.1 × 67.7 mm, 8 a sheet": "ป้ายกระดาษ 99.1 × 67.7 มม. แผ่นละ 8 ดวง",
+  "Start at label": "เริ่มที่ดวงที่",
+  "On a part-used sheet: the labels before it stay empty (1–{n}, left to right).": "สำหรับแผ่นที่ใช้ไปบางส่วน ดวงก่อนหน้าจะเว้นว่างไว้ (1–{n} นับจากซ้ายไปขวา)",
+  "{n} of {total} selected": "เลือก {n} จาก {total}",
+  "Select all": "เลือกทั้งหมด",
+  "Select none": "ไม่เลือกเลย",
+  "Print at 100 % (actual size), no margins. Check one sheet on plain paper against the label sheet first.":
+    "พิมพ์ที่ 100 % (ขนาดจริง) ไม่มีขอบ ลองพิมพ์ลงกระดาษธรรมดาหนึ่งแผ่นแล้วทาบกับแผ่นฉลากก่อน",
+  "1 label sheet": "1 แผ่น",
+  "{n} label sheets": "{n} แผ่น",
+  "What is wrong": "อาการเสีย",
+  "…and {n} more label sheets": "…และอีก {n} แผ่น",
+  "Failed unit": "อุปกรณ์เสีย",
+  "Device / SN": "อุปกรณ์ / SN",
+  "Date · by": "วันที่ · ผู้ติด",
+  "Print labels": "พิมพ์ฉลาก",
+  "Pre-printed tags for failed units. Reserve the next numbers, print them on paper tags, and crews tag a failed unit on site. Numbers are never reused.":
+    "ป้ายพิมพ์ล่วงหน้าสำหรับอุปกรณ์เสีย จองเลขถัดไป พิมพ์ลงป้ายกระดาษ แล้วทีมงานติดป้ายที่อุปกรณ์เสียหน้างาน เลขที่ใช้แล้วจะไม่ถูกใช้ซ้ำ",
+  "How many": "จำนวน",
+  tags: "ป้าย",
+  "1–500; 8 a sheet": "1–500 แผ่นละ 8 ป้าย",
+  "Reserve and print": "จองเลขและพิมพ์",
+  "{n} tags · {used} used": "{n} ป้าย · ใช้แล้ว {used}",
+  "Print {first} – {last}": "พิมพ์ {first} – {last}",
+  "Reserved {first} – {last}.": "จองเลข {first} – {last} แล้ว",
+  "Red tag {code}: blank (reserved in batch {batch}). Tying it to a failed unit comes with the failed-unit register.":
+    "ป้ายแดง {code} ยังว่าง (จองไว้ในชุดที่ {batch}) การผูกป้ายกับอุปกรณ์เสียจะมาพร้อมทะเบียนอุปกรณ์เสีย",
+  "Red tag {code}: {status}.": "ป้ายแดง {code}: {status}",
 };

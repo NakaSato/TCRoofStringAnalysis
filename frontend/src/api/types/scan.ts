@@ -22,6 +22,8 @@ export interface ScanResolve {
   app_code: { kind: string; code: string } | null;
   /** an app label kind with no register yet (rt, sp, loc, df) */
   unsupported_kind: string | null;
+  /** an `rt` app code: the pre-printed red tag (blank until a failed unit is bound to it) */
+  red_tag: RedTagInfo | null;
   /** the label said P/N */
   part_number: boolean;
   matches: ScanMatch[];
@@ -56,3 +58,53 @@ export interface ScanFieldHintBody {
 
 /** how a value got into a field */
 export type InputMethod = "hid" | "camera" | "photo" | "manual";
+
+export interface RedTagInfo {
+  code: string;
+  /** reserved (blank) | bound | void */
+  status: string;
+  batch: number;
+  reserved_at: string | null;
+}
+
+export type ScanLabelKind = "tool" | "dev" | "rt";
+
+/** one printable label (`/scan/labels`); the QR holds `origin + path`, `code` is printed under it */
+export interface ScanLabel {
+  kind: ScanLabelKind;
+  key: string;
+  code: string;
+  path: string;
+  title: string;
+  lines: string[];
+}
+
+export interface ScanLabelList {
+  kind: ScanLabelKind;
+  items: ScanLabel[];
+}
+
+export interface ScanLabelQuery {
+  kind: ScanLabelKind;
+  ids?: string;
+  plant_id?: number;
+  site_code?: string;
+  batch?: number;
+}
+
+export interface RedTagBatch {
+  batch: number;
+  first: string;
+  last: string;
+  count: number;
+  bound: number;
+  reserved_at: string | null;
+  reserved_by: string | null;
+}
+
+export interface RedTagReserved {
+  batch: number;
+  first: string;
+  last: string;
+  count: number;
+}

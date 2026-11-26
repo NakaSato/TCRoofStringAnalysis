@@ -225,8 +225,9 @@ Per-category expectations (warnings only, never blocking, because models vary):
 ```
 GET  /scan/resolve?code=               → { kind, id, label, plant_id?, path } | { kind:"unknown", candidates[] }
                                           (scoped: unassigned plant → 404 not revealed; rate-limited 60/min/user)
-GET  /scan/labels?kind=&ids=           → label data for printing (code, payload URL, text lines)
-POST /scan/labels/redtags {count}      (admin) → reserves RT-xxxx numbers for pre-printing
+GET  /scan/labels?kind=tool|dev|rt&ids=|plant_id=|site_code=|batch=  → label data {kind, key, code, path, title, lines}
+POST /scan/labels/redtags {count ≤ 500} (admin) → reserves the next RT-xxxx numbers as one batch
+GET  /scan/labels/redtags              (admin) → batches (first, last, count, bound, reserved_by / _at)
 POST /stock/movements/batch            → all-or-nothing; rows carry input_method + raw_scan
 GET  /scan/field-hints                 PUT /scan/field-hints (first: anyone; change: admin)   DELETE /scan/field-hints/{id} (admin)
                                           (category + model → which field is the SN)
@@ -310,7 +311,7 @@ Pass criteria:
 
 ## 12. Build order
 
-Built so far (2026-11-26): `/scan/resolve` matches app codes `tool` / `dev` and raw values against instruments, inverters, dataloggers and site register devices (red tags, spares, bins and defects have no register yet: their app codes answer `unsupported_kind`). Step 4 (2026-11-26): photo fallback (0/90/180/270°), the field picker with `scan_field_hints` per category + model (`GET/PUT /scan/field-hints`, `DELETE` admin; the first hint by anyone, a change by an admin; Settings → Scanning lists them for admins), and "Did you mean" for a typed code (`/scan/resolve?suggest=true` → `did_you_mean`: the O ↔ 0 / I ↔ 1 spellings that match exactly; the person chooses). Not built yet: `input_method` / `raw_scan` columns (no table that saves a scan exists yet), the per-category expectation warnings of §6.3.
+Built so far (2026-11-26): `/scan/resolve` matches app codes `tool` / `dev` and raw values against instruments, inverters, dataloggers and site register devices (red tags, spares, bins and defects have no register yet: their app codes answer `unsupported_kind`). Step 4 (2026-11-26): photo fallback (0/90/180/270°), the field picker with `scan_field_hints` per category + model (`GET/PUT /scan/field-hints`, `DELETE` admin; the first hint by anyone, a change by an admin; Settings → Scanning lists them for admins), and "Did you mean" for a typed code (`/scan/resolve?suggest=true` → `did_you_mean`: the O ↔ 0 / I ↔ 1 spellings that match exactly; the person chooses). Step 5 (2026-11-26, partly): `/labels?kind=tool|dev|rt` (`pages/LabelsPage.tsx`) prints instrument and site device labels and red tag batches on A4 (polyester 63.5 × 33.9 mm 24-up, paper tag 99.1 × 67.7 mm 8-up; "start at label N" for part-used sheets; CSV). The QR (level Q, 4-module quiet zone, 25 / 40 mm) is drawn in the browser (`lib/scan/qr.ts`, `qrcode-generator`) and holds the host's `/s/<kind>/<code>` URL, the short code printed under it; the page warns when opened on a local address. Red tags: `red_tags` table, `POST/GET /scan/labels/redtags` (admin) reserve and list batches; a scanned reserved tag answers `red_tag` (blank). Not built yet: binding a red tag to a failed unit and bin / spare labels (no failed-unit or stock register), `input_method` / `raw_scan` columns, the per-category expectation warnings of §6.3.
 
 1. `parse.ts` + `keymap.ts` with `bun test`; `/scan/resolve`; `ScanDialog` Type tab; `/s/:kind/:code`.
 2. `useHidScanner` + global listener + ScanField + Settings "Test your scanner" (desk and iPad with a BT scanner).
@@ -320,10 +321,15 @@ Built so far (2026-11-26): `/scan/resolve` matches app codes `tool` / `dev` and 
 6. Batch mode (receive / issue / transfer / count) with `POST /stock/movements/batch`.
 7. Device matrix test (§11), then `bun run lint && bun run build`, role tests as admin and engineer, and an update of `frontend/CLAUDE.md` (scanning section, LAN HTTPS for testing).
 
-## 13. Open questions
+## 13. Decisions and open questions
 
-1. **Scanners to buy:** one per store desk only, or one Bluetooth scanner per crew as well? (Crews can use the phone camera; the store benefits most from a scanner.)
-2. **Label payload:** URL (opens from any phone camera, but tied to the host name) or short `kind:code` only (survives a domain change)? Proposed: URL with the short code printed underneath, and the resolver accepts both.
-3. **Red tags:** pre-printed batches (proposed) or printed per unit at the store?
-4. **Label stock:** polyester weatherproof labels for instruments and spares; paper tags for failed units?
+Decided 2026-11-26:
+
+1. **Scanners:** one USB / Bluetooth scanner at the store desk only. Crews use the phone or iPad camera on site, so the camera path (§5) is the main one in the field and the keyboard scanner the main one at the store.
+2. **Label payload:** the URL (`https://<app-host>/s/<kind>/<code>`) in the QR, with the short `kind:code` printed underneath. The resolver accepts both, so a domain change only needs a reprint, never a lookup change.
+3. **Red tags:** pre-printed in batches (an admin reserves `RT-xxxx` numbers and prints a sheet); a crew binds a blank tag to a failed unit by scanning it.
+4. **Label stock:** two A4 layouts: weatherproof polyester for instruments, bins and spares, plain paper tags for red tags on failed units.
+
+Still open:
+
 5. Should **manual entry** of a serial need a photo of the label (stronger evidence for claims), or stay optional?

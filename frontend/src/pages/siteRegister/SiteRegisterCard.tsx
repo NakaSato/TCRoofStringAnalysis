@@ -1,13 +1,14 @@
 /** O&M site register card (docs/plans/om-asset-network.md): the plant's station data and the devices on site,
  * as imported from the O&M workbook. Values as written; an empty cell shows "—". */
 import React, { useState } from "react";
-import { Check, Copy, Network, Pencil, Plus, TriangleAlert, Users, Zap, Building2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Check, Copy, Network, Pencil, Plus, Tag, TriangleAlert, Users, Zap, Building2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api } from "../../api/client";
 import type { PlantSiteRegister, SiteDevice, SiteDeviceKind } from "../../api/client";
 import { useI18n } from "../../i18n";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { useLoad } from "../kb/useDocs";
@@ -194,6 +195,16 @@ export const SiteRegisterCard: React.FC<{ plantId: number }> = ({ plantId }) => 
             {s.project_phase != null && <Badge variant="neutral">{t("Phase {n}", { n: s.project_phase })}</Badge>}
           </CardTitle>
         </div>
+        {reg.devices.length > 0 && (
+          <CardAction>
+            <Button asChild variant="outline" size="xs">
+              <Link to={`/labels?kind=dev&plant_id=${plantId}`}>
+                <Tag data-icon="inline-start" />
+                {t("Print labels")}
+              </Link>
+            </Button>
+          </CardAction>
+        )}
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
