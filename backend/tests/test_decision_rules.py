@@ -439,6 +439,22 @@ def test_open_safety_issue_is_not_downgraded(factory):
         assert i.tier == "P1" and i.safety and i.evidence["dawn"]
 
 
+def test_shadow_issue_goes_live_with_its_rule(factory):
+    from app.services import growatt_issues
+    from app.db.models import GrowattIssue
+
+    with factory() as db:
+        f = {"rule": "R2", "tier": "P2", "plant_id": PLANT, "device_sn": A, "string_no": 3,
+             "evidence": {}, "lost_kwh_est": 1.0, "thb_est": 4.0, "shadow": True}
+        growatt_issues.sync(db, DAY, [f])
+        growatt_issues.sync(db, DAY + timedelta(days=1), [{**f, "shadow": False}])
+        db.commit()
+        assert db.scalars(select(GrowattIssue)).one().shadow is False
+        growatt_issues.sync(db, DAY, [f])  # re-running an older day leaves the current state
+        db.commit()
+        assert db.scalars(select(GrowattIssue)).one().shadow is False
+
+
 def test_rule_settings_override_from_app_settings(factory):
     from app.db.models import AppSetting
 

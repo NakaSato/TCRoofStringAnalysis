@@ -200,6 +200,8 @@ def sync(
                 i.tier = f["tier"]
                 i.safety = bool(f.get("safety"))
             i.evidence = {**(f.get("evidence") or {}), "day": dkey}
+            # the rule's shadow state as it is now: an issue opened in shadow mode goes live with its rule
+            i.shadow = bool(f.get("shadow", True))
         _refresh_totals(i)
 
     # this day re-run without the finding: take the day out again
