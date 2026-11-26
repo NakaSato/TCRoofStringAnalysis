@@ -6,11 +6,11 @@
  * serials. Input: the keyboard scanner anywhere on the page (a scan target over the global listener),
  * the text box (Enter adds), or the camera in continuous mode. Each scan is looked up
  * (`api.stockLookup`, DB only); row status logic is `lib/scan/batch.ts`. The list is kept in
- * `sessionStorage` per mode + destination until confirmed.
+ * `sessionStorage` per mode + destination until confirmed. `mode=count` (phase 5) is `CountScanPage.tsx`.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Camera, CameraOff, Check, Printer, ScanLine, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Printer, ScanLine, Trash2, X } from "lucide-react";
 import { ApiError, api, type InputMethod, type StockBatchError, type StockLocation, type StockLookup, type StockPart } from "../../api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -26,25 +26,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LoadingState } from "../../components/ui";
-import { CameraScanner } from "../../components/scan/CameraScanner";
 import { MethodBadge } from "../../components/scan/ScanDialog";
 import { useAppContext } from "../../context/AppContext";
 import { useI18n } from "../../i18n";
 import { notify } from "../../lib/notify";
 import { pick, useUrlState } from "@/lib/useUrlState";
-import { cameraSupported } from "../../lib/scan/camera";
-import { SERIAL_FORMATS, type DetectedBarcode } from "../../lib/scan/decoder";
 import { signal, unlockAudio, type Feedback } from "../../lib/scan/feedback";
-import { pushScanTarget, useFieldScanner } from "../../lib/scan/hidScanner";
+import { pushScanTarget } from "../../lib/scan/hidScanner";
 import { clean, normalise } from "../../lib/scan/parse";
 import {
-  BATCH_MODES,
   buildBatch,
   countRows,
   evaluateRow,
@@ -59,17 +53,14 @@ import {
   type RowEval,
 } from "../../lib/scan/batch";
 import { KIND_LABEL, STATE_LABEL, canManageStock, errorText } from "./shared";
+import { CountScanPage } from "./CountScanPage";
+import { STATUS_ICON, STATUS_ROW, STATUS_TEXT, ScanInputs, ScanModeTabs, isMoveMode, newRowId as newId, scanModes } from "./scanShared";
 import { cn } from "@/lib/utils";
 
 const NONE = "__none";
-/** the same code held in front of the camera is read again every frame: ignore it this long */
-const CAMERA_REPEAT_MS = 2000;
-/** after a camera read, stop decoding briefly so the next label can come into view */
-const CAMERA_PAUSE_MS = 700;
 const FLASH_MS = 1200;
 const DEST_KINDS = new Set(["store", "bin", "van"]);
 
-const MODE_LABEL: Record<BatchMode, string> = { receive: "Receive", transfer: "Transfer", return: "Return from plant" };
 const MODE_HINT: Record<BatchMode, string> = {
   receive: "New units into the store: scan the bin label, pick the part, then scan each serial.",
   transfer: "Units in stock to another store, bin or van: scan the destination, then each unit.",
@@ -77,33 +68,26 @@ const MODE_HINT: Record<BatchMode, string> = {
 };
 const DONE_LABEL: Record<BatchMode, string> = { receive: "{n} units received", transfer: "{n} units moved", return: "{n} units returned" };
 
-let seq = 0;
-const newId = () => `${Date.now().toString(36)}-${(seq++).toString(36)}`;
-
 interface LastScan {
   status: Feedback;
   text: string;
 }
 
-const STATUS_ICON: Record<Feedback, React.ReactNode> = {
-  ok: <Check className="size-5 text-emerald-400" aria-hidden />,
-  warn: <AlertTriangle className="size-5 text-amber-400" aria-hidden />,
-  error: <X className="size-5 text-red-400" aria-hidden />,
-};
-const STATUS_ROW: Record<Feedback, string> = {
-  ok: "border-emerald-500/25 bg-emerald-500/[0.04]",
-  warn: "border-amber-500/30 bg-amber-500/[0.06]",
-  error: "border-red-500/30 bg-red-500/[0.06]",
-};
-const STATUS_TEXT: Record<Feedback, string> = { ok: "text-emerald-300", warn: "text-amber-300", error: "text-red-300" };
-
+/** `/inventory/scan`: the move modes here, `mode=count` in `CountScanPage`. */
 export const BatchScanPage: React.FC = () => {
-  const { t } = useI18n();
   const { user } = useAppContext();
   const keeper = canManageStock(user);
   const [url, setUrl] = useUrlState();
-  const modes = keeper ? BATCH_MODES : BATCH_MODES.filter((m) => m !== "receive");
+  const modes = scanModes(keeper);
   const mode = pick(url.get("mode"), modes, "transfer");
+  // a mode switch keeps `loc` (the same bin is often counted, then moved from) and drops the rest
+  const tabs = <ScanModeTabs mode={mode} modes={modes} onChange={(m) => setUrl({ mode: m === "transfer" ? null : m })} />;
+  return isMoveMode(mode) ? <MoveScanPage mode={mode} tabs={tabs} /> : <CountScanPage tabs={tabs} />;
+};
+
+const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mode, tabs }) => {
+  const { t } = useI18n();
+  const [url, setUrl] = useUrlState();
   const locRaw = Number(url.get("loc"));
   const loc = Number.isInteger(locRaw) && locRaw > 0 ? locRaw : null;
   const partRaw = Number(url.get("part"));
@@ -267,29 +251,6 @@ export const BatchScanPage: React.FC = () => {
   // keyboard-scanner bursts anywhere on the page (the global listener hands them to the top target)
   useEffect(() => pushScanTarget((b) => enqueue(b.value, "hid")), [enqueue]);
 
-  // ---- camera, continuous
-  const [camera, setCamera] = useState(false);
-  const [camPaused, setCamPaused] = useState(false);
-  const lastCam = useRef<{ value: string; at: number } | null>(null);
-  const camTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(camTimer.current), []);
-  const onDetect = useCallback(
-    (d: DetectedBarcode) => {
-      const now = performance.now();
-      const prev = lastCam.current;
-      if (prev && prev.value === d.rawValue && now - prev.at < CAMERA_REPEAT_MS) {
-        prev.at = now; // still in view: keep ignoring it
-        return;
-      }
-      lastCam.current = { value: d.rawValue, at: now };
-      setCamPaused(true);
-      window.clearTimeout(camTimer.current);
-      camTimer.current = window.setTimeout(() => setCamPaused(false), CAMERA_PAUSE_MS);
-      enqueue(d.rawValue, "camera");
-    },
-    [enqueue]
-  );
-
   const counts = useMemo(() => countRows(mode, rows, destId), [mode, rows, destId]);
   const sendable = counts.ok;
 
@@ -360,15 +321,7 @@ export const BatchScanPage: React.FC = () => {
         </Button>
       </div>
 
-      <Tabs value={mode} onValueChange={(v) => setUrl({ mode: v === "transfer" ? null : v })}>
-        <TabsList variant="line" className="max-w-full overflow-x-auto">
-          {modes.map((m) => (
-            <TabsTrigger key={m} value={m}>
-              {t(MODE_LABEL[m])}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      {tabs}
 
       <Card className="py-4">
         <CardContent className="flex flex-col gap-4 px-4">
@@ -426,30 +379,7 @@ export const BatchScanPage: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <ScanBox onSubmit={enqueue} />
-              {cameraSupported() && (
-                <Button
-                  type="button"
-                  variant={camera ? "accent" : "outline"}
-                  aria-pressed={camera}
-                  onClick={() => {
-                    unlockAudio();
-                    setCamera((c) => !c);
-                  }}
-                  className="shrink-0"
-                >
-                  {camera ? <CameraOff data-icon="inline-start" /> : <Camera data-icon="inline-start" />}
-                  {t("Camera")}
-                </Button>
-              )}
-            </div>
-            <p className="text-[11px] text-muted-foreground">{t("A barcode reader in keyboard mode scans anywhere on this page.")}</p>
-            {camera && (
-              <div className="w-full max-w-md self-center">
-                <CameraScanner formats={SERIAL_FORMATS} paused={camPaused} onDetect={onDetect} onFallback={() => setCamera(false)} feedback={false} />
-              </div>
-            )}
+            <ScanInputs onScan={enqueue} />
             {last && (
               <div role="status" aria-live="polite" className={cn("flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-sm", STATUS_ROW[last.status])}>
                 {STATUS_ICON[last.status]}
@@ -546,44 +476,6 @@ export const BatchScanPage: React.FC = () => {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  );
-};
-
-/** The text box: typing + Enter, or a keyboard scanner while it has focus (Thai layout corrected). */
-const ScanBox: React.FC<{ onSubmit: (raw: string, method: InputMethod) => void }> = ({ onSubmit }) => {
-  const { t } = useI18n();
-  const [text, setText] = useState("");
-  const onKeyDown = useFieldScanner((b) => {
-    setText("");
-    onSubmit(b.value, "hid");
-  });
-  return (
-    <form
-      data-scan-field
-      className="flex min-w-0 flex-1 gap-2"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!clean(text)) return;
-        onSubmit(text, "manual");
-        setText("");
-      }}
-    >
-      <Input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKeyDown}
-        autoComplete="off"
-        autoCapitalize="characters"
-        spellCheck={false}
-        maxLength={512}
-        aria-label={t("Serial or label")}
-        placeholder={t("Type or scan a code")}
-        className="h-10 min-w-0 flex-1 font-mono text-base"
-      />
-      <Button type="submit" variant="outline" className="h-10 shrink-0" disabled={!clean(text)}>
-        {t("Add")}
-      </Button>
-    </form>
   );
 };
 

@@ -25,6 +25,7 @@ export const MOVE_LABEL: Record<MovementKind, string> = {
   ship_out: "Sent to supplier",
   supplier_return: "Back from supplier",
   scrap: "Scrapped",
+  count_adjust: "Count adjustment",
 };
 
 export const FAILED_STATUS_LABEL: Record<FailedUnitStatus, string> = {
@@ -52,6 +53,24 @@ export const STATE_LABEL: Record<UnitState, string> = {
   at_supplier: "At supplier",
   scrapped: "Scrapped",
   void: "Void",
+  missing: "Missing",
+};
+
+/** a unit's state badge */
+export const STATE_VARIANT: Record<UnitState, "ok" | "warn" | "crit" | "neutral"> = {
+  in_stock: "ok",
+  installed: "neutral",
+  failed: "neutral",
+  at_supplier: "neutral",
+  scrapped: "neutral",
+  void: "neutral",
+  missing: "warn",
+};
+
+/** a stored timestamp (count, movement) for display, Bangkok time */
+export const fmtStockAt = (at: string, locale: string): string => {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? at : d.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" });
 };
 
 /** receive, correct, catalogue and locations: admin or store keeper (D-1) */

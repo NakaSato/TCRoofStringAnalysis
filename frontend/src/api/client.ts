@@ -51,6 +51,10 @@ import type {
   ReplacementBody,
   ReplacementResult,
   ReplaceTargets,
+  CountPreview,
+  CountScan,
+  StockCount,
+  StockCountResult,
   StockLocation,
   StockLocationBody,
   StockLookup,
@@ -660,6 +664,15 @@ export const api = {
   },
   postStockBatch: (rows: StockMovementRow[], note?: string) =>
     apiFetch<{ batch_id: string; movements: StockMovement[] }>("/stock/movements/batch", { method: "POST", body: JSON.stringify({ rows, note }) }),
+  // stock count (phase 5): preview = anyone, confirm = admin / store keeper (409 rows / `stock_changed`)
+  previewCount: (locationId: number, scans: CountScan[]) =>
+    apiFetch<CountPreview>("/stock/counts/preview", { method: "POST", body: JSON.stringify({ location_id: locationId, scans }) }),
+  confirmCount: (locationId: number, scans: CountScan[], expectedIds: number[], note?: string) =>
+    apiFetch<StockCountResult>("/stock/counts", {
+      method: "POST",
+      body: JSON.stringify({ location_id: locationId, scans, expected_ids: expectedIds, note: note || undefined }),
+    }),
+  listCounts: (locationId?: number) => apiFetch<StockCount[]>(`/stock/counts${locationId != null ? `?location_id=${locationId}` : ""}`),
   correctStockMovement: (id: number, note: string) =>
     apiFetch<StockMovement>(`/stock/movements/${id}/correct`, { method: "POST", body: JSON.stringify({ note }) }),
   // failed units bound to red tags (phase 2); status moves only by movements

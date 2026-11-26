@@ -115,7 +115,7 @@ export const buildBatch = (mode: BatchMode, rows: BatchRow[], destId: number): {
 };
 
 /** A 409's failing rows (0-based batch indexes) put on the list rows they came from; `ids` = the list row id of each batch row (`buildBatch` index → id, taken when posting, so rows scanned meanwhile do not shift them). */
-export const markServerErrors = (rows: BatchRow[], ids: string[], errors: { row: number | null; error: string }[]): BatchRow[] => {
+export const markServerErrors = <R extends { id: string; server_error: string | null }>(rows: R[], ids: string[], errors: { row: number | null; error: string }[]): R[] => {
   const byId = new Map<string, string>();
   for (const e of errors) {
     if (e.row == null || e.row < 0 || e.row >= ids.length) continue;

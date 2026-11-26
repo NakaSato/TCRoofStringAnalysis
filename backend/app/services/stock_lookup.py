@@ -28,7 +28,7 @@ def _answer(code: str, kind: str, location: Optional[Dict[str, Any]] = None, par
 
 def _location(db: Session, code: str) -> Optional[Dict[str, Any]]:
     loc = db.scalars(select(StockLocation).where(func.upper(StockLocation.code) == code.upper())).first()
-    return stock.location_out(loc, stock._people(db), stock._counts(db)) if loc is not None else None
+    return stock.location_out(loc, stock._people(db), stock._counts(db), stock._last_counts(db)) if loc is not None else None
 
 
 def _part(db: Session, code: str) -> Optional[Dict[str, Any]]:

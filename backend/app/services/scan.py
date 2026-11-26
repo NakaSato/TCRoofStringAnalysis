@@ -48,7 +48,7 @@ GS = "\x1d"
 APP_KINDS = ("rt", "sp", "loc", "tool", "dev", "df")
 RESOLVABLE_KINDS = ("tool", "dev", "sp", "loc")
 # spare unit states a raw serial matches (a voided receive is not in the register)
-SPARE_MATCH_STATES = ("in_stock", "installed", "failed")
+SPARE_MATCH_STATES = ("in_stock", "installed", "failed", "missing")
 LOCATION_KIND_LABEL = {"store": "Store", "bin": "Bin", "van": "Van", "supplier": "Supplier"}
 _SITE_DEVICE_LABEL = {
     "datalogger": "Data logger",

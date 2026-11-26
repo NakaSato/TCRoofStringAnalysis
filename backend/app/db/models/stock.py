@@ -1,10 +1,17 @@
-"""Spares and failed units (docs/plans/spares-failed-units.md), phases 1–2: parts catalogue, stock
-locations, serialised spare units, the movement ledger and failed units (red tag bound).
+"""Spares and failed units (docs/plans/spares-failed-units.md), phases 1–5: parts catalogue, stock
+locations, serialised spare units, the movement ledger, failed units (red tag bound) and stock
+counts.
 
 Stock on hand is never stored: it is the spare units `in_stock` at a location, and every change of
 a unit's place or state is a `StockMovement` row (append-only; a mistake is undone by a
 `correction` movement that names the one it reverses). v1 stocks serialised units only (D-2), so
 `qty` is 1; the column stays for counted consumables later. No money anywhere.
+
+Unit states: `in_stock` (at a store / bin / van), `installed` (at a plant), `failed`,
+`at_supplier`, `scrapped`, `void` (a corrected receive) and `missing` (phase 5: the register had it
+at a location a confirmed count did not find it in; no location until it is counted in again).
+Movement kinds add `count_adjust` (phase 5): one row per unit a confirmed count changed (moved to
+the counted location, found again, new, or missing), all of one count in one batch.
 """
 
 from __future__ import annotations
@@ -20,8 +27,8 @@ from app.db.models.base import _utcnow
 
 PART_CATEGORIES = ("inverter", "datalogger", "weather_station", "revenue_meter", "router", "pqm", "shinemaster", "module", "other")
 LOCATION_KINDS = ("store", "bin", "van", "supplier")
-UNIT_STATES = ("in_stock", "installed", "failed", "at_supplier", "scrapped", "void")
-MOVEMENT_KINDS = ("receive", "transfer", "issue", "return", "correction", "failed_in", "ship_out", "supplier_return", "scrap")
+UNIT_STATES = ("in_stock", "installed", "failed", "at_supplier", "scrapped", "void", "missing")
+MOVEMENT_KINDS = ("receive", "transfer", "issue", "return", "correction", "failed_in", "ship_out", "supplier_return", "scrap", "count_adjust")
 FAILED_STATUSES = ("tagged", "in_store", "sent", "repaired", "replaced", "scrapped")
 FAILED_OPEN = ("tagged", "in_store", "sent")
 INPUT_METHODS = ("hid", "camera", "photo", "manual")
@@ -135,3 +142,25 @@ class FailedUnit(Base):
     created_by: Mapped[Optional[str]] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
+
+
+class StockCount(Base):
+    """A confirmed stock count of one location (phase 5, §5.7). The numbers are what the confirm
+    found; the changes themselves are the `count_adjust` movements of `batch_id` (null when the
+    count changed nothing). Never edited."""
+
+    __tablename__ = "stock_counts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    location_id: Mapped[int] = mapped_column(Integer, ForeignKey("stock_locations.id"), nullable=False, index=True)
+    batch_id: Mapped[Optional[str]] = mapped_column(String(36))
+    by: Mapped[Optional[str]] = mapped_column(String(64))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    scanned: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    missing: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    moved_here: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    new_units: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    found_again: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    note: Mapped[Optional[str]] = mapped_column(Text)

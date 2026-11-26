@@ -32,6 +32,13 @@ from app.db.models import Instrument, Part, RedTag, SiteDevice, SiteRegister, Sp
 from app.services.growatt_common import GrowattNotFound
 from app.services.scan import _SITE_DEVICE_LABEL, LOCATION_KIND_LABEL, _failed_visible, _plant_names, _visible
 
+def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """A stored (UTC) time with its offset; SQLite returns it naive."""
+    if dt is None:
+        return None
+    return (dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)).isoformat()
+
+
 MAX_RESERVE = 500
 MAX_IDS = 500
 _RT = re.compile(r"^RT-?(\d{1,6})$", re.IGNORECASE)
@@ -178,7 +185,7 @@ def red_tag_batches(db: Session) -> List[Dict[str, Any]]:
             "last": red_tag_code(hi),
             "count": n,
             "bound": int(bound or 0),
-            "reserved_at": at.isoformat() if at else None,
+            "reserved_at": _iso_utc(at),
             "reserved_by": by,
         }
         for b, lo, hi, n, bound, at, by in rows
@@ -193,4 +200,4 @@ def red_tag_info(db: Session, code: str) -> Optional[Dict[str, Any]]:
     t = db.scalars(select(RedTag).where(RedTag.number == n)).first()
     if t is None:
         return None
-    return {"code": t.code, "status": t.status, "batch": t.batch, "reserved_at": t.reserved_at.isoformat() if t.reserved_at else None}
+    return {"code": t.code, "status": t.status, "batch": t.batch, "reserved_at": _iso_utc(t.reserved_at)}

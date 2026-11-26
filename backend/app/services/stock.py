@@ -10,6 +10,9 @@
   `correction` row; nothing is ever edited or deleted. Movements of failed units (phase 2,
   `services/stock_failed.py`) are not corrected here.
 - Stock on hand is counted from the units `in_stock` at each location, never stored.
+- Counts (phase 5, `services/stock_count.py`) write `count_adjust` rows; a unit a count did not
+  find is `missing` (no location): `receive` refuses its serial (count it in instead), and
+  transfer / issue refuse it (not in stock). `correct` reverses a `count_adjust` row like any move.
 - Plant scoping: a unit installed on a plant the user may not see, and movements naming such a
   plant, are left out; an issue / return to such a plant answers as an unknown plant.
 """
@@ -27,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids, can_manage_stock
-from app.db.models import GrowattPlant, Part, SpareUnit, StockLocation, StockMovement, User
+from app.db.models import GrowattPlant, Part, SpareUnit, StockCount, StockLocation, StockMovement, User
 from app.db.models.stock import INPUT_METHODS, LOCATION_KINDS, PART_CATEGORIES
 from app.services.scan import clean
 
@@ -56,6 +59,14 @@ class StockConflict(Exception):
         super().__init__("; ".join(f"row {e['row']}: {e['error']}" if e.get("row") is not None else e["error"] for e in errors))
         self.errors = errors
         self.extra = extra or {}  # more keys for the 409 detail, e.g. `code` (stock_replace)
+
+
+def iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """A stored time as ISO 8601 with its UTC offset. SQLite gives naive datetimes back (the values are
+    UTC); without the offset a browser reads them as local time (7 h off in Bangkok)."""
+    if dt is None:
+        return None
+    return (dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)).isoformat()
 
 
 def serial_key(serial: str) -> str:
@@ -186,7 +197,10 @@ def update_part(db: Session, user: User, part_id: int, data: Dict[str, Any]) -> 
 # ------------------------------------------------------------------------------------ locations
 
 
-def location_out(loc: StockLocation, holders: Dict[int, str], counts: Dict[int, int]) -> Dict[str, Any]:
+def location_out(
+    loc: StockLocation, holders: Dict[int, str], counts: Dict[int, int], last_counts: Optional[Dict[int, StockCount]] = None
+) -> Dict[str, Any]:
+    last = (last_counts or {}).get(loc.id)
     return {
         "id": loc.id,
         "code": loc.code,
@@ -198,7 +212,15 @@ def location_out(loc: StockLocation, holders: Dict[int, str], counts: Dict[int, 
         "active": loc.active,
         "note": loc.note,
         "units": counts.get(loc.id, 0),
+        "last_count_at": iso_utc(last.at) if last is not None else None,
+        "last_count_by": last.by if last is not None else None,
     }
+
+
+def _last_counts(db: Session) -> Dict[int, StockCount]:
+    """{location_id: its newest confirmed count} (phase 5; computed, never stored on the location)."""
+    newest = select(func.max(StockCount.id)).group_by(StockCount.location_id)
+    return {c.location_id: c for c in db.scalars(select(StockCount).where(StockCount.id.in_(newest)))}
 
 
 def _people(db: Session) -> Dict[int, str]:
@@ -217,8 +239,8 @@ def list_locations(db: Session, include_inactive: bool = False) -> List[Dict[str
     q = select(StockLocation).order_by(StockLocation.kind, StockLocation.code)
     if not include_inactive:
         q = q.where(StockLocation.active.is_(True))
-    holders, counts = _people(db), _counts(db)
-    return [location_out(loc, holders, counts) for loc in db.scalars(q)]
+    holders, counts, last = _people(db), _counts(db), _last_counts(db)
+    return [location_out(loc, holders, counts, last) for loc in db.scalars(q)]
 
 
 def list_people(db: Session) -> List[Dict[str, Any]]:
@@ -293,7 +315,7 @@ def update_location(db: Session, user: User, location_id: int, data: Dict[str, A
     for k, v in f.items():
         setattr(loc, k, v)
     db.commit()
-    return location_out(loc, _people(db), counts)
+    return location_out(loc, _people(db), counts, _last_counts(db))
 
 
 # ----------------------------------------------------------------------------------------- units
@@ -378,7 +400,7 @@ def movement_out(m: StockMovement, parts: Dict[int, Part], locs: Dict[int, Stock
         "corrects_id": m.corrects_id,
         "failed_unit_id": m.failed_unit_id,
         "by": m.by,
-        "at": m.at.isoformat() if m.at else None,
+        "at": iso_utc(m.at),
         "day": m.day.isoformat(),
         "note": m.note,
         "input_method": m.input_method,
@@ -495,6 +517,8 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
                     raise StockForbidden("Receiving into stock needs an admin or store keeper")
                 if not part.active:
                     raise StockError(f"{part.code} is not active in the catalogue")
+                if unit is not None and unit.state == "missing":
+                    raise StockError(f"{part.code} {unit.serial} is missing since the count of {_missing_since(db, unit.id) or '—'}; count it in instead")
                 if unit is not None and unit.state != "void":
                     where = locs[unit.location_id].code if unit.location_id in locs else (f"plant {unit.plant_id}" if unit.plant_id else "—")
                     raise StockError(f"{part.code} {unit.serial} is already in the register ({unit.state}, {where})")
@@ -574,6 +598,17 @@ def apply_batch(db: Session, user: User, rows: List[Dict[str, Any]], day: Option
     return {"batch_id": batch_id, "movements": _outs(db, written)}
 
 
+def _missing_since(db: Session, unit_id: int) -> Optional[str]:
+    """Day of the count that marked a unit missing (its newest `count_adjust` row to `missing`)."""
+    d = db.scalar(
+        select(StockMovement.day)
+        .where(StockMovement.unit_id == unit_id, StockMovement.kind == "count_adjust", StockMovement.to_state == "missing")
+        .order_by(StockMovement.id.desc())
+        .limit(1)
+    )
+    return d.isoformat() if d is not None else None
+
+
 def correct(db: Session, user: User, movement_id: int, note: Optional[str]) -> Dict[str, Any]:
     """Reverse a unit's latest movement (store keeper). The original stays; a `correction` row undoes it."""
     _need_keeper(user)
@@ -627,4 +662,4 @@ def summary(db: Session, user: Optional[User] = None) -> Dict[str, Any]:
     below = sum(1 for p in list_parts(db) if p["below_min"])
     from app.services.stock_failed import failed_counts  # imports this module
 
-    return {"in_stock": int(states.get("in_stock", 0)), "installed": int(states.get("installed", 0)), "parts_below_min": below, **failed_counts(db, allowed_plant_ids(db, user) if user is not None else None)}
+    return {"in_stock": int(states.get("in_stock", 0)), "installed": int(states.get("installed", 0)), "missing_units": int(states.get("missing", 0)), "parts_below_min": below, **failed_counts(db, allowed_plant_ids(db, user) if user is not None else None)}

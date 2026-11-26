@@ -10,10 +10,12 @@
  * (`spares/ReplaceDialog.tsx`, also on the Site register card) = failed unit off, spare on, register updated.
  * Phase 4: Batch scan (`spares/BatchScanPage.tsx`, `/inventory/scan`); the Stock tab opens `part=<id>`
  * and highlights `unit=<id>` (where scanned `sp:` labels land); `sp` / `loc` labels print from here.
+ * Phase 5: stock count (`spares/CountScanPage.tsx`, `/inventory/scan?mode=count&loc=<id>`): Locations shows
+ * Last counted and a Count action; the summary shows Missing units (a confirmed count did not find them).
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftRight, Download, PackagePlus, Pencil, Plus, Printer, Replace, ScanLine, Tag, Undo2 } from "lucide-react";
+import { ArrowLeftRight, ClipboardList, Download, PackagePlus, Pencil, Plus, Printer, Replace, ScanLine, Tag, Undo2 } from "lucide-react";
 import {
   api,
   type StockLocation,
@@ -41,10 +43,10 @@ import { MoveDialog, type MoveKind } from "./spares/MoveDialog";
 import { FailedUnitDialog, TagFailedDialog } from "./spares/FailedDialogs";
 import { FailedTab } from "./spares/FailedTab";
 import { ReplaceDialog } from "./spares/ReplaceDialog";
-import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, canManageStock, download } from "./spares/shared";
+import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, STATE_VARIANT, canManageStock, download, fmtStockAt } from "./spares/shared";
 
 const TABS = ["stock", "failed", "movements", "catalogue", "locations"] as const;
-const MOVE_KINDS = ["all", "receive", "transfer", "issue", "return", "failed_in", "ship_out", "supplier_return", "scrap", "correction"] as const;
+const MOVE_KINDS = ["all", "receive", "transfer", "issue", "return", "failed_in", "ship_out", "supplier_return", "scrap", "count_adjust", "correction"] as const;
 const PAGE = 100;
 
 const Stat: React.FC<{ label: string; value: number | string; tone?: "warn" }> = ({ label, value, tone }) => (
@@ -137,12 +139,13 @@ export const SparesPage: React.FC = () => {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:max-w-3xl">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:max-w-4xl lg:grid-cols-6">
           <Stat label={t("Units in stock")} value={summary.in_stock} />
           <Stat label={t("Installed from stock")} value={summary.installed} />
           <Stat label={t("Parts below minimum")} value={summary.parts_below_min} tone={summary.parts_below_min ? "warn" : undefined} />
           <Stat label={t("Failed units open")} value={summary.failed_open} />
           <Stat label={t("Failed, not sent yet (overdue)")} value={summary.failed_unsent_overdue} tone={summary.failed_unsent_overdue > 0 ? "warn" : undefined} />
+          <Stat label={t("Missing units")} value={summary.missing_units ?? "—"} tone={summary.missing_units > 0 ? "warn" : undefined} />
         </div>
       )}
       {error && (
@@ -313,7 +316,7 @@ const StockTab: React.FC<{
                               }
                             >
                               <span className="min-w-36 font-mono text-slate-100">{u.serial}</span>
-                              <Badge variant={u.state === "in_stock" ? "ok" : "neutral"}>{t(STATE_LABEL[u.state])}</Badge>
+                              <Badge variant={STATE_VARIANT[u.state] ?? "neutral"}>{t(STATE_LABEL[u.state] ?? u.state)}</Badge>
                               <span className="min-w-0 flex-1 truncate text-muted-foreground">{u.location_code ?? u.plant_name ?? "—"}</span>
                               {u.state === "in_stock" && (
                                 <>
@@ -459,7 +462,7 @@ const MovementsTab: React.FC<{
                 <TableRow key={m.id} className={corrected.has(m.id) ? "opacity-50" : undefined}>
                   <TableCell className="num pl-4 text-xs">{m.day}</TableCell>
                   <TableCell className="text-xs">
-                    <Badge variant={m.kind === "correction" ? "warn" : "neutral"}>{t(MOVE_LABEL[m.kind])}</Badge>
+                    <Badge variant={m.kind === "correction" ? "warn" : m.kind === "count_adjust" ? "info" : "neutral"}>{t(MOVE_LABEL[m.kind] ?? m.kind)}</Badge>
                     {m.note && <span className="mt-0.5 block max-w-56 truncate text-[11px] text-muted-foreground">{m.note}</span>}
                   </TableCell>
                   <TableCell className="text-xs">
@@ -571,7 +574,7 @@ const LocationsTab: React.FC<{ locations: StockLocation[]; locById: Map<number, 
   keeper,
   onEdit,
 }) => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   return (
     <Card className="gap-3 py-3">
       <CardContent className="flex flex-col gap-3 px-0">
@@ -602,6 +605,7 @@ const LocationsTab: React.FC<{ locations: StockLocation[]; locById: Map<number, 
                 <TableHead>{t("Kind")}</TableHead>
                 <TableHead>{t("In store / crew lead")}</TableHead>
                 <TableHead className="text-right">{t("Units")}</TableHead>
+                <TableHead>{t("Last counted")}</TableHead>
                 <TableHead className="pr-4 text-right" />
               </TableRow>
             </TableHeader>
@@ -616,12 +620,32 @@ const LocationsTab: React.FC<{ locations: StockLocation[]; locById: Map<number, 
                   <TableCell className="text-xs">{t(KIND_LABEL[l.kind])}</TableCell>
                   <TableCell className="text-xs">{l.kind === "bin" ? (l.parent_id != null ? locById.get(l.parent_id)?.code : null) ?? "—" : l.holder_name ?? "—"}</TableCell>
                   <TableCell className="num text-right text-xs">{l.units}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">
+                    {l.last_count_at ? (
+                      <>
+                        <span className="num">{fmtStockAt(l.last_count_at, locale)}</span>
+                        <span className="block text-[11px] text-muted-foreground">{l.last_count_by ?? "—"}</span>
+                      </>
+                    ) : l.kind === "supplier" ? (
+                      "—"
+                    ) : (
+                      <span className="text-muted-foreground">{t("Never")}</span>
+                    )}
+                  </TableCell>
                   <TableCell className="pr-4 text-right whitespace-nowrap">
                     {l.active && l.kind !== "supplier" && (
                       <Button asChild size="xs" variant="ghost">
                         <Link to={`/inventory/scan?loc=${l.id}`}>
                           <ScanLine data-icon="inline-start" />
                           {t("Scan into")}
+                        </Link>
+                      </Button>
+                    )}
+                    {l.active && l.kind !== "supplier" && (
+                      <Button asChild size="xs" variant="ghost">
+                        <Link to={`/inventory/scan?mode=count&loc=${l.id}`}>
+                          <ClipboardList data-icon="inline-start" />
+                          {t("Count")}
                         </Link>
                       </Button>
                     )}

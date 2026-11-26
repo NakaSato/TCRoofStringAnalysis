@@ -4,8 +4,8 @@ export const PART_CATEGORIES = ["inverter", "datalogger", "weather_station", "re
 export type PartCategory = (typeof PART_CATEGORIES)[number];
 export const LOCATION_KINDS = ["store", "bin", "van", "supplier"] as const;
 export type LocationKind = (typeof LOCATION_KINDS)[number];
-export type UnitState = "in_stock" | "installed" | "failed" | "at_supplier" | "scrapped" | "void";
-export type MovementKind = "receive" | "transfer" | "issue" | "return" | "correction" | "failed_in" | "ship_out" | "supplier_return" | "scrap";
+export type UnitState = "in_stock" | "installed" | "failed" | "at_supplier" | "scrapped" | "void" | "missing";
+export type MovementKind = "receive" | "transfer" | "issue" | "return" | "correction" | "failed_in" | "ship_out" | "supplier_return" | "scrap" | "count_adjust";
 
 export interface StockPart {
   id: number;
@@ -38,6 +38,9 @@ export interface StockLocation {
   active: boolean;
   note: string | null;
   units: number;
+  /** the last confirmed count of this location (phase 5); null = never counted */
+  last_count_at: string | null;
+  last_count_by: string | null;
 }
 
 export type StockLocationBody = Partial<Pick<StockLocation, "code" | "name" | "kind" | "parent_id" | "holder_user_id" | "active" | "note">>;
@@ -122,6 +125,8 @@ export interface StockSummary {
   failed_open: number;
   /** open failed units not sent to the supplier after STOCK_FAILED_UNSENT_DAYS */
   failed_unsent_overdue: number;
+  /** units a confirmed count did not find (state `missing`) */
+  missing_units: number;
 }
 
 /** a 409 from the batch: which rows did not fit */
@@ -199,7 +204,7 @@ export interface FailedUnitPatch {
 }
 
 export interface FailedUnitMove {
-  kind: "transfer" | "ship_out" | "supplier_return" | "scrap";
+  kind: "transfer" | "ship_out" | "supplier_return" | "scrap" | "count_adjust";
   to_location_id?: number;
   outcome?: "repaired" | "replaced";
   new_serial?: string;
@@ -296,4 +301,80 @@ export interface StockLookup {
   part: StockPart | null;
   /** unit: the one unit; serial: exact matches in any state but void (empty = a new serial) */
   units: StockUnit[];
+}
+
+// ---- stock count (phase 5, §5.7): scan everything at a location, compare, an admin / store keeper confirms
+
+export type CountInputMethod = "hid" | "camera" | "photo" | "manual";
+
+export interface CountScan {
+  raw: string;
+  /** the unit picked when several parts have the serial */
+  unit_id?: number;
+  /** the part a serial not in the register goes in as (or the pick among several parts) */
+  part_id?: number;
+  input_method?: CountInputMethod;
+}
+
+export const COUNT_RESULTS = ["matched", "moved_here", "found_again", "new", "needs_part", "ambiguous", "blocked", "duplicate", "not_a_unit"] as const;
+export type CountResult = (typeof COUNT_RESULTS)[number];
+
+export interface CountRow {
+  /** position in the `scans` sent */
+  index: number;
+  raw: string;
+  input_method: CountInputMethod | null;
+  serial: string | null;
+  result: CountResult;
+  unit: StockUnit | null;
+  part_id: number | null;
+  message: string | null;
+}
+
+export interface CountCounts {
+  scanned: number;
+  matched: number;
+  moved_here: number;
+  found_again: number;
+  new: number;
+  missing: number;
+  needs_part: number;
+  ambiguous: number;
+  blocked: number;
+  duplicate: number;
+  not_a_unit: number;
+}
+
+export interface CountPreview {
+  location: StockLocation;
+  /** units the register has at the location */
+  expected: StockUnit[];
+  rows: CountRow[];
+  /** expected units not scanned: marked missing on confirm */
+  missing: StockUnit[];
+  counts: CountCounts;
+  /** sent back on confirm, so stock that changed meanwhile is caught (409 `stock_changed`) */
+  expected_ids: number[];
+}
+
+export interface StockCount {
+  id: number;
+  location_id: number;
+  location_code: string;
+  by: string | null;
+  at: string | null;
+  day: string;
+  scanned: number;
+  matched: number;
+  missing: number;
+  moved_here: number;
+  new_units: number;
+  found_again: number;
+  note: string | null;
+  batch_id: string | null;
+}
+
+export interface StockCountResult {
+  count: StockCount;
+  movements: StockMovement[];
 }

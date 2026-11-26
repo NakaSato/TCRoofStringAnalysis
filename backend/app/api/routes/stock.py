@@ -1,5 +1,6 @@
-"""Spares register (`/stock`, docs/plans/spares-failed-units.md), phases 1–3: parts catalogue, stock
-locations, serialised units, the movement ledger, failed units and replacements on site. Everyone signed in reads and
+"""Spares register (`/stock`, docs/plans/spares-failed-units.md), phases 1–5: parts catalogue, stock
+locations, serialised units, the movement ledger, failed units, replacements on site and stock
+counts (preview anyone, confirm admin or store keeper). Everyone signed in reads and
 makes field moves (transfer, issue, return; a failed unit in and between vans / stores); an admin
 or store keeper receives, corrects, edits the catalogue and locations, and sends failed units to /
 back from a supplier or scraps them. Installs and failed units on plants a user may not see are
@@ -18,6 +19,7 @@ from app.auth import get_current_user
 from app.db.models import User
 from app.db.session import get_db
 from app.services import stock as svc
+from app.services import stock_count as count_svc
 from app.services import stock_failed as failed_svc
 from app.services import stock_lookup as lookup_svc
 from app.services import stock_replace as replace_svc
@@ -277,3 +279,43 @@ def post_replacement(body: ReplacementIn, db: Session = Depends(get_db), user: U
     serial updated (site devices). 409 `code: register_mismatch` when the label and the register
     disagree and `confirm_register_update` is not set."""
     return _call(replace_svc.replace, db, user, body.model_dump())
+
+
+# ------------------------------------------------------------------------------------- counts
+
+
+class CountScan(BaseModel):
+    raw: str = Field(..., max_length=512)
+    unit_id: Optional[int] = None
+    part_id: Optional[int] = None
+    input_method: Method = None
+
+
+class CountPreviewIn(BaseModel):
+    location_id: int
+    scans: List[CountScan] = Field(default_factory=list, max_length=count_svc.MAX_SCANS)
+
+
+class CountConfirmIn(CountPreviewIn):
+    expected_ids: List[int] = Field(default_factory=list, max_length=svc.MAX_LIST * 10)
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+@router.get("/counts")
+def list_counts(location_id: Optional[int] = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    """Recent confirmed counts, newest first (≤ 200)."""
+    return count_svc.list_counts(db, location_id)
+
+
+@router.post("/counts/preview")
+def preview_count(body: CountPreviewIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """What a confirm of these scans would do at the location (anyone signed in; nothing written)."""
+    return _call(count_svc.preview, db, user, body.location_id, [s.model_dump() for s in body.scans])
+
+
+@router.post("/counts", status_code=201)
+def confirm_count(body: CountConfirmIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Confirm a count (admin or store keeper): one batch of `count_adjust` movements. 409 with the
+    rows that need a decision (needs_part / ambiguous / blocked), or `code: stock_changed` when the
+    location's stock is not what the preview showed (`expected_ids`)."""
+    return _call(count_svc.confirm, db, user, body.location_id, [s.model_dump() for s in body.scans], body.expected_ids, body.note)
