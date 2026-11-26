@@ -5,7 +5,7 @@ export type PartCategory = (typeof PART_CATEGORIES)[number];
 export const LOCATION_KINDS = ["store", "bin", "van", "supplier"] as const;
 export type LocationKind = (typeof LOCATION_KINDS)[number];
 export type UnitState = "in_stock" | "installed" | "failed" | "at_supplier" | "scrapped" | "void";
-export type MovementKind = "receive" | "transfer" | "issue" | "return" | "correction";
+export type MovementKind = "receive" | "transfer" | "issue" | "return" | "correction" | "failed_in" | "ship_out" | "supplier_return" | "scrap";
 
 export interface StockPart {
   id: number;
@@ -61,7 +61,8 @@ export interface StockMovement {
   id: number;
   batch_id: string;
   kind: MovementKind;
-  part_id: number;
+  /** null for a failed unit that is not in the catalogue */
+  part_id: number | null;
   part_code: string | null;
   part_name: string | null;
   unit_id: number | null;
@@ -76,6 +77,7 @@ export interface StockMovement {
   from_state: UnitState | null;
   to_state: UnitState | null;
   corrects_id: number | null;
+  failed_unit_id: number | null;
   by: string | null;
   at: string | null;
   day: string;
@@ -90,7 +92,7 @@ export interface StockMovementList {
 }
 
 export interface StockMovementRow {
-  kind: Exclude<MovementKind, "correction">;
+  kind: "receive" | "transfer" | "issue" | "return";
   part_id?: number;
   unit_id?: number;
   serial?: string;
@@ -116,10 +118,92 @@ export interface StockSummary {
   in_stock: number;
   installed: number;
   parts_below_min: number;
+  /** failed units still open (tagged, in store, at the supplier) */
+  failed_open: number;
+  /** open failed units not sent to the supplier after STOCK_FAILED_UNSENT_DAYS */
+  failed_unsent_overdue: number;
 }
 
 /** a 409 from the batch: which rows did not fit */
 export interface StockBatchError {
   message: string;
   errors: { row: number | null; error: string }[];
+}
+
+// ---- failed units (phase 2): a failed unit off site, bound to a pre-printed red tag
+
+export const FAILED_STATUSES = ["tagged", "in_store", "sent", "repaired", "replaced", "scrapped"] as const;
+export type FailedUnitStatus = (typeof FAILED_STATUSES)[number];
+/** still with us or at the supplier */
+export const FAILED_OPEN_STATUSES: readonly FailedUnitStatus[] = ["tagged", "in_store", "sent"];
+
+export interface FailedUnit {
+  id: number;
+  red_tag: string;
+  /** null = not in the catalogue */
+  part_id: number | null;
+  part_code: string | null;
+  part_name: string | null;
+  serial: string | null;
+  plant_id: number | null;
+  plant_name: string | null;
+  site_device_id: number | null;
+  site_device_label: string | null;
+  inverter_sn: string | null;
+  removed_day: string;
+  fault: string;
+  status: FailedUnitStatus;
+  location_id: number | null;
+  location_code: string | null;
+  claim_id: number | null;
+  claim_number: string | null;
+  age_days: number;
+  /** open and not sent to the supplier after the set number of days */
+  unsent_overdue: boolean;
+  created_by: string | null;
+}
+
+export interface FailedUnitDetail extends FailedUnit {
+  /** its movements, newest first */
+  trail: StockMovement[];
+}
+
+export interface FailedUnitQuery {
+  status?: FailedUnitStatus;
+  plant_id?: number;
+  q?: string;
+  open?: boolean;
+}
+
+export interface FailedUnitCreate {
+  red_tag: string;
+  part_id?: number;
+  serial?: string;
+  plant_id?: number;
+  site_device_id?: number;
+  inverter_sn?: string;
+  /** YYYY-MM-DD */
+  removed_day?: string;
+  fault: string;
+  to_location_id: number;
+  claim_id?: number;
+  input_method?: "hid" | "camera" | "photo" | "manual";
+  raw_scan?: string;
+  note?: string;
+}
+
+export interface FailedUnitPatch {
+  fault?: string;
+  claim_id?: number | null;
+  part_id?: number | null;
+}
+
+export interface FailedUnitMove {
+  kind: "transfer" | "ship_out" | "supplier_return" | "scrap";
+  to_location_id?: number;
+  outcome?: "repaired" | "replaced";
+  new_serial?: string;
+  carrier?: string;
+  tracking_no?: string;
+  note?: string;
 }

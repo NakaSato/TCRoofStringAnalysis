@@ -1,6 +1,6 @@
 # Plan & Spec: Spares and failed units (store register)
 
-Status: **Phase 1 built 2026-11-26** (catalogue, locations, serialised units, movement ledger with corrections, store keeper flag, `/spares` Stock / Movements / Catalogue / Locations; §8 step 1). Phases 2–6 not built · Owner: Chanthawat
+Status: **Phases 1–2 built 2026-11-26** (phase 1: catalogue, locations, serialised units, movement ledger with corrections, store keeper flag; phase 2: failed units bound to red tags, move / ship to supplier / back repaired or replaced / scrap, claim link with shipments on the claim, not-sent flag, scanning a bound red tag opens the unit). The page is **Operations → Inventory** at `/inventory` (`/spares` redirects). Phases 3–6 not built · Owner: Chanthawat
 
 A register of the **spare parts** the O&M team keeps (in the store and in the crews' vans) and of the **failed units** taken off site, with every move between them recorded. It is the piece the scanning plan is waiting on (docs/plans/barcode-scanning.md §7.2, §7.3, §12 steps 5–6): binding a red tag to a failed unit, labels for bins and spares, and batch receive / issue / count at the store desk.
 
@@ -65,7 +65,7 @@ stock_movements  id, batch_id (one confirm = one batch), kind, part_id, serial (
 ## 5. Flows
 
 ### 5.1 Receive at the store (desk scanner)
-Batch mode `/spares/scan?mode=receive&loc=STORE-A-03`: scan the bin label, then each unit. A known part code adds a quantity; a manufacturer serial asks once for the part (remembered per model like the label field hints) and creates a spare unit. A serial already in the register is refused with where it is. Confirm = one batch of `receive` movements. Optional: print `sp` labels for units with no readable barcode.
+Batch mode `/inventory/scan?mode=receive&loc=STORE-A-03`: scan the bin label, then each unit. A known part code adds a quantity; a manufacturer serial asks once for the part (remembered per model like the label field hints) and creates a spare unit. A serial already in the register is refused with where it is. Confirm = one batch of `receive` movements. Optional: print `sp` labels for units with no readable barcode.
 
 ### 5.2 Load a van / issue to a crew
 `transfer` store → van, by scanning in batch mode. Each crew sees its van's stock on the phone before a visit (decision D-3).
@@ -92,12 +92,12 @@ Count mode: scan a bin, scan everything in it. The page compares the scan with t
 
 ## 6. UI
 
-- Sidebar **Operations → Spares** (`/spares`), tabs:
+- Sidebar **Operations → Inventory** (`/inventory`), tabs:
   - **Stock**: by part (on hand per location, below minimum flagged) and by location; search, filters, CSV.
   - **Failed units**: red tag, plant, device, serial, status, age, claim; filters by status and age.
   - **Movements**: the ledger, filterable by part, serial, location, plant, person, kind, day; CSV.
   - **Catalogue** and **Locations** (admin, decision D-1).
-- `/spares/scan?mode=receive|issue|transfer|return|count&loc=` batch page (barcode-scanning.md §7.3): rows with status (new · duplicate · elsewhere · unknown), editable quantities, kept in `sessionStorage` until confirmed, one all-or-nothing confirm (`POST /stock/movements/batch`, 409 with the failing rows).
+- `/inventory/scan?mode=receive|issue|transfer|return|count&loc=` batch page (barcode-scanning.md §7.3): rows with status (new · duplicate · elsewhere · unknown), editable quantities, kept in `sessionStorage` until confirmed, one all-or-nothing confirm (`POST /stock/movements/batch`, 409 with the failing rows).
 - A unit's / failed unit's page: where it is now and its full trail.
 - Site register card: **Replace device** (§5.3). Claim page: the failed unit with its trail and a "ship" action that records the shipment and the movement together.
 - Labels: `sp` (spare unit, part code) and `loc` (bin) join the `/labels` page; red tags already print.
@@ -119,7 +119,7 @@ POST            /stock/counts  → proposal;  POST /stock/counts/{id}/confirm �
 ## 8. Build order
 
 1. **Built 2026-11-26.** Catalogue, locations, ledger, on-hand query; receive / transfer / issue / return by hand (the serial field takes a scanner or the camera; batch scanning is step 4); corrections (a unit's latest movement, store keeper, reason required); Stock, Movements, Catalogue and Locations tabs; store keeper column in Users & Access. Tests (`backend/tests/test_stock.py`): replaying the ledger gives every unit's state and place; a serial is in one place; all-or-nothing batches; permissions; plant scoping. A store keeper is still scoped to the plants assigned.
-2. Failed units + red tag binding; Failed units tab; claim link and ship action.
+2. **Built 2026-11-26.** Failed units + red tag binding; Failed units tab; claim link and ship action (`stock_failed_units`, `services/stock_failed.py`, `/stock/failed-units*`; `STOCK_FAILED_UNSENT_DAYS`).
 3. Replacement on site (§5.3) from the Site register card, with the register update (D-4).
 4. Batch scan page (receive / transfer / return), `sp` / `loc` resolver and labels.
 5. Count mode with confirmed adjustments.

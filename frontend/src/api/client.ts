@@ -42,6 +42,12 @@ import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { PlantSoiling, SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
 import type {
+  FailedUnit,
+  FailedUnitCreate,
+  FailedUnitDetail,
+  FailedUnitMove,
+  FailedUnitPatch,
+  FailedUnitQuery,
   StockLocation,
   StockLocationBody,
   StockMovement,
@@ -651,6 +657,19 @@ export const api = {
     apiFetch<{ batch_id: string; movements: StockMovement[] }>("/stock/movements/batch", { method: "POST", body: JSON.stringify({ rows, note }) }),
   correctStockMovement: (id: number, note: string) =>
     apiFetch<StockMovement>(`/stock/movements/${id}/correct`, { method: "POST", body: JSON.stringify({ note }) }),
+  // failed units bound to red tags (phase 2); status moves only by movements
+  listFailedUnits: (q: FailedUnitQuery = {}) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v != null && v !== "") p.set(k, String(v));
+    const qs = p.toString();
+    return apiFetch<FailedUnit[]>(`/stock/failed-units${qs ? `?${qs}` : ""}`);
+  },
+  getFailedUnit: (id: number) => apiFetch<FailedUnitDetail>(`/stock/failed-units/${id}`),
+  createFailedUnit: (body: FailedUnitCreate) => apiFetch<FailedUnit>("/stock/failed-units", { method: "POST", body: JSON.stringify(body) }),
+  updateFailedUnit: (id: number, body: FailedUnitPatch) =>
+    apiFetch<FailedUnit>(`/stock/failed-units/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  moveFailedUnit: (id: number, body: FailedUnitMove) =>
+    apiFetch<FailedUnitDetail>(`/stock/failed-units/${id}/move`, { method: "POST", body: JSON.stringify(body) }),
 
   // ---- measuring tools (instruments, check-outs, calibration / document due dates; DB only)
   listInstruments: (includeRetired = false) =>

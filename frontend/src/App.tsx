@@ -132,6 +132,8 @@ const PwaMeterRedirect: React.FC = () => {
 };
 
 /** Old `/center` links keep their whole query (period, view, site, sort …). */
+/** `/spares` became `/inventory` (26 Nov 2026); old links and red tag scans keep their query. */
+const SparesRedirect: React.FC = () => <Navigate to={{ pathname: "/inventory", search: useLocation().search }} replace />;
 const CenterRedirect: React.FC = () => <Navigate to={{ pathname: ENERGY_BILLING, search: useLocation().search }} replace />;
 
 /** The Weather Sensors page is the Devices page's sensors tab: `/sensors` links (Active Alarm, …) keep
@@ -183,7 +185,8 @@ export const App: React.FC = () => {
             {/* app labels (QR): `/s/<kind>/<code>` opens the record it names */}
             <Route path="s/:kind/:code" element={<ScanRedirectPage />} />
             <Route path="labels" element={<LabelsPage />} />
-            <Route path="spares" element={<SparesPage />} />
+            <Route path="inventory" element={<SparesPage />} />
+            <Route path="spares" element={<SparesRedirect />} />
             <Route path="claims" element={<ClaimsPage />} />
             <Route path="kb" element={<KnowledgeBasePage />} />
             <Route path="kb/new" element={<KbEditorPage />} />

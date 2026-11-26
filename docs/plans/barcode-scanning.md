@@ -202,7 +202,7 @@ Per-category expectations (warnings only, never blocking, because models vary):
 | Instrument check-out | Asset tag | Opens the instrument and its check-out dialog (measuring-tools guard still applies) |
 
 ### 7.3 Batch mode (store and vans)
-`/spares/scan?mode=receive|issue|transfer|count&loc=<id>`
+`/inventory/scan?mode=receive|issue|transfer|count&loc=<id>`
 1. Scan or choose the **location** (bin / van).
 2. Scan items one after another, by keyboard scanner or camera in continuous mode. Each scan adds a row: part, SN, qty 1 (merged for non-serialised parts), and a status: ✓ new · ⚠ duplicate in this list · ⚠ already in another location · ✕ unknown.
 3. Rows can be edited (qty, remove), and the list survives a reload (`sessionStorage`).
@@ -267,7 +267,7 @@ src/components/scan/ScanField.tsx      input + camera button + HID capture, show
 src/components/scan/FieldPicker.tsx    multi-field label → pick the SN (remember per model)
 src/components/scan/ScanButton.tsx     top bar button + global listener mount
 src/pages/ScanRedirectPage.tsx         /s/:kind/:code
-src/pages/spares/BatchScanPage.tsx     /spares/scan
+src/pages/spares/BatchScanPage.tsx     /inventory/scan
 src/pages/settings/ScanningSettings.tsx  timings, prefix, sound; "Test your scanner" box
 src/pages/labels/LabelSheet.tsx        A4 sheet / CSV (QR via `qrcode` package, lazy)
 ```

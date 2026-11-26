@@ -1,13 +1,15 @@
 /**
- * Operations → Spares (`/spares`, everyone; docs/plans/spares-failed-units.md, phase 1): the parts
+ * Operations → Inventory (`/inventory`, was `/spares` (redirects), everyone; docs/plans/spares-failed-units.md, phase 1): the parts
  * catalogue, stock locations (store, bins, crew vans), serialised spare units and the movement log.
  * Stock on hand is counted from the register, never typed in; every move is a log row that is never
  * edited (a correction reverses one). Everyone moves units (transfer, install, return); an admin or
  * store keeper receives, corrects and edits the catalogue and locations. Installs on plants the user
- * may not see are left out by the API.
+ * may not see are left out by the API. Phase 2: failed units bound to red tags (Failed units tab, URL
+ * `tab=failed`, `fu` opens one, so a scanned red tag lands on it); anyone tags and moves one, an admin
+ * or store keeper ships it to the supplier, takes it back and scraps it.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeftRight, Download, PackagePlus, Pencil, Plus, Undo2 } from "lucide-react";
+import { ArrowLeftRight, Download, PackagePlus, Pencil, Plus, Tag, Undo2 } from "lucide-react";
 import {
   api,
   type StockLocation,
@@ -32,28 +34,13 @@ import { useI18n } from "../i18n";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { CorrectDialog, LocationDialog, PartDialog } from "./spares/dialogs";
 import { MoveDialog, type MoveKind } from "./spares/MoveDialog";
-import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, canManageStock } from "./spares/shared";
+import { FailedUnitDialog, TagFailedDialog } from "./spares/FailedDialogs";
+import { FailedTab } from "./spares/FailedTab";
+import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, canManageStock, download } from "./spares/shared";
 
-const TABS = ["stock", "movements", "catalogue", "locations"] as const;
-const MOVE_KINDS = ["all", "receive", "transfer", "issue", "return", "correction"] as const;
+const TABS = ["stock", "failed", "movements", "catalogue", "locations"] as const;
+const MOVE_KINDS = ["all", "receive", "transfer", "issue", "return", "failed_in", "ship_out", "supplier_return", "scrap", "correction"] as const;
 const PAGE = 100;
-
-const csvCell = (v: unknown) => {
-  const s = v == null ? "" : String(v);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
-
-const download = (name: string, rows: unknown[][]) => {
-  const blob = new Blob(["﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-};
 
 const Stat: React.FC<{ label: string; value: number | string; tone?: "warn" }> = ({ label, value, tone }) => (
   <div className="flex flex-col rounded-lg border border-white/[0.07] px-3 py-2">
@@ -68,6 +55,9 @@ export const SparesPage: React.FC = () => {
   const keeper = canManageStock(user);
   const [url, setUrl] = useUrlState();
   const tab = pick(url.get("tab"), TABS, "stock");
+  const fuRaw = Number(url.get("fu"));
+  const fu = Number.isInteger(fuRaw) && fuRaw > 0 ? fuRaw : null;
+  const [tagging, setTagging] = useState(false);
   const [parts, setParts] = useState<StockPart[] | null>(null);
   const [locations, setLocations] = useState<StockLocation[] | null>(null);
   const [summary, setSummary] = useState<StockSummary | null>(null);
@@ -103,10 +93,14 @@ export const SparesPage: React.FC = () => {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col">
-          <h1 className="text-lg font-semibold">{t("Spares")}</h1>
-          <p className="text-xs text-muted-foreground">{t("Spare units in the store and the crews' vans, and every move in and out")}</p>
+          <h1 className="text-lg font-semibold">{t("Inventory")}</h1>
+          <p className="text-xs text-muted-foreground">{t("Spare units in the store and the crews' vans, failed units, and every move in and out")}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setTagging(true)} disabled={!locations?.length}>
+            <Tag data-icon="inline-start" />
+            {t("Tag a failed unit")}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setMove({ kind: "transfer" })} disabled={!parts?.length || !locations?.length}>
             <ArrowLeftRight data-icon="inline-start" />
             {t("Move a unit")}
@@ -121,10 +115,12 @@ export const SparesPage: React.FC = () => {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-3 gap-2 sm:max-w-md">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:max-w-3xl">
           <Stat label={t("Units in stock")} value={summary.in_stock} />
           <Stat label={t("Installed from stock")} value={summary.installed} />
           <Stat label={t("Parts below minimum")} value={summary.parts_below_min} tone={summary.parts_below_min ? "warn" : undefined} />
+          <Stat label={t("Failed units open")} value={summary.failed_open} />
+          <Stat label={t("Failed, not sent yet (overdue)")} value={summary.failed_unsent_overdue} tone={summary.failed_unsent_overdue > 0 ? "warn" : undefined} />
         </div>
       )}
       {error && (
@@ -143,8 +139,9 @@ export const SparesPage: React.FC = () => {
       )}
 
       <Tabs value={tab} onValueChange={(v) => setUrl({ tab: v === "stock" ? null : v })}>
-        <TabsList variant="line">
+        <TabsList variant="line" className="max-w-full overflow-x-auto">
           <TabsTrigger value="stock">{t("Stock")}</TabsTrigger>
+          <TabsTrigger value="failed">{t("Failed units")}</TabsTrigger>
           <TabsTrigger value="movements">{t("Movements")}</TabsTrigger>
           <TabsTrigger value="catalogue">{t("Catalogue")}</TabsTrigger>
           <TabsTrigger value="locations">{t("Locations")}</TabsTrigger>
@@ -155,8 +152,10 @@ export const SparesPage: React.FC = () => {
         <SkeletonRows rows={6} />
       ) : tab === "stock" ? (
         <StockTab parts={activeParts} locById={locById} version={version} onMove={(kind, unit) => setMove({ kind, unit })} />
+      ) : tab === "failed" ? (
+        <FailedTab version={version} />
       ) : tab === "movements" ? (
-        <MovementsTab parts={parts} locations={locations} version={version} keeper={keeper} onChanged={reload} />
+        <MovementsTab parts={parts} locations={locations} version={version} keeper={keeper} onChanged={reload} onOpenFailed={(id) => setUrl({ fu: id })} />
       ) : tab === "catalogue" ? (
         <CatalogueTab parts={parts} keeper={keeper} onEdit={setEditPart} />
       ) : (
@@ -172,6 +171,8 @@ export const SparesPage: React.FC = () => {
         locations={locations ?? []}
         onDone={reload}
       />
+      <TagFailedDialog open={tagging} onOpenChange={setTagging} parts={parts ?? []} locations={locations ?? []} onDone={reload} />
+      <FailedUnitDialog id={fu} onOpenChange={(o) => !o && setUrl({ fu: null })} parts={parts ?? []} locations={locations ?? []} onChanged={reload} />
       <PartDialog part={editPart ?? null} open={editPart !== undefined} onOpenChange={(o) => !o && setEditPart(undefined)} onDone={reload} />
       <LocationDialog
         location={editLoc ?? null}
@@ -289,12 +290,14 @@ const StockTab: React.FC<{
 };
 
 /** The movement log: newest first, filters, CSV, correction of a unit's latest move. */
-const MovementsTab: React.FC<{ parts: StockPart[]; locations: StockLocation[]; version: number; keeper: boolean; onChanged: () => void }> = ({
-  parts,
-  version,
-  keeper,
-  onChanged,
-}) => {
+const MovementsTab: React.FC<{
+  parts: StockPart[];
+  locations: StockLocation[];
+  version: number;
+  keeper: boolean;
+  onChanged: () => void;
+  onOpenFailed: (id: number) => void;
+}> = ({ parts, version, keeper, onChanged, onOpenFailed }) => {
   const { t } = useI18n();
   const [kind, setKind] = useState<(typeof MOVE_KINDS)[number]>("all");
   const [partId, setPartId] = useState("all");
@@ -337,8 +340,8 @@ const MovementsTab: React.FC<{ parts: StockPart[]; locations: StockLocation[]; v
   const exportCsv = () =>
     data &&
     download("spares-movements.csv", [
-      ["id", "day", "kind", "part", "serial", "from", "to", "plant", "from_state", "to_state", "by", "input", "note", "corrects"],
-      ...data.movements.map((m) => [m.id, m.day, m.kind, m.part_code, m.serial, m.from_location_code, m.to_location_code, m.plant_name ?? m.plant_id, m.from_state, m.to_state, m.by, m.input_method, m.note, m.corrects_id]),
+      ["id", "day", "kind", "part", "serial", "from", "to", "plant", "from_state", "to_state", "by", "input", "note", "corrects", "failed_unit_id"],
+      ...data.movements.map((m) => [m.id, m.day, m.kind, m.part_code, m.serial, m.from_location_code, m.to_location_code, m.plant_name ?? m.plant_id, m.from_state, m.to_state, m.by, m.input_method, m.note, m.corrects_id, m.failed_unit_id]),
     ]);
   return (
     <Card className="gap-3 py-3">
@@ -402,10 +405,17 @@ const MovementsTab: React.FC<{ parts: StockPart[]; locations: StockLocation[]; v
                     {m.note && <span className="mt-0.5 block max-w-56 truncate text-[11px] text-muted-foreground">{m.note}</span>}
                   </TableCell>
                   <TableCell className="text-xs">
-                    <span className="font-mono text-slate-100">{m.serial}</span>
-                    <span className="block text-[11px] text-muted-foreground">{m.part_code}</span>
+                    <span className="font-mono text-slate-100">{m.serial ?? "—"}</span>
+                    <span className="block text-[11px] text-muted-foreground">{m.part_code ?? "—"}</span>
+                    {m.failed_unit_id != null && (
+                      <Button size="xs" variant="link" className="h-auto px-0 text-[11px]" onClick={() => onOpenFailed(m.failed_unit_id!)}>
+                        {t("Failed unit")}
+                      </Button>
+                    )}
                   </TableCell>
-                  <TableCell className="text-xs">{m.from_location_code ?? (m.from_state === "installed" ? m.plant_name ?? "—" : "—")}</TableCell>
+                  <TableCell className="text-xs">
+                    {m.from_location_code ?? ((m.from_state === "installed" || m.kind === "failed_in") ? m.plant_name ?? "—" : "—")}
+                  </TableCell>
                   <TableCell className="text-xs">{m.to_location_code ?? (m.to_state === "installed" ? m.plant_name ?? "—" : m.to_state ? t(STATE_LABEL[m.to_state]) : "—")}</TableCell>
                   <TableCell className="text-xs">
                     <span className="flex items-center gap-1.5">

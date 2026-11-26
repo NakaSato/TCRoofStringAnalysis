@@ -2,7 +2,7 @@
 
 A scanned or typed code is matched against what the app already registers: an app code
 (`/s/<kind>/<code>`, the full URL or `kind:code`), then instruments (asset tag, serial), Growatt
-inverters, dataloggers and the site register's devices (serial, SIM). Matching is exact on the
+inverters, dataloggers, open failed units (serial) and the site register's devices (serial, SIM). Matching is exact on the
 normalised value (trimmed, label prefix removed, upper case); there is no fuzzy matching. For a typed
 code that matches nothing, `did_you_mean` lists the spellings with O ↔ 0 / I ↔ 1 swapped that do
 (exact lookups of a bounded set); the UI offers them and the person chooses, nothing is swapped
@@ -25,13 +25,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids
-from app.db.models import GrowattInverter, GrowattPlant, Instrument, SiteDevice, SiteRegister, User
+from app.db.models import FailedUnit, GrowattInverter, GrowattPlant, Instrument, RedTag, SiteDevice, SiteRegister, User
 from app.services.growatt_common import GrowattNotFound
 from app.services.visit_route import SlidingWindowLimiter
 
 MAX_CODE_LEN = 512
 GS = "\x1d"
-# kinds of app label (§6.1); only `tool` and `dev` have records to open so far
+# kinds of app label (§6.1); `tool` and `dev` open records, `rt` a bound red tag's failed unit
 APP_KINDS = ("rt", "sp", "loc", "tool", "dev", "df")
 RESOLVABLE_KINDS = ("tool", "dev")
 _SITE_DEVICE_LABEL = {
@@ -52,10 +52,10 @@ limiter = SlidingWindowLimiter()
 
 @dataclass
 class Match:
-    kind: str  # instrument | inverter | datalogger | site_device
+    kind: str  # instrument | inverter | datalogger | site_device | failed_unit
     id: str
     label: str
-    field: str  # what matched: asset_tag | serial | sim | device_sn | datalogger_sn
+    field: str  # what matched: asset_tag | serial | sim | device_sn | datalogger_sn | red_tag
     path: str
     plant_id: Optional[int] = None
     plant_name: Optional[str] = None
@@ -136,6 +136,23 @@ def _site_device_match(d: SiteDevice, reg: SiteRegister, field: str) -> Match:
     )
 
 
+def _failed_unit_match(fu: FailedUnit, tag_code: str, field: str) -> Match:
+    return Match(
+        "failed_unit",
+        str(fu.id),
+        f"Failed unit · {tag_code}",
+        field,
+        f"/inventory?tab=failed&fu={fu.id}",
+        plant_id=fu.plant_id,
+        detail=fu.fault[:80] if fu.fault else None,
+    )
+
+
+def _failed_visible(allowed: Optional[Set[int]], plant_id: Optional[int]) -> bool:
+    """A failed unit without a plant is visible to everyone signed in (as `/stock/failed-units`)."""
+    return allowed is None or plant_id is None or plant_id in allowed
+
+
 def _app_code_matches(db: Session, kind: str, code: str, allowed: Optional[Set[int]]) -> List[Match]:
     if kind == "tool":
         i = db.scalars(select(Instrument).where(func.upper(Instrument.asset_tag) == code.upper())).first()
@@ -191,7 +208,15 @@ def _raw_matches_many(db: Session, values: Set[str], allowed: Optional[Set[int]]
             continue
         seen.add((sn, pid))
         add(sn, Match("datalogger", sn, f"Datalogger · {sn}", "datalogger_sn", f"/devices?tab=dataloggers&dq={quote(sn)}", plant_id=pid, detail=dmodel))
-    # 4. site register devices: serial or SIM
+    # 4. open failed units (tagged / in store / sent) by serial
+    for fu, tag_code in db.execute(
+        select(FailedUnit, RedTag.code)
+        .join(RedTag, RedTag.id == FailedUnit.red_tag_id)
+        .where(FailedUnit.serial_key.in_(vals), FailedUnit.status.in_(("tagged", "in_store", "sent")))
+    ):
+        if _failed_visible(allowed, fu.plant_id):
+            add(fu.serial_key, _failed_unit_match(fu, tag_code, "serial"))
+    # 5. site register devices: serial or SIM
     rows = db.execute(
         select(SiteDevice, SiteRegister)
         .join(SiteRegister, SiteRegister.site_code == SiteDevice.site_code)
@@ -262,13 +287,22 @@ def resolve(db: Session, user: User, raw: str, suggest: bool = False) -> Dict[st
             matches = _app_code_matches(db, kind, code, allowed)
             value = code.upper()
         elif kind == "rt":
-            # a pre-printed red tag: known (blank or bound), but there is no failed-unit register to open yet
+            # a pre-printed red tag: blank (reserved, nothing to open yet) or bound to a failed unit
             from app.services.scan_labels import red_tag_info
 
             red_tag = red_tag_info(db, code)
             if red_tag is None:
                 raise GrowattNotFound(f"No red tag {code}")
-            unsupported, matches, value = kind, [], red_tag["code"]
+            value = red_tag["code"]
+            fu = None
+            if red_tag["status"] == "bound":
+                fu = db.scalars(select(FailedUnit).join(RedTag, RedTag.id == FailedUnit.red_tag_id).where(RedTag.code == value)).first()
+            if fu is not None:
+                if not _failed_visible(allowed, fu.plant_id):
+                    raise GrowattNotFound(f"No red tag {code}")
+                matches = [_failed_unit_match(fu, value, "red_tag")]
+            else:
+                unsupported, matches = kind, []
         else:
             # a label kind whose register is not built yet (red tags, spares, bins, defects)
             unsupported, matches, value = kind, [], code.upper()

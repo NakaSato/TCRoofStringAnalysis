@@ -210,6 +210,7 @@ class Settings(BaseSettings):
     geoapify_daily_credits: int = 2800
     route_solve_per_min: int = 10  # `/growatt/routes/solve` calls per user per minute (429 over it)
     scan_resolve_per_min: int = 60  # `/scan/resolve` calls per user per minute (429 over it; docs/plans/barcode-scanning.md)
+    stock_failed_unsent_days: int = 14  # Spares: a failed unit not sent to the supplier after this many days is flagged (D-6)
     # Knowledge Base documents (docs/plans/kb-documents.md): uploaded PDFs (manuals, datasheets,
     # drawings, SOPs) kept unchanged, with a SHA-256 checksum. `KB_ASSETS_BUCKET` set = a private
     # GCS bucket (production; the API signs short GET URLs); empty = the local folder

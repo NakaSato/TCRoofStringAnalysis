@@ -169,11 +169,48 @@ def _convert_string_readings(bind) -> None:
         create_string_view(conn)
 
 
+# Columns made nullable after the table first shipped (create_all leaves an existing table alone).
+_RELAXED_NOT_NULL = [("stock_movements", "part_id")]
+
+
+def _relax_not_null(bind) -> None:
+    """Drop NOT NULL from `_RELAXED_NOT_NULL`. Postgres: ALTER COLUMN; SQLite cannot alter a
+    column, so the table is rebuilt from the model (rows copied, old indexes dropped first)."""
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    for table, column in _RELAXED_NOT_NULL:
+        if table not in tables:
+            continue
+        col = next((c for c in insp.get_columns(table) if c["name"] == column), None)
+        if col is None or col.get("nullable", True):
+            continue
+        if bind.dialect.name == "postgresql":
+            with bind.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN {column} DROP NOT NULL"))
+            continue
+        if bind.dialect.name != "sqlite":
+            continue
+        model = Base.metadata.tables[table]
+        cols = ", ".join(f'"{c["name"]}"' for c in insp.get_columns(table) if c["name"] in model.c)
+        old = f"_old_{table}"
+        with bind.begin() as conn:
+            conn.execute(text("PRAGMA defer_foreign_keys = ON"))  # checked at commit, after the copy
+            # read the names first: dropping while the schema query is still open is "database table is locked"
+            names = [n for (n,) in conn.execute(text("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = :t AND sql IS NOT NULL"), {"t": table}).all()]
+            for name in names:
+                conn.execute(text(f'DROP INDEX "{name}"'))
+            conn.execute(text(f"ALTER TABLE {table} RENAME TO {old}"))
+            model.create(conn)
+            conn.execute(text(f"INSERT INTO {table} ({cols}) SELECT {cols} FROM {old}"))
+            conn.execute(text(f"DROP TABLE {old}"))
+
+
 def ensure_schema(bind) -> None:
     """create_all + add columns and indexes introduced after the table first shipped, drop retired
     indexes and columns, convert the per-string readings table to records + view."""
     Base.metadata.create_all(bind=bind)
     _convert_string_readings(bind)
+    _relax_not_null(bind)
     insp = inspect(bind)
     for table, column, ddl, index in _ADDED_COLUMNS:
         if table in insp.get_table_names() and column not in {c["name"] for c in insp.get_columns(table)}:

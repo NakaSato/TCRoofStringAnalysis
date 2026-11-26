@@ -35,7 +35,7 @@ export interface ScanRead {
 }
 
 const METHOD_LABEL: Record<InputMethod, string> = { hid: "Scanner", camera: "Camera", photo: "Photo", manual: "Typed" };
-const KIND_LABEL: Record<ScanMatch["kind"], string> = { instrument: "Instrument", inverter: "Inverter", datalogger: "Datalogger", site_device: "Site device" };
+const KIND_LABEL: Record<ScanMatch["kind"], string> = { instrument: "Instrument", inverter: "Inverter", datalogger: "Datalogger", site_device: "Site device", failed_unit: "Failed unit" };
 const UNSUPPORTED_LABEL: Record<string, string> = { rt: "Red tags", sp: "Spare parts", loc: "Stock locations", df: "Defects" };
 const ROLE_LABEL: Record<LabelField["role"], string> = { serial: "SN", imei: "IMEI", iccid: "SIM", mac: "MAC", part: "P/N", model: "Model", other: "" };
 

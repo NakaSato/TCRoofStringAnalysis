@@ -1,5 +1,5 @@
 /** Spares page helpers (docs/plans/spares-failed-units.md). */
-import { ApiError, type LocationKind, type MovementKind, type PartCategory, type StockBatchError, type UnitState, type UserProfile } from "../../api/client";
+import { ApiError, type FailedUnitStatus, type LocationKind, type MovementKind, type PartCategory, type StockBatchError, type UnitState, type UserProfile } from "../../api/client";
 
 export const CATEGORY_LABEL: Record<PartCategory, string> = {
   inverter: "Inverter",
@@ -21,6 +21,28 @@ export const MOVE_LABEL: Record<MovementKind, string> = {
   issue: "Install at plant",
   return: "Return from plant",
   correction: "Correction",
+  failed_in: "Failed unit in",
+  ship_out: "Sent to supplier",
+  supplier_return: "Back from supplier",
+  scrap: "Scrapped",
+};
+
+export const FAILED_STATUS_LABEL: Record<FailedUnitStatus, string> = {
+  tagged: "Tagged",
+  in_store: "In store",
+  sent: "At supplier",
+  repaired: "Repaired",
+  replaced: "Replaced",
+  scrapped: "Scrapped",
+};
+
+export const FAILED_STATUS_VARIANT: Record<FailedUnitStatus, "warn" | "info" | "ok" | "neutral"> = {
+  tagged: "warn",
+  in_store: "info",
+  sent: "info",
+  repaired: "ok",
+  replaced: "ok",
+  scrapped: "neutral",
 };
 
 export const STATE_LABEL: Record<UnitState, string> = {
@@ -42,4 +64,22 @@ export const errorText = (e: unknown, t: (k: string, v?: Record<string, string |
     return d.errors.map((x) => (x.row != null ? t("Row {n}: {error}", { n: x.row + 1, error: x.error }) : x.error)).join("\n");
   }
   return e instanceof Error ? e.message : String(e);
+};
+
+const csvCell = (v: unknown) => {
+  const s = v == null ? "" : String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** a CSV file (UTF-8 with BOM, for Excel) */
+export const download = (name: string, rows: unknown[][]) => {
+  const blob = new Blob(["﻿" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };

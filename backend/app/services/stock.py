@@ -7,7 +7,8 @@
   in the same batch) and applies all or nothing; a failing batch raises `StockConflict` with the
   failing rows (409). `receive` needs a store keeper; `transfer`, `issue`, `return` are field
   moves anyone may make. `correct` (store keeper) reverses a unit's latest movement with a
-  `correction` row; nothing is ever edited or deleted.
+  `correction` row; nothing is ever edited or deleted. Movements of failed units (phase 2,
+  `services/stock_failed.py`) are not corrected here.
 - Stock on hand is counted from the units `in_stock` at each location, never stored.
 - Plant scoping: a unit installed on a plant the user may not see, and movements naming such a
   plant, are left out; an issue / return to such a plant answers as an unknown plant.
@@ -353,7 +354,7 @@ def list_units(
 
 
 def movement_out(m: StockMovement, parts: Dict[int, Part], locs: Dict[int, StockLocation], names: Dict[int, str]) -> Dict[str, Any]:
-    part = parts.get(m.part_id)
+    part = parts.get(m.part_id) if m.part_id is not None else None
     code = lambda lid: locs[lid].code if lid in locs else None  # noqa: E731
     return {
         "id": m.id,
@@ -374,6 +375,7 @@ def movement_out(m: StockMovement, parts: Dict[int, Part], locs: Dict[int, Stock
         "from_state": m.from_state,
         "to_state": m.to_state,
         "corrects_id": m.corrects_id,
+        "failed_unit_id": m.failed_unit_id,
         "by": m.by,
         "at": m.at.isoformat() if m.at else None,
         "day": m.day.isoformat(),
@@ -384,7 +386,7 @@ def movement_out(m: StockMovement, parts: Dict[int, Part], locs: Dict[int, Stock
 
 
 def _outs(db: Session, rows: List[StockMovement]) -> List[Dict[str, Any]]:
-    parts = {p.id: p for p in db.scalars(select(Part).where(Part.id.in_({m.part_id for m in rows} or {-1})))}
+    parts = {p.id: p for p in db.scalars(select(Part).where(Part.id.in_({m.part_id for m in rows if m.part_id is not None} or {-1})))}
     locs = {loc.id: loc for loc in db.scalars(select(StockLocation))}
     names = _plant_names(db, (m.plant_id for m in rows))
     return [movement_out(m, parts, locs, names) for m in rows]
@@ -579,6 +581,8 @@ def correct(db: Session, user: User, movement_id: int, note: Optional[str]) -> D
         raise StockNotFound(f"Movement {movement_id} not found")
     if m.kind == "correction":
         raise StockConflict([{"row": None, "error": "A correction cannot be corrected; record the move again"}])
+    if m.failed_unit_id is not None:
+        raise StockConflict([{"row": None, "error": "A failed unit's movement cannot be corrected; record the next move instead"}])
     if db.scalar(select(StockMovement.id).where(StockMovement.corrects_id == m.id)) is not None:
         raise StockConflict([{"row": None, "error": "This movement is already corrected"}])
     latest = db.scalar(select(func.max(StockMovement.id)).where(StockMovement.unit_id == m.unit_id))
@@ -616,8 +620,10 @@ def correct(db: Session, user: User, movement_id: int, note: Optional[str]) -> D
     return _outs(db, [c])[0]
 
 
-def summary(db: Session) -> Dict[str, Any]:
-    """Counts for the page header."""
+def summary(db: Session, user: Optional[User] = None) -> Dict[str, Any]:
+    """Counts for the page header; failed units only of the plants `user` may see."""
     states = Counter(dict(db.execute(select(SpareUnit.state, func.count()).group_by(SpareUnit.state)).all()))
     below = sum(1 for p in list_parts(db) if p["below_min"])
-    return {"in_stock": int(states.get("in_stock", 0)), "installed": int(states.get("installed", 0)), "parts_below_min": below}
+    from app.services.stock_failed import failed_counts  # imports this module
+
+    return {"in_stock": int(states.get("in_stock", 0)), "installed": int(states.get("installed", 0)), "parts_below_min": below, **failed_counts(db, allowed_plant_ids(db, user) if user is not None else None)}
