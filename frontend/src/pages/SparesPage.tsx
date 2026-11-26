@@ -108,6 +108,8 @@ export const SparesPage: React.FC = () => {
 
   const locById = useMemo(() => new Map((locations ?? []).map((l) => [l.id, l])), [locations]);
   const activeParts = useMemo(() => (parts ?? []).filter((p) => p.active), [parts]);
+  // the Stock tab lists active parts, plus an inactive one opened by the URL (a scanned `sp:` label of its unit)
+  const stockParts = useMemo(() => (parts ?? []).filter((p) => p.active || p.id === openPart), [parts, openPart]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -185,7 +187,7 @@ export const SparesPage: React.FC = () => {
         <SkeletonRows rows={6} />
       ) : tab === "stock" ? (
         <StockTab
-          parts={activeParts}
+          parts={stockParts}
           locById={locById}
           version={version}
           open={openPart}
@@ -301,6 +303,7 @@ const StockTab: React.FC<{
                 <TableRow className="cursor-pointer" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>
                   <TableCell className="pl-4">
                     <span className="font-mono text-xs whitespace-nowrap text-slate-100">{p.code}</span>
+                    {!p.active && <Badge variant="neutral" className="ml-2">{t("Inactive")}</Badge>}
                     <span className="block text-[11px] text-muted-foreground">{p.name}</span>
                   </TableCell>
                   <TableCell className="text-xs">{t(CATEGORY_LABEL[p.category])}</TableCell>

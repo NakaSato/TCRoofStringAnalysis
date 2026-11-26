@@ -153,6 +153,17 @@ export const removeSent = <R extends { id: string }>(rows: R[], sentIds: readonl
   return rows.filter((r) => !sent.has(r.id));
 };
 
+/**
+ * The list after the destination changes with rows in it: the moved rows (server errors cleared,
+ * they were for the old destination) on top of the new destination's own saved rows; a saved row
+ * holding the same scan (`rowKey`) as a moved one is dropped, so nothing is listed twice.
+ */
+export const mergeMoved = (moved: BatchRow[], saved: BatchRow[]): BatchRow[] => {
+  const rows = moved.map((r) => (r.server_error ? { ...r, server_error: null } : r));
+  const keys = new Set(rows.map(rowKey));
+  return [...rows, ...saved.filter((r) => !keys.has(rowKey(r)))];
+};
+
 export interface Counts {
   total: number;
   ok: number;

@@ -180,3 +180,16 @@ def test_plant_scoping(api):
     assert "not in the register" in r["detail"]["errors"][0]["error"]
     hidden = c.get("/stock/movements", params={"plant_id": P2}, headers=adm).json()["movements"][0]
     assert c.post(f"/stock/movements/{hidden['id']}/correct", json={"note": "x"}, headers=keeper).status_code == 404
+
+
+def test_same_unit_twice_in_one_batch_is_refused(api):
+    """Two labels of one unit (`unit_id`) in a batch: refused as a whole, nothing moves."""
+    c, adm, eng, keeper, _ = api
+    store, bin_, van, part = _setup(c, keeper)
+    out = _batch(c, keeper, [{"kind": "receive", "part_id": part["id"], "serial": "1200000001", "to_location_id": bin_["id"]}])
+    uid = out["movements"][0]["unit_id"]
+    row = {"kind": "transfer", "unit_id": uid, "to_location_id": van["id"]}
+    r = _batch(c, eng, [row, dict(row)], 409)
+    assert "twice in this batch" in str(r)
+    units = c.get("/stock/units", params={"part_id": part["id"]}, headers=eng).json()
+    assert [u["location_id"] for u in units] == [bin_["id"]]

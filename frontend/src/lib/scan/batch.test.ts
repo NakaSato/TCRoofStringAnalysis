@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { StockUnit } from "../../api/types/stock";
-import { addScanRow, buildBatch, countRows, evaluateRow, findDuplicate, markServerErrors, parseRows, removeSent, rowKey, storageKey, type BatchRow } from "./batch";
+import { addScanRow, buildBatch, countRows, evaluateRow, findDuplicate, markServerErrors, mergeMoved, parseRows, removeSent, rowKey, storageKey, type BatchRow } from "./batch";
 
 const unit = (over: Partial<StockUnit> = {}): StockUnit => ({
   id: 1,
@@ -118,6 +118,14 @@ describe("batch", () => {
     const rows = [row({ id: "late" }), row({ id: "a" }), row({ id: "warn" }), row({ id: "b" })];
     expect(removeSent(rows, ["a", "b"]).map((r) => r.id)).toEqual(["late", "warn"]);
     expect(removeSent(rows, [])).toHaveLength(4);
+  });
+  test("a list moved to another destination joins that destination's saved list", () => {
+    const moved = [row({ id: "m1", serial: "SN1", server_error: "old dest" }), row({ id: "m2", serial: "SN2" })];
+    const saved = [row({ id: "s1", serial: "sn2" }), row({ id: "s2", serial: "SN3" })];
+    const out = mergeMoved(moved, saved);
+    expect(out.map((r) => r.id)).toEqual(["m1", "m2", "s2"]);
+    expect(out[0].server_error).toBeNull();
+    expect(mergeMoved(moved, [])).toHaveLength(2);
   });
   test("counts", () => {
     expect(countRows("transfer", [row({ units: [unit()] }), row({ units: [unit()] }), row()], 10)).toEqual({ total: 3, ok: 0, warn: 2, error: 1 });

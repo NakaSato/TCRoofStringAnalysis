@@ -45,6 +45,7 @@ import {
   evaluateRow,
   findDuplicate,
   markServerErrors,
+  mergeMoved,
   readRows,
   removeSent,
   rowKey,
@@ -129,9 +130,10 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
       // another mode has its own list; nothing scanned yet: the destination's own saved list comes back
       setList({ key, mode, rows: readRows(key) });
     } else {
-      // a new destination: the scanned units go there, so the list follows it
+      // a new destination: the scanned units go there, so the list follows it (joining what was
+      // already saved for that destination, never replacing it)
       writeRows(list.key, []);
-      setList({ key, mode, rows: list.rows.map((r) => (r.server_error ? { ...r, server_error: null } : r)) });
+      setList({ key, mode, rows: mergeMoved(list.rows, readRows(key)) });
     }
   }, [key, mode]);
   useEffect(() => {
