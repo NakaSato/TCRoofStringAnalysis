@@ -94,4 +94,17 @@ export const TH_SCAN: Record<string, string> = {
   "Beep on each read": "ส่งเสียงทุกครั้งที่อ่านได้",
   "The box flashes green either way; phones that support it also vibrate (not iPhone).": "กรอบกะพริบสีเขียวทุกครั้ง โทรศัพท์ที่รองรับจะสั่นด้วย (ยกเว้น iPhone)",
   "Barcode reader, camera (this device)": "เครื่องอ่านบาร์โค้ด กล้อง (เครื่องนี้)",
+  // plan step 4: did you mean, remembered label fields
+  "Did you mean (O / 0 and I / 1 swapped)?": "หมายถึงรหัสนี้หรือเปล่า (สลับ O / 0 และ I / 1)",
+  "Picked as remembered for {model}.": "เลือกให้ตามที่จำไว้สำหรับ {model}",
+  "Another field is remembered for {model}; only an admin can change it.": "{model} มีช่องที่จำไว้แล้วเป็นช่องอื่น เฉพาะแอดมินเปลี่ยนได้",
+  "Using this field will be remembered for {model} instead.": "ถ้าใช้ช่องนี้ ระบบจะจำช่องนี้สำหรับ {model} แทน",
+  "The field you use is remembered for {model}, so the next label picks it.": "ระบบจะจำช่องที่ใช้สำหรับ {model} ฉลากรุ่นเดียวกันครั้งหน้าจะเลือกให้เอง",
+  "Remembered label fields": "ช่องบนฉลากที่จำไว้",
+  "When a label holds several values with no SN key, the field picked first is remembered for that model and pre-selected for everyone. Forget one to have the next label ask again.":
+    "เมื่อฉลากมีหลายค่าแต่ไม่ได้ระบุว่าค่าไหนคือ SN ช่องที่เลือกครั้งแรกจะถูกจำไว้สำหรับรุ่นนั้นและเลือกให้ทุกคนโดยอัตโนมัติ ลบออกเพื่อให้ฉลากครั้งหน้าถามใหม่",
+  "Nothing remembered yet.": "ยังไม่มีช่องที่จำไว้",
+  "field {n} of {total}": "ช่องที่ {n} จาก {total}",
+  "Forget {model}": "ลืม {model}",
+  "Forgotten: the next {model} label asks again.": "ลบแล้ว ฉลาก {model} ครั้งหน้าจะถามใหม่",
 };

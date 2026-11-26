@@ -250,7 +250,12 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
             <Input id="in-model" value={d.model} onChange={(e) => set({ model: e.target.value })} />
           </Field>
           <Field id="in-sn" label={t("Serial no.")} wide>
-            <ScanField id="in-sn" maxLength={64} scanTitle={t("Serial no.")} value={d.serial_no} onValueChange={(v) => set({ serial_no: v })} />
+            <ScanField
+              id="in-sn"
+              maxLength={64}
+              scanTitle={t("Serial no.")}
+              fieldHint={{ category: `tool:${d.category}`, model: [d.make, d.model].map((x) => x.trim()).filter(Boolean).join(" ") }}
+              value={d.serial_no} onValueChange={(v) => set({ serial_no: v })} />
           </Field>
 
           <div className="eyebrow pt-1 sm:col-span-2">{t("Specs · {name}", { name: t(def.label) })}</div>

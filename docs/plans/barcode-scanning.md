@@ -228,7 +228,9 @@ GET  /scan/resolve?code=               → { kind, id, label, plant_id?, path } 
 GET  /scan/labels?kind=&ids=           → label data for printing (code, payload URL, text lines)
 POST /scan/labels/redtags {count}      (admin) → reserves RT-xxxx numbers for pre-printing
 POST /stock/movements/batch            → all-or-nothing; rows carry input_method + raw_scan
-GET  /scan/field-hints                 PUT /scan/field-hints (admin)   (category + model → which field is the SN)
+GET  /scan/field-hints                 PUT /scan/field-hints (first: anyone; change: admin)   DELETE /scan/field-hints/{id} (admin)
+                                          (category + model → which field is the SN)
+GET  /scan/resolve?code=&suggest=true  → also did_you_mean[] (O/0, I/1 spellings that match; typed codes only)
 ```
 
 - New columns, wherever a scanned value is saved (`replacements.old_sn/new_sn`, `failed_units.red_tag_no`, `stock_movements.serial_no`, `defects.serial_no`, `instrument_checkouts`):
@@ -244,7 +246,7 @@ GET  /scan/field-hints                 PUT /scan/field-hints (admin)   (category
   7. site device SN / IMEI / SIM
   8. defect no.
 
-  Matching is exact on normalised values first, then case-insensitive. **No fuzzy matching on the server**; the O/0 suggestion of §6.2 is offered in the UI only.
+  Matching is exact on normalised values first, then case-insensitive. **No fuzzy matching on the server**: for the O/0 suggestion of §6.2 the server only looks up the swapped spellings exactly (a bounded set, `suggest=true`); the UI offers them and the person chooses.
 - Every resolve that leads to a change is already audited by that action. Resolves alone are not stored, to keep SQL small.
 
 ## 10. Frontend files
@@ -308,7 +310,7 @@ Pass criteria:
 
 ## 12. Build order
 
-Built so far (2026-11-26): `/scan/resolve` matches app codes `tool` / `dev` and raw values against instruments, inverters, dataloggers and site register devices (red tags, spares, bins and defects have no register yet: their app codes answer `unsupported_kind`). Not built from steps 1–3: the O ↔ 0 "Did you mean" suggestion (§6.2), `input_method` / `raw_scan` columns (no table that saves a scan exists yet), the photo fallback's FieldPicker memory per model (step 4). The multi-field picker exists without the memory.
+Built so far (2026-11-26): `/scan/resolve` matches app codes `tool` / `dev` and raw values against instruments, inverters, dataloggers and site register devices (red tags, spares, bins and defects have no register yet: their app codes answer `unsupported_kind`). Step 4 (2026-11-26): photo fallback (0/90/180/270°), the field picker with `scan_field_hints` per category + model (`GET/PUT /scan/field-hints`, `DELETE` admin; the first hint by anyone, a change by an admin; Settings → Scanning lists them for admins), and "Did you mean" for a typed code (`/scan/resolve?suggest=true` → `did_you_mean`: the O ↔ 0 / I ↔ 1 spellings that match exactly; the person chooses). Not built yet: `input_method` / `raw_scan` columns (no table that saves a scan exists yet), the per-category expectation warnings of §6.3.
 
 1. `parse.ts` + `keymap.ts` with `bun test`; `/scan/resolve`; `ScanDialog` Type tab; `/s/:kind/:code`.
 2. `useHidScanner` + global listener + ScanField + Settings "Test your scanner" (desk and iPad with a BT scanner).

@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
+import { api, type ScanFieldHint } from "../../api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { useAuth } from "../../context/AuthContext";
 import { useI18n } from "../../i18n";
 import { notify } from "../../lib/notify";
 import { signal, unlockAudio } from "../../lib/scan/feedback";
@@ -126,12 +129,79 @@ const ScannerTest: React.FC<{ settings: ScanSettings }> = ({ settings }) => {
   );
 };
 
+const HINT_CATEGORY: Record<string, string> = {
+  datalogger: "Data logger",
+  weather_station: "Weather station",
+  revenue_meter: "Revenue meter",
+  router: "4G router",
+  pqm: "PQM",
+  shinemaster: "ShineMaster",
+};
+
+/** Admin: which field of a multi-field label is the serial, per category + model (shared by everyone). */
+const FieldHints: React.FC = () => {
+  const { t } = useI18n();
+  const [hints, setHints] = useState<ScanFieldHint[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .listScanFieldHints()
+      .then(setHints)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+  const category = (c: string) => {
+    if (c.startsWith("tool:")) return t("Instrument");
+    if (c.endsWith(":sim")) return `${t(HINT_CATEGORY[c.slice(0, -4)] ?? c.slice(0, -4))} · SIM`;
+    return t(HINT_CATEGORY[c] ?? c);
+  };
+  const remove = async (h: ScanFieldHint) => {
+    try {
+      await api.deleteScanFieldHint(h.id);
+      setHints((cur) => cur?.filter((x) => x.id !== h.id) ?? null);
+      notify("ok", t("Forgotten: the next {model} label asks again.", { model: h.model }));
+    } catch (e) {
+      notify("crit", e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">{t("Remembered label fields")}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2 text-xs">
+        <p className="text-[11px] text-muted-foreground">
+          {t("When a label holds several values with no SN key, the field picked first is remembered for that model and pre-selected for everyone. Forget one to have the next label ask again.")}
+        </p>
+        {error && <p className="text-amber-200">{error}</p>}
+        {hints && hints.length === 0 && <p className="text-muted-foreground">{t("Nothing remembered yet.")}</p>}
+        {hints && hints.length > 0 && (
+          <ul className="flex flex-col divide-y divide-white/[0.06] rounded-md border border-white/[0.07]">
+            {hints.map((h) => (
+              <li key={h.id} className="flex min-w-0 items-center gap-3 px-3 py-2">
+                <span className="w-28 shrink-0 truncate text-muted-foreground">{category(h.category)}</span>
+                <span className="min-w-0 flex-1 truncate text-slate-100">{h.model}</span>
+                <span className="shrink-0 font-mono text-slate-300">
+                  {h.field_key ?? t("field {n} of {total}", { n: h.field_index + 1, total: h.field_count })}
+                </span>
+                <Button size="icon-xs" variant="ghost" aria-label={t("Forget {model}", { model: h.model })} onClick={() => void remove(h)}>
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 /**
  * Settings → Scanning (docs/plans/barcode-scanning.md §4, §8): keyboard-scanner timing, prefix and
  * sound, kept per device in this browser (not on the server), and a scanner test box.
  */
 export const ScanningSettings: React.FC = () => {
   const { t } = useI18n();
+  const { user } = useAuth();
   const [saved, setSaved] = useState<ScanSettings>(readScanSettings);
   const [gap, setGap] = useState(String(saved.maxGapMs));
   const [minLen, setMinLen] = useState(String(saved.minLength));
@@ -221,6 +291,7 @@ export const ScanningSettings: React.FC = () => {
           <span className="text-muted-foreground">{t("The box flashes green either way; phones that support it also vibrate (not iPhone).")}</span>
         </CardContent>
       </Card>
+      {user?.role === "admin" && <FieldHints />}
     </div>
   );
 };

@@ -8,6 +8,7 @@
  * - `splitFields`: multi-field labels (`SN:…;IMEI:…`, `|`, `,`, new lines) into fields, the serial
  *   pre-selected when a field is labelled so.
  * - `isImei` / `isIccid`: Luhn-checked identifiers, offered as IMEI / SIM, never as the device SN.
+ * - `pickByHint` / `hintFor`: the field remembered per category + model (`/scan/field-hints`).
  *
  * The backend (`services/scan.py`) normalises the same way; keep the two in step.
  */
@@ -246,3 +247,27 @@ export const splitFields = (raw: string): LabelField[] => {
 
 /** The field a person most likely wants as the device SN: a labelled serial, else none. */
 export const serialField = (fields: LabelField[]): LabelField | null => fields.find((f) => f.role === "serial") ?? null;
+
+/** what a remembered field hint holds (`scan_field_hints`) */
+export interface FieldHintLike {
+  field_key: string | null;
+  field_index: number;
+  field_count: number;
+}
+
+const keyEq = (a: string, b: string) => a.replace(/\s+/g, "").toUpperCase() === b.replace(/\s+/g, "").toUpperCase();
+
+/** The field a remembered hint points at: the same printed key, else (a label without keys) the
+ *  same position in a label with the same number of fields; null when the label does not fit. */
+export const pickByHint = (fields: LabelField[], hint: FieldHintLike | null | undefined): LabelField | null => {
+  if (!hint || fields.length < 2) return null;
+  if (hint.field_key) return fields.find((f) => f.key != null && keyEq(f.key, hint.field_key!)) ?? null;
+  return fields.length === hint.field_count ? fields[hint.field_index] ?? null : null;
+};
+
+/** The hint to remember for a pick: the printed key when it is unique on the label, else the position. */
+export const hintFor = (fields: LabelField[], index: number): FieldHintLike => {
+  const key = fields[index]?.key ?? null;
+  const unique = key != null && fields.filter((f) => f.key != null && keyEq(f.key, key)).length === 1;
+  return { field_key: unique ? key : null, field_index: index, field_count: fields.length };
+};

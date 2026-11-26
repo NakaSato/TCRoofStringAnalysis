@@ -9,7 +9,7 @@ import { SERIAL_FORMATS, type BarcodeFormat } from "../../lib/scan/decoder";
 import { unlockAudio } from "../../lib/scan/feedback";
 import { useFieldScanner } from "../../lib/scan/hidScanner";
 import { hasThai, thaiToUs } from "../../lib/scan/keymap";
-import { MethodBadge, ScanDialog } from "./ScanDialog";
+import { MethodBadge, ScanDialog, type FieldHintContext } from "./ScanDialog";
 import { cn } from "@/lib/utils";
 
 /**
@@ -26,8 +26,10 @@ export const ScanField: React.FC<
     scanTitle?: string;
     /** upper-case the value (serial numbers) */
     upper?: boolean;
+    /** device category + model: a multi-field label's serial field is remembered per pair */
+    fieldHint?: FieldHintContext;
   }
-> = ({ value, onValueChange, formats = SERIAL_FORMATS, scanTitle, upper = false, className, maxLength, ...inputProps }) => {
+> = ({ value, onValueChange, formats = SERIAL_FORMATS, scanTitle, upper = false, fieldHint, className, maxLength, ...inputProps }) => {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [method, setMethod] = useState<InputMethod | null>(null);
@@ -83,7 +85,7 @@ export const ScanField: React.FC<
         </TooltipTrigger>
         <TooltipContent>{t("Scan with the camera")}</TooltipContent>
       </Tooltip>
-      <ScanDialog open={open} onOpenChange={setOpen} mode="pick" formats={formats} title={scanTitle} onPick={(r) => set(r.value, r.method)} />
+      <ScanDialog open={open} onOpenChange={setOpen} mode="pick" formats={formats} title={scanTitle} fieldHint={fieldHint} onPick={(r) => set(r.value, r.method)} />
     </div>
   );
 };

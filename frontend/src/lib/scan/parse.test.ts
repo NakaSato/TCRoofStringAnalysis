@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GS, isIccid, isImei, normalise, parseAppCode, parseGs1, serialField, splitFields } from "./parse";
+import { GS, hintFor, isIccid, isImei, normalise, parseAppCode, parseGs1, pickByHint, serialField, splitFields } from "./parse";
 
 describe("normalise", () => {
   test("prefix, case, controls", () => {
@@ -72,5 +72,28 @@ describe("splitFields", () => {
   test("GS1 fields", () => {
     const f = splitFields(`]d2010950110153000321SN0042`);
     expect(serialField(f)?.value).toBe("SN0042");
+  });
+});
+
+describe("field hints", () => {
+  const keyed = splitFields("Model:RUT241;S/N:1102345678;IMEI:356938035643809");
+  const bare = splitFields("RUT241|1102345678|356938035643809");
+
+  test("by printed key, case and spaces ignored", () => {
+    expect(pickByHint(keyed, { field_key: "s/n", field_index: 0, field_count: 9 })?.value).toBe("1102345678");
+    expect(pickByHint(keyed, { field_key: "MAC", field_index: 0, field_count: 3 })).toBeNull();
+  });
+
+  test("by position only when the field count matches", () => {
+    expect(pickByHint(bare, { field_key: null, field_index: 1, field_count: 3 })?.value).toBe("1102345678");
+    expect(pickByHint(bare, { field_key: null, field_index: 1, field_count: 4 })).toBeNull();
+    expect(pickByHint(bare, null)).toBeNull();
+  });
+
+  test("hintFor keeps a unique key, else the position", () => {
+    expect(hintFor(keyed, 1)).toEqual({ field_key: "S/N", field_index: 1, field_count: 3 });
+    expect(hintFor(bare, 1)).toEqual({ field_key: null, field_index: 1, field_count: 3 });
+    const dup = splitFields("SN:A1;SN:B2;IMEI:356938035643809");
+    expect(hintFor(dup, 1).field_key).toBeNull();
   });
 });

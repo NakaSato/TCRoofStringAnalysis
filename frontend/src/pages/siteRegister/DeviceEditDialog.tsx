@@ -311,6 +311,7 @@ export const DeviceEditDialog: React.FC<{
                                 maxLength={max}
                                 placeholder={placeholder}
                                 scanTitle={t(label)}
+                                fieldHint={{ category: f === "sim" ? `${d.kind}:sim` : d.kind, model: d.brand_model }}
                                 value={d[f] ?? ""}
                                 onValueChange={(v) => patch({ [f]: v })}
                                 aria-describedby={hint ? `dev-${f}-hint` : undefined}

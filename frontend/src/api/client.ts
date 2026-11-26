@@ -40,7 +40,7 @@ import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/sy
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { PlantSoiling, SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
-import type { ScanResolve } from "./types/scan";
+import type { ScanFieldHint, ScanFieldHintBody, ScanResolve } from "./types/scan";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
   OmAssignees,
@@ -591,7 +591,18 @@ export const api = {
     ),
 
   // ---- barcode / QR scans: what a scanned or typed code opens (DB only, scoped)
-  resolveScan: (code: string) => apiFetch<ScanResolve>(`/scan/resolve?code=${encodeURIComponent(code)}`),
+  resolveScan: (code: string, suggest = false) =>
+    apiFetch<ScanResolve>(`/scan/resolve?code=${encodeURIComponent(code)}${suggest ? "&suggest=true" : ""}`),
+  // which field of a multi-field label is the serial (first hint: anyone; change / delete: admin)
+  listScanFieldHints: (category?: string, model?: string) => {
+    const q = new URLSearchParams();
+    if (category) q.set("category", category);
+    if (model) q.set("model", model);
+    const qs = q.toString();
+    return apiFetch<ScanFieldHint[]>(`/scan/field-hints${qs ? `?${qs}` : ""}`);
+  },
+  putScanFieldHint: (body: ScanFieldHintBody) => apiFetch<ScanFieldHint>("/scan/field-hints", { method: "PUT", body: JSON.stringify(body) }),
+  deleteScanFieldHint: (id: number) => apiFetch<void>(`/scan/field-hints/${id}`, { method: "DELETE" }),
 
   // ---- measuring tools (instruments, check-outs, calibration / document due dates; DB only)
   listInstruments: (includeRetired = false) =>

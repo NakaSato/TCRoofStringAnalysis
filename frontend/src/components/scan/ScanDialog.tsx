@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Camera, ImageUp, Keyboard, RotateCcw } from "lucide-react";
-import { ApiError, api, type InputMethod, type ScanMatch, type ScanResolve } from "../../api/client";
+import { ApiError, api, type InputMethod, type ScanFieldHint, type ScanMatch, type ScanResolve } from "../../api/client";
+import { useAuth } from "../../context/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -14,11 +15,17 @@ import { decodeImage, GLOBAL_FORMATS, type BarcodeFormat, type DetectedBarcode }
 import { signal, unlockAudio } from "../../lib/scan/feedback";
 import { pushScanTarget, useFieldScanner, type Burst } from "../../lib/scan/hidScanner";
 import { hasThai, thaiToUs } from "../../lib/scan/keymap";
-import { clean, serialField, splitFields, type LabelField } from "../../lib/scan/parse";
+import { clean, hintFor, pickByHint, serialField, splitFields, type LabelField } from "../../lib/scan/parse";
 import { CameraScanner } from "./CameraScanner";
 import { cn } from "@/lib/utils";
 
 type Tab = "camera" | "photo" | "type";
+
+/** a ScanField's device category + model: which field of a multi-field label is the serial is remembered per pair */
+export interface FieldHintContext {
+  category: string;
+  model: string | null | undefined;
+}
 
 export interface ScanRead {
   value: string;
@@ -43,7 +50,7 @@ export const MethodBadge: React.FC<{ method: InputMethod }> = ({ method }) => {
 };
 
 /** Fields of a multi-field label, as buttons. */
-const FieldChoices: React.FC<{ fields: LabelField[]; selected?: string | null; onPick: (f: LabelField) => void }> = ({ fields, selected, onPick }) => {
+const FieldChoices: React.FC<{ fields: LabelField[]; selected?: number | null; onPick: (f: LabelField, index: number) => void }> = ({ fields, selected, onPick }) => {
   const { t } = useI18n();
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -51,8 +58,9 @@ const FieldChoices: React.FC<{ fields: LabelField[]; selected?: string | null; o
         <Button
           key={`${i}-${f.value}`}
           size="xs"
-          variant={selected === f.value ? "accent" : "outline"}
-          onClick={() => onPick(f)}
+          variant={selected === i ? "accent" : "outline"}
+          aria-pressed={selected === i}
+          onClick={() => onPick(f, i)}
           className="max-w-full font-mono"
           title={f.key ?? undefined}
         >
@@ -153,6 +161,21 @@ const PhotoBox: React.FC<{ formats: BarcodeFormat[]; onRead: (r: ScanRead) => vo
   );
 };
 
+/** A suggested spelling, the swapped characters marked. */
+const Lookalike: React.FC<{ code: string; typed: string }> = ({ code, typed }) => (
+  <>
+    {[...code].map((ch, i) =>
+      ch === typed[i] ? (
+        <React.Fragment key={i}>{ch}</React.Fragment>
+      ) : (
+        <mark key={i} className="rounded-sm bg-solar-400/25 px-px text-solar-100">
+          {ch}
+        </mark>
+      )
+    )}
+  </>
+);
+
 /** What a code opened: one match navigates, several are listed, none says so. */
 const ResolveResult: React.FC<{
   read: ScanRead;
@@ -171,14 +194,14 @@ const ResolveResult: React.FC<{
     setRes(null);
     setError(null);
     api
-      .resolveScan(value)
+      .resolveScan(value, read.method === "manual")
       .then((r) => {
         if (!alive) return;
         setRes(r);
         if (r.matches.length === 1) {
           signal("ok");
           onOpen(r.matches[0]);
-        } else signal(r.matches.length ? "warn" : "error");
+        } else signal(r.matches.length || r.did_you_mean.length ? "warn" : "error");
       })
       .catch((e) => {
         if (!alive) return;
@@ -238,6 +261,26 @@ const ResolveResult: React.FC<{
           ) : (
             <p className="text-amber-200">{t("Nothing you can see in the app has this code (instruments, inverters, dataloggers and site register devices are searched).")}</p>
           )}
+          {res.did_you_mean.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <p className="text-muted-foreground">{t("Did you mean (O / 0 and I / 1 swapped)?")}</p>
+              {res.did_you_mean.map((s) => (
+                <button
+                  key={s.code}
+                  type="button"
+                  onClick={() => (s.matches.length === 1 ? onOpen(s.matches[0]) : onLookup(s.code))}
+                  className="flex flex-col gap-0.5 rounded-md border border-white/[0.07] px-3 py-2 text-left hover:border-white/20 hover:bg-white/[0.03]"
+                >
+                  <code className="font-mono text-slate-100">
+                    <Lookalike code={s.code} typed={res.code} />
+                  </code>
+                  <span className="truncate text-muted-foreground">
+                    {s.matches.map((m) => [t(KIND_LABEL[m.kind]), m.label, m.plant_name].filter(Boolean).join(" · ")).join(" / ")}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           {res.part_number && <p className="text-muted-foreground">{t("The label says P/N: this is a part number, not a serial.")}</p>}
           {fields.length > 1 && (
             <div className="flex flex-col gap-1.5">
@@ -251,13 +294,57 @@ const ResolveResult: React.FC<{
   );
 };
 
-/** Pick mode: the value read, with Use / Scan again; a multi-field label asks which field. */
-const PickResult: React.FC<{ read: ScanRead; onUse: (r: ScanRead) => void }> = ({ read, onUse }) => {
+/** Pick mode: the value read, with Use / Scan again; a multi-field label asks which field, the
+ *  choice remembered per category + model when the field passes them (`fieldHint`). */
+const PickResult: React.FC<{ read: ScanRead; fieldHint?: FieldHintContext; onUse: (r: ScanRead) => void }> = ({ read, fieldHint, onUse }) => {
   const { t } = useI18n();
+  const { user } = useAuth();
   const thai = hasThai(read.value);
   const base = clean(thai ? thaiToUs(read.value) : read.value);
   const fields = useMemo(() => splitFields(base), [base]);
-  const [chosen, setChosen] = useState<string>(() => serialField(fields)?.value ?? (fields.length ? "" : base));
+  const model = fieldHint?.model?.trim() || null;
+  const remembers = fields.length > 1 && !!fieldHint && !!model;
+  const [hint, setHint] = useState<ScanFieldHint | null | undefined>(remembers ? undefined : null);
+  const serialAt = () => {
+    const f = serialField(fields);
+    return f ? fields.indexOf(f) : null;
+  };
+  const [chosen, setChosen] = useState<number | null>(serialAt);
+  // a pick made before the hint arrives wins over it
+  const touched = useRef(false);
+
+  useEffect(() => {
+    if (!remembers) return;
+    let alive = true;
+    api
+      .listScanFieldHints(fieldHint!.category, model!)
+      .then((list) => {
+        if (!alive) return;
+        const h = list[0] ?? null;
+        setHint(h);
+        const f = pickByHint(fields, h);
+        if (f && !touched.current) setChosen(fields.indexOf(f));
+      })
+      .catch(() => alive && setHint(null));
+    return () => {
+      alive = false;
+    };
+    // PickResult is keyed by the read, so this runs once per read
+  }, []);
+
+  const value = fields.length > 1 ? (chosen != null ? fields[chosen].value : "") : base;
+  const fromHint = hint ? pickByHint(fields, hint) : null;
+  const usesHint = fromHint != null && chosen != null && fields[chosen] === fromHint;
+  const canChange = !hint || user?.role === "admin";
+
+  const use = () => {
+    if (remembers && chosen != null && !usesHint && canChange) {
+      // remembered for the next label of this model; a failure only means it is not remembered
+      void api.putScanFieldHint({ category: fieldHint!.category, model: model!, ...hintFor(fields, chosen) }).catch(() => undefined);
+    }
+    onUse({ ...read, value });
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex min-w-0 items-center gap-2 text-xs">
@@ -268,12 +355,30 @@ const PickResult: React.FC<{ read: ScanRead; onUse: (r: ScanRead) => void }> = (
       {fields.length > 1 && (
         <div className="flex flex-col gap-1.5 text-xs">
           <p className="text-muted-foreground">{t("This label holds several values. Pick the one for this field:")}</p>
-          <FieldChoices fields={fields} selected={chosen} onPick={(f) => setChosen(f.value)} />
+          <FieldChoices
+            fields={fields}
+            selected={chosen}
+            onPick={(_, i) => {
+              touched.current = true;
+              setChosen(i);
+            }}
+          />
           <p className="text-[11px] text-muted-foreground">{t("IMEI and SIM numbers are not the device serial.")}</p>
+          {remembers && hint !== undefined && (
+            <p className="text-[11px] text-muted-foreground">
+              {usesHint
+                ? t("Picked as remembered for {model}.", { model: model! })
+                : !canChange
+                  ? t("Another field is remembered for {model}; only an admin can change it.", { model: model! })
+                  : hint
+                    ? t("Using this field will be remembered for {model} instead.", { model: model! })
+                    : t("The field you use is remembered for {model}, so the next label picks it.", { model: model! })}
+            </p>
+          )}
         </div>
       )}
-      <Button disabled={!chosen} onClick={() => onUse({ ...read, value: chosen })} className="self-start">
-        {t("Use {value}", { value: chosen || "…" })}
+      <Button disabled={!value} onClick={use} className="self-start">
+        {t("Use {value}", { value: value || "…" })}
       </Button>
     </div>
   );
@@ -293,7 +398,9 @@ export const ScanDialog: React.FC<{
   /** a code already read (keyboard scanner): shown at once */
   initial?: ScanRead | null;
   onPick?: (r: ScanRead) => void;
-}> = ({ open, onOpenChange, mode, formats = GLOBAL_FORMATS, title, initial, onPick }) => {
+  /** pick mode: remember which field of a multi-field label is the serial for this category + model */
+  fieldHint?: FieldHintContext;
+}> = ({ open, onOpenChange, mode, formats = GLOBAL_FORMATS, title, initial, onPick, fieldHint }) => {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab | null>(null);
@@ -377,7 +484,7 @@ export const ScanDialog: React.FC<{
             {mode === "resolve" ? (
               <ResolveResult key={read.value} read={read} onOpen={openMatch} onLookup={(value) => setRead({ ...read, value })} />
             ) : (
-              <PickResult key={read.value} read={read} onUse={use} />
+              <PickResult key={read.value} read={read} fieldHint={fieldHint} onUse={use} />
             )}
             <Button variant="ghost" size="sm" className="self-start" onClick={() => setRead(null)}>
               <RotateCcw data-icon="inline-start" className="size-3" />

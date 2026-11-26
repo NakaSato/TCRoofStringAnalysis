@@ -167,3 +167,66 @@ def test_rate_limit(api, monkeypatch):
     assert r.status_code == 429 and int(r.headers["Retry-After"]) >= 1
     # per user
     _resolve(client, adm, "A3")
+
+
+# ------------------------------------------------------------------ did you mean (O/0, I/1)
+
+
+def test_lookalike_variants():
+    assert sorted(scan.lookalike_variants("A0I")) == ["A01", "AO1", "AOI"]
+    assert scan.lookalike_variants("ABC") == []
+    assert scan.lookalike_variants("0" * 9) == []  # too many positions
+    assert len(scan.lookalike_variants("0" * 8)) == 255
+
+
+def test_did_you_mean_only_when_asked_and_nothing_matches(api):
+    client, adm, eng, _, _ = api
+    # typed with O for 0 and I for 1: BNE4C1Z00A as BNE4CIZOOA
+    r = client.get("/scan/resolve", params={"code": "bne4cizooa", "suggest": True}, headers=eng).json()
+    assert r["matches"] == []
+    assert [s["code"] for s in r["did_you_mean"]] == ["BNE4C1Z00A"]
+    (m,) = r["did_you_mean"][0]["matches"]
+    assert m["kind"] == "inverter" and m["plant_name"] == f"Plant {P1}"
+    # not asked (a camera read): no suggestions
+    assert _resolve(client, eng, "bne4cizooa")["did_you_mean"] == []
+    # an exact match: no suggestions
+    r = client.get("/scan/resolve", params={"code": "BNE4C1Z00A", "suggest": True}, headers=eng).json()
+    assert len(r["matches"]) == 1 and r["did_you_mean"] == []
+    # scoped: another plant's inverter is never suggested to the engineer
+    r = client.get("/scan/resolve", params={"code": "OTHERPLANTI", "suggest": True}, headers=eng).json()
+    assert r["did_you_mean"] == []
+    r = client.get("/scan/resolve", params={"code": "OTHERPLANTI", "suggest": True}, headers=adm).json()
+    assert [s["code"] for s in r["did_you_mean"]] == ["OTHERPLANT1"]
+    # site device SIM: 0812345678 typed as O8I2345678
+    r = client.get("/scan/resolve", params={"code": "O8I2345678", "suggest": True}, headers=eng).json()
+    assert r["did_you_mean"][0]["matches"][0]["field"] == "sim"
+
+
+# ------------------------------------------------------------------ field hints
+
+
+def test_field_hints_first_by_anyone_changes_by_admin(api):
+    client, adm, eng, _, _ = api
+    body = {"category": "router", "model": "  Teltonika   rut241 ", "field_key": "S/N", "field_index": 0, "field_count": 3}
+    r = client.put("/scan/field-hints", json=body, headers=eng)
+    assert r.status_code == 200, r.text
+    hint = r.json()
+    assert hint["model"] == "Teltonika rut241" and hint["field_key"] == "S/N"
+    # the same choice again is fine; a different one needs an admin
+    assert client.put("/scan/field-hints", json=body, headers=eng).status_code == 200
+    other = {**body, "field_key": None, "field_index": 2}
+    assert client.put("/scan/field-hints", json=other, headers=eng).status_code == 403
+    r = client.put("/scan/field-hints", json={**other, "model": "TELTONIKA RUT241"}, headers=adm)
+    assert r.status_code == 200 and r.json()["id"] == hint["id"] and r.json()["field_index"] == 2
+    # looked up by category + model, case and spaces ignored
+    got = client.get("/scan/field-hints", params={"category": "router", "model": "teltonika rut241"}, headers=eng).json()
+    assert [h["id"] for h in got] == [hint["id"]]
+    assert client.get("/scan/field-hints", params={"category": "pqm"}, headers=eng).json() == []
+    # bad input
+    assert client.put("/scan/field-hints", json={**body, "category": "Bad Cat"}, headers=adm).status_code == 422
+    assert client.put("/scan/field-hints", json={**body, "field_index": 3}, headers=adm).status_code == 422
+    assert client.put("/scan/field-hints", json={**body, "model": "  "}, headers=adm).status_code == 422
+    # delete: admin only
+    assert client.delete(f"/scan/field-hints/{hint['id']}", headers=eng).status_code == 403
+    assert client.delete(f"/scan/field-hints/{hint['id']}", headers=adm).status_code == 204
+    assert client.delete(f"/scan/field-hints/{hint['id']}", headers=adm).status_code == 404
