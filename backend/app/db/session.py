@@ -125,6 +125,9 @@ _ADDED_COLUMNS = [
     ("growatt_inverters", "not_installed_by", "VARCHAR(64)", None),
     ("growatt_inverters", "not_installed_note", "VARCHAR(255)", None),
     ("users", "store_keeper", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+    ("claims", "serial_inputs", "JSON", None),
+    ("instrument_checkouts", "input_method", "VARCHAR(8)", None),
+    ("instrument_checkouts", "raw_scan", "VARCHAR(512)", None),
 ]
 
 

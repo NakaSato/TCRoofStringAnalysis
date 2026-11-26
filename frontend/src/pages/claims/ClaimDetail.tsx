@@ -2,7 +2,8 @@
  * timeline. */
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import type { ClaimDetail as Detail, ClaimEvent, ClaimEvidence } from "../../api/client";
+import type { ClaimDetail as Detail, ClaimEvent, ClaimEvidence, SerialInput } from "../../api/client";
+import { MethodBadge } from "../../components/scan/ScanDialog";
 import { plantPath } from "../../context/routes";
 import { LoadingState } from "../../components/ui";
 import { cn } from "@/lib/utils";
@@ -163,6 +164,7 @@ export const ClaimDetail: React.FC<{
                     <Link to={inverterHref(c.plant_id, c.device_sn)} className="num hover:text-solar-400">
                       {c.device_sn}
                     </Link>
+                    <InputNote input={c.serial_inputs.device_sn} />
                   </Row>
                 )}
                 {c.string_nos.length > 0 && (
@@ -198,11 +200,13 @@ export const ClaimDetail: React.FC<{
                     <span className="num">
                       {c.old_sn ?? "—"} → {c.new_sn ?? t("not yet")}
                     </span>
+                    <InputNote input={c.new_sn ? c.serial_inputs.new_sn : undefined} />
                   </Row>
                 )}
                 {c.new_sn && c.type !== "inverter_warranty" && (
                   <Row label={t("Replacement SN")}>
                     <span className="num">{c.new_sn}</span>
+                    <InputNote input={c.serial_inputs.new_sn} />
                   </Row>
                 )}
                 {c.description && <p className="mt-2 text-xs whitespace-pre-wrap text-slate-300">{c.description}</p>}
@@ -326,5 +330,16 @@ export const ClaimDetail: React.FC<{
         )}
       </DialogContent>
     </Dialog>
+  );
+};
+
+/** How a serial was entered (scanner / camera / photo / typed); the raw scan on hover. Nothing when not recorded. */
+const InputNote: React.FC<{ input?: SerialInput }> = ({ input }) => {
+  const { t } = useI18n();
+  if (!input) return null;
+  return (
+    <span className="ml-1.5 inline-flex align-middle" title={input.raw ? t("Read as: {raw}", { raw: input.raw }) : undefined}>
+      <MethodBadge method={input.method} />
+    </span>
   );
 };

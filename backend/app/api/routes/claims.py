@@ -126,7 +126,7 @@ def set_claim_status(
     """Move the claim along the workflow (admin); 409 for a change the workflow does not allow."""
     c = _claim(db, user, claim_id)
     frm = c.status
-    kw: Dict[str, Any] = {"new_sn": payload.new_sn}
+    kw: Dict[str, Any] = {"new_sn": payload.new_sn, "new_sn_input": payload.new_sn_input.model_dump() if payload.new_sn_input else None}
     if "next_action_day" in payload.model_fields_set:
         kw["next_action_day"] = payload.next_action_day
     try:

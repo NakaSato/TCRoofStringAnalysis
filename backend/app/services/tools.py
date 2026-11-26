@@ -237,6 +237,8 @@ def serialize_checkout(c: InstrumentCheckout, today: date, plant_names: Dict[int
         "note": c.note,
         "return_note": c.return_note,
         "ack_warnings": list(c.ack_warnings or []),
+        "input_method": c.input_method,
+        "raw_scan": c.raw_scan,
         "created_by": c.created_by,
     }
 
@@ -474,6 +476,8 @@ def checkout(
         due_back=due_back,
         note=_clean(body.get("note")),
         ack_warnings=warnings,
+        input_method=body.get("input_method"),
+        raw_scan=(body.get("raw_scan") or None) if body.get("input_method") else None,
         created_by=user.username or user.email,
     )
     db.add(c)

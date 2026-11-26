@@ -312,3 +312,32 @@ def test_claim_number_taken_meanwhile_is_retried(api, monkeypatch):
     r = client.post("/claims", headers=eng, json=_body())
     assert r.status_code == 201, r.text
     assert r.json()["number"] != first["number"] and len(calls) == 2
+
+
+def test_serial_inputs_follow_the_serial(api):
+    """How device_sn / new_sn were entered (barcode-scanning.md §9): kept while the SN stays."""
+    f, client, admin, eng = api
+    scan = {"method": "camera", "raw": f"S/N: {SN}"}
+    c = client.post("/claims", headers=eng, json=_body(device_sn_input=scan)).json()
+    assert c["serial_inputs"] == {"device_sn": scan}
+    url = f"/claims/{c['id']}"
+    # another field changed: the record stays
+    assert client.patch(url, headers=eng, json={"description": "x"}).json()["serial_inputs"] == {"device_sn": scan}
+    # the same SN scanned again by keyboard scanner: recorded, no edit event
+    hid = {"method": "hid", "raw": SN}
+    d = client.patch(url, headers=eng, json={"device_sn": SN, "device_sn_input": hid}).json()
+    assert d["serial_inputs"] == {"device_sn": hid}
+    # SN cleared without saying how: not recorded any more
+    d = client.patch(url, headers=eng, json={"type": "insurance", "device_sn": None}).json()
+    assert d["device_sn"] is None and d["serial_inputs"] == {}
+    # a bad method is refused by the schema
+    assert client.patch(url, headers=eng, json={"device_sn_input": {"method": "guess"}}).status_code == 422
+
+    # new SN at fulfilment, typed
+    c2 = client.post("/claims", headers=eng, json=_body()).json()
+    assert c2["serial_inputs"] == {}
+    s_url = f"/claims/{c2['id']}/status"
+    client.post(s_url, headers=admin, json={"status": "submitted", "note": "sent"})
+    client.post(s_url, headers=admin, json={"status": "approved", "note": "ok"})
+    s = client.post(s_url, headers=admin, json={"status": "fulfilled", "note": "swap", "new_sn": "INV_NEW", "new_sn_input": {"method": "manual"}}).json()
+    assert s["serial_inputs"] == {"new_sn": {"method": "manual", "raw": None}}

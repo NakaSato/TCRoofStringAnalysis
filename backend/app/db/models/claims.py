@@ -48,6 +48,9 @@ class Claim(Base):
     next_action_day: Mapped[Optional[date]] = mapped_column(Date)
     old_sn: Mapped[Optional[str]] = mapped_column(String(64))
     new_sn: Mapped[Optional[str]] = mapped_column(String(64))
+    # how `device_sn` / `new_sn` were entered: {field: {"method": hid | camera | photo | manual, "raw": scan or null}};
+    # a field with no entry = not recorded (entered before this existed, or by a client that did not say)
+    serial_inputs: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
     warranty_end_day: Mapped[Optional[date]] = mapped_column(Date)
     created_by: Mapped[Optional[str]] = mapped_column(String(64))
     updated_by: Mapped[Optional[str]] = mapped_column(String(64))

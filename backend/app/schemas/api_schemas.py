@@ -698,6 +698,17 @@ class ClaimLinkBody(BaseModel):
     ref_id: int = Field(ge=1)
 
 
+InputMethodName = Literal["hid", "camera", "photo", "manual"]
+
+
+class SerialInput(BaseModel):
+    """How a serial got into its field (docs/plans/barcode-scanning.md §9): a keyboard scanner
+    (`hid`), the live camera, a photo, or typed (`manual`); `raw` = the code as read, for scans."""
+
+    method: InputMethodName
+    raw: Optional[str] = Field(default=None, max_length=512)
+
+
 class ClaimPatch(BaseModel):
     """Change a claim: only the fields sent change; null clears an optional one (type, cause,
     plant and counterparty are required on the claim, so null there means "unchanged")."""
@@ -715,6 +726,8 @@ class ClaimPatch(BaseModel):
     incident_day: Optional[date] = None
     discovered_day: Optional[date] = None
     warranty_end_day: Optional[date] = None
+    # how `device_sn` was entered; kept with the claim while the SN stays (a changed SN without it = not recorded)
+    device_sn_input: Optional[SerialInput] = None
 
     @field_validator("string_nos")
     @classmethod
@@ -756,6 +769,7 @@ class ClaimStatusChange(BaseModel):
     note: str = Field(min_length=1, max_length=2000)
     next_action_day: Optional[date] = None
     new_sn: Optional[str] = Field(default=None, max_length=64)
+    new_sn_input: Optional[SerialInput] = None
 
 
 class ClaimEventCreate(BaseModel):
@@ -828,6 +842,9 @@ class InstrumentCheckoutBody(BaseModel):
     due_back: date
     note: Optional[str] = Field(default=None, max_length=2000)
     ack_warnings: List[str] = Field(default_factory=list, max_length=10)
+    # the instrument was opened by scanning its asset tag (null = picked in the app)
+    input_method: Optional[InputMethodName] = None
+    raw_scan: Optional[str] = Field(default=None, max_length=512)
 
 
 class InstrumentReturnBody(BaseModel):

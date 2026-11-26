@@ -12,6 +12,7 @@ import { toolsApi } from "./useInstruments";
 import { DUE_KIND, DUE_STATE, STATUS, categoryOf, fmtDay, missingPvRating, relDays, specValue, thb } from "./format";
 import { appPath, safeHref } from "@/lib/safeUrl";
 import { useI18n } from "../../i18n";
+import { MethodBadge } from "../../components/scan/ScanDialog";
 
 /** check-in condition as shown (the API sends the code) */
 const CONDITION_LABEL: Record<string, string> = { ok: "OK", damaged: "Damaged", lost: "Lost" };
@@ -189,7 +190,14 @@ export const InstrumentDetail: React.FC<{
                       <TableRow key={c.id} title={[c.note, c.return_note].filter(Boolean).join(" · ") || undefined}>
                         <TableCell>{c.holder?.name ?? "—"}</TableCell>
                         <TableCell className="max-w-[180px] truncate">{c.plant_id != null ? (c.plant_name ?? plantName(c.plant_id)) : "—"}</TableCell>
-                        <TableCell className="num whitespace-nowrap">{c.out_at.slice(0, 16)}</TableCell>
+                        <TableCell className="num whitespace-nowrap">
+                          {c.out_at.slice(0, 16)}
+                          {c.input_method && (
+                            <span className="ml-1 inline-flex align-middle" title={[t("Opened from its label"), c.raw_scan].filter(Boolean).join(": ")}>
+                              <MethodBadge method={c.input_method} />
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell className={c.overdue ? "num whitespace-nowrap text-red-300" : "num whitespace-nowrap"}>{fmtDay(c.due_back)}</TableCell>
                         <TableCell className="num whitespace-nowrap">{c.returned_at ? c.returned_at.slice(0, 16) : <Badge variant="info">{t("Out")}</Badge>}</TableCell>
                         <TableCell>

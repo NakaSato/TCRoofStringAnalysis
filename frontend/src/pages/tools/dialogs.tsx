@@ -22,6 +22,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toolsApi } from "./useInstruments";
 import { CATEGORIES, DUE_KIND, addDays, addMonths, categoryOf, fmtDay } from "./format";
 import { isLinkValue } from "@/lib/safeUrl";
+import { forgetScan, scanOf } from "../../lib/scan/lastScan";
+import { MethodBadge } from "../../components/scan/ScanDialog";
 import { translate, useI18n } from "../../i18n";
 
 const NONE = "__none";
@@ -334,6 +336,8 @@ export const CheckoutDialog: React.FC<{ instrument: Instrument | null; onClose: 
     onClose();
   });
   const warnings = useMemo(() => (instrument ? checkoutWarnings(instrument) : []), [instrument]);
+  // opened by scanning its label (a scan in the last 15 min): recorded with the check-out
+  const scanned = useMemo(() => (instrument ? scanOf("instrument", instrument.id) : null), [instrument]);
 
   useEffect(() => {
     if (!instrument) return;
@@ -352,22 +356,34 @@ export const CheckoutDialog: React.FC<{ instrument: Instrument | null; onClose: 
 
   const plants = useMemo(() => [...growattPlants].sort((a, b) => a.name.localeCompare(b.name)), [growattPlants]);
   const submit = () =>
-    void run(() =>
-      toolsApi.checkoutInstrument(instrument!.id, {
+    void run(async () => {
+      const c = await toolsApi.checkoutInstrument(instrument!.id, {
         holder_user_id: holder === NONE ? null : Number(holder),
         plant_id: plant === NONE ? null : Number(plant),
         due_back: dueBack!,
         note: note.trim() || null,
         ack_warnings: warnings.map((w) => w.key),
-      })
-    );
+        input_method: scanned?.method ?? null,
+        raw_scan: scanned?.raw ?? null,
+      });
+      forgetScan();
+      return c;
+    });
 
   return (
     <Dialog open={instrument != null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("Check out {name}", { name: instrument?.asset_tag ?? "" })}</DialogTitle>
-          <DialogDescription>{instrument?.name}</DialogDescription>
+          <DialogDescription>
+            {instrument?.name}
+            {scanned && (
+              <span className="mt-1 flex items-center gap-1.5 text-xs">
+                <MethodBadge method={scanned.method} />
+                {t("Opened from its label; the check-out records that.")}
+              </span>
+            )}
+          </DialogDescription>
         </DialogHeader>
         {warnings.map((w) => (
           <Alert key={w.key} variant={w.crit ? "destructive" : "warn"}>

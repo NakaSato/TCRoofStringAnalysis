@@ -20,7 +20,8 @@ import { cn } from "@/lib/utils";
 export const ScanField: React.FC<
   Omit<React.ComponentProps<typeof Input>, "value" | "onChange"> & {
     value: string;
-    onValueChange: (value: string, method: InputMethod) => void;
+    /** `raw` = the code as read, for a scan (before the Thai-layout fix / upper case) */
+    onValueChange: (value: string, method: InputMethod, raw?: string) => void;
     formats?: BarcodeFormat[];
     /** dialog title, e.g. the field's label */
     scanTitle?: string;
@@ -43,7 +44,7 @@ export const ScanField: React.FC<
     if (upper) out = out.toUpperCase();
     if (maxLength) out = out.slice(0, Number(maxLength));
     setMethod(m);
-    onValueChange(out, m);
+    onValueChange(out, m, m === "manual" ? undefined : v);
   };
 
   const onKeyDown = useFieldScanner((b) => set(b.value, "hid"));

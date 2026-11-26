@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.db.models.stock import INPUT_METHODS
 from app.db.models import (
     Claim,
     ClaimEvent,
@@ -177,6 +178,24 @@ def _plant(db: Session, plant_id: int) -> GrowattPlant:
 # --------------------------------------------------------------------------- validation
 
 
+def _serial_input(v: Any) -> Optional[Dict[str, Any]]:
+    """`{method, raw}` as stored in `serial_inputs` (validated by the route's schema), or None."""
+    if not isinstance(v, dict) or v.get("method") not in INPUT_METHODS:
+        return None
+    raw = v.get("raw")
+    return {"method": v["method"], "raw": raw[:512] if isinstance(raw, str) and raw else None}
+
+
+def _with_input(c: Claim, field: str, inp: Optional[Dict[str, Any]]) -> None:
+    """Set (or, with None, forget) how `field` was entered; a new dict so the JSON change is saved."""
+    cur = dict(c.serial_inputs or {})
+    if inp is None:
+        cur.pop(field, None)
+    else:
+        cur[field] = inp
+    c.serial_inputs = cur or None
+
+
 def _normalize(db: Session, fields: Dict[str, Any], current: Optional[Claim]) -> Dict[str, Any]:
     """Clean and check the fields sent (all of them on create, the changed ones on patch) against
     the claim they will produce. Raises ValueError (422)."""
@@ -303,6 +322,8 @@ def serialize(c: Claim, plant_name: Optional[str], evidence: List[Dict[str, Any]
         "waiting_on": WAITING.get(c.status),
         "old_sn": c.old_sn,
         "new_sn": c.new_sn,
+        # how device_sn / new_sn were entered ({field: {method, raw}}; a field missing = not recorded)
+        "serial_inputs": dict(c.serial_inputs or {}),
         "warranty_end_day": c.warranty_end_day.isoformat() if c.warranty_end_day else None,
         "evidence_done": sum(1 for e in req if e["done"]),
         "evidence_required": len(req),
@@ -491,6 +512,7 @@ def create_claim(
     for k in REQUIRED_FIELDS:
         if fields.get(k) in (None, ""):
             raise ValueError(f"{k} is required")
+    sn_input = _serial_input(fields.get("device_sn_input"))
     data = _normalize(db, {k: fields.get(k) for k in FIELDS}, None)
     pairs = []
     for link in links:
@@ -505,6 +527,7 @@ def create_claim(
             status="draft",
             old_sn=data.get("device_sn") if data["claim_type"] == "inverter_warranty" else None,
             created_by=who,
+            serial_inputs={"device_sn": sn_input} if sn_input and data.get("device_sn") else None,
             **data,
         )
         db.add(c)
@@ -528,6 +551,7 @@ def update_claim(db: Session, c: Claim, fields: Dict[str, Any], who: str, *, adm
     """Change the fields sent. A closed or withdrawn claim is changed by admins only. Returns the
     names of the fields that changed (an `edit` event records old → new)."""
     _check_open(c, admin)
+    sn_input = _serial_input(fields.get("device_sn_input"))
     fields = {k: v for k, v in fields.items() if k in FIELDS}
     for k in REQUIRED_FIELDS:
         if k in fields and fields[k] in (None, ""):
@@ -543,7 +567,17 @@ def update_claim(db: Session, c: Claim, fields: Dict[str, Any], who: str, *, adm
         if old != v:
             changed[k] = [old.isoformat() if isinstance(old, date) else old, v.isoformat() if isinstance(v, date) else v]
             setattr(c, k, v)
+    # a new SN keeps the input it came with (none = not recorded); the same SN scanned again records the scan
+    input_changed = False
+    if "device_sn" in changed:
+        _with_input(c, "device_sn", sn_input if c.device_sn else None)
+        input_changed = True
+    elif sn_input is not None and c.device_sn and (c.serial_inputs or {}).get("device_sn") != sn_input:
+        _with_input(c, "device_sn", sn_input)
+        input_changed = True
     if not changed:
+        if input_changed:
+            db.commit()
         return []
     if c.claim_type == "inverter_warranty" and c.old_sn is None:
         c.old_sn = c.device_sn
@@ -566,6 +600,7 @@ def set_status(
     *,
     next_action_day: Optional[date] = _UNSET,
     new_sn: Optional[str] = None,
+    new_sn_input: Optional[Dict[str, Any]] = None,
 ) -> Claim:
     """Move the claim along the workflow (TRANSITIONS); a note is required. Submitting stamps
     `submitted_day` once; closing / withdrawing stamps `closed_day` and clears the next action;
@@ -589,6 +624,8 @@ def set_status(
     if status in CLOSED:
         c.next_action_day = None
     if new_sn:
+        if new_sn != c.new_sn or new_sn_input is not None:
+            _with_input(c, "new_sn", _serial_input(new_sn_input))
         c.new_sn = new_sn
         if c.old_sn is None:
             c.old_sn = c.device_sn

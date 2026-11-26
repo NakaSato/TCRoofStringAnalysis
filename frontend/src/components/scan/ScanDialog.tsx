@@ -13,6 +13,7 @@ import { useI18n } from "../../i18n";
 import { cameraSupported, hasCamera } from "../../lib/scan/camera";
 import { decodeImage, GLOBAL_FORMATS, type BarcodeFormat, type DetectedBarcode } from "../../lib/scan/decoder";
 import { signal, unlockAudio } from "../../lib/scan/feedback";
+import { rememberScan } from "../../lib/scan/lastScan";
 import { pushScanTarget, useFieldScanner, type Burst } from "../../lib/scan/hidScanner";
 import { hasThai, thaiToUs } from "../../lib/scan/keymap";
 import { clean, hintFor, pickByHint, serialField, splitFields, type LabelField } from "../../lib/scan/parse";
@@ -493,7 +494,14 @@ export const ScanDialog: React.FC<{
         {read && (
           <div className="flex min-w-0 flex-col gap-3 border-t border-white/[0.06] pt-3">
             {mode === "resolve" ? (
-              <ResolveResult key={read.value} read={read} onOpen={openMatch} onLookup={(value) => setRead({ ...read, value })} />
+              <ResolveResult
+                key={read.value}
+                read={read}
+                onOpen={(m) => {
+                  rememberScan(m, read.method, read.value);
+                  openMatch(m);
+                }}
+                onLookup={(value) => setRead({ ...read, value })} />
             ) : (
               <PickResult key={read.value} read={read} fieldHint={fieldHint} onUse={use} />
             )}

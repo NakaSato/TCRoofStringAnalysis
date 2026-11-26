@@ -87,5 +87,9 @@ class InstrumentCheckout(Base):
     note: Mapped[Optional[str]] = mapped_column(Text)
     return_note: Mapped[Optional[str]] = mapped_column(Text)
     ack_warnings: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    # how the instrument was identified at check-out: its asset tag scanned (hid / camera / photo) or
+    # typed (manual); null = picked in the app. `raw_scan` = the code as read
+    input_method: Mapped[Optional[str]] = mapped_column(String(8))
+    raw_scan: Mapped[Optional[str]] = mapped_column(String(512))
     created_by: Mapped[Optional[str]] = mapped_column(String(64))
     returned_by: Mapped[Optional[str]] = mapped_column(String(64))

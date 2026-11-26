@@ -178,3 +178,17 @@ def test_drone_documents_and_calibration_brings_back(api):
 def test_add_months_clamps():
     assert tools.add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
     assert tools.add_months(date(2026, 11, 30), 14) == date(2028, 1, 30)
+
+
+def test_checkout_records_a_scanned_asset_tag(api):
+    client, adm, eng, eng_id = api
+    i = _add(client, adm)
+    r = client.post(f"/tools/{i['id']}/checkout", json={"due_back": "2026-11-23", "input_method": "camera", "raw_scan": "https://app/s/tool/MT-001"}, headers=eng)
+    assert r.status_code == 201, r.text
+    assert (r.json()["input_method"], r.json()["raw_scan"]) == ("camera", "https://app/s/tool/MT-001")
+    client.post(f"/tools/{i['id']}/return", json={"condition": "ok"}, headers=eng)
+    # picked in the app: nothing recorded, a stray raw_scan is dropped
+    r = client.post(f"/tools/{i['id']}/checkout", json={"due_back": "2026-11-23", "raw_scan": "x"}, headers=eng)
+    assert (r.json()["input_method"], r.json()["raw_scan"]) == (None, None)
+    client.post(f"/tools/{i['id']}/return", json={"condition": "ok"}, headers=eng)
+    assert client.post(f"/tools/{i['id']}/checkout", json={"due_back": "2026-11-23", "input_method": "telepathy"}, headers=eng).status_code == 422

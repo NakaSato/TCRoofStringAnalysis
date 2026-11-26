@@ -155,4 +155,7 @@ export const TH_SCAN: Record<string, string> = {
   "Serials of {what} start with {prefix}.": "SN ของ{what}ขึ้นต้นด้วย {prefix}",
   "This looks like an IMEI (15 digits), not the serial number.": "ค่านี้ดูเหมือน IMEI (ตัวเลข 15 หลัก) ไม่ใช่ SN",
   "This looks like a SIM card number (ICCID), not the serial number.": "ค่านี้ดูเหมือนหมายเลขซิมการ์ด (ICCID) ไม่ใช่ SN",
+  "Read as: {raw}": "อ่านได้: {raw}",
+  "Opened from its label; the check-out records that.": "เปิดจากการสแกนฉลาก บันทึกไว้กับการยืมครั้งนี้",
+  "Opened from its label": "เปิดจากการสแกนฉลาก",
 };

@@ -2,7 +2,8 @@
  * (admin), add a note / message / shipment, edit an evidence item, link a record. */
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
-import type { Claim, ClaimBody, ClaimCause, ClaimEvidence, ClaimLinkBody, ClaimLinkKind, ClaimStatus, ClaimType, Issue } from "../../api/client";
+import type { Claim, ClaimBody, ClaimCause, ClaimEvidence, ClaimLinkBody, ClaimLinkKind, ClaimStatus, ClaimType, InputMethod, Issue, SerialInput } from "../../api/client";
+import { ScanField } from "../../components/scan/ScanField";
 import { useAppContext } from "../../context/AppContext";
 import { plantToday } from "../../context/alarmLogStore";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -24,6 +25,8 @@ import { translate, useI18n } from "../../i18n";
 
 const str = (s: string) => (s.trim() ? s.trim() : null);
 const issueLabel = (i: Issue) => `#${i.id} ${i.rule} ${i.name}${i.string_no != null ? ` · PV${i.string_no}` : ""} (${i.status})`;
+
+const serialInput = (method: InputMethod, raw?: string): SerialInput => ({ method, raw: method === "manual" ? null : (raw ?? "").slice(0, 512) || null });
 
 /* ------------------------------------------------------------------ create / edit */
 
@@ -173,6 +176,11 @@ export const ClaimDialog: React.FC<{
   }, [open, editing, prefill, setError]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
+  // how the inverter SN got into the field this time (null = not touched: nothing is sent)
+  const [snInput, setSnInput] = useState<SerialInput | null>(null);
+  useEffect(() => {
+    if (open) setSnInput(null);
+  }, [open, editing]);
   const setType = (t: ClaimType) =>
     setD((x) => ({
       ...x,
@@ -228,6 +236,8 @@ export const ClaimDialog: React.FC<{
         incident_day: d.incident_day,
         discovered_day: d.discovered_day,
         warranty_end_day: d.warranty_end_day,
+        // a scan is kept even for the same SN; typing it back unchanged keeps the earlier record
+        ...(snInput && (snInput.method !== "manual" || (d.device_sn.trim() || null) !== (editing?.device_sn ?? null)) ? { device_sn_input: snInput } : {}),
       };
       const c = editing ? await claimsApi.patchClaim(editing.id, body) : await claimsApi.createClaim({ ...body, links });
       onSaved(c);
@@ -305,7 +315,19 @@ export const ClaimDialog: React.FC<{
 
           {needsInverter(d.type) && (
             <Field id="c-sn" label={t("Inverter SN")}>
-              <Input id="c-sn" className="num h-8" value={d.device_sn} onChange={(e) => set("device_sn", e.target.value)} />
+              <ScanField
+                id="c-sn"
+                className="h-8"
+                maxLength={64}
+                upper
+                scanTitle={t("Inverter SN")}
+                fieldHint={{ category: "inverter", model: null }}
+                value={d.device_sn}
+                onValueChange={(v, m, raw) => {
+                  set("device_sn", v);
+                  setSnInput(serialInput(m, raw));
+                }}
+              />
             </Field>
           )}
           {d.type === "module_warranty" && (
@@ -369,6 +391,7 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
   const [note, setNote] = useState("");
   const [next, setNext] = useState<string | null>(null);
   const [newSn, setNewSn] = useState("");
+  const [newSnInput, setNewSnInput] = useState<SerialInput | null>(null);
   const [ack, setAck] = useState(false);
   const { busy, error, setError, run } = useSubmit(() => {
     onDone();
@@ -381,6 +404,7 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
     setNote("");
     setNext(claim.next_action_day);
     setNewSn("");
+    setNewSnInput(null);
     setAck(false);
     setError(null);
   }, [claim, setError]);
@@ -443,7 +467,19 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
           )}
           {askNewSn && (
             <Field id="s-sn" label={t("New inverter SN")} hint={t("Replaces {sn}. The registry picks it up from Growatt on the next fleet sync.", { sn: claim.old_sn ?? claim.device_sn ?? "—" })}>
-              <Input id="s-sn" className="num h-8" value={newSn} onChange={(e) => setNewSn(e.target.value)} />
+              <ScanField
+                id="s-sn"
+                className="h-8"
+                maxLength={64}
+                upper
+                scanTitle={t("New inverter SN")}
+                fieldHint={{ category: "inverter", model: null }}
+                value={newSn}
+                onValueChange={(v, m, raw) => {
+                  setNewSn(v);
+                  setNewSnInput(serialInput(m, raw));
+                }}
+              />
             </Field>
           )}
         </div>
@@ -461,7 +497,7 @@ export const StatusDialog: React.FC<{ claim: Claim | null; onClose: () => void; 
                 status: to as ClaimStatus,
                 note: note.trim(),
                 next_action_day: closing ? null : next,
-                ...(askNewSn && newSn.trim() ? { new_sn: newSn.trim() } : {}),
+                ...(askNewSn && newSn.trim() ? { new_sn: newSn.trim(), new_sn_input: newSnInput } : {}),
               })
             )
           }

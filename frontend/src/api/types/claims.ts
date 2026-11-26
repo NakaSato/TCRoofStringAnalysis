@@ -1,6 +1,14 @@
 /** Claims (`/claims*`): warranty and insurance claims for plant equipment. DB only; every
  * date and serial is as entered. docs/plans/claims.md */
 
+import type { InputMethod } from "./scan";
+
+/** how a serial got into its field: keyboard scanner, camera, photo or typed; `raw` = the code as read */
+export interface SerialInput {
+  method: InputMethod;
+  raw: string | null;
+}
+
 export type ClaimType = "inverter_warranty" | "module_warranty" | "equipment_warranty" | "insurance" | "workmanship";
 
 export type ClaimStatus =
@@ -98,6 +106,8 @@ export interface Claim {
   waiting_on: ClaimWaiting | null;
   old_sn: string | null;
   new_sn: string | null;
+  /** how device_sn / new_sn were entered; a field missing = not recorded */
+  serial_inputs: Partial<Record<"device_sn" | "new_sn", SerialInput>>;
   /** as entered on the claim; never looked up or assumed */
   warranty_end_day: string | null;
   evidence_done: number;
@@ -139,6 +149,8 @@ export interface ClaimBody {
   incident_day: string | null;
   discovered_day: string | null;
   warranty_end_day: string | null;
+  /** how device_sn was entered (sent with a new or re-scanned SN) */
+  device_sn_input?: SerialInput | null;
   /** create only: records to link at once */
   links?: ClaimLinkBody[];
 }
@@ -149,6 +161,7 @@ export interface ClaimStatusBody {
   next_action_day?: string | null;
   /** inverter swap on fulfilled */
   new_sn?: string | null;
+  new_sn_input?: SerialInput | null;
 }
 
 export interface ClaimEventBody {

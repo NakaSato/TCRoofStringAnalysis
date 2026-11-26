@@ -2,6 +2,8 @@
  * instruments (drones, thermal cameras, clamp meters, I-V tracers, …): who holds them, where, and
  * when calibration or documents run out. DB only; every spec, date and cost is entered by people,
  * so any of them can be null ("—"). docs/plans/measuring-tools.md. */
+import type { InputMethod } from "./scan";
+
 
 export type InstrumentCategory =
   | "drone"
@@ -77,6 +79,9 @@ export interface Checkout {
   return_note: string | null;
   /** warnings the person acknowledged at check-out ("calibration_overdue", "drone_documents_expired") */
   ack_warnings: string[];
+  /** the asset tag was scanned to open it (keyboard scanner / camera / photo / typed); null = picked in the app */
+  input_method: InputMethod | null;
+  raw_scan: string | null;
   created_by: string | null;
 }
 
@@ -157,6 +162,8 @@ export interface CheckoutBody {
   note?: string | null;
   /** warnings shown in the dialog and acknowledged */
   ack_warnings: string[];
+  input_method?: InputMethod | null;
+  raw_scan?: string | null;
 }
 
 export interface ReturnBody {

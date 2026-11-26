@@ -5,6 +5,7 @@ import { ApiError, api, type ScanResolve } from "../api/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, LoadingState } from "../components/ui";
+import { rememberScan } from "../lib/scan/lastScan";
 import { useI18n } from "../i18n";
 
 /**
@@ -34,6 +35,8 @@ export const ScanRedirectPage: React.FC = () => {
     };
   }, [kind, code, t]);
 
+  // a label link is opened by a camera: the phone's own camera app, or the app's scanner
+  if (res?.matches.length === 1) rememberScan(res.matches[0], "camera", `/s/${kind}/${code}`);
   if (res?.matches.length === 1) return <Navigate to={res.matches[0].path} replace />;
   if (!res && !error) return <LoadingState label={t("Opening the label…")} />;
 
