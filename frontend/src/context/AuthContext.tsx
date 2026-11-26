@@ -6,6 +6,27 @@ import { clearPlantCache } from "./plantCache";
 import { clearAssistantThreads } from "../components/assistant/useAssistantChat";
 import { clearRegistryWhere } from "../pages/spares/RegistryWhere";
 import { releasePush } from "../lib/push";
+import { forgetScan } from "../lib/scan/lastScan";
+
+/** Batch scan / stock count lists (`tcroof.batch.<mode>.<loc>`, `tcroof.batch.count.<loc>`) hold units and plant names. */
+const clearBatchLists = (): void => {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k?.startsWith("tcroof.batch.")) keys.push(k);
+    }
+    keys.forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    // storage blocked: nothing kept
+  }
+};
+
+/** What the signed-out user saw on this tab: the next user to sign in may see other plants. */
+const clearScanState = (): void => {
+  forgetScan();
+  clearBatchLists();
+};
 
 export interface AuthContextValue {
   user: UserProfile | null;
@@ -53,6 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearPlantCache();
       clearAssistantThreads();
       clearRegistryWhere();
+      clearScanState();
       void releasePush(false); // the session is gone: only this browser's subscription can be dropped
       setUser(null);
     };
@@ -75,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearPlantCache();
     clearAssistantThreads();
     clearRegistryWhere();
+    clearScanState();
     setUser(null);
   }, []);
 

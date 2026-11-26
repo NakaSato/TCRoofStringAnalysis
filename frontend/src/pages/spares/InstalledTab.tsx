@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Download, ExternalLink, Replace } from "lucide-react";
 import { api, type InstalledDevice, type InstalledList, type InstalledQuery, type PartCategory } from "../../api/client";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import { useI18n } from "../../i18n";
 import { appPath } from "@/lib/safeUrl";
 import { notify } from "../../lib/notify";
 import { pick, useUrlState } from "@/lib/useUrlState";
-import { CATEGORY_LABEL, download } from "./shared";
+import { CATEGORY_LABEL, download, errorText } from "./shared";
 
 /** categories of installed equipment, in the API's order */
 export const INSTALLED_CATEGORIES = ["inverter", "datalogger", "weather_station", "revenue_meter", "router", "pqm", "shinemaster", "grid_meter"] as const satisfies readonly PartCategory[];
@@ -74,18 +75,15 @@ export const InstalledTab: React.FC<{ version: number; keeper: boolean; onReplac
           setData(d);
           setError(null);
         })
-        .catch((e) => {
-          if (!alive) return;
-          setData((d) => d ?? { items: [], total: 0, counts: {}, meta: { source: "db" } });
-          setError(e instanceof Error ? e.message : String(e));
-        })
+        // a failed first load leaves data null: the error shows, not a false "No installed devices."
+        .catch((e) => alive && setError(errorText(e, t)))
         .finally(() => alive && setBusy(false));
     }, 300);
     return () => {
       alive = false;
       window.clearTimeout(h);
     };
-  }, [query, page, version]);
+  }, [query, page, version, t]);
 
   const plants = useMemo(() => [...growattPlants].sort((a, b) => a.name.localeCompare(b.name)), [growattPlants]);
 
@@ -100,7 +98,7 @@ export const InstalledTab: React.FC<{ version: number; keeper: boolean; onReplac
       }
       download("inventory-installed.csv", csvRows(all));
     } catch (e) {
-      notify("crit", e instanceof Error ? e.message : String(e));
+      notify("crit", errorText(e, t));
     } finally {
       setExporting(false);
     }
@@ -179,9 +177,13 @@ export const InstalledTab: React.FC<{ version: number; keeper: boolean; onReplac
             ))}
           </div>
         )}
-        {error && <p className="px-4 text-xs text-red-300">{error}</p>}
+        {error && (
+          <Alert variant="destructive" className="mx-4 w-auto">
+            <AlertDescription>{t("Could not load the installed devices: {error}", { error })}</AlertDescription>
+          </Alert>
+        )}
         {!data ? (
-          <SkeletonRows rows={6} className="px-4" />
+          !error && <SkeletonRows rows={6} className="px-4" />
         ) : !data.items.length ? (
           <EmptyState title={query.category || query.plant_id || query.phase || query.q ? t("No installed devices match.") : t("No installed devices.")} />
         ) : (

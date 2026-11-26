@@ -41,6 +41,7 @@ export const MoveDialog: React.FC<{
   const [partId, setPartId] = useState<string>(NONE);
   const [serial, setSerial] = useState("");
   const [method, setMethod] = useState<InputMethod>("manual");
+  const [raw, setRaw] = useState(""); // the scan as read (ScanField's 3rd argument), not the normalised serial
   const [toId, setToId] = useState<string>(NONE);
   const [plantId, setPlantId] = useState<number | null>(null);
   const [note, setNote] = useState("");
@@ -53,6 +54,7 @@ export const MoveDialog: React.FC<{
     setPartId(unit ? String(unit.part_id) : NONE);
     setSerial(unit?.serial ?? "");
     setMethod("manual");
+    setRaw("");
     setToId(NONE);
     setPlantId(unit?.plant_id ?? null);
     setNote("");
@@ -80,7 +82,7 @@ export const MoveDialog: React.FC<{
         ...(kind === "issue" || kind === "return" ? (plantId != null ? { plant_id: plantId } : {}) : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         input_method: method,
-        ...(method !== "manual" ? { raw_scan: serial } : {}),
+        ...(method !== "manual" && raw ? { raw_scan: raw } : {}),
       };
       await api.postStockBatch([row]);
       notify("ok", t("{what}: {part} {serial}", { what: t(MOVE_LABEL[kind]), part: part.code, serial: serial.trim() }));
@@ -151,9 +153,10 @@ export const MoveDialog: React.FC<{
               scanTitle={t("Serial no.")}
               fieldHint={part ? { category: part.category, model: [part.make, part.model].filter(Boolean).join(" ") || part.code } : undefined}
               value={serial}
-              onValueChange={(v, m) => {
+              onValueChange={(v, m, raw) => {
                 setSerial(v);
                 setMethod(m);
+                setRaw(m !== "manual" ? (raw ?? "").slice(0, 512) : "");
               }}
             />
           </div>

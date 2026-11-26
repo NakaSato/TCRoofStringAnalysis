@@ -451,10 +451,10 @@ export const ReplaceDialog: React.FC<{
                 scanTitle={t("Old unit serial no.")}
                 fieldHint={hint}
                 value={oldSerial}
-                onValueChange={(v, m) => {
+                onValueChange={(v, m, raw) => {
                   setOldSerial(v);
                   setOldMethod(m);
-                  setOldRaw(m !== "manual" ? v : "");
+                  setOldRaw(m !== "manual" ? (raw ?? "").slice(0, 512) : "");
                 }}
                 className="h-10 text-sm"
               />
@@ -495,10 +495,10 @@ export const ReplaceDialog: React.FC<{
                 scanTitle={t("Red tag")}
                 placeholder="RT-0001"
                 value={tag}
-                onValueChange={(v, m) => {
+                onValueChange={(v, m, raw) => {
                   setTag(redTagCode(v));
                   setTagMethod(m);
-                  setTagRaw(m !== "manual" ? v : "");
+                  setTagRaw(m !== "manual" ? (raw ?? "").slice(0, 512) : "");
                 }}
                 className="h-10 text-sm"
               />
@@ -521,10 +521,10 @@ export const ReplaceDialog: React.FC<{
                 scanTitle={t("New spare serial no.")}
                 fieldHint={hint}
                 value={newSerial}
-                onValueChange={(v, m) => {
+                onValueChange={(v, m, raw) => {
                   setNewSerial(v);
                   setNewMethod(m);
-                  setNewRaw(m !== "manual" ? v : "");
+                  setNewRaw(m !== "manual" ? (raw ?? "").slice(0, 512) : "");
                 }}
                 className="h-10 text-sm"
               />

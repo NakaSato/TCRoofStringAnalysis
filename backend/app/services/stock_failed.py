@@ -474,6 +474,9 @@ def move_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict
     note = _text(body.get("note"), "Note", 2000)
     carrier = _text(body.get("carrier"), "Carrier", 64)
     tracking = _text(body.get("tracking_no"), "Tracking number", 64)
+    method, raw = _method(body)  # how a replacement's new_serial was entered; a raw scan needs its method
+    if method is None:
+        raw = None
     by, day, batch = _by(user), _today(), str(uuid.uuid4())
     tag = db.get(RedTag, fu.red_tag_id)
     tag_code = tag.code if tag else str(fu.id)
@@ -545,7 +548,8 @@ def move_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict
         unit.received_day = unit.received_day or day
         fu.spare_unit_id = unit.id
         row(from_location_id=frm, to_location_id=to.id, from_state=before, to_state=outcome)
-        row(unit_id=unit.id, serial=unit.serial, from_location_id=frm, to_location_id=to.id, from_state=unit_from, to_state="in_stock")
+        scan: Dict[str, Any] = {"input_method": method, "raw_scan": raw[:512] if raw else None} if outcome == "replaced" else {}
+        row(unit_id=unit.id, serial=unit.serial, from_location_id=frm, to_location_id=to.id, from_state=unit_from, to_state="in_stock", **scan)
         if claim is not None:
             what = "repaired" if outcome == "repaired" else f"replaced by {new_serial}"
             claims_svc._event(db, claim, "shipment", by, f"Failed unit {tag_code} back from the supplier, {what}", day=day, direction="in",

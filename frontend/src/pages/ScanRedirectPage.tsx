@@ -25,7 +25,12 @@ export const ScanRedirectPage: React.FC = () => {
     setError(null);
     api
       .resolveScan(`${kind}:${code}`)
-      .then((r) => alive && setRes(r))
+      .then((r) => {
+        if (!alive) return;
+        // a label link is opened by a camera: the phone's own camera app, or the app's scanner
+        if (r.matches.length === 1) rememberScan(r.matches[0], "camera", `/s/${kind}/${code}`);
+        setRes(r);
+      })
       .catch((e) => {
         if (!alive) return;
         setError(e instanceof ApiError && e.status === 404 ? t("Not found, or not on one of your plants.") : e instanceof Error ? e.message : String(e));
@@ -35,8 +40,6 @@ export const ScanRedirectPage: React.FC = () => {
     };
   }, [kind, code, t]);
 
-  // a label link is opened by a camera: the phone's own camera app, or the app's scanner
-  if (res?.matches.length === 1) rememberScan(res.matches[0], "camera", `/s/${kind}/${code}`);
   if (res?.matches.length === 1) return <Navigate to={res.matches[0].path} replace />;
   if (!res && !error) return <LoadingState label={t("Opening the label…")} />;
 

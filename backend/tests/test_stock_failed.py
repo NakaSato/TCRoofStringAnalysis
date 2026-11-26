@@ -243,6 +243,47 @@ def test_moves_claims_and_ledger(api):
     assert all("failed_unit_id" in m for m in c.get("/stock/movements", headers=keeper).json()["movements"])
 
 
+def test_replacement_serial_keeps_its_scan(api):
+    """supplier_return / replaced: the new serial's input_method / raw_scan go on the spare unit's row;
+    a bad method is 422, an over-long raw scan 422, a raw scan without a method is dropped."""
+    t = api
+    eng, keeper, locs, pid = t["eng"], t["keeper"], t["locs"], t["part"]["id"]
+
+    def sent(tag, serial):
+        fu = _new(t, eng, red_tag=tag, serial=serial, part_id=pid)
+        _move(t, keeper, fu["id"], kind="ship_out", to_location_id=locs["supplier"])
+        return fu["id"]
+
+    def unit_row(fid):
+        with t["f"]() as db:
+            (m,) = db.scalars(select(StockMovement).where(StockMovement.failed_unit_id == fid, StockMovement.kind == "supplier_return",
+                                                          StockMovement.unit_id.is_not(None)))
+            return m.input_method, m.raw_scan, m.serial
+
+    f1 = sent("RT-0001", "OLD-1")
+    back = {"kind": "supplier_return", "outcome": "replaced", "to_location_id": locs["store"]}
+    _move(t, keeper, f1, 422, **back, new_serial="NEW-A", input_method="laser")
+    _move(t, keeper, f1, 422, **back, new_serial="NEW-A", input_method="camera", raw_scan="x" * 513)
+    raw = "SN:NEW-A;PN:RUT241;https://example.com/very/long/label"
+    _move(t, keeper, f1, **back, new_serial="NEW-A", input_method="camera", raw_scan=raw)
+    assert unit_row(f1) == ("camera", raw, "NEW-A")
+    with t["f"]() as db:  # the failed unit's own row is not the scanned serial
+        own = db.scalars(select(StockMovement).where(StockMovement.failed_unit_id == f1, StockMovement.kind == "supplier_return",
+                                                     StockMovement.unit_id.is_(None))).one()
+        assert (own.input_method, own.raw_scan) == (None, None)
+    # no method: the raw scan is dropped; typed: method only
+    f2 = sent("RT-0002", "OLD-2")
+    _move(t, keeper, f2, **back, new_serial="NEW-B", raw_scan="NEW-B")
+    assert unit_row(f2) == (None, None, "NEW-B")
+    f3 = sent("RT-0003", "OLD-3")
+    _move(t, keeper, f3, **back, new_serial="NEW-C", input_method="manual")
+    assert unit_row(f3) == ("manual", None, "NEW-C")
+    # repaired: nothing scanned, nothing recorded
+    f4 = sent("RT-0004", "OLD-4")
+    _move(t, keeper, f4, kind="supplier_return", outcome="repaired", to_location_id=locs["store"], input_method="hid", raw_scan="OLD-4")
+    assert unit_row(f4)[:2] == (None, None)
+
+
 def test_overdue_and_summary(api, monkeypatch):
     t = api
     c, eng, adm, keeper = t["c"], t["eng"], t["adm"], t["keeper"]

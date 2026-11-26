@@ -90,6 +90,7 @@ export const TagFailedDialog: React.FC<{
   const [partId, setPartId] = useState(NONE);
   const [serial, setSerial] = useState("");
   const [method, setMethod] = useState<InputMethod>("manual");
+  const [raw, setRaw] = useState(""); // the scan as read (ScanField's 3rd argument), not the normalised serial
   const [plantId, setPlantId] = useState<number | null>(null);
   const [fault, setFault] = useState("");
   const [toId, setToId] = useState(NONE);
@@ -103,6 +104,7 @@ export const TagFailedDialog: React.FC<{
     setPartId(NONE);
     setSerial("");
     setMethod("manual");
+    setRaw("");
     setPlantId(null);
     setFault("");
     setToId(NONE);
@@ -130,7 +132,7 @@ export const TagFailedDialog: React.FC<{
         removed_day: day,
         ...(part ? { part_id: part.id } : {}),
         ...(plantId != null ? { plant_id: plantId } : {}),
-        ...(s ? { serial: s, input_method: method, ...(method !== "manual" ? { raw_scan: serial } : {}) } : {}),
+        ...(s ? { serial: s, input_method: method, ...(method !== "manual" && raw ? { raw_scan: raw } : {}) } : {}),
       });
       notify("ok", t("Red tag {tag} bound to the failed unit.", { tag: u.red_tag }));
       onDone();
@@ -186,9 +188,10 @@ export const TagFailedDialog: React.FC<{
               scanTitle={t("Serial no.")}
               fieldHint={part ? { category: part.category, model: [part.make, part.model].filter(Boolean).join(" ") || part.code } : undefined}
               value={serial}
-              onValueChange={(v, m) => {
+              onValueChange={(v, m, raw) => {
                 setSerial(v);
                 setMethod(m);
+                setRaw(m !== "manual" ? (raw ?? "").slice(0, 512) : "");
               }}
             />
           </Row>
@@ -270,6 +273,8 @@ export const FailedUnitDialog: React.FC<{
   const [tracking, setTracking] = useState("");
   const [outcome, setOutcome] = useState<"repaired" | "replaced">("repaired");
   const [newSerial, setNewSerial] = useState("");
+  const [newMethod, setNewMethod] = useState<InputMethod>("manual");
+  const [newRaw, setNewRaw] = useState(""); // the scan as read (ScanField's 3rd argument)
   const [note, setNote] = useState("");
   const [claimId, setClaimId] = useState(NONE);
   const [claims, setClaims] = useState<Claim[] | null>(null);
@@ -302,6 +307,8 @@ export const FailedUnitDialog: React.FC<{
     setTracking("");
     setOutcome("repaired");
     setNewSerial("");
+    setNewMethod("manual");
+    setNewRaw("");
     setNote("");
     setClaimId(unit?.claim_id != null ? String(unit.claim_id) : NONE);
     setFault(unit?.fault ?? "");
@@ -375,7 +382,14 @@ export const FailedUnitDialog: React.FC<{
       );
     else if (mode === "back")
       void move(
-        { kind: "supplier_return", to_location_id: Number(toId), outcome, ...(outcome === "replaced" ? { new_serial: newSerial.trim() } : {}) },
+        {
+          kind: "supplier_return",
+          to_location_id: Number(toId),
+          outcome,
+          ...(outcome === "replaced"
+            ? { new_serial: newSerial.trim(), input_method: newMethod, ...(newMethod !== "manual" && newRaw ? { raw_scan: newRaw } : {}) }
+            : {}),
+        },
         t("{tag} back from the supplier.", { tag })
       );
     else if (mode === "scrap") void move({ kind: "scrap" }, t("{tag} scrapped.", { tag }));
@@ -514,7 +528,19 @@ export const FailedUnitDialog: React.FC<{
                     </Row>
                     {outcome === "replaced" && (
                       <Row id="fa-new" label={t("New serial no.")}>
-                        <ScanField id="fa-new" maxLength={64} upper formats={SERIAL_FORMATS} scanTitle={t("New serial no.")} value={newSerial} onValueChange={(v) => setNewSerial(v)} />
+                        <ScanField
+                          id="fa-new"
+                          maxLength={64}
+                          upper
+                          formats={SERIAL_FORMATS}
+                          scanTitle={t("New serial no.")}
+                          value={newSerial}
+                          onValueChange={(v, m, raw) => {
+                            setNewSerial(v);
+                            setNewMethod(m);
+                            setNewRaw(m !== "manual" ? (raw ?? "").slice(0, 512) : "");
+                          }}
+                        />
                       </Row>
                     )}
                   </>

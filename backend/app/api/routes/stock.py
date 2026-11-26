@@ -206,6 +206,8 @@ class FailedMoveIn(BaseModel):
     to_location_id: Optional[int] = None
     outcome: Optional[Literal["repaired", "replaced"]] = None
     new_serial: Optional[str] = Field(None, max_length=64)
+    input_method: Optional[Literal["hid", "camera", "photo", "manual"]] = None  # how new_serial was entered
+    raw_scan: Optional[str] = Field(None, max_length=512)
     carrier: Optional[str] = Field(None, max_length=64)
     tracking_no: Optional[str] = Field(None, max_length=64)
     note: Optional[str] = Field(None, max_length=2000)

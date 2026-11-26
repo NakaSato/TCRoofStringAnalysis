@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Download, Plus } from "lucide-react";
 import { api, type ModelRow, type PartCategory } from "../../api/client";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import { EmptyState, SkeletonRows, Suspended } from "../../components/ui";
 import { useI18n } from "../../i18n";
 import { pick, useUrlState } from "@/lib/useUrlState";
 import { FromModelsDialog } from "./FromModelsDialog";
-import { CATEGORY_LABEL, download } from "./shared";
+import { CATEGORY_LABEL, download, errorText } from "./shared";
 
 const ALL = "all";
 
@@ -51,16 +52,13 @@ export const ModelsTab: React.FC<{ version: number; keeper: boolean; onChanged: 
         setRows(r.items);
         setError(null);
       })
-      .catch((e) => {
-        if (!alive) return;
-        setRows((x) => x ?? []);
-        setError(e instanceof Error ? e.message : String(e));
-      })
+      // a failed first load leaves rows null: the error shows, not a false "No installed models."
+      .catch((e) => alive && setError(errorText(e, t)))
       .finally(() => alive && setBusy(false));
     return () => {
       alive = false;
     };
-  }, [version]);
+  }, [version, t]);
 
   const cats = useMemo(() => [...new Set((rows ?? []).map((r) => r.category))], [rows]);
   const cat: PartCategory | typeof ALL = pick<PartCategory | typeof ALL>(url.get("mcat"), cats, ALL);
@@ -114,9 +112,13 @@ export const ModelsTab: React.FC<{ version: number; keeper: boolean; onChanged: 
         <p className="px-4 text-[11px] text-muted-foreground">
           {t("Installed counts come from the Growatt registry and the site register; spares from the catalogue parts that match the model. Counts only.")}
         </p>
-        {error && <p className="px-4 text-xs text-red-300">{error}</p>}
+        {error && (
+          <Alert variant="destructive" className="mx-4 w-auto">
+            <AlertDescription>{t("Could not load the spares per model: {error}", { error })}</AlertDescription>
+          </Alert>
+        )}
         {!rows ? (
-          <SkeletonRows rows={6} className="px-4" />
+          !error && <SkeletonRows rows={6} className="px-4" />
         ) : !shown.length ? (
           <EmptyState title={t("No installed models.")} />
         ) : (

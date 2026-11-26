@@ -7,8 +7,10 @@ export const TH_STOCK_INSTALLED: Record<string, string> = {
   "Failed unit open": "มีอุปกรณ์เสียค้างอยู่",
   "Open {label}": "เปิด {label}",
   SIM: "ซิม",
+  "Could not load the installed devices: {error}": "โหลดอุปกรณ์ที่ติดตั้งไม่สำเร็จ: {error}",
   // ---- Spares per model tab (ModelsTab.tsx)
   "Spares per model": "อะไหล่ตามรุ่น",
+  "Could not load the spares per model: {error}": "โหลดอะไหล่ตามรุ่นไม่สำเร็จ: {error}",
   "Model not recorded": "ไม่ได้บันทึกรุ่น",
   "By phase": "แยกตามเฟส",
   "No phase": "ไม่ระบุเฟส",

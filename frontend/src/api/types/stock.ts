@@ -209,6 +209,9 @@ export interface FailedUnitMove {
   to_location_id?: number;
   outcome?: "repaired" | "replaced";
   new_serial?: string;
+  /** how new_serial was entered (supplier_return, replaced); raw_scan = the scan as read, ≤ 512, only with a method */
+  input_method?: "hid" | "camera" | "photo" | "manual";
+  raw_scan?: string;
   carrier?: string;
   tracking_no?: string;
   note?: string;
