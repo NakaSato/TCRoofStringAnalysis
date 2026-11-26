@@ -2,7 +2,7 @@
  * as imported from the O&M workbook. Values as written; an empty cell shows "—". */
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, Copy, Network, Pencil, Plus, Tag, TriangleAlert, Users, Zap, Building2 } from "lucide-react";
+import { Check, Copy, Network, Pencil, Plus, Replace, Tag, TriangleAlert, Users, Zap, Building2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api } from "../../api/client";
 import type { PlantSiteRegister, SiteDevice, SiteDeviceKind } from "../../api/client";
@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { DeviceEditDialog } from "./DeviceEditDialog";
 import type { DeviceTarget } from "./DeviceEditDialog";
 import { KIND_ICON, KIND_LABEL } from "./kinds";
+import { ReplaceDialog, type ReplacePreset } from "../spares/ReplaceDialog";
 
 const dash = (v: string | number | null | undefined) => (v == null || v === "" ? "—" : String(v));
 
@@ -91,7 +92,7 @@ const deviceRows = (d: SiteDevice, t: (k: string, v?: Record<string, string | nu
 };
 
 /** One device on site: kind, brand / model, status, SN and IP to copy, then its other fields and notes. */
-const DeviceTile: React.FC<{ d: SiteDevice; numbered: boolean; onEdit?: () => void }> = ({ d, numbered, onEdit }) => {
+const DeviceTile: React.FC<{ d: SiteDevice; numbered: boolean; onEdit?: () => void; onReplace?: () => void }> = ({ d, numbered, onEdit, onReplace }) => {
   const { t } = useI18n();
   const Icon = KIND_ICON[d.kind];
   const notes = [d.link_status, d.cod_clear_note, d.note].filter((x): x is string => !!x);
@@ -113,6 +114,12 @@ const DeviceTile: React.FC<{ d: SiteDevice; numbered: boolean; onEdit?: () => vo
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {d.status && <Badge variant={d.status === "ใช้งาน" ? "ok" : "neutral"}>{d.status}</Badge>}
+          {onReplace && (
+            <Button variant="ghost" size="xs" onClick={onReplace} aria-label={t("Replace this device")} title={t("Replace this device")}>
+              <Replace data-icon="inline-start" />
+              {t("Replace")}
+            </Button>
+          )}
           {onEdit && (
             <Button variant="ghost" size="icon-xs" onClick={onEdit} aria-label={t("Edit device")} title={t("Edit device")}>
               <Pencil />
@@ -151,6 +158,7 @@ export const SiteRegisterCard: React.FC<{ plantId: number }> = ({ plantId }) => 
   const { user } = useAppContext();
   const canEdit = user?.role === "admin" || user?.role === "engineer";
   const [editing, setEditing] = useState<DeviceTarget | null>(null);
+  const [replacing, setReplacing] = useState<ReplacePreset | null>(null);
   const data = useLoad<PlantSiteRegister>(`sr:${plantId}`, () => api.getPlantSiteRegister(plantId), { keepOnKeyChange: false });
   const reg = data.data?.register;
 
@@ -276,12 +284,14 @@ export const SiteRegisterCard: React.FC<{ plantId: number }> = ({ plantId }) => 
                   d={d}
                   numbered={(perKind[d.kind] ?? 0) > 1 || d.kind === "revenue_meter"}
                   onEdit={canEdit ? () => setEditing({ index: i }) : undefined}
+                  onReplace={() => setReplacing({ plantId, device: { id: d.id, kind: d.kind, seq: d.seq, serial: d.serial } })}
                 />
               ))}
             </div>
           ) : (
             <p className="text-[11px] text-muted-foreground">{t("No devices listed for this station.")}</p>
           )}
+          <ReplaceDialog open={replacing != null} onOpenChange={(o) => !o && setReplacing(null)} preset={replacing} onDone={() => void data.reload()} />
           {canEdit && (
             <DeviceEditDialog
               plantId={plantId}

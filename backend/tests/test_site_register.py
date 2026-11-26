@@ -274,3 +274,39 @@ def test_edit_devices_replaces_the_station_list(api):
     ):
         assert c.put(url, json={"devices": bad}, headers=admin).status_code == 422, bad
     assert len(c.get(f"/growatt/plants/{A}/site-register", headers=admin).json()["register"]["devices"]) == 4
+
+
+def test_device_ids_survive_edits_and_reimports(api):
+    """Printed `dev:<id>` labels and failed units point at a device's id: an edit or a workbook import
+    updates devices in place (matched on station, kind and number), so a device that stays keeps its id."""
+    f, c, admin, eng = api
+    doc = json.dumps(sr.convert_workbook(_workbook())).encode()
+
+    def imp(body: bytes):
+        r = c.post("/growatt/site-register/import?apply=true", files={"file": ("reg.json", body, "application/json")}, headers=admin)
+        assert r.status_code == 200 and r.json()["applied"], r.text
+
+    imp(doc)
+    url = f"/growatt/plants/{A}/site-register"
+    before = {(d["kind"], d["seq"]): d["id"] for d in c.get(url, headers=admin).json()["register"]["devices"]}
+    assert all(isinstance(i, int) for i in before.values())
+    # the editor sends the list back as read (ids included): same ids, a changed value updated in place
+    devs = c.get(url, headers=admin).json()["register"]["devices"]
+    devs[0]["serial"] = "NEW-SERIAL-1"
+    r = c.put(url + "/devices", json={"devices": devs + [{"kind": "pqm", "seq": 1, "serial": "PQ-9"}]}, headers=admin)
+    assert r.status_code == 200, r.text
+    after = {(d["kind"], d["seq"]): d for d in r.json()["register"]["devices"]}
+    assert all(after[k]["id"] == i for k, i in before.items())
+    assert after[(devs[0]["kind"], devs[0]["seq"])]["serial"] == "NEW-SERIAL-1"
+    pqm_id = after[("pqm", 1)]["id"]
+    assert pqm_id not in before.values()
+    # a re-import keeps the ids of devices still in the workbook; the one it lacks (the pqm) is removed
+    imp(doc)
+    again = {(d["kind"], d["seq"]): d["id"] for d in c.get(url, headers=admin).json()["register"]["devices"]}
+    assert again == before
+    with f() as db:
+        assert db.get(SiteDevice, pqm_id) is None
+        # a plant that moves to another station is not on two stations at once
+        assert len({r.plant_id for r in db.scalars(select(SiteRegister)) if r.plant_id is not None}) == len(
+            [r for r in db.scalars(select(SiteRegister)) if r.plant_id is not None]
+        )

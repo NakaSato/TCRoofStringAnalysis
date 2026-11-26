@@ -24,7 +24,7 @@ import { KIND_LABEL, MOVE_LABEL, canManageStock, errorText } from "./shared";
 
 const NONE = "__none";
 
-const Row: React.FC<{ id?: string; label: string; children: React.ReactNode; hint?: string }> = ({ id, label, children, hint }) => (
+export const Row: React.FC<{ id?: string; label: string; children: React.ReactNode; hint?: string }> = ({ id, label, children, hint }) => (
   <div className="flex flex-col gap-1.5">
     <Label htmlFor={id} className="text-xs">
       {label}
@@ -35,22 +35,23 @@ const Row: React.FC<{ id?: string; label: string; children: React.ReactNode; hin
 );
 
 /** a scanned red tag label (`/s/rt/RT-0103`, `rt:RT-0103`) keeps just its code */
-const redTagCode = (v: string) => {
+export const redTagCode = (v: string) => {
   const ac = parseAppCode(v);
   return ac?.kind === "rt" ? ac.code.toUpperCase() : v;
 };
 
-const LocationSelect: React.FC<{ id: string; value: string; onChange: (v: string) => void; locations: StockLocation[]; placeholder: string }> = ({
+export const LocationSelect: React.FC<{ id: string; value: string; onChange: (v: string) => void; locations: StockLocation[]; placeholder: string; className?: string }> = ({
   id,
   value,
   onChange,
   locations,
   placeholder,
+  className,
 }) => {
   const { t } = useI18n();
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger id={id} size="sm" className="w-full">
+      <SelectTrigger id={id} size="sm" className={className ? `w-full ${className}` : "w-full"}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
@@ -64,7 +65,7 @@ const LocationSelect: React.FC<{ id: string; value: string; onChange: (v: string
   );
 };
 
-const ErrorAlert: React.FC<{ error: string | null }> = ({ error }) =>
+export const ErrorAlert: React.FC<{ error: string | null }> = ({ error }) =>
   error ? (
     <Alert variant="destructive">
       <AlertDescription className="whitespace-pre-line">{error}</AlertDescription>

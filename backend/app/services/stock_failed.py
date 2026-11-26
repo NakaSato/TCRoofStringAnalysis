@@ -288,6 +288,14 @@ def _commit(db: Session) -> None:
 
 def create(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
     """Bind a red tag to a failed unit off site (`failed_in`). Anyone signed in (a field move)."""
+    fu = _create(db, user, body)
+    _commit(db)
+    return failed_out(db, fu)
+
+
+def _create(db: Session, user: User, body: Dict[str, Any], batch_id: Optional[str] = None) -> FailedUnit:
+    """`create` without the commit (flushed only), so a replacement (`stock_replace`) runs it inside
+    its own transaction. Every check comes before the first write."""
     allowed = allowed_plant_ids(db, user)
     tag = _red_tag(db, body.get("red_tag"))
     if tag.status == "bound":
@@ -376,7 +384,7 @@ def create(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
     db.add(
         _movement(
             fu,
-            str(uuid.uuid4()),
+            batch_id or str(uuid.uuid4()),
             "failed_in",
             by,
             _today(),
@@ -392,8 +400,8 @@ def create(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
             raw_scan=raw[:512] if raw else None,
         )
     )
-    _commit(db)
-    return failed_out(db, fu)
+    db.flush()
+    return fu
 
 
 def update_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict[str, Any]:

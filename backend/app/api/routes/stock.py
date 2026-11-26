@@ -1,5 +1,5 @@
-"""Spares register (`/stock`, docs/plans/spares-failed-units.md), phases 1–2: parts catalogue, stock
-locations, serialised units, the movement ledger and failed units. Everyone signed in reads and
+"""Spares register (`/stock`, docs/plans/spares-failed-units.md), phases 1–3: parts catalogue, stock
+locations, serialised units, the movement ledger, failed units and replacements on site. Everyone signed in reads and
 makes field moves (transfer, issue, return; a failed unit in and between vans / stores); an admin
 or store keeper receives, corrects, edits the catalogue and locations, and sends failed units to /
 back from a supplier or scraps them. Installs and failed units on plants a user may not see are
@@ -19,6 +19,7 @@ from app.db.models import User
 from app.db.session import get_db
 from app.services import stock as svc
 from app.services import stock_failed as failed_svc
+from app.services import stock_replace as replace_svc
 
 router = APIRouter(prefix="/stock", tags=["Spares"])
 
@@ -31,7 +32,7 @@ def _call(fn, *args, **kwargs):
     except svc.StockNotFound as exc:
         raise HTTPException(404, str(exc)) from exc
     except svc.StockConflict as exc:
-        raise HTTPException(409, {"message": str(exc), "errors": exc.errors}) from exc
+        raise HTTPException(409, {"message": str(exc), "errors": exc.errors, **exc.extra}) from exc
     except svc.StockError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -229,3 +230,42 @@ def update_failed_unit(failed_id: int, body: FailedUnitPatch, db: Session = Depe
 def move_failed_unit(failed_id: int, body: FailedMoveIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
     """transfer (anyone) · ship_out / supplier_return / scrap (admin or store keeper)."""
     return _call(failed_svc.move_failed, db, user, failed_id, body.model_dump(exclude_unset=True))
+
+
+# ------------------------------------------------------------------------------- replacements
+
+Method = Optional[Literal["hid", "camera", "photo", "manual"]]
+
+
+class ReplacementIn(BaseModel):
+    plant_id: int
+    site_device_id: Optional[int] = None
+    inverter_sn: Optional[str] = Field(None, max_length=64)
+    old_serial: str = Field(..., min_length=1, max_length=64)
+    old_input_method: Method = None
+    old_raw_scan: Optional[str] = Field(None, max_length=512)
+    confirm_register_update: bool = False
+    red_tag: str = Field(..., min_length=1, max_length=512)
+    red_tag_input_method: Method = None
+    red_tag_raw_scan: Optional[str] = Field(None, max_length=512)
+    fault: str = Field(..., min_length=1, max_length=2000)
+    new_unit_id: int
+    new_input_method: Method = None
+    new_raw_scan: Optional[str] = Field(None, max_length=512)
+    failed_to_location_id: int
+    removed_day: Optional[date] = None
+    note: Optional[str] = Field(None, max_length=2000)
+
+
+@router.get("/replacements/targets")
+def replacement_targets(plant_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """The plant's site register devices and installed inverters a crew could replace (404: unknown / not yours)."""
+    return _call(replace_svc.targets, db, user, plant_id)
+
+
+@router.post("/replacements", status_code=201)
+def post_replacement(body: ReplacementIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Replace a device on site in one transaction: red tag → failed unit, spare installed, register
+    serial updated (site devices). 409 `code: register_mismatch` when the label and the register
+    disagree and `confirm_register_update` is not set."""
+    return _call(replace_svc.replace, db, user, body.model_dump())

@@ -128,7 +128,7 @@ export function linkHref(kind: ClaimLinkKind, c: Claim): string {
 
 /* ---------------------------------------------------------------- prefill from other pages */
 
-export const NEW_FROM = ["blank", "issue", "inverter", "sweep"] as const;
+export const NEW_FROM = ["blank", "issue", "inverter", "sweep", "replacement"] as const;
 export type NewFrom = (typeof NEW_FROM)[number];
 
 export interface Prefill {
@@ -136,20 +136,38 @@ export interface Prefill {
   plant_id: number | null;
   device_sn: string | null;
   string_no: number | null;
-  /** issue id or sweep id */
+  /** issue id, sweep id, or (replacement) the failed unit's id */
   ref: number | null;
+  /** replacement on site (Inventory): claim type, the new SN installed, device label, red tag */
+  claim_type: "equipment_warranty" | "inverter_warranty" | null;
+  new_sn: string | null;
+  device_label: string | null;
+  red_tag: string | null;
 }
 
 const int = (v: string | null) => (v != null && /^\d+$/.test(v) ? Number(v) : null);
+const CLAIM_TYPES_FROM_URL = ["equipment_warranty", "inverter_warranty"] as const;
 
-/** `new` = blank | issue | inverter | sweep, `p` = plant, `sn`, `no` = string, `ref` = issue / sweep id */
+/** `new` = blank | issue | inverter | sweep | replacement, `p` = plant, `sn`, `no` = string, `ref` = issue / sweep /
+ * failed unit id; a replacement also `ct` (claim type), `nsn` (new SN), `dl` (device label), `rt` (red tag) */
 export function readPrefill(url: URLSearchParams): Prefill | null {
   const v = url.get("new");
   if (!v) return null;
   const from = (NEW_FROM as readonly string[]).includes(v) ? (v as NewFrom) : "blank";
-  return { from, plant_id: int(url.get("p")), device_sn: url.get("sn") || null, string_no: int(url.get("no")), ref: int(url.get("ref")) };
+  const ct = url.get("ct");
+  return {
+    from,
+    plant_id: int(url.get("p")),
+    device_sn: url.get("sn") || null,
+    string_no: int(url.get("no")),
+    ref: int(url.get("ref")),
+    claim_type: (CLAIM_TYPES_FROM_URL as readonly string[]).includes(ct ?? "") ? (ct as Prefill["claim_type"]) : null,
+    new_sn: url.get("nsn") || null,
+    device_label: url.get("dl") || null,
+    red_tag: url.get("rt") || null,
+  };
 }
 
 export { newClaimHref } from "@/lib/claimLinks";
 
-export const PREFILL_KEYS = { new: null, p: null, sn: null, no: null, ref: null } as const;
+export const PREFILL_KEYS = { new: null, p: null, sn: null, no: null, ref: null, ct: null, nsn: null, dl: null, rt: null } as const;

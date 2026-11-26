@@ -7,11 +7,14 @@
  *
  * URL: `tab` (open | closed | all), `q`, `type`, `status`, `with`, `plant`, `wait` (us | them |
  * followup), `sort`, `desc`, `claim` (detail dialog open), and `new` (blank | issue | inverter |
- * sweep) with `p`, `sn`, `no`, `ref` for the prefilled create dialog other pages link to.
+ * sweep | replacement) with `p`, `sn`, `no`, `ref` (+ `ct`, `nsn`, `dl`, `rt` for a replacement on site; its
+ * failed unit `ref` is linked to the saved claim) for the prefilled create dialog other pages link to.
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal, Plus } from "lucide-react";
+import { api } from "../api/client";
 import type { Claim, ClaimEvidence } from "../api/client";
+import { notify } from "../lib/notify";
 import { useAppContext } from "../context/AppContext";
 import { useI18n } from "../i18n";
 import { isAdmin } from "../auth/access";
@@ -517,6 +520,11 @@ export const ClaimsPage: React.FC = () => {
         }}
         onSaved={(c) => {
           changed();
+          // a claim opened from a replacement on site (Inventory): link its failed unit to it
+          if (!editing && prefill?.from === "replacement" && prefill.ref != null)
+            api
+              .updateFailedUnit(prefill.ref, { claim_id: c.id })
+              .catch((e) => notify("warn", t("The claim is saved, but the failed unit could not be linked: {error}", { error: e instanceof Error ? e.message : String(e) })));
           if (!editing) setUrl({ ...PREFILL_KEYS, claim: c.id, tab: null });
         }}
         onOpenExisting={(id) => {

@@ -207,3 +207,79 @@ export interface FailedUnitMove {
   tracking_no?: string;
   note?: string;
 }
+
+// ---- replacement on site (phase 3, §5.3): failed unit off, spare on, register updated (D-4)
+
+/** a device on a plant that can be replaced: a Site register device or a Growatt inverter */
+export interface ReplaceTarget {
+  kind: "site_device" | "inverter";
+  site_device_id: number | null;
+  inverter_sn: string | null;
+  label: string;
+  /** a part category (inverter, datalogger, …) */
+  category: string;
+  serial: string | null;
+  model: string | null;
+}
+
+export interface ReplaceTargets {
+  plant_id: number;
+  plant_name: string;
+  devices: ReplaceTarget[];
+}
+
+export interface ReplacementBody {
+  plant_id: number;
+  /** exactly one of site_device_id / inverter_sn */
+  site_device_id?: number;
+  inverter_sn?: string;
+  old_serial: string;
+  old_input_method?: "hid" | "camera" | "photo" | "manual";
+  old_raw_scan?: string;
+  /** the old label's serial differs from the register: update the register anyway */
+  confirm_register_update?: boolean;
+  red_tag: string;
+  red_tag_input_method?: "hid" | "camera" | "photo" | "manual";
+  red_tag_raw_scan?: string;
+  fault: string;
+  new_unit_id: number;
+  new_input_method?: "hid" | "camera" | "photo" | "manual";
+  new_raw_scan?: string;
+  failed_to_location_id: number;
+  /** YYYY-MM-DD */
+  removed_day?: string;
+  note?: string;
+}
+
+export interface ReplacementClaimPrefill {
+  type: "equipment_warranty" | "inverter_warranty";
+  plant_id: number;
+  device_sn: string;
+  new_sn: string;
+  device_label: string;
+  failed_unit_id: number;
+  red_tag: string;
+}
+
+export interface ReplacementResult {
+  batch_id: string;
+  failed_unit: FailedUnit;
+  installed_unit: StockUnit;
+  register: {
+    kind: "site_device" | "inverter";
+    updated: boolean;
+    site_device_id: number | null;
+    inverter_sn: string | null;
+    old_serial: string | null;
+    new_serial: string;
+  };
+  warnings: string[];
+  claim_prefill: ReplacementClaimPrefill;
+}
+
+/** the 409 when the old label's serial is not the one in the register: ask, then resend confirmed */
+export interface RegisterMismatch extends StockBatchError {
+  code: "register_mismatch";
+  register_serial: string | null;
+  label_serial: string;
+}

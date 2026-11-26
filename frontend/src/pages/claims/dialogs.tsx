@@ -113,6 +113,30 @@ export const ClaimDialog: React.FC<{
       setLinks([]);
       return;
     }
+    // a replacement on site (Inventory): the old unit failed, a spare is in; the failed unit is linked on save
+    if (p.from === "replacement") {
+      const type = p.claim_type ?? "equipment_warranty";
+      const inv = type === "inverter_warranty";
+      // saved to the database: English, as other descriptions
+      const what = [
+        p.new_sn ? `Replaced on site by ${p.new_sn}.` : null,
+        p.red_tag ? `Failed unit ${p.red_tag}${p.device_sn ? ` (SN ${p.device_sn})` : ""}.` : null,
+      ].filter(Boolean);
+      setD({
+        ...base,
+        type,
+        cause: "unknown",
+        counterparty: inv ? "Growatt" : "",
+        plant_id: p.plant_id != null ? String(p.plant_id) : "",
+        device_sn: p.device_sn ?? "",
+        device_label: inv ? "" : [p.device_label, p.device_sn ? `SN ${p.device_sn}` : null].filter(Boolean).join(" · "),
+        description: what.join(" "),
+        incident_day: plantToday(),
+      });
+      setLinks([]);
+      if (p.ref != null) setLinkNote(translate("Failed unit {tag} is linked when the claim is saved.", { tag: p.red_tag ?? `#${p.ref}` }));
+      return;
+    }
     const module = p.from === "sweep" || (p.from === "issue" && p.string_no != null);
     setD({
       ...base,

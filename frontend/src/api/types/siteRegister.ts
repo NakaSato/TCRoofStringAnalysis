@@ -35,6 +35,8 @@ export interface SiteRegisterSite {
 }
 
 export interface SiteDevice {
+  /** stable across edits and workbook imports (updated in place by station, kind and number); absent on a row added in the editor */
+  id?: number;
   kind: SiteDeviceKind;
   seq: number;
   brand_model: string | null;

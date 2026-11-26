@@ -454,6 +454,30 @@ def _growatt_info(db: Session, plant_ids: Iterable[int]) -> Dict[int, Dict[str, 
     return out
 
 
+def _sync_devices(db: Session, by_code: Dict[str, List[Dict[str, Any]]]) -> None:
+    """Make each station's devices exactly `by_code[site_code]`, matched on (kind, seq): a device that
+    stays keeps its id and is updated in place, a new one is added, one no longer listed is deleted."""
+    codes = list(by_code)
+    if not codes:
+        return
+    existing = {(d.site_code, d.kind, d.seq): d for d in db.scalars(select(SiteDevice).where(SiteDevice.site_code.in_(codes)))}
+    keep = set()
+    for code, rows in by_code.items():
+        for r in rows:
+            key = (code, r["kind"], int(r.get("seq") or 1))
+            dev = existing.get(key)
+            if dev is None:
+                dev = SiteDevice(site_code=code, kind=key[1], seq=key[2])
+                db.add(dev)
+            for f in DEVICE_FIELDS:
+                v = r.get(f)
+                setattr(dev, f, date.fromisoformat(_date(v)) if f in DATE_FIELDS and v is not None else v)  # type: ignore[arg-type]
+            keep.add(key)
+    for key, dev in existing.items():
+        if key not in keep:
+            db.delete(dev)
+
+
 def import_register(db: Session, doc: Any, apply: bool = False, who: Optional[str] = None) -> Dict[str, Any]:
     """Preview (default) or apply a converted register. Apply replaces both tables in one transaction.
 
@@ -500,25 +524,32 @@ def import_register(db: Session, doc: Any, apply: bool = False, who: Optional[st
         return report
 
     now = datetime.now(timezone.utc)
-    db.execute(delete(SiteDevice))
-    db.execute(delete(SiteRegister))
+    # Stations and devices are updated in place, not deleted and re-added: a device that stays keeps its
+    # id, which printed `dev:<id>` labels and failed units (`stock_failed_units.site_device_id`) point at.
+    current = {r.site_code: r for r in db.scalars(select(SiteRegister))}
+    new_codes = {s["site_code"] for s in sites}
+    gone = [c for c in current if c not in new_codes]
+    if gone:
+        db.execute(delete(SiteDevice).where(SiteDevice.site_code.in_(gone)))
+        db.execute(delete(SiteRegister).where(SiteRegister.site_code.in_(gone)))
+        current = {c: r for c, r in current.items() if c not in gone}
+    # plant_id is unique: clear it first so a plant moving between stations is not briefly on two
+    for reg in current.values():
+        reg.plant_id = None
     db.flush()
     for s in sites:
         m = matches[s["site_code"]]
-        reg = SiteRegister(site_code=s["site_code"], plant_id=m["plant_id"], match_rule=m["rule"], imported_by=who, imported_at=now)
+        reg = current.get(s["site_code"])
+        if reg is None:
+            reg = SiteRegister(site_code=s["site_code"])
+            db.add(reg)
+        reg.plant_id, reg.match_rule, reg.imported_by, reg.imported_at = m["plant_id"], m["rule"], who, now
         for f in SITE_FIELDS:
             v = s.get(f)
             setattr(reg, f, date.fromisoformat(_date(v)) if f in DATE_FIELDS and v is not None else v)  # type: ignore[arg-type]
         reg.name = _text(s.get("name")) or s["site_code"]
-        db.add(reg)
     db.flush()  # stations before their devices (no ORM relationship orders the inserts)
-    for s in sites:
-        for d in s.get("devices") or []:
-            dev = SiteDevice(site_code=s["site_code"], kind=d["kind"], seq=int(d.get("seq") or 1))
-            for f in DEVICE_FIELDS:
-                v = d.get(f)
-                setattr(dev, f, date.fromisoformat(_date(v)) if f in DATE_FIELDS and v is not None else v)  # type: ignore[arg-type]
-            db.add(dev)
+    _sync_devices(db, {s["site_code"]: list(s.get("devices") or []) for s in sites})
     meter1 = {
         s["site_code"]: _text(d.get("serial"))
         for s in sites
@@ -558,7 +589,7 @@ def for_plant(db: Session, plant_id: int) -> Optional[Dict[str, Any]]:
         return None
     devs = list(db.scalars(select(SiteDevice).where(SiteDevice.site_code == reg.site_code).order_by(SiteDevice.kind, SiteDevice.seq)))
     site = _row_out(reg, ("site_code", "plant_id", "match_rule", *SITE_FIELDS, "imported_by", "imported_at"))
-    devices = [{"kind": d.kind, "seq": d.seq, **_row_out(d, DEVICE_FIELDS)} for d in devs]
+    devices = [{"id": d.id, "kind": d.kind, "seq": d.seq, **_row_out(d, DEVICE_FIELDS)} for d in devs]
     devices.sort(key=lambda d: (KINDS.index(d["kind"]) if d["kind"] in KINDS else 99, d["seq"]))
     logger = next((d for d in devices if d["kind"] == "datalogger"), None)
     g = _growatt_info(db, [plant_id]).get(plant_id)
@@ -596,7 +627,7 @@ def replace_devices(db: Session, plant_id: int, devices: Any) -> Optional[Dict[s
         if isinstance(seq, bool) or not isinstance(seq, int) or not 1 <= seq <= 99:
             problems.append(f"device {i + 1}: number must be 1–99")
             continue
-        unknown = set(d) - {"kind", "seq", *DEVICE_FIELDS}
+        unknown = set(d) - {"kind", "seq", "id", *DEVICE_FIELDS}
         if unknown:
             problems.append(f"device {i + 1}: unknown fields {', '.join(sorted(unknown))}")
         row: Dict[str, Any] = {"kind": d["kind"], "seq": seq}
@@ -616,14 +647,7 @@ def replace_devices(db: Session, plant_id: int, devices: Any) -> Optional[Dict[s
     if problems:
         raise RegisterError("; ".join(problems[:20]) + (f" … ({len(problems)} problems)" if len(problems) > 20 else ""))
 
-    db.execute(delete(SiteDevice).where(SiteDevice.site_code == reg.site_code))
-    db.flush()
-    for r in rows:
-        dev = SiteDevice(site_code=reg.site_code, kind=r["kind"], seq=r["seq"])
-        for f in DEVICE_FIELDS:
-            v = r[f]
-            setattr(dev, f, date.fromisoformat(v) if f in DATE_FIELDS and v is not None else v)
-        db.add(dev)
+    _sync_devices(db, {reg.site_code: rows})
     db.commit()
     return for_plant(db, plant_id)
 

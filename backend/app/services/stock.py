@@ -52,9 +52,10 @@ class StockNotFound(LookupError):
 class StockConflict(Exception):
     """A batch or correction that does not fit the current state (409): `errors` = [{row, error}]."""
 
-    def __init__(self, errors: List[Dict[str, Any]]):
+    def __init__(self, errors: List[Dict[str, Any]], extra: Optional[Dict[str, Any]] = None):
         super().__init__("; ".join(f"row {e['row']}: {e['error']}" if e.get("row") is not None else e["error"] for e in errors))
         self.errors = errors
+        self.extra = extra or {}  # more keys for the 409 detail, e.g. `code` (stock_replace)
 
 
 def serial_key(serial: str) -> str:

@@ -403,4 +403,7 @@ export const TH_CLAIMS: Record<string, string> = {
   Record: "บันทึก",
   "Loading claims…": "กำลังโหลดเคลม…",
   "Loading instruments…": "กำลังโหลดเครื่องมือวัด…",
+  // replacement on site (Inventory)
+  "Failed unit {tag} is linked when the claim is saved.": "อุปกรณ์เสีย {tag} จะผูกกับเคลมเมื่อบันทึก",
+  "The claim is saved, but the failed unit could not be linked: {error}": "บันทึกเคลมแล้ว แต่ผูกอุปกรณ์เสียไม่สำเร็จ: {error}",
 };

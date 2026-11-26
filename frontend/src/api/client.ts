@@ -48,6 +48,9 @@ import type {
   FailedUnitMove,
   FailedUnitPatch,
   FailedUnitQuery,
+  ReplacementBody,
+  ReplacementResult,
+  ReplaceTargets,
   StockLocation,
   StockLocationBody,
   StockMovement,
@@ -670,6 +673,10 @@ export const api = {
     apiFetch<FailedUnit>(`/stock/failed-units/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   moveFailedUnit: (id: number, body: FailedUnitMove) =>
     apiFetch<FailedUnitDetail>(`/stock/failed-units/${id}/move`, { method: "POST", body: JSON.stringify(body) }),
+  // replacement on site (phase 3): the devices of a plant, then one step that tags the failed unit,
+  // installs the spare and updates the register (a 409 `register_mismatch` asks to confirm)
+  getReplaceTargets: (plantId: number) => apiFetch<ReplaceTargets>(`/stock/replacements/targets?plant_id=${plantId}`),
+  postReplacement: (body: ReplacementBody) => apiFetch<ReplacementResult>("/stock/replacements", { method: "POST", body: JSON.stringify(body) }),
 
   // ---- measuring tools (instruments, check-outs, calibration / document due dates; DB only)
   listInstruments: (includeRetired = false) =>

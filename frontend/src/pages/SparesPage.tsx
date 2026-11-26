@@ -6,10 +6,11 @@
  * store keeper receives, corrects and edits the catalogue and locations. Installs on plants the user
  * may not see are left out by the API. Phase 2: failed units bound to red tags (Failed units tab, URL
  * `tab=failed`, `fu` opens one, so a scanned red tag lands on it); anyone tags and moves one, an admin
- * or store keeper ships it to the supplier, takes it back and scraps it.
+ * or store keeper ships it to the supplier, takes it back and scraps it. Phase 3: Replace a device
+ * (`spares/ReplaceDialog.tsx`, also on the Site register card) = failed unit off, spare on, register updated.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeftRight, Download, PackagePlus, Pencil, Plus, Tag, Undo2 } from "lucide-react";
+import { ArrowLeftRight, Download, PackagePlus, Pencil, Plus, Replace, Tag, Undo2 } from "lucide-react";
 import {
   api,
   type StockLocation,
@@ -36,6 +37,7 @@ import { CorrectDialog, LocationDialog, PartDialog } from "./spares/dialogs";
 import { MoveDialog, type MoveKind } from "./spares/MoveDialog";
 import { FailedUnitDialog, TagFailedDialog } from "./spares/FailedDialogs";
 import { FailedTab } from "./spares/FailedTab";
+import { ReplaceDialog } from "./spares/ReplaceDialog";
 import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, canManageStock, download } from "./spares/shared";
 
 const TABS = ["stock", "failed", "movements", "catalogue", "locations"] as const;
@@ -58,6 +60,7 @@ export const SparesPage: React.FC = () => {
   const fuRaw = Number(url.get("fu"));
   const fu = Number.isInteger(fuRaw) && fuRaw > 0 ? fuRaw : null;
   const [tagging, setTagging] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [parts, setParts] = useState<StockPart[] | null>(null);
   const [locations, setLocations] = useState<StockLocation[] | null>(null);
   const [summary, setSummary] = useState<StockSummary | null>(null);
@@ -97,6 +100,10 @@ export const SparesPage: React.FC = () => {
           <p className="text-xs text-muted-foreground">{t("Spare units in the store and the crews' vans, failed units, and every move in and out")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="accent" onClick={() => setReplacing(true)} disabled={!locations?.length}>
+            <Replace data-icon="inline-start" />
+            {t("Replace a device")}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setTagging(true)} disabled={!locations?.length}>
             <Tag data-icon="inline-start" />
             {t("Tag a failed unit")}
@@ -171,6 +178,7 @@ export const SparesPage: React.FC = () => {
         locations={locations ?? []}
         onDone={reload}
       />
+      <ReplaceDialog open={replacing} onOpenChange={setReplacing} locations={locations ?? []} onDone={reload} />
       <TagFailedDialog open={tagging} onOpenChange={setTagging} parts={parts ?? []} locations={locations ?? []} onDone={reload} />
       <FailedUnitDialog id={fu} onOpenChange={(o) => !o && setUrl({ fu: null })} parts={parts ?? []} locations={locations ?? []} onChanged={reload} />
       <PartDialog part={editPart ?? null} open={editPart !== undefined} onOpenChange={(o) => !o && setEditPart(undefined)} onDone={reload} />

@@ -20,7 +20,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { KIND_ICON, KIND_LABEL, KINDS } from "./kinds";
 import { ScanField } from "../../components/scan/ScanField";
 
-type TextField = Exclude<keyof SiteDevice, "kind" | "seq">;
+type TextField = Exclude<keyof SiteDevice, "kind" | "seq" | "id">;
 type FieldDef = { f: TextField; label: string; max?: number; date?: boolean; mono?: boolean; placeholder?: string };
 
 /** Every editable field by section: label, column length (backend `_MAX_LEN`), date or text. */
