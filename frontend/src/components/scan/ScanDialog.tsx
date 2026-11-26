@@ -455,7 +455,7 @@ export const ScanDialog: React.FC<{
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={tab ?? "type"} onValueChange={(v) => setTab(v as Tab)}>
+        <Tabs value={tab ?? "type"} onValueChange={(v) => setTab(v as Tab)} className="min-w-0">
           <TabsList variant="line">
             <TabsTrigger value="camera" disabled={!cameraSupported()}>
               <Camera className="size-3.5" /> {t("Camera")}
@@ -463,7 +463,9 @@ export const ScanDialog: React.FC<{
             <TabsTrigger value="photo">
               <ImageUp className="size-3.5" /> {t("Photo")}
             </TabsTrigger>
-            <TabsTrigger value="type">
+            {/* while the camera check runs, Type in already shows as selected, so the tabs report no
+                change for a click on it: take it here, or the check would switch to Camera after it */}
+            <TabsTrigger value="type" onClick={() => setTab("type")}>
               <Keyboard className="size-3.5" /> {t("Type in")}
             </TabsTrigger>
           </TabsList>
@@ -474,13 +476,13 @@ export const ScanDialog: React.FC<{
           <TabsContent value="photo" className={cn(read && "hidden")}>
             <PhotoBox formats={formats} onRead={setRead} />
           </TabsContent>
-          <TabsContent value="type" className={cn(read && "hidden")}>
+          <TabsContent value="type" className={cn(read && "hidden")} onFocusCapture={() => setTab((cur) => cur ?? "type")}>
             {tab !== null && <TypeBox onSubmit={setRead} autoFocus={tab === "type"} label={title ?? t("Code")} />}
           </TabsContent>
         </Tabs>
 
         {read && (
-          <div className="flex flex-col gap-3 border-t border-white/[0.06] pt-3">
+          <div className="flex min-w-0 flex-col gap-3 border-t border-white/[0.06] pt-3">
             {mode === "resolve" ? (
               <ResolveResult key={read.value} read={read} onOpen={openMatch} onLookup={(value) => setRead({ ...read, value })} />
             ) : (
