@@ -32,6 +32,7 @@ from app.db.models import GrowattInverter, GrowattPlant, Part, SiteDevice, SiteR
 from app.db.models.stock import INPUT_METHODS, PART_CATEGORIES
 from app.services import stock_failed
 from app.services.scan import _SITE_DEVICE_LABEL
+from app.services.stock_installed import _part_keys, model_key
 from app.services.stock import StockConflict, StockError, StockNotFound, _by, _people, _plant_names, _text, _visible, serial_key, unit_out
 
 audit = logging.getLogger("app.audit")
@@ -121,6 +122,24 @@ def _target(db: Session, plant_id: int, body: Dict[str, Any]) -> Tuple[Optional[
     return None, inv
 
 
+def _old_part_id(db: Session, plant_id: int, old_serial: str, target: Dict[str, Any], new_part: Part) -> Optional[int]:
+    """The removed unit's catalogue part, only where it is known (never assumed from the spare going in):
+    an installed spare unit of this plant with the old serial → its part (and `stock_failed._create`
+    links that unit); else the spare's part when the target's recorded model is that part's model
+    (a like-for-like swap); else None. A spare of the same category but another model (RUT240 →
+    RUT241) does not say what the old unit was."""
+    q = select(SpareUnit).where(SpareUnit.serial_key == serial_key(old_serial), SpareUnit.state == "installed", SpareUnit.plant_id == plant_id)
+    found = list(db.scalars(q))
+    if len(found) == 1:
+        return found[0].part_id
+    if found:
+        return None
+    key = model_key(target.get("model"))
+    if new_part.category == target["category"] and key is not None and key in _part_keys(new_part):
+        return new_part.id
+    return None
+
+
 def replace(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
     """The §5.3 flow in one transaction; see the module docstring."""
     try:
@@ -144,7 +163,10 @@ def _replace(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
     # 1. the old unit against the register
     register_serial: Optional[str] = target["serial"]
     if register_serial and serial_key(register_serial) != serial_key(old_serial) and body.get("confirm_register_update") is not True:
-        msg = f"Register says {register_serial}, label says {old_serial}: confirm to update the register"
+        if dev is not None:
+            msg = f"Register says {register_serial}, label says {old_serial}: confirm to update the register"
+        else:  # the Growatt registry is never changed here: the label serial goes on the failed unit only
+            msg = f"Growatt says {register_serial}, label says {old_serial}: confirm to record the label serial on the failed unit"
         raise StockConflict(
             [{"row": None, "error": msg}],
             {"code": "register_mismatch", "register_serial": register_serial, "label_serial": old_serial},
@@ -162,8 +184,7 @@ def _replace(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
     if serial_key(unit.serial) == serial_key(old_serial):
         raise StockError(f"The new unit's serial {unit.serial} is the old unit's: scan the spare being installed")
     warnings: List[str] = []
-    same_category = part.category == target["category"]
-    if not same_category:
+    if part.category != target["category"]:
         warnings.append(f"{part.code} is a {part.category.replace('_', ' ')} part; {target['label']} is a {target['category'].replace('_', ' ')}")
     loc = db.get(StockLocation, unit.location_id) if unit.location_id is not None else None
     if loc is not None and loc.kind == "van" and loc.holder_user_id is not None and loc.holder_user_id != user.id:
@@ -184,7 +205,7 @@ def _replace(db: Session, user: User, body: Dict[str, Any]) -> Dict[str, Any]:
             "site_device_id": dev.id if dev is not None else None,
             "inverter_sn": inv.device_sn if inv is not None else None,
             "serial": old_serial,
-            "part_id": part.id if same_category else None,
+            "part_id": _old_part_id(db, plant.plant_id, old_serial, target, part),
             "to_location_id": body.get("failed_to_location_id"),
             "removed_day": body.get("removed_day"),
             "input_method": old_method,

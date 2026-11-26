@@ -278,6 +278,8 @@ export interface ReplacementResult {
     inverter_sn: string | null;
     old_serial: string | null;
     new_serial: string;
+    /** inverters only: the Growatt registry is not changed (the next fleet run brings the new SN) */
+    note?: string;
   };
   warnings: string[];
   claim_prefill: ReplacementClaimPrefill;

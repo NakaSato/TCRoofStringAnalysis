@@ -443,6 +443,7 @@ export const ReplaceDialog: React.FC<{
             <p className="text-xs text-muted-foreground">{t("Scan the serial on the label of the unit you take off.")}</p>
             <Row id="rp-old" label={t("Old unit serial no.")}>
               <ScanField
+                key="rp-old"
                 id="rp-old"
                 maxLength={64}
                 upper
@@ -471,7 +472,11 @@ export const ReplaceDialog: React.FC<{
               {regSerial && norm(oldSerial) !== "" && (
                 <span className={cn("flex items-center gap-1.5", oldMatches ? "text-emerald-300" : "text-amber-300")}>
                   {oldMatches ? <Check className="size-3.5" /> : <TriangleAlert className="size-3.5" />}
-                  {oldMatches ? t("Matches the register") : t("Differs from the register: you will be asked to update it")}
+                  {oldMatches
+                    ? t("Matches the register")
+                    : target?.kind === "inverter"
+                      ? t("Differs from Growatt: you will be asked to confirm the label serial")
+                      : t("Differs from the register: you will be asked to update it")}
                 </span>
               )}
             </div>
@@ -482,6 +487,7 @@ export const ReplaceDialog: React.FC<{
           <div className="flex flex-col gap-3">
             <Row id="rp-tag" label={t("Red tag")} hint={t("Tie a blank red tag to the old unit and scan it.")}>
               <ScanField
+                key="rp-tag"
                 id="rp-tag"
                 maxLength={64}
                 upper
@@ -507,6 +513,7 @@ export const ReplaceDialog: React.FC<{
           <div className="flex flex-col gap-3">
             <Row id="rp-new" label={t("New spare serial no.")} hint={t("Scan the spare going in. It must be in stock.")}>
               <ScanField
+                key="rp-new"
                 id="rp-new"
                 maxLength={64}
                 upper
@@ -604,12 +611,16 @@ export const ReplaceDialog: React.FC<{
             {mismatch && (
               <Alert variant="warn">
                 <TriangleAlert />
-                <AlertTitle>{t("Register says {register}, label says {label}: update the register?", { register: mismatch.register_serial ?? "—", label: mismatch.label_serial })}</AlertTitle>
+                <AlertTitle>
+                  {target?.kind === "inverter"
+                    ? t("Growatt says {register}, label says {label}: record the label serial on the failed unit?", { register: mismatch.register_serial ?? "—", label: mismatch.label_serial })
+                    : t("Register says {register}, label says {label}: update the register?", { register: mismatch.register_serial ?? "—", label: mismatch.label_serial })}
+                </AlertTitle>
                 <AlertDescription>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button size="lg" disabled={busy} onClick={() => void submit(true)}>
                       {busy && <Spinner data-icon="inline-start" />}
-                      {t("Yes, update the register")}
+                      {target?.kind === "inverter" ? t("Yes, use the label serial") : t("Yes, update the register")}
                     </Button>
                     <Button
                       size="lg"

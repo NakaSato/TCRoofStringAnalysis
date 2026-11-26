@@ -66,8 +66,8 @@ def api(tmp_path, monkeypatch):
         r = c.post("/stock/locations", json={"code": code, "name": code, "kind": kind, "holder_user_id": holder}, headers=keeper)
         assert r.status_code == 201, r.text
         locs[code] = r.json()["id"]
-    router = c.post("/stock/parts", json={"code": "P-ROUTER-RUT241", "name": "Teltonika RUT241", "category": "router"}, headers=keeper).json()
-    inverter = c.post("/stock/parts", json={"code": "P-INV-MAX80", "name": "MAX 80KTL3 LV", "category": "inverter"}, headers=keeper).json()
+    router = c.post("/stock/parts", json={"code": "P-ROUTER-RUT241", "name": "Teltonika RUT241", "category": "router", "make": "Teltonika", "model": "RUT241"}, headers=keeper).json()
+    inverter = c.post("/stock/parts", json={"code": "P-INV-MAX80", "name": "MAX 80KTL3 LV", "category": "inverter", "make": "Growatt", "model": "MAX 80KTL3 LV"}, headers=keeper).json()
     rows = [
         {"kind": "receive", "part_id": router["id"], "serial": "RTR-NEW-1", "to_location_id": locs["VAN-CREW1"]},
         {"kind": "receive", "part_id": router["id"], "serial": "RTR-NEW-2", "to_location_id": locs["VAN-CREW2"]},
@@ -78,7 +78,9 @@ def api(tmp_path, monkeypatch):
     assert r.status_code == 201, r.text
     with f() as db:
         units = {u.serial: u.id for u in db.scalars(select(SpareUnit))}
-    return {"c": c, "adm": adm, "eng": login("engineer", "engineer123"), "keeper": keeper, "f": f, "locs": locs, "devs": devs, "units": units,
+    router240 = c.post("/stock/parts", json={"code": "P-ROUTER-RUT240", "name": "Teltonika RUT240", "category": "router", "make": "Teltonika", "model": "RUT240"},
+                       headers=keeper).json()
+    return {"c": c, "adm": adm, "router240": router240, "eng": login("engineer", "engineer123"), "keeper": keeper, "f": f, "locs": locs, "devs": devs, "units": units,
             "router": router, "inverter": inverter}
 
 
@@ -284,3 +286,70 @@ def test_ledger_replay(api):
             if u.state == "installed":
                 assert state[u.id][2] == u.plant_id, u.serial
         assert db.get(SiteDevice, t["devs"][("P1-001", "router")]).serial == "RTR-NEW-3"
+
+
+def test_part_of_the_old_unit_is_never_assumed(api):
+    """#138: the failed unit's part is the removed unit's, never the spare going in: a router of another
+    model (RUT240 on the register, a RUT241 spare) gives no part; a device with no model recorded neither."""
+    t = api
+    with t["f"]() as db:
+        db.get(SiteDevice, t["devs"][("P1-001", "router")]).brand_model = "Teltonika RUT240"
+        db.commit()
+    d = _post(t, t["eng"])
+    assert d["failed_unit"]["part_id"] is None and d["warnings"] == []
+    with t["f"]() as db:
+        d2 = db.get(SiteDevice, t["devs"][("P1-001", "router")])
+        d2.brand_model, d2.serial = None, "RTR-NEW-1"
+        db.commit()
+    d = _post(t, t["eng"], old_serial="RTR-NEW-1", red_tag="RT-0002", new_unit_id=t["units"]["RTR-NEW-3"])
+    # the old unit is an installed spare (a RUT241): linked, its own part, though the register has no model
+    assert d["failed_unit"]["part_id"] == t["router"]["id"]
+    with t["f"]() as db:
+        assert db.get(SpareUnit, t["units"]["RTR-NEW-1"]).state == "failed"
+
+
+def test_installed_spare_of_another_part_is_linked(api):
+    """#138: replacing an installed RUT240 spare with a RUT241 spare links (and fails) the RUT240 unit,
+    under its own part; before, the lookup was filtered by the RUT241 part and left it installed."""
+    t = api
+    keeper = t["keeper"]
+    r = t["c"].post("/stock/movements/batch", json={"rows": [{"kind": "receive", "part_id": t["router240"]["id"], "serial": "RTR-240-1",
+                                                               "to_location_id": t["locs"]["STORE"]}]}, headers=keeper)
+    assert r.status_code == 201, r.text
+    with t["f"]() as db:
+        u240 = db.scalars(select(SpareUnit).where(SpareUnit.serial == "RTR-240-1")).one()
+    r = t["c"].post("/stock/movements/batch", json={"rows": [{"kind": "issue", "unit_id": u240.id, "plant_id": P1}]}, headers=keeper)
+    assert r.status_code == 201, r.text
+    with t["f"]() as db:
+        db.get(SiteDevice, t["devs"][("P1-001", "router")]).serial = "RTR-240-1"
+        db.commit()
+    d = _post(t, t["eng"], old_serial="RTR-240-1")
+    assert d["failed_unit"]["part_id"] == t["router240"]["id"]
+    with t["f"]() as db:
+        assert db.get(SpareUnit, u240.id).state == "failed"
+        assert db.get(FailedUnit, d["failed_unit"]["id"]).spare_unit_id == u240.id
+
+
+def test_spare_installed_on_another_plant_is_not_taken(api):
+    """#138: a label serial that is a spare installed on another plant is refused (422 when visible,
+    409 without naming it when hidden); that plant's unit is never linked or failed."""
+    t = api
+    adm = t["adm"]
+    r = t["c"].post("/stock/movements/batch", json={"rows": [{"kind": "issue", "unit_id": t["units"]["RTR-NEW-3"], "plant_id": P2}]}, headers=adm)
+    assert r.status_code == 201, r.text
+    before = _snapshot(t)
+    r = _post(t, adm, 422, old_serial="RTR-NEW-3", confirm_register_update=True)
+    assert str(P2) in r["detail"]
+    r = _post(t, t["eng"], 409, old_serial="RTR-NEW-3", confirm_register_update=True)
+    assert "another plant" in r["detail"]["message"] and str(P2) not in r["detail"]["message"]
+    assert _snapshot(t) == before
+    with t["f"]() as db:
+        u = db.get(SpareUnit, t["units"]["RTR-NEW-3"])
+        assert (u.state, u.plant_id) == ("installed", P2)
+
+
+def test_inverter_mismatch_does_not_promise_a_register_update(api):
+    t = api
+    r = _post(t, t["eng"], 409, site_device_id=None, inverter_sn="INVOLD0001", old_serial="INVLABEL01", new_unit_id=t["units"]["INVNEW0001"])
+    msg = r["detail"]["message"]
+    assert r["detail"]["code"] == "register_mismatch" and "update the register" not in msg and "failed unit" in msg
