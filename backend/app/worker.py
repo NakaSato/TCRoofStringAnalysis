@@ -85,6 +85,9 @@ log = logging.getLogger("worker")
 
 GRACE = timedelta(hours=3)
 TICK_S = 60
+# the tick's own clock (patched in tests): jobs run one after another, so each one's due check and
+# `started_at` use the tick's `now` plus the time the earlier jobs of the tick took
+_monotonic = time.monotonic
 # `power_limits` (readPower) needs the inverters running: mid-morning, and with GRACE it can
 # still start up to 13:40 when the worker was busy, all in daylight
 POWER_LIMITS_AT = (10, 40)
@@ -232,21 +235,32 @@ def _last_start(db, s: Schedule) -> Optional[datetime]:
 
 
 def tick(session_factory, schedule: List[Schedule], now: datetime) -> List[str]:
-    """Run queued (API-requested) runs, then every due job once, sequentially. Returns the jobs started."""
+    """Run queued (API-requested) runs, then every due job once, sequentially. Returns the jobs started.
+
+    Each job is judged due and stamped `started_at` at the moment it starts (`now` + the time the
+    tick has run so far), not at the tick's start: a job after a 6-min `history` would otherwise
+    look 6 min long in `sync_runs` (and its due check would use a stale time)."""
+    t0 = _monotonic()
+
+    def clock() -> datetime:
+        # whole seconds: a job's few milliseconds must not push the next one past an exact boundary
+        return now + timedelta(seconds=int(_monotonic() - t0))
+
     started = []
     with session_factory() as db:
         queued = jobs.claim_queued(db, now=now)
     for run_id in queued:
-        run = jobs.execute(session_factory, run_id)
+        run = jobs.execute(session_factory, run_id, started_at=clock())
         log.info("%s (queued) → %s %s", run.job, run.status, run.error or run.detail_json)
         started.append(run.job)
     for s in schedule:
+        at = clock()
         with session_factory() as db:
             last = _last_start(db, s)
-            if not (s.is_due(now, last) or _bootstrap_due(s.job, db, now, last)):
+            if not (s.is_due(at, last) or _bootstrap_due(s.job, db, at, last)):
                 continue
             try:
-                run_id = jobs.claim(db, s.job, "schedule", now=now)
+                run_id = jobs.claim(db, s.job, "schedule", now=at)
             except jobs.JobBusy as exc:
                 log.info("skip %s: %s", s.job, exc)
                 continue

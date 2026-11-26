@@ -602,11 +602,14 @@ def claim_queued(db: Session, now: Optional[datetime] = None) -> List[int]:
     return ids
 
 
-def execute(session_factory: sessionmaker, run_id: int) -> SyncRun:
-    """Run a claimed job in its own session and record the outcome."""
+def execute(session_factory: sessionmaker, run_id: int, started_at: Optional[datetime] = None) -> SyncRun:
+    """Run a claimed job in its own session and record the outcome. `started_at` = when it really
+    starts: queued runs are all claimed at the tick's start, then run one after another."""
     with session_factory() as db:
         run = db.get(SyncRun, run_id)
         assert run is not None
+        if started_at is not None:
+            run.started_at = _utc(started_at)
         # end the read transaction now: held through a long job, its snapshot keeps Postgres
         # from finishing CREATE INDEX CONCURRENTLY and VACUUM (seen in prod: 68 min "idle in
         # transaction" during a history run)

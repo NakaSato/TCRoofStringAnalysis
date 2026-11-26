@@ -488,3 +488,40 @@ def test_worker_health_needs_a_recent_finished_history_run(api, factory):
         db.commit()
         # a failed run doesn't count as a sync
         assert jobs.worker_health(db, now=now + jobs.WORKER_STALE_AFTER)["ok"] is False
+
+
+def test_started_at_is_when_each_job_starts_not_the_tick(factory, monkeypatch):
+    """Jobs of one tick run one after another: a job after a long one is stamped when it starts,
+    so `sync_runs` durations are its own (a 0-page kb_ocr used to look as long as history)."""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(worker_mod, "_monotonic", lambda: clock["t"])
+
+    def slow(db):
+        clock["t"] += 300
+        return "ok", {}
+
+    def quick(db):
+        return "ok", {}
+
+    monkeypatch.setattr(jobs, "JOBS", {"history": slow, "kb_ocr": quick, "fleet": slow, "publish_today": quick})
+    now = datetime(2026, 11, 12, 10, 0, tzinfo=BKK)
+    every = timedelta(minutes=10)
+    assert tick(factory, [Schedule("history", every=every), Schedule("kb_ocr", every=every)], now) == ["history", "kb_ocr"]
+    with factory() as db:
+        h = db.scalars(select(SyncRun).where(SyncRun.job == "history")).one()
+        k = db.scalars(select(SyncRun).where(SyncRun.job == "kb_ocr")).one()
+        assert jobs._aware(h.started_at) == now
+        assert jobs._aware(k.started_at) == now + timedelta(seconds=300)
+
+    # queued runs: claimed together, each stamped when it really starts
+    with factory() as db:
+        jobs.enqueue(db, "fleet", now=now)
+        jobs.enqueue(db, "publish_today", now=now)
+    later = now + timedelta(hours=1)
+    clock["t"] = 5000.0
+    assert tick(factory, [], later) == ["fleet", "publish_today"]
+    with factory() as db:
+        f = db.scalars(select(SyncRun).where(SyncRun.job == "fleet")).one()
+        p = db.scalars(select(SyncRun).where(SyncRun.job == "publish_today")).one()
+        assert jobs._aware(f.started_at) == later
+        assert jobs._aware(p.started_at) == later + timedelta(seconds=300)
