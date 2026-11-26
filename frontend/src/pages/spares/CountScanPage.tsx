@@ -39,12 +39,13 @@ import { notify } from "../../lib/notify";
 import { useUrlState } from "@/lib/useUrlState";
 import { signal, unlockAudio } from "../../lib/scan/feedback";
 import { pushScanTarget } from "../../lib/scan/hidScanner";
-import { markServerErrors, serialKey } from "../../lib/scan/batch";
+import { addScanRow, markServerErrors, removeSent } from "../../lib/scan/batch";
 import {
   RESULT_LABEL,
   RESULT_TONE,
   buildCountScans,
   confirmGate,
+  countRowKey,
   countStorageKey,
   findCountDuplicate,
   groupRows,
@@ -77,6 +78,8 @@ const TONE_ICON: Record<CountTone, React.ReactNode> = { ...STATUS_ICON, info: <I
 interface LastScan {
   status: "ok" | "warn" | "error";
   text: string;
+  /** a location scan's message, kept when it switches to that location */
+  loc?: number;
 }
 
 interface PreviewState {
@@ -156,6 +159,15 @@ export const CountScanPage: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => 
   const [done, setDone] = useState<StockCount | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [note, setNote] = useState("");
+
+  // another location: the last one's banners (saved, stock changed, errors) are not about this one
+  useEffect(() => {
+    setDone(null);
+    setChanged(false);
+    setError(null);
+    setConfirming(false);
+    setLast((l) => (l && l.loc != null && l.loc === loc ? l : null));
+  }, [loc]);
 
   // ---- the preview: re-run (debounced) whenever the location or the scans change
   const { scans, ids } = useMemo(() => buildCountScans(rows, partForNew?.id ?? null), [rows, partForNew]);
@@ -239,11 +251,11 @@ export const CountScanPage: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => 
         }
         if (l.id === d) {
           signal("ok");
-          setLast({ status: "ok", text: tr("Counting {code}", { code: l.code }) });
+          setLast({ status: "ok", text: tr("Counting {code}", { code: l.code }), loc: l.id });
         } else if (!rowsRef.current.length) {
           signal("ok");
           setUrl({ loc: l.id });
-          setLast({ status: "ok", text: tr("Counting {code}", { code: l.code }) });
+          setLast({ status: "ok", text: tr("Counting {code}", { code: l.code }), loc: l.id });
         } else {
           signal("warn");
           setPendingLoc(l);
@@ -251,6 +263,12 @@ export const CountScanPage: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => 
         return;
       }
       if (res.kind === "part" && res.part) {
+        if (!res.part.active) {
+          // the part list holds active parts only: an inactive one cannot take new serials
+          signal("error");
+          setLast({ status: "error", text: tr("{code}: an inactive part, not used for new serials", { code: res.part.code }) });
+          return;
+        }
         signal("ok");
         setUrl({ part: res.part.id });
         setLast({ status: "ok", text: tr("Part for new serials: {code}", { code: res.part.code }) });
@@ -264,7 +282,9 @@ export const CountScanPage: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => 
 
       const serial = res.kind === "unit" && res.units[0] ? res.units[0].serial : res.code || normalise(text).value;
       const rows0 = rowsRef.current;
-      const dup = findCountDuplicate(rows0, serial);
+      // a unit label is that unit (two parts may share a serial), else the serial
+      const scan = { serial, units: res.units, part_id: null };
+      const dup = findCountDuplicate(rows0, scan);
       if (dup >= 0) {
         signal("warn");
         flash(rows0[dup].id);
@@ -272,7 +292,7 @@ export const CountScanPage: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => 
         return;
       }
       const row: CountListRow = { id: newRowId(), raw: text, input_method: method, serial, kind: res.kind, units: res.units, part_id: null, server_error: null };
-      setRows((r) => [row, ...r.filter((x) => serialKey(x.serial) !== serialKey(serial))]);
+      setRows((r) => addScanRow(r, row, countRowKey));
       setChanged(false);
       setDone(null);
       signal("ok");
@@ -304,9 +324,14 @@ export const CountScanPage: React.FC<{ tabs: React.ReactNode }> = ({ tabs }) => 
     try {
       const res = await api.confirmCount(locId, sent.scans, sent.expected, note.trim() || undefined);
       const c = res.count;
-      setRows(() => []);
+      // only the scans counted go; one added while posting stays for the next count
+      setRows((r) => removeSent(r, sent.ids));
       setLast(null);
       setNote("");
+      // the stock here changed: the shown preview is out of date even when the scans did not
+      // change (an all-missing count of an empty list keeps the same key), so fetch it again
+      setPreview((p) => (p ? { ...p, key: "" } : p));
+      setNonce((n) => n + 1);
       setConfirming(false);
       setDone(c);
       notify(

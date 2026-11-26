@@ -4,6 +4,7 @@ import { clearAlarmLogs } from "./alarmLogStore";
 import { clearKbContext } from "./kbContextStore";
 import { clearPlantCache } from "./plantCache";
 import { clearAssistantThreads } from "../components/assistant/useAssistantChat";
+import { clearRegistryWhere } from "../pages/spares/RegistryWhere";
 import { releasePush } from "../lib/push";
 
 export interface AuthContextValue {
@@ -51,6 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearKbContext();
       clearPlantCache();
       clearAssistantThreads();
+      clearRegistryWhere();
       void releasePush(false); // the session is gone: only this browser's subscription can be dropped
       setUser(null);
     };
@@ -72,6 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearKbContext();
     clearPlantCache();
     clearAssistantThreads();
+    clearRegistryWhere();
     setUser(null);
   }, []);
 

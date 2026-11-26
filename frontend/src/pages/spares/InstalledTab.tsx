@@ -27,8 +27,8 @@ const ALL = "all";
 type Target = { plant_id: number; site_device_id: number | null; inverter_sn: string | null };
 
 const csvRows = (items: InstalledDevice[]) => [
-  ["key", "source", "category", "label", "serial", "model", "plant_id", "plant", "site_code", "phase", "ip", "network", "sim", "status", "spare_unit_id", "failed_open", "path"],
-  ...items.map((d) => [d.key, d.source, d.category, d.label, d.serial, d.model, d.plant_id, d.plant_name, d.site_code, d.phase, d.ip, d.network, d.sim, d.status, d.spare_unit_id, d.failed_open, d.path]),
+  ["key", "source", "category", "label", "serial", "model", "plant_id", "plant", "site_code", "phase", "ip", "network", "sim", "status", "spare_unit_id", "spare_part_id", "failed_open", "path"],
+  ...items.map((d) => [d.key, d.source, d.category, d.label, d.serial, d.model, d.plant_id, d.plant_name, d.site_code, d.phase, d.ip, d.network, d.sim, d.status, d.spare_unit_id, d.spare_part_id, d.failed_open, d.path]),
 ];
 
 /**
@@ -238,7 +238,7 @@ const DeviceRow: React.FC<{ d: InstalledDevice; onReplace?: (target: Target) => 
           <span className="mt-1 flex flex-wrap gap-1">
             {d.spare_unit_id != null && (
               <Badge variant="info" asChild>
-                <Link to={`/inventory?tab=stock&unit=${d.spare_unit_id}`}>{t("Spare unit")}</Link>
+                <Link to={d.spare_part_id != null ? `/inventory?tab=stock&part=${d.spare_part_id}&unit=${d.spare_unit_id}` : "/inventory?tab=stock"}>{t("Spare unit")}</Link>
               </Badge>
             )}
             {d.failed_open && <Badge variant="warn">{t("Failed unit open")}</Badge>}

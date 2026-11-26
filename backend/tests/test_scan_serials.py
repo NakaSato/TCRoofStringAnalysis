@@ -124,3 +124,39 @@ def test_unknown_category_and_empty_serial(api):
     assert _check(client, h, category="router", serial="  ")["warnings"] == []
     r = client.get("/scan/serial-check", params={"category": "router"}, headers=h)
     assert r.status_code == 422
+
+
+def test_not_installed_inverters_do_not_teach_the_shape(api, tmp_path):
+    """Issue #141: an inverter marked not installed is left out of what the check learns from."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    client, h = api
+    f = client.app.dependency_overrides[get_db]
+    db = next(f())
+    # 4 of the 6 MAX 125 inverters marked not installed: the model then has too few to learn from
+    for inv in db.scalars(select(GrowattInverter).where(GrowattInverter.device_model == "MAX 125KTL3-X LV")).all()[:4]:
+        inv.not_installed_at = datetime.now(timezone.utc)
+    db.commit()
+    ss.clear_cache()
+    out = _check(client, h, category="inverter", model="MAX 125KTL3-X LV", serial="CWQFG4V009")
+    # left: 2 MAX 125 + 2 MID 40 = 4 serials, below MIN_SAMPLES (with them it would learn from 8)
+    assert out["basis"] is None and out["expected"] is None
+
+
+def test_category_case_and_odd_digits(api):
+    client, h = api
+    # a mixed-case SIM category is still the SIM field: no IMEI warning there
+    out = _check(client, h, category=" Router:SIM ", serial="490154203237518")
+    assert "imei" not in _codes(out)
+    # non-ASCII digits never crash the Luhn check
+    assert not ss.luhn_ok("²" * 15)
+    assert _check(client, h, category="router", serial="²" * 15)["serial"] == "²" * 15
+
+
+def test_cache_is_bounded(api):
+    client, h = api
+    for i in range(ss._MAX_CACHED + 20):
+        _check(client, h, category=f"nothing{i}", serial="ABC")
+    assert len(ss._cache) <= ss._MAX_CACHED

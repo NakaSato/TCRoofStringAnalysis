@@ -142,7 +142,10 @@ def list_units(
 def lookup_code(code: str = Query(..., max_length=512), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
     """What a batch-page scan is: `kind` location / unit / part / serial / unknown (DB only, not
     rate limited, never 404; hidden units are not listed)."""
-    return lookup_svc.lookup(db, user, code)
+    try:
+        return lookup_svc.lookup(db, user, code)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/movements")

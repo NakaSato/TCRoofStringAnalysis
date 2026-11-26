@@ -204,7 +204,7 @@ export interface FailedUnitPatch {
 }
 
 export interface FailedUnitMove {
-  kind: "transfer" | "ship_out" | "supplier_return" | "scrap" | "count_adjust";
+  kind: "transfer" | "ship_out" | "supplier_return" | "scrap";
   to_location_id?: number;
   outcome?: "repaired" | "replaced";
   new_serial?: string;

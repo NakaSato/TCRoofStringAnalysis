@@ -14,9 +14,9 @@ import { CATEGORY_LABEL, download } from "./shared";
 
 const ALL = "all";
 
-/** the parts' minimum summed over the parts that have one; null when none has one */
+/** the active parts' minimum summed over the ones that have one (as `below_min`); null when none has one */
 const minSum = (r: ModelRow): number | null => {
-  const set = r.parts.map((p) => p.min_qty).filter((x): x is number => x != null);
+  const set = r.parts.filter((p) => p.active).map((p) => p.min_qty).filter((x): x is number => x != null);
   return set.length ? set.reduce((a, b) => a + b, 0) : null;
 };
 
@@ -29,7 +29,7 @@ const phaseEntries = (r: ModelRow) =>
 /**
  * L-4 (docs/plans/inventory-installed-base.md), "Spares per model": installed per model and phase
  * against the spares of the matching catalogue parts. Counts only. "Thin" = in stock below the sum of
- * the parts' minimums (only where a minimum is set). URL `mcat`.
+ * the active parts' minimums (only where a minimum is set). URL `mcat`.
  */
 export const ModelsTab: React.FC<{ version: number; keeper: boolean; onChanged: () => void }> = ({ version, keeper, onChanged }) => {
   const { t } = useI18n();
@@ -38,7 +38,7 @@ export const ModelsTab: React.FC<{ version: number; keeper: boolean; onChanged: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // kept after closing so the dialog keeps its filter while it animates out
-  const [adding, setAdding] = useState<{ category: PartCategory; model: string } | null>(null);
+  const [adding, setAdding] = useState<{ category: PartCategory; modelKey: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
   useEffect(() => {
@@ -171,9 +171,9 @@ export const ModelsTab: React.FC<{ version: number; keeper: boolean; onChanged: 
                               </span>
                             ))}
                           </span>
-                        ) : keeper && r.model ? (
+                        ) : keeper && r.model && r.model_key ? (
                           <Button size="xs" variant="outline" onClick={() => {
-                              setAdding({ category: r.category, model: r.model! });
+                              setAdding({ category: r.category, modelKey: r.model_key! });
                               setAddOpen(true);
                             }}>
                             <Plus data-icon="inline-start" />

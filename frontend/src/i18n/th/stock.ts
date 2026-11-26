@@ -190,6 +190,7 @@ export const TH_STOCK: Record<string, string> = {
   "{code}: not an active store, bin or van": "{code}: ไม่ใช่คลัง ช่องเก็บ หรือรถที่ใช้งานอยู่",
   "Destination: {code}": "ปลายทาง: {code}",
   "Part for new serials: {code}": "รายการอะไหล่สำหรับซีเรียลใหม่: {code}",
+  "{code}: an inactive part, not used for new serials": "{code}: รายการอะไหล่ที่ปิดใช้งาน ใช้กับซีเรียลใหม่ไม่ได้",
   "Duplicate in this list": "ซ้ำกับในรายการนี้",
   "Not a serial": "ไม่ใช่ซีเรียล",
   "Already in the register ({state} at {where})": "มีในทะเบียนแล้ว ({state} ที่ {where})",

@@ -23,12 +23,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import GrowattInverter, Instrument, Part, SiteDevice, SpareUnit
+from app.db.models import GrowattInverter, Instrument, Part, SiteDevice, SpareUnit, inverter_installed
 
 MIN_SAMPLES = 5  # fewer known serials than this: no expectation, no warning
 PREFIX_SHARE = 0.95  # a letter prefix counts when at least this share of the known serials has it
 MAX_PREFIX = 4
 _TTL_S = 600
+_MAX_CACHED = 128  # categories come from a query parameter: keep the cache bounded
 
 _lock = threading.Lock()
 _cache: Dict[str, Tuple[float, List[Tuple[str, str]]]] = {}
@@ -38,7 +39,7 @@ _DIGITS = re.compile(r"^[0-9]+$")
 
 
 def luhn_ok(digits: str) -> bool:
-    if not digits.isdigit():
+    if not _DIGITS.match(digits):  # ASCII only: str.isdigit() also takes "²", which int() refuses
         return False
     total = 0
     for i, ch in enumerate(reversed(digits)):
@@ -86,10 +87,10 @@ def _read(db: Session, category: str) -> List[Tuple[str, str]]:
             add(sim, bm)
         return out
     if category == "inverter":
-        for sn, dm, m in db.execute(select(GrowattInverter.device_sn, GrowattInverter.device_model, GrowattInverter.model)):
+        for sn, dm, m in db.execute(select(GrowattInverter.device_sn, GrowattInverter.device_model, GrowattInverter.model).where(inverter_installed())):
             add(sn, dm or m)
     if category == "datalogger":
-        for sn, dm in db.execute(select(GrowattInverter.datalogger_sn, GrowattInverter.datalogger_model).distinct()):
+        for sn, dm in db.execute(select(GrowattInverter.datalogger_sn, GrowattInverter.datalogger_model).where(inverter_installed()).distinct()):
             add(sn, dm)
     for sn, bm in db.execute(select(SiteDevice.serial, SiteDevice.brand_model).where(SiteDevice.kind == category)):
         add(sn, bm)
@@ -108,6 +109,10 @@ def _known(db: Session, category: str) -> List[Tuple[str, str]]:
             return hit[1]
     rows = _read(db, category)
     with _lock:
+        for k in [k for k, (at, _) in _cache.items() if now - at >= _TTL_S]:
+            del _cache[k]
+        if len(_cache) >= _MAX_CACHED:
+            del _cache[min(_cache, key=lambda k: _cache[k][0])]
         _cache[category] = (now, rows)
     return rows
 
@@ -140,7 +145,8 @@ def check(db: Session, category: str, model: Optional[str], serial: str) -> Dict
     """Warnings for `serial` as a `category` (+ `model`) serial. `basis` says what it was compared
     with: the model's serials when it has MIN_SAMPLES, else the category's; null = too few known."""
     value = _norm(serial) or ""
-    rows = _known(db, category.strip().lower())
+    category = category.strip().lower()
+    rows = _known(db, category)
     m = (model or "").strip().upper()
     scope = "category"
     serials = [s for s, _ in rows]

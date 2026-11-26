@@ -224,3 +224,50 @@ def test_lookup_not_rate_limited(api, monkeypatch):
     monkeypatch.setattr(settings, "scan_resolve_per_min", 1)
     for _ in range(5):
         _lookup(t, t["eng"], "R1")
+
+
+def test_lookup_unmatched_part_number_is_unknown_not_a_serial(api):
+    """A `P/N` label is a part number, never a serial (barcode-scanning.md §6.2; issue #139)."""
+    t = api
+    assert _lookup(t, t["eng"], "P/N: XYZ-123") == {"code": "XYZ-123", "kind": "unknown", "location": None, "part": None, "units": []}
+    # even when the value is a unit's serial: a P/N label never names a unit
+    assert _lookup(t, t["eng"], "P/N:R1")["kind"] == "unknown"
+    # a catalogue part code after P/N still names the part; S/N still a serial
+    assert _lookup(t, t["eng"], "P/N:p-logger")["kind"] == "part"
+    assert _lookup(t, t["eng"], "S/N:XYZ-123")["kind"] == "serial"
+
+
+@pytest.mark.parametrize("code", ["sp:²", "sp:¹²", "sp:١٢", "sp:0", "sp:2147483648", "sp:10000000000000000000000000"])
+def test_sp_codes_odd_digits_and_out_of_range(api, code):
+    """Non-ASCII digits and ids outside 1..2147483647 are no unit: unknown / 404, never a 500."""
+    t = api
+    assert _lookup(t, t["eng"], code)["kind"] == "unknown"
+    _resolve(t, t["eng"], code, 404)
+    _resolve(t, t["adm"], code.replace("sp:", "/s/sp/"), 404)
+
+
+def test_sp_code_at_the_upper_bound_is_looked_up(api):
+    t = api
+    assert _lookup(t, t["adm"], "sp:2147483647")["kind"] == "unknown"
+    _resolve(t, t["adm"], "sp:2147483647", 404)
+    r1 = t["units"][("P-ROUTER-RUT", "R1")]
+    assert _lookup(t, t["eng"], f"sp:{r1:05d}")["kind"] == "unit"  # leading zeros are still that id
+
+
+def test_spare_unit_id_guard():
+    assert scan.spare_unit_id("12") == 12
+    assert scan.spare_unit_id("2147483647") == 2147483647
+    for bad in ("", "0", "2147483648", "²", "١٢", "1²", "-1", "1a"):
+        assert scan.spare_unit_id(bad) is None
+
+
+def test_lookup_value_error_is_422(api, monkeypatch):
+    from app.services import stock_lookup
+
+    def boom(db, user, raw):
+        raise ValueError("bad code")
+
+    monkeypatch.setattr(stock_lookup, "lookup", boom)
+    t = api
+    r = t["c"].get("/stock/lookup", params={"code": "x"}, headers=t["eng"])
+    assert r.status_code == 422 and r.json()["detail"] == "bad code"

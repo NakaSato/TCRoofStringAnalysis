@@ -4,6 +4,7 @@ import {
   blockingCount,
   buildCountScans,
   confirmGate,
+  countRowKey,
   countStorageKey,
   findCountDuplicate,
   groupRows,
@@ -166,8 +167,26 @@ describe("errors", () => {
     expect(out.find((r) => r.id === "b")?.server_error).toBeNull();
   });
   test("duplicates by serial key", () => {
-    expect(findCountDuplicate([row({ serial: "sn1" })], " SN1 ")).toBe(0);
-    expect(findCountDuplicate([row({ serial: "sn2" })], "SN1")).toBe(-1);
+    const scan = (serial: string) => ({ serial, units: [], part_id: null });
+    expect(findCountDuplicate([row({ serial: "sn1" })], scan(" SN1 "))).toBe(0);
+    expect(findCountDuplicate([row({ serial: "sn2" })], scan("SN1"))).toBe(-1);
+  });
+  test("two parts sharing a serial count as two units (#140)", () => {
+    const a = unit({ id: 1, part_id: 5, serial: "R1" });
+    const b = unit({ id: 2, part_id: 6, serial: "R1" });
+    expect(countRowKey({ serial: "R1", units: [a], part_id: null })).toBe("unit:1");
+    expect(countRowKey({ serial: "R1", units: [a, b], part_id: null })).toBe("serial:R1");
+    expect(countRowKey({ serial: "R1", units: [a, b], part_id: 6 })).toBe("unit:2");
+    expect(countRowKey({ serial: "R1", units: [a, b], part_id: 99 })).toBe("serial:R1");
+    // two unit labels
+    const rows = [row({ id: "x", kind: "unit", serial: "R1", units: [a] })];
+    expect(findCountDuplicate(rows, { serial: "R1", units: [b], part_id: null })).toBe(-1);
+    expect(findCountDuplicate(rows, { serial: "R1", units: [a], part_id: null })).toBe(0);
+    // the serial scanned again after a part was picked on the first row: the other unit can be counted
+    const picked = [row({ id: "p", serial: "R1", units: [a, b], part_id: 5 })];
+    expect(findCountDuplicate(picked, { serial: "R1", units: [a, b], part_id: null })).toBe(-1);
+    // ... but not while the first row has no part yet
+    expect(findCountDuplicate([row({ serial: "R1", units: [a, b] })], { serial: "R1", units: [a, b], part_id: null })).toBe(0);
   });
 });
 

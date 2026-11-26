@@ -76,7 +76,7 @@ def _row(**kw: Any) -> Dict[str, Any]:
         "key": "", "source": "", "category": "", "label": "", "serial": None, "model": None,
         "plant_id": None, "plant_name": None, "site_code": None, "phase": None,
         "ip": None, "network": None, "sim": None, "status": None,
-        "site_device_id": None, "inverter_sn": None, "path": "", "spare_unit_id": None, "failed_open": False,
+        "site_device_id": None, "inverter_sn": None, "path": "", "spare_unit_id": None, "spare_part_id": None, "failed_open": False,
     }
     out.update(kw)
     return out
@@ -161,14 +161,17 @@ def _collect(db: Session, allowed: Optional[Set[int]], serials: Optional[Set[str
 
 
 def _mark_spares(db: Session, allowed: Optional[Set[int]], rows: List[Dict[str, Any]]) -> None:
-    """`spare_unit_id` (a visible spare unit installed with the serial, any part) and `failed_open`."""
+    """`spare_unit_id` / `spare_part_id` (a visible spare unit installed with the serial, any part, and
+    its part: the Stock tab opens a unit only with its part) and `failed_open`."""
     keys = {serial_key(r["serial"]) for r in rows if r["serial"]}
     if not keys:
         return
-    spare: Dict[str, int] = {}
-    for uid, key, pid in db.execute(select(SpareUnit.id, SpareUnit.serial_key, SpareUnit.plant_id).where(SpareUnit.state == "installed").order_by(SpareUnit.id)):
+    spare: Dict[str, Tuple[int, int]] = {}
+    for uid, part_id, key, pid in db.execute(
+        select(SpareUnit.id, SpareUnit.part_id, SpareUnit.serial_key, SpareUnit.plant_id).where(SpareUnit.state == "installed").order_by(SpareUnit.id)
+    ):
         if key in keys and key not in spare and _spare_visible(allowed, pid):
-            spare[key] = uid
+            spare[key] = (uid, part_id)
     failed: Set[str] = set()
     for key, pid in db.execute(select(FailedUnit.serial_key, FailedUnit.plant_id).where(FailedUnit.status.in_(FAILED_OPEN), FailedUnit.serial_key.is_not(None))):
         if key in keys and _spare_visible(allowed, pid):
@@ -176,7 +179,9 @@ def _mark_spares(db: Session, allowed: Optional[Set[int]], rows: List[Dict[str, 
     for r in rows:
         if r["serial"]:
             k = serial_key(r["serial"])
-            r["spare_unit_id"] = spare.get(k)
+            uid, part_id = spare.get(k, (None, None))
+            r["spare_unit_id"] = uid
+            r["spare_part_id"] = part_id
             r["failed_open"] = k in failed
 
 
@@ -285,7 +290,7 @@ def models(db: Session, user: User) -> Dict[str, Any]:
                 rows[k] = {"category": p.category, "model": " ".join(p.model.split()) if p.model else None, "model_key": k[1], "installed": 0,
                            "installed_by_phase": {}, "in_stock": 0, "failed_open": 0, "at_supplier": 0, "parts": []}
         row_of_part[p.id] = k
-        rows[k]["parts"].append({"id": p.id, "code": p.code, "name": p.name, "min_qty": p.min_qty})
+        rows[k]["parts"].append({"id": p.id, "code": p.code, "name": p.name, "min_qty": p.min_qty, "active": bool(p.active)})
     for pid, state, upid, n in db.execute(
         select(SpareUnit.part_id, SpareUnit.state, SpareUnit.plant_id, func.count())
         .where(SpareUnit.state.in_(("in_stock", "at_supplier")))
@@ -367,13 +372,13 @@ def proposals(db: Session, user: User) -> Dict[str, Any]:
         part = matched.get(k)
         if part is not None:
             out.append({"category": category, "model": part.model or installed_model, "make": part.make, "code": part.code, "name": part.name,
-                        "installed": g["installed"], "part_id": part.id})
+                        "installed": g["installed"], "part_id": part.id, "model_key": k[1]})
             continue
         make, model = _split_make(category, installed_model)
         code = _free_code(_code_base(category, model), taken)
         taken.add(code)
         out.append({"category": category, "model": model[:64], "make": make, "code": code, "name": _name(make, model),
-                    "installed": g["installed"], "part_id": None})
+                    "installed": g["installed"], "part_id": None, "model_key": k[1]})
     return {"proposals": out}
 
 

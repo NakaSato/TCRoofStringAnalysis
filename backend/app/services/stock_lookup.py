@@ -5,7 +5,8 @@ DB only, nothing stored, not rate limited (a desk scanner fires one scan after a
 `/scan/resolve` limit is for single scans). Order: an app code (`loc:` / `sp:`, also as `/s/…`
 path or URL; any other app kind = unknown), else a location code, else a part code (both exact,
 case-insensitive), else a serial (label prefix removed, `scan.normalise`): the spare units of any
-part with that serial, not void. Scoped like `/stock/units`: a unit installed on a plant the user
+part with that serial, not void; an unmatched `P/N` value is a part number, never a serial
+(`unknown`). Scoped like `/stock/units`: a unit installed on a plant the user
 may not see is not listed (never a 404).
 """
 
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.auth import allowed_plant_ids
 from app.db.models import Part, SpareUnit, StockLocation, User
 from app.services import stock
-from app.services.scan import MAX_CODE_LEN, clean, normalise, parse_app_code
+from app.services.scan import MAX_CODE_LEN, clean, normalise, parse_app_code, spare_unit_id
 
 
 def _answer(code: str, kind: str, location: Optional[Dict[str, Any]] = None, part: Optional[Dict[str, Any]] = None, units: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -60,8 +61,9 @@ def lookup(db: Session, user: User, raw: str) -> Dict[str, Any]:
             loc = _location(db, code)
             return _answer(code.upper(), "location", location=loc) if loc else _answer(code.upper(), "unknown")
         if kind == "sp":
-            if code.isdigit():
-                units = _units(db, user, SpareUnit.id == int(code))
+            if code.isascii() and code.isdigit():  # a unit id; out of range = no such unit
+                unit_id = spare_unit_id(code)
+                units = _units(db, user, SpareUnit.id == unit_id) if unit_id is not None else []
                 return _answer(code, "unit", units=units) if units else _answer(code, "unknown")
             part = _part(db, code)
             return _answer(code.upper(), "part", part=part) if part else _answer(code.upper(), "unknown")
@@ -69,9 +71,11 @@ def lookup(db: Session, user: User, raw: str) -> Dict[str, Any]:
     loc = _location(db, s)
     if loc is not None:
         return _answer(s.upper(), "location", location=loc)
-    value, _part_number = normalise(s)
+    value, part_number = normalise(s)
     for candidate in dict.fromkeys((s.upper(), value)):  # `P/N:ABC` names part ABC
         part = _part(db, candidate)
         if part is not None:
             return _answer(candidate, "part", part=part)
+    if part_number:  # a P/N label is a part number, never a serial (barcode-scanning.md §6.2)
+        return _answer(value, "unknown")
     return _answer(value, "serial", units=_units(db, user, SpareUnit.serial_key == value))

@@ -202,6 +202,18 @@ def _location_match(db: Session, loc: StockLocation) -> Match:
     return Match("location", str(loc.id), f"{loc.code} · {loc.name}", "code", f"/inventory/scan?loc={loc.id}", detail=detail)
 
 
+MAX_DB_INT = 2_147_483_647  # INTEGER primary keys (Postgres int4)
+
+
+def spare_unit_id(code: str) -> Optional[int]:
+    """The record id of an `sp:` / `dev:` code: ASCII digits only (`str.isdigit` also takes `²`, which
+    `int` refuses) within 1..2147483647 (a larger value overflows the INTEGER key); else None."""
+    if not (code.isascii() and code.isdigit()):
+        return None
+    n = int(code)
+    return n if 1 <= n <= MAX_DB_INT else None
+
+
 def _app_code_matches(db: Session, kind: str, code: str, allowed: Optional[Set[int]]) -> List[Match]:
     if kind == "tool":
         i = db.scalars(select(Instrument).where(func.upper(Instrument.asset_tag) == code.upper())).first()
@@ -210,16 +222,18 @@ def _app_code_matches(db: Session, kind: str, code: str, allowed: Optional[Set[i
         return [_instrument_match(i, "asset_tag")]
     if kind == "dev":
         row = None
-        if code.isdigit():
+        dev_id = spare_unit_id(code)  # the same id guard: ASCII digits within the INTEGER range
+        if dev_id is not None:
             row = db.execute(
-                select(SiteDevice, SiteRegister).join(SiteRegister, SiteRegister.site_code == SiteDevice.site_code).where(SiteDevice.id == int(code))
+                select(SiteDevice, SiteRegister).join(SiteRegister, SiteRegister.site_code == SiteDevice.site_code).where(SiteDevice.id == dev_id)
             ).first()
         if row is None or not _visible(allowed, row[1].plant_id):
             raise GrowattNotFound(f"No device {code}")
         return [_site_device_match(row[0], row[1], "id")]
     if kind == "sp":
-        if code.isdigit():
-            hit = db.execute(select(SpareUnit, Part).join(Part, Part.id == SpareUnit.part_id).where(SpareUnit.id == int(code))).first()
+        if code.isascii() and code.isdigit():  # a unit id (out of range = no such unit)
+            unit_id = spare_unit_id(code)
+            hit = None if unit_id is None else db.execute(select(SpareUnit, Part).join(Part, Part.id == SpareUnit.part_id).where(SpareUnit.id == unit_id)).first()
             # a voided receive is not in the register; a unit on a hidden plant is not revealed
             if hit is None or hit[0].state == "void" or not _failed_visible(allowed, hit[0].plant_id):
                 raise GrowattNotFound(f"No spare unit {code}")

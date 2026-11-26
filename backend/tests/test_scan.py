@@ -152,6 +152,9 @@ def test_unsupported_kind_unknown_and_bad_input(api):
     body = _resolve(client, eng, "/s/df/D-0001")
     assert body["unsupported_kind"] == "df" and body["matches"] == [] and body["code"] == "D-0001"
     _resolve(client, eng, "/s/sp/P-ROUTER-RUT", 404)  # spares have records now: an unknown part code
+    # an `sp` id: ASCII digits within the INTEGER key only, else no such unit (404, never a 500)
+    for code in ("sp:²", "sp:١٢", "sp:0", "sp:2147483648", "sp:99999999999999999999999999"):
+        _resolve(client, adm, code, 404)
     body = _resolve(client, eng, "NOTHING-HERE")
     assert body["matches"] == [] and body["app_code"] is None
     assert _resolve(client, eng, "P/N:ABC")["part_number"] is True
@@ -297,3 +300,9 @@ def test_tool_and_device_labels_scoped(api):
     assert client.get("/scan/labels", params={"kind": "dev"}, headers=adm).status_code == 422
     assert client.get("/scan/labels", params={"kind": "dev", "ids": "1,x"}, headers=adm).status_code == 422
     assert client.get("/scan/labels", params={"kind": "nope"}, headers=adm).status_code == 422
+
+
+@pytest.mark.parametrize("code", ["dev:²¹", "dev:0", "dev:2147483648", "dev:" + "9" * 26])
+def test_dev_code_odd_ids_are_not_found(api, code):
+    client, admin, *_ = api
+    assert _resolve(client, admin, code, status=404)

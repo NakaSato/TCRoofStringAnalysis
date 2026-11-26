@@ -47,6 +47,7 @@ InstalledDevice {
   site_device_id: int | null, inverter_sn: str | null       # what POST /stock/replacements takes as the target
   path: str           # app route that opens it (same as the resolver's paths)
   spare_unit_id: int | null   # a spare unit `installed` with this serial (any part), when visible
+  spare_part_id: int | null   # that unit's part (the Stock tab opens a unit only with `part=`: /inventory?tab=stock&part=&unit=)
   failed_open: bool           # an open failed unit (tagged / in store / sent) has this serial
 }
 ```
@@ -63,9 +64,10 @@ ModelRow {
   category: PartCategory, model: str | null, model_key: str | null   # key = upper case, spaces collapsed
   installed: int, installed_by_phase: { "<phase>" | "none": int }
   in_stock: int, failed_open: int, at_supplier: int                    # spare units / failed units of the matching parts
-  parts: [{ id, code, name, min_qty }]                                 # catalogue parts matching (category + model key)
+  parts: [{ id, code, name, min_qty, active }]                         # catalogue parts matching (category + model key)
 }
 ```
+- "Thin" (UI) = in stock below the sum of the **active** parts' `min_qty` (as `below_min` of `/stock/parts`); an inactive part's minimum is left out.
 - A part matches when its category is the row's and `key(model)` or `key(make + " " + model)` equals the row's key.
 - Parts that match no installed model still get a row (installed 0), so every spare is counted.
 - Counts are scoped like everything else (installed per visible plant; spares as `/stock/units`).
@@ -73,9 +75,10 @@ ModelRow {
 ### `POST /stock/parts/from-models` (store keeper: `auth.can_manage_stock`, 403 otherwise)
 
 Body `{ apply: bool, items?: [{ category, model, make, code, name }] }`.
-- `apply: false` → `{ proposals: [{ category, model, make, code, name, installed, part_id }] }` for every
+- `apply: false` → `{ proposals: [{ category, model, make, code, name, installed, part_id, model_key }] }` for every
   (category, model) installed with a model recorded; `part_id` = an existing matching part (then nothing
-  to create). Suggested make: Growatt for inverter / datalogger / shinemaster / weather_station; Chint for a `CHNT…` grid meter (Growatt reads it, it does not make it), else none;
+  to create); `model_key` = the installed model's key (the `ModelRow.model_key` it came from; `model` may
+  have its make split off, so match a row on `category` + `model_key`, never on `model`). Suggested make: Growatt for inverter / datalogger / shinemaster / weather_station; Chint for a `CHNT…` grid meter (Growatt reads it, it does not make it), else none;
   otherwise the first word of a multi-word model ("CEWE Prometer" → make CEWE, model Prometer;
   "Teltonika RUT" → Teltonika / RUT). Code `P-<CAT>-<MODEL>` (upper, non-alphanumerics → `-`, ≤ 40,
   `-2`, `-3` … when taken); name = make + model.
@@ -94,7 +97,7 @@ device `serial`. Scoped: hits on plants the user may not see are left out.
 ## Frontend
 
 - `pages/spares/InstalledTab.tsx` (tab `installed`): filters (category, plant, phase, search), counts per category as chips, table (category, label, serial, model, plant / site code, IP / network, SIM, status, links: open, Replace (opens `ReplaceDialog` preset when it takes a target), spare / failed unit badges), CSV of the filtered rows, phone layout as the other tabs.
-- `pages/spares/ModelsTab.tsx` (tab `models`, "Spares per model"): rows per model (installed, per phase, in stock, failed open, at supplier, min qty of the matching parts, a "thin" flag when in stock < the parts' `min_qty` sum), filter by category, CSV; store keepers get "Add to catalogue" for a row with no part.
+- `pages/spares/ModelsTab.tsx` (tab `models`, "Spares per model"): rows per model (installed, per phase, in stock, failed open, at supplier, min qty of the matching parts, a "thin" flag when in stock < the active parts' `min_qty` sum), filter by category, CSV; store keepers get "Add to catalogue" for a row with no part.
 - `pages/spares/FromModelsDialog.tsx`: preview of the proposals, editable code / name / make, tick to include, apply; from the Catalogue tab ("From installed models", store keepers) and the Models tab.
 - `pages/spares/RegistryWhere.tsx`: `useRegistryWhere(serials)` (batched, cached per serial for the page) and a small `RegistryChip` (category + label · site code, link to `path`, IP in the title). Used on the Stock tab's units (an `in_stock` / `missing` unit whose serial is registered as installed = amber: the spare is also on a plant), the failed units list and dialog, the movement list, and as a warning on receive (MoveDialog and the batch page's receive rows).
 - Thai text in `i18n/th/stockInstalled.ts` (L-1, L-2, L-4) and `i18n/th/stockLinks.ts` (L-3).

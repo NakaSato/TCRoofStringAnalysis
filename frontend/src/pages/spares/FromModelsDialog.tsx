@@ -13,21 +13,19 @@ import { useI18n } from "../../i18n";
 import { notify } from "../../lib/notify";
 import { CATEGORY_LABEL, errorText } from "./shared";
 
-/** the backend's model key: upper case, spaces collapsed */
-const modelKey = (s: string) => s.trim().replace(/\s+/g, " ").toUpperCase();
-
 type Draft = { p: ModelProposal; on: boolean; code: string; name: string; make: string };
 
 /**
  * L-2 (docs/plans/inventory-installed-base.md): propose catalogue parts for the models installed;
  * the store keeper reviews, edits code / name / make and applies the ticked ones (all or nothing).
- * `only` narrows the list to one (category, model), from the Spares per model tab.
+ * `only` narrows the list to one (category, installed model key), from the Spares per model tab: on the
+ * key, since a proposal's `model` may have its make split off ("Teltonika RUT" → RUT).
  */
 export const FromModelsDialog: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDone: () => void;
-  only?: { category: PartCategory; model: string };
+  only?: { category: PartCategory; modelKey: string };
 }> = ({ open, onOpenChange, onDone, only }) => {
   const { t } = useI18n();
   const [rows, setRows] = useState<Draft[] | null>(null);
@@ -37,7 +35,7 @@ export const FromModelsDialog: React.FC<{
   const [rowErrors, setRowErrors] = useState<Map<number, string>>(new Map());
   const [busy, setBusy] = useState(false);
   const onlyCat = only?.category;
-  const onlyModel = only?.model;
+  const onlyKey = only?.modelKey;
 
   useEffect(() => {
     if (!open) return;
@@ -50,14 +48,14 @@ export const FromModelsDialog: React.FC<{
       .previewPartsFromModels()
       .then((r) => {
         if (!alive) return;
-        const list = r.proposals.filter((p) => onlyCat == null || onlyModel == null || (p.category === onlyCat && modelKey(p.model) === modelKey(onlyModel)));
+        const list = r.proposals.filter((p) => onlyCat == null || onlyKey == null || (p.category === onlyCat && p.model_key === onlyKey));
         setRows(list.map((p) => ({ p, on: p.part_id == null, code: p.code, name: p.name, make: p.make ?? "" })));
       })
       .catch((e) => alive && setLoadError(errorText(e, t)));
     return () => {
       alive = false;
     };
-  }, [open, onlyCat, onlyModel, t]);
+  }, [open, onlyCat, onlyKey, t]);
 
   const ticked = useMemo(() => (rows ?? []).map((r, i) => ({ r, i })).filter(({ r }) => r.on && r.p.part_id == null), [rows]);
   const invalid = ticked.some(({ r }) => !r.code.trim() || r.code.trim().length > 40 || !r.name.trim());

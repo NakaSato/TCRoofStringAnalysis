@@ -137,10 +137,27 @@ export const confirmGate = (a: { keeper: boolean; locationId: number | null; pre
 /** D-5: a location with no units in the register: everything scanned goes in as new stock */
 export const isFirstCount = (preview: CountPreview | null): boolean => !!preview && preview.expected.length === 0;
 
-/** Index of a row already holding this serial. */
-export const findCountDuplicate = (rows: CountListRow[], serial: string): number => {
-  const k = serialKey(serial);
-  return rows.findIndex((r) => serialKey(r.serial) === k);
+/** The unit a count row stands for: an `sp:` label or a serial only one unit has, or among several the one of the part picked. */
+export const countRowUnitId = (r: Pick<CountListRow, "units" | "part_id">): number | null => {
+  if (r.units.length === 1) return r.units[0].id;
+  if (r.units.length > 1 && r.part_id != null) return r.units.find((u) => u.part_id === r.part_id)?.id ?? null;
+  return null;
+};
+
+/**
+ * What makes two count rows the same scan (as the backend's `seen`): the unit when the row stands for
+ * one, else the serial. Two parts may share a serial: two unit labels, or one serial scanned again
+ * after a part was picked on the first row, are two units.
+ */
+export const countRowKey = (r: Pick<CountListRow, "serial" | "units" | "part_id">): string => {
+  const id = countRowUnitId(r);
+  return id != null ? `unit:${id}` : `serial:${serialKey(r.serial)}`;
+};
+
+/** Index of a row already holding this scan (`countRowKey`). */
+export const findCountDuplicate = (rows: CountListRow[], scan: Pick<CountListRow, "serial" | "units" | "part_id">): number => {
+  const k = countRowKey(scan);
+  return rows.findIndex((r) => countRowKey(r) === k);
 };
 
 /** a 409's `detail` (duck-typed on `ApiError`'s `status` / `detail`, so this module needs no API client) */

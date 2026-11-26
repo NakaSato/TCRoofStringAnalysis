@@ -28,6 +28,8 @@ export interface InstalledDevice {
   path: string;
   /** a spare unit `installed` with this serial */
   spare_unit_id: number | null;
+  /** that unit's part (the Stock tab opens a unit only with `part`) */
+  spare_part_id: number | null;
   /** an open failed unit has this serial */
   failed_open: boolean;
 }
@@ -60,7 +62,8 @@ export interface ModelRow {
   in_stock: number;
   failed_open: number;
   at_supplier: number;
-  parts: { id: number; code: string; name: string; min_qty: number | null }[];
+  /** "Thin" sums `min_qty` of the active parts only */
+  parts: { id: number; code: string; name: string; min_qty: number | null; active: boolean }[];
 }
 
 export interface ModelProposal {
@@ -72,6 +75,8 @@ export interface ModelProposal {
   installed: number;
   /** an existing matching part: nothing to create */
   part_id: number | null;
+  /** the installed model's key (`ModelRow.model_key`); `model` may have its make split off */
+  model_key: string;
 }
 
 export interface FromModelsItem {

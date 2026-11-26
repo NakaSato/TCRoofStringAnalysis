@@ -240,6 +240,14 @@ def test_duplicates_and_unit_ids(api):
     assert out["count"]["new_units"] == 1 and out["count"]["matched"] == 1 and len(out["movements"]) == 1
 
 
+def test_part_number_label_is_not_a_unit(api):
+    """A `P/N` scan is a part number, never a new serial to count in (issue #139)."""
+    t = api
+    p = _preview(t, "bin", [{"raw": "P/N: XYZ-123", "part_id": t["router"]["id"]}, {"raw": "sp:²"}, {"raw": "sp:2147483648"}])
+    assert [r["result"] for r in p["rows"]] == ["not_a_unit", "not_a_unit", "not_a_unit"]
+    assert p["counts"]["new"] == 0
+
+
 def test_corrections_of_count_rows(api):
     t = api
     rid = t["router"]["id"]

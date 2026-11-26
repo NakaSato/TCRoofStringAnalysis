@@ -82,8 +82,16 @@ const request = (keys: string[]) => {
   if (added && flushTimer == null) flushTimer = window.setTimeout(flush, 20);
 };
 
-/** Forget every answer (after a change that moves devices, e.g. a replacement): visible serials are asked again. */
+/**
+ * Forget every answer (after a change that moves devices, e.g. a replacement; on sign-out / token expiry,
+ * since hits are plant-scoped): visible serials are asked again. A pending flush is cancelled and the
+ * generation bump drops answers to batches already in flight, so they never refill the cache.
+ */
 export const clearRegistryWhere = () => {
+  if (flushTimer != null) {
+    window.clearTimeout(flushTimer);
+    flushTimer = undefined;
+  }
   cache.clear();
   inflight.clear();
   queue.clear();

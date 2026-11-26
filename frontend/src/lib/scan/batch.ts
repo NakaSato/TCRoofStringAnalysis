@@ -125,10 +125,32 @@ export const markServerErrors = <R extends { id: string; server_error: string | 
   return rows.map((r) => (byId.has(r.id) ? { ...r, server_error: byId.get(r.id)! } : r));
 };
 
-/** Index of a row already holding this serial (a row in error does not count: the scan replaces it). */
-export const findDuplicate = (mode: BatchMode, rows: BatchRow[], serial: string, destId: number | null): number => {
-  const k = serialKey(serial);
-  return rows.findIndex((r) => serialKey(r.serial) === k && evaluateRow(mode, r, destId).status !== "error");
+/**
+ * What makes two rows the same scan: the unit when the row stands for one (an `sp:<unit id>` label,
+ * a serial only one unit has, or the unit picked), else the serial. Two parts may share a serial
+ * (`stock_units` is unique on part + serial), so two unit labels with one serial are two units.
+ */
+export const rowKey = (r: Pick<BatchRow, "serial" | "units" | "unit_id">): string => {
+  const u = rowUnit(r);
+  return u ? `unit:${u.id}` : `serial:${serialKey(r.serial)}`;
+};
+
+/** Index of a row already holding this scan (`rowKey`; a row in error does not count: the scan replaces it). */
+export const findDuplicate = (mode: BatchMode, rows: BatchRow[], scan: Pick<BatchRow, "serial" | "units" | "unit_id">, destId: number | null): number => {
+  const k = rowKey(scan);
+  return rows.findIndex((r) => rowKey(r) === k && evaluateRow(mode, r, destId).status !== "error");
+};
+
+/** The list with a new scan on top; a row of the same scan (by `key`, `rowKey` for batch rows; one in error: the duplicate check let it through) is replaced. */
+export const addScanRow = <R>(rows: R[], row: R, key: (r: R) => string): R[] => {
+  const k = key(row);
+  return [row, ...rows.filter((x) => key(x) !== k)];
+};
+
+/** The list after a confirmed batch: only the rows sent go; unsent rows and scans added while posting stay. */
+export const removeSent = <R extends { id: string }>(rows: R[], sentIds: readonly string[]): R[] => {
+  const sent = new Set(sentIds);
+  return rows.filter((r) => !sent.has(r.id));
 };
 
 export interface Counts {

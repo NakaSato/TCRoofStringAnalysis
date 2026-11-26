@@ -39,13 +39,15 @@ import { signal, unlockAudio, type Feedback } from "../../lib/scan/feedback";
 import { pushScanTarget } from "../../lib/scan/hidScanner";
 import { clean, normalise } from "../../lib/scan/parse";
 import {
+  addScanRow,
   buildBatch,
   countRows,
   evaluateRow,
   findDuplicate,
   markServerErrors,
   readRows,
-  serialKey,
+  removeSent,
+  rowKey,
   storageKey,
   writeRows,
   type BatchMode,
@@ -123,8 +125,8 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
   rowsRef.current = list.rows;
   useEffect(() => {
     if (list.key === key) return;
-    if (list.mode !== mode) {
-      // another mode has its own list
+    if (list.mode !== mode || !list.rows.length) {
+      // another mode has its own list; nothing scanned yet: the destination's own saved list comes back
       setList({ key, mode, rows: readRows(key) });
     } else {
       // a new destination: the scanned units go there, so the list follows it
@@ -206,6 +208,12 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
         return;
       }
       if (res.kind === "part" && m === "receive" && res.part) {
+        if (!res.part.active) {
+          // the part list holds active parts only: an inactive one cannot take new serials
+          signal("error");
+          setLast({ status: "error", text: tr("{code}: an inactive part, not used for new serials", { code: res.part.code }) });
+          return;
+        }
         signal("ok");
         setUrl({ part: res.part.id });
         setLast({ status: "ok", text: tr("Part for new serials: {code}", { code: res.part.code }) });
@@ -214,7 +222,8 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
 
       const serial = res.kind === "unit" && res.units[0] ? res.units[0].serial : res.code || normalise(text).value;
       const rows0 = rowsRef.current;
-      const dup = findDuplicate(m, rows0, serial, d);
+      // a unit label is that unit (two parts may share a serial), else the serial
+      const dup = findDuplicate(m, rows0, { serial, units: res.units, unit_id: null }, d);
       if (dup >= 0) {
         signal("warn");
         flash(rows0[dup].id);
@@ -232,8 +241,8 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
         part: m === "receive" && res.kind === "serial" && !res.units.length && p ? { id: p.id, code: p.code, name: p.name } : null,
         server_error: null,
       };
-      // a row in error with the same serial is replaced by the new scan
-      setRows((r) => [row, ...r.filter((x) => serialKey(x.serial) !== serialKey(serial))]);
+      // a row in error of the same scan (unit, else serial) is replaced by the new scan
+      setRows((r) => addScanRow(r, row, rowKey));
       const ev = evaluateRow(m, row, d);
       signal(ev.status);
       flash(row.id);
@@ -268,7 +277,8 @@ const MoveScanPage: React.FC<{ mode: BatchMode; tabs: React.ReactNode }> = ({ mo
     setReceived(null);
     try {
       const res = await api.postStockBatch(b.rows);
-      setRows(() => []);
+      // only the rows sent go: rows not sent (warn / error) and scans added while posting stay
+      setRows((r) => removeSent(r, ids));
       setLast(null);
       notify("ok", t(DONE_LABEL[mode], { n: b.rows.length }));
       if (mode === "receive") {

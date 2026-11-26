@@ -154,10 +154,15 @@ def test_spare_and_failed_marks(api):
         db.flush()
         db.add(FailedUnit(red_tag_id=tag.id, part_id=p.id, serial="CW-1", serial_key="CW-1", plant_id=P1, removed_day=datetime.now(timezone.utc).date(), fault="dead", status="tagged"))
         db.commit()
-        uid = u.id
+        uid, pid = u.id, p.id
     d = _installed(t, t["adm"], plant_id=P1)
     by_serial = {i["serial"]: i for i in d["items"]}
     assert by_serial["RTR-A1"]["spare_unit_id"] == uid
+    # #143: the part too, so the Stock tab can open the unit (/inventory?tab=stock&part=&unit=)
+    assert by_serial["RTR-A1"]["spare_part_id"] == pid
+    assert by_serial["CW-2"]["spare_unit_id"] is None and by_serial["CW-2"]["spare_part_id"] is None
+    gm = next(i for i in d["items"] if i["source"] == "grid_meter")
+    assert gm["spare_unit_id"] is None and gm["spare_part_id"] is None
     assert by_serial["CW-1"]["failed_open"] is True and by_serial["CW-2"]["failed_open"] is False
 
 
@@ -226,7 +231,7 @@ def test_proposals(api):
     assert r.status_code == 200, r.text
     props = {(p["category"], p["model"]): p for p in r.json()["proposals"]}
     inv = props[("inverter", "MAX 80KTL3 LV")]
-    assert inv == {"category": "inverter", "model": "MAX 80KTL3 LV", "make": "Growatt", "code": "P-INVERTER-MAX-80KTL3-LV", "name": "Growatt MAX 80KTL3 LV", "installed": 2, "part_id": None}
+    assert inv == {"category": "inverter", "model": "MAX 80KTL3 LV", "make": "Growatt", "code": "P-INVERTER-MAX-80KTL3-LV", "name": "Growatt MAX 80KTL3 LV", "installed": 2, "part_id": None, "model_key": "MAX 80KTL3 LV"}
     meter = props[("revenue_meter", "Prometer")]
     assert meter["make"] == "CEWE" and meter["name"] == "CEWE Prometer" and meter["code"] == "P-REVENUE-METER-PROMETER-2" and meter["installed"] == 2
     assert props[("grid_meter", "CHNT_THREE")]["code"] == "P-GRID-METER-CHNT-THREE" and props[("grid_meter", "CHNT_THREE")]["make"] == "Chint"
@@ -309,3 +314,49 @@ def test_registry_where(api):
     assert c.get("/stock/registry-where", params={"serials": "X" * 65}, headers=t["adm"]).status_code == 422
     # 200 distinct (repeats counted once) is fine
     assert c.get("/stock/registry-where", params={"serials": ",".join(f"S{i}" for i in range(200)) + ",s0"}, headers=t["adm"]).status_code == 200
+
+
+def test_proposals_carry_installed_model_key(api):
+    """#143: "Add to catalogue" on a Spares per model row filters the proposals by (category, model key);
+    a split-make proposal's `model` no longer matches the row's model, its `model_key` does."""
+    t = api
+    rows = t["c"].get("/stock/installed/models", headers=t["adm"]).json()["items"]
+    props = t["c"].post("/stock/parts/from-models", json={"apply": False}, headers=t["keeper"]).json()["proposals"]
+    by_key = {(p["category"], p["model_key"]): p for p in props}
+    for cat, key, model in (("router", "TELTONIKA RUT", "RUT"), ("revenue_meter", "CEWE PROMETER", "Prometer")):
+        row = next(r for r in rows if r["category"] == cat and r["model_key"] == key)
+        p = by_key[(row["category"], row["model_key"])]
+        assert p["model"] == model and stock_installed.model_key(p["model"]) != row["model_key"]
+    # Growatt Weather Station: make Growatt split off, key still the installed one
+    with t["f"]() as db:
+        db.add(SiteDevice(site_code="P1-001", kind="weather_station", seq=1, serial="WS-1", brand_model="Growatt Weather Station"))
+        db.commit()
+    props = t["c"].post("/stock/parts/from-models", json={"apply": False}, headers=t["keeper"]).json()["proposals"]
+    ws = next(p for p in props if p["category"] == "weather_station")
+    assert (ws["make"], ws["model"], ws["model_key"]) == ("Growatt", "Weather Station", "GROWATT WEATHER STATION")
+    # a proposal for an existing part keeps the installed key too
+    with t["f"]() as db:
+        db.add(Part(code="P-RTR", name="Teltonika RUT", category="router", make="Teltonika", model="RUT"))
+        db.commit()
+    props = t["c"].post("/stock/parts/from-models", json={"apply": False}, headers=t["keeper"]).json()["proposals"]
+    rtr = next(p for p in props if p["category"] == "router")
+    assert rtr["part_id"] is not None and rtr["model_key"] == "TELTONIKA RUT"
+    assert all(p["model_key"] for p in props)
+
+
+def test_models_parts_carry_active(api):
+    """#143: "Thin" sums the minimum of active parts only (as `below_min`), so each part says whether it is."""
+    t = api
+    with t["f"]() as db:
+        db.add_all([
+            Part(code="P-RTR-ON", name="RUT", category="router", make="Teltonika", model="RUT", min_qty=1),
+            Part(code="P-RTR-OFF", name="RUT old", category="router", model="Teltonika RUT", min_qty=5, active=False),
+        ])
+        db.commit()
+    row = next(i for i in t["c"].get("/stock/installed/models", headers=t["adm"]).json()["items"] if i["category"] == "router" and i["model_key"] == "TELTONIKA RUT")
+    parts = {p["code"]: p for p in row["parts"]}
+    assert parts["P-RTR-ON"]["active"] is True and parts["P-RTR-OFF"]["active"] is False
+    assert sum(p["min_qty"] for p in row["parts"] if p["active"] and p["min_qty"] is not None) == 1
+    # the catalogue agrees: the inactive part is never below its minimum
+    listed = {p["code"]: p for p in t["c"].get("/stock/parts", params={"include_inactive": True}, headers=t["adm"]).json()}
+    assert listed["P-RTR-OFF"]["below_min"] is False
