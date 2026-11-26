@@ -1,5 +1,5 @@
 import React from "react";
-import { Banknote, Cpu, FileText, Layers, Network } from "lucide-react";
+import { Banknote, Cpu, FileText, Layers, Network, ScanLine } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppContext } from "../context/AppContext";
 import { isAdmin } from "../auth/access";
@@ -13,8 +13,9 @@ import { PriceSettings } from "./settings/PriceSettings";
 import { PlantLinks } from "./settings/PlantLinks";
 import { PlantDocuments } from "./settings/PlantDocuments";
 import { SiteRegisterSettings } from "./settings/SiteRegisterSettings";
+import { ScanningSettings } from "./settings/ScanningSettings";
 
-const SECTIONS = ["module", "price", "documents", "register", "plant"] as const;
+const SECTIONS = ["module", "price", "documents", "register", "scanning", "plant"] as const;
 type Section = (typeof SECTIONS)[number];
 
 const META: Record<Section, { label: string; hint: string; icon: LucideIcon }> = {
@@ -22,11 +23,12 @@ const META: Record<Section, { label: string; hint: string; icon: LucideIcon }> =
   price: { label: "Price per kWh", hint: "TOU, Ft, flat rates, PWA", icon: Banknote },
   documents: { label: "Plant documents", hint: "As-built PDF, site photos", icon: FileText },
   register: { label: "Site register", hint: "Station data, devices, network", icon: Network },
+  scanning: { label: "Scanning", hint: "Barcode reader, camera (this device)", icon: ScanLine },
   plant: { label: "Per-plant settings", hint: "Where they live", icon: Layers },
 };
 
 /**
- * Settings (`/settings?tab=module|price|documents|register|plant`): fleet-wide settings, one section at a time.
+ * Settings (`/settings?tab=module|price|documents|register|scanning|plant`): fleet-wide settings, one section at a time.
  * Sections pick from a side menu on wide screens and from line tabs on phones. Each editable
  * section saves on its own (sticky bar while there are unsaved changes).
  */
@@ -96,6 +98,7 @@ export const PlantSettingsPage: React.FC = () => {
           {tab === "price" && <PriceSettings />}
           {tab === "documents" && <PlantDocuments />}
           {tab === "register" && <SiteRegisterSettings />}
+          {tab === "scanning" && <ScanningSettings />}
           {tab === "plant" && <PlantLinks />}
         </div>
       </div>

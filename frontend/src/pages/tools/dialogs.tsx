@@ -13,6 +13,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ScanField } from "../../components/scan/ScanField";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -237,7 +238,7 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
             </Select>
           </Field>
           <Field id="in-tag" label={t("Asset tag")}>
-            <Input id="in-tag" value={d.asset_tag} onChange={(e) => set({ asset_tag: e.target.value })} placeholder={t("e.g. MT-012")} />
+            <ScanField id="in-tag" maxLength={32} scanTitle={t("Asset tag")} value={d.asset_tag} onValueChange={(v) => set({ asset_tag: v })} placeholder={t("e.g. MT-012")} />
           </Field>
           <Field id="in-name" label={t("Name")}>
             <Input id="in-name" value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder={t("e.g. DC clamp meter")} />
@@ -249,7 +250,7 @@ export const InstrumentDialog: React.FC<{ open: boolean; editing: Instrument | n
             <Input id="in-model" value={d.model} onChange={(e) => set({ model: e.target.value })} />
           </Field>
           <Field id="in-sn" label={t("Serial no.")} wide>
-            <Input id="in-sn" value={d.serial_no} onChange={(e) => set({ serial_no: e.target.value })} />
+            <ScanField id="in-sn" maxLength={64} scanTitle={t("Serial no.")} value={d.serial_no} onValueChange={(v) => set({ serial_no: v })} />
           </Field>
 
           <div className="eyebrow pt-1 sm:col-span-2">{t("Specs · {name}", { name: t(def.label) })}</div>

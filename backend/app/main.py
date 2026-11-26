@@ -27,6 +27,7 @@ from app.api.routes import (
     tfrs16,
     rca,
     report,
+    scan,
     system,
     tools,
     users,
@@ -88,6 +89,8 @@ def create_app() -> FastAPI:
     api_router.include_router(claims.router, dependencies=[Depends(get_current_user)])
     # Measuring Tools: everyone views and checks out / in; add, edit, delete, calibrations admin only
     api_router.include_router(tools.router, dependencies=[Depends(get_current_user)])
+    # Barcode / QR scans: resolve a code to the record it names (scoped like the records themselves)
+    api_router.include_router(scan.router, dependencies=[Depends(get_current_user)])
     # Knowledge Base: everyone reads (engineers: published + own drafts); publish / archive / delete admin only
     api_router.include_router(kb.router, dependencies=[Depends(get_current_user)])
     # Knowledge Base library (PDF documents): plant scope per document; release / withdraw admin only

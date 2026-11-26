@@ -18,6 +18,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { KIND_ICON, KIND_LABEL, KINDS } from "./kinds";
+import { ScanField } from "../../components/scan/ScanField";
 
 type TextField = Exclude<keyof SiteDevice, "kind" | "seq">;
 type FieldDef = { f: TextField; label: string; max?: number; date?: boolean; mono?: boolean; placeholder?: string };
@@ -304,6 +305,18 @@ export const DeviceEditDialog: React.FC<{
                             <Label htmlFor={`dev-${f}`} className="text-[10px] text-muted-foreground">
                               {t(label)}
                             </Label>
+                            {f === "serial" || f === "sim" ? (
+                              <ScanField
+                                id={`dev-${f}`}
+                                maxLength={max}
+                                placeholder={placeholder}
+                                scanTitle={t(label)}
+                                value={d[f] ?? ""}
+                                onValueChange={(v) => patch({ [f]: v })}
+                                aria-describedby={hint ? `dev-${f}-hint` : undefined}
+                                className={cn("h-8 text-xs", hint && "border-amber-400/40")}
+                              />
+                            ) : (
                             <Input
                               id={`dev-${f}`}
                               type={date ? "date" : "text"}
@@ -318,6 +331,7 @@ export const DeviceEditDialog: React.FC<{
                               aria-describedby={hint ? `dev-${f}-hint` : undefined}
                               className={cn("h-8 text-xs", mono && "num", date && "[color-scheme:dark]", hint && "border-amber-400/40")}
                             />
+                            )}
                             {list && (
                               <datalist id={list}>
                                 {suggest[f]!.map((v) => (

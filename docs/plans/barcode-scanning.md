@@ -1,6 +1,6 @@
 # Plan & Spec: Barcode & QR scanning (external scanner, phone and iPad camera)
 
-Status: **Proposed** · Created 2026-11-26 · Owner: Chanthawat
+Status: **Steps 1–3 of §12 built** (2026-11-26: resolver, keyboard scanner, camera and photo, ScanField in Tools and the Site Register, Settings → Scanning). Steps 4–7 (field hints per model, labels, batch mode, the device matrix test) wait for the FEDR pages · Created 2026-11-26 · Owner: Chanthawat
 Related: PMBOK *Field Equipment Defect & Replacement Management* (FEDR), WBS 1.6.1 (red tags + QR) and DR-06 / DR-07 / DR-09; [`measuring-tools.md`](measuring-tools.md) (QR labels on instruments, "Later" list); [`om-asset-network.md`](om-asset-network.md) (site device serials); [`claims.md`](claims.md) (SN out / SN in)
 
 One scanning layer for the whole app. It reads **1D barcodes and 2D codes (QR, DataMatrix)** from three sources:
@@ -307,6 +307,8 @@ Pass criteria:
 - an engineer resolving an unassigned plant's code gets 404
 
 ## 12. Build order
+
+Built so far (2026-11-26): `/scan/resolve` matches app codes `tool` / `dev` and raw values against instruments, inverters, dataloggers and site register devices (red tags, spares, bins and defects have no register yet: their app codes answer `unsupported_kind`). Not built from steps 1–3: the O ↔ 0 "Did you mean" suggestion (§6.2), `input_method` / `raw_scan` columns (no table that saves a scan exists yet), the photo fallback's FieldPicker memory per model (step 4). The multi-field picker exists without the memory.
 
 1. `parse.ts` + `keymap.ts` with `bun test`; `/scan/resolve`; `ScanDialog` Type tab; `/s/:kind/:code`.
 2. `useHidScanner` + global listener + ScanField + Settings "Test your scanner" (desk and iPad with a BT scanner).

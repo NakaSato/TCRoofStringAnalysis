@@ -28,6 +28,7 @@ export type * from "./types/pvsyst";
 export type * from "./types/kb";
 export type * from "./types/kbDocs";
 export type * from "./types/visitRoute";
+export type * from "./types/scan";
 export type * from "./types/devices";
 import type { UserCreate, UserProfile, UserUpdate } from "./types/auth";
 import type { AnalysisRun, CMWorkOrder, DatasetInfo, PMTask, Plant, RCARecord, StringSpec } from "./types/legacy";
@@ -39,6 +40,7 @@ import type { SystemLogPage, SystemLogQuery, SystemLogSummary } from "./types/sy
 import type { AssistantStatus, AssistantUsage } from "./types/assistant";
 import type { PushStatus } from "./types/push";
 import type { PlantSoiling, SiteEvent, SiteEventBody, SiteEventList, SiteEventQuery } from "./types/events";
+import type { ScanResolve } from "./types/scan";
 import type { Checkout, CheckoutBody, DueBody, Instrument, InstrumentBody, InstrumentDetail, InstrumentList, ReturnBody } from "./types/tools";
 import type {
   OmAssignees,
@@ -587,6 +589,9 @@ export const api = {
     apiFetch<RuleDaily<StringRuleDay>>(
       `/growatt/plants/${plantId}/rules/daily?sn=${encodeURIComponent(sn)}&string_no=${stringNo}&days=${days}${day ? `&day=${day}` : ""}`
     ),
+
+  // ---- barcode / QR scans: what a scanned or typed code opens (DB only, scoped)
+  resolveScan: (code: string) => apiFetch<ScanResolve>(`/scan/resolve?code=${encodeURIComponent(code)}`),
 
   // ---- measuring tools (instruments, check-outs, calibration / document due dates; DB only)
   listInstruments: (includeRetired = false) =>

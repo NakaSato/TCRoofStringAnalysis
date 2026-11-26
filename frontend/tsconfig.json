@@ -18,5 +18,7 @@
     "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // `bun test` files (bun:test types) are run by Bun, not type-checked by tsc
+  "exclude": ["src/**/*.test.ts"]
 }

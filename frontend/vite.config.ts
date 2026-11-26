@@ -3,11 +3,17 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
+import basicSsl from "@vitejs/plugin-basic-ssl";
+
+// The camera scanner needs https on a real phone / iPad: `VITE_DEV_HTTPS=1 bun run dev --host`
+// serves the dev server with a self-signed certificate on the LAN (dev only; accept it once on the device).
+const devHttps = process.env.VITE_DEV_HTTPS === "1";
 
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    ...(devHttps ? [basicSsl()] : []),
     // Installable PWA. The service worker precaches the app's own static build only: `/api/**`
     // is never cached or served offline (live values must never be stored in the browser), and
     // the only runtime caching is map imagery (see `runtimeCaching`), so API calls always go to the network.
@@ -35,7 +41,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest}"],
+        // `.wasm` = the barcode decoder (zxing, ~1 MB), so camera scanning works in the installed app offline
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest,wasm}"],
         // the push service worker (public/firebase-messaging-sw.js) is registered on its own scope
         globIgnores: ["**/node_modules/**/*", "firebase-messaging-sw.js"],
         // the main chunk is ~0.6 MB; leave headroom so it is precached
