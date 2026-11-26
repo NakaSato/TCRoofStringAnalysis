@@ -18,7 +18,7 @@ import { notify } from "../../lib/notify";
 import { GLOBAL_FORMATS, SERIAL_FORMATS } from "../../lib/scan/decoder";
 import { parseAppCode } from "../../lib/scan/parse";
 import { PlantPicker } from "../calendar/fields";
-import { STATUS as CLAIM_STATUS } from "../claims/format";
+import { CLOSED_STATUSES, STATUS as CLAIM_STATUS } from "../claims/format";
 import { FailedStatusBadges } from "./FailedTab";
 import { KIND_LABEL, MOVE_LABEL, canManageStock, errorText } from "./shared";
 import { RegistryChip, registryKey, useRegistryWhere } from "./RegistryWhere";
@@ -220,7 +220,7 @@ export const TagFailedDialog: React.FC<{
             {t("Cancel")}
           </Button>
           <Button disabled={!ready || busy} onClick={() => void submit()}>
-            {busy && <Spinner data-icon="inline-start" />}
+            {busy && <Spinner data-icon="inline-start" className="size-3" />}
             {t("Save")}
           </Button>
         </DialogFooter>
@@ -319,8 +319,12 @@ export const FailedUnitDialog: React.FC<{
   const stockLocs = useMemo(() => locations.filter((l) => l.active && l.kind !== "supplier"), [locations]);
   const supplierLocs = useMemo(() => locations.filter((l) => l.active && l.kind === "supplier"), [locations]);
   const plantClaims = useMemo(
-    () => (claims ?? []).filter((c) => unit?.plant_id == null || c.plant_id === unit.plant_id || c.id === unit.claim_id),
-    [claims, unit]
+    // the backend links only a claim of the failed unit's plant (none without a plant), and an engineer only an open one
+    () =>
+      (claims ?? []).filter(
+        (c) => c.id === unit?.claim_id || (unit?.plant_id != null && c.plant_id === unit.plant_id && (user?.role === "admin" || !CLOSED_STATUSES.includes(c.status)))
+      ),
+    [claims, unit, user]
   );
 
   const isOpen = !!unit && FAILED_OPEN_STATUSES.includes(unit.status);
@@ -482,10 +486,10 @@ export const FailedUnitDialog: React.FC<{
                     </Row>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Row id="fa-carrier" label={t("Carrier")} hint={t("Optional")}>
-                        <Input id="fa-carrier" value={carrier} maxLength={120} onChange={(e) => setCarrier(e.target.value)} className="h-8" />
+                        <Input id="fa-carrier" value={carrier} maxLength={64} onChange={(e) => setCarrier(e.target.value)} className="h-8" />
                       </Row>
                       <Row id="fa-track" label={t("Tracking no.")} hint={t("Optional")}>
-                        <Input id="fa-track" value={tracking} maxLength={120} onChange={(e) => setTracking(e.target.value)} className="h-8 font-mono" />
+                        <Input id="fa-track" value={tracking} maxLength={64} onChange={(e) => setTracking(e.target.value)} className="h-8 font-mono" />
                       </Row>
                     </div>
                   </>
@@ -572,7 +576,7 @@ export const FailedUnitDialog: React.FC<{
                     {t("Cancel")}
                   </Button>
                   <Button size="sm" variant={mode === "scrap" ? "destructive" : "default"} disabled={!ready || busy} onClick={submit}>
-                    {busy && <Spinner data-icon="inline-start" />}
+                    {busy && <Spinner data-icon="inline-start" className="size-3" />}
                     {mode === "scrap" ? t("Yes, scrap it") : t("Save")}
                   </Button>
                 </div>

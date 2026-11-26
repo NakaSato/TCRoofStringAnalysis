@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Download } from "lucide-react";
 import { api, FAILED_STATUSES, type FailedUnit, type FailedUnitStatus } from "../../api/client";
 import { Badge } from "@/components/ui/badge";
@@ -7,14 +8,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { EmptyState, SkeletonRows } from "../../components/ui";
+import { EmptyState, SkeletonRows, Suspended } from "../../components/ui";
+import { TablePager, pageBounds } from "../../components/TablePager";
 import { useI18n } from "../../i18n";
 import { pick, useUrlState } from "@/lib/useUrlState";
-import { FAILED_STATUS_LABEL, FAILED_STATUS_VARIANT, download } from "./shared";
+import { FAILED_STATUS_LABEL, FAILED_STATUS_VARIANT, download, errorText } from "./shared";
 import { RegistryChip, registryKey, useClearRegistryOn, useRegistryWhere } from "./RegistryWhere";
 
 /** status filter: open (default) = tagged, in store or at the supplier */
 const FILTERS = ["open", "all", ...FAILED_STATUSES] as const;
+const PAGE_SIZE = 50;
 type Filter = (typeof FILTERS)[number];
 
 /** The overdue badge: open and not sent to the supplier after the set number of days. */
@@ -39,12 +42,16 @@ export const FailedTab: React.FC<{ version: number }> = ({ version }) => {
   const q = url.get("fq") ?? "";
   const [rows, setRows] = useState<FailedUnit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(0);
+  useEffect(() => setPage(0), [filter, q]);
   // L-3: the registry device each serial belongs to
   useClearRegistryOn(version);
   const where = useRegistryWhere(rows?.map((u) => u.serial) ?? []);
 
   useEffect(() => {
     let alive = true;
+    setBusy(true);
     const h = window.setTimeout(() => {
       api
         .listFailedUnits({
@@ -57,17 +64,16 @@ export const FailedTab: React.FC<{ version: number }> = ({ version }) => {
           setRows(r);
           setError(null);
         })
-        .catch((e) => {
-          if (!alive) return;
-          setRows([]);
-          setError(e instanceof Error ? e.message : String(e));
-        });
+        .catch((e) => alive && setError(errorText(e, t)))
+        .finally(() => alive && setBusy(false));
     }, 200);
     return () => {
       alive = false;
       window.clearTimeout(h);
     };
-  }, [filter, q, version]);
+  }, [filter, q, version, t]);
+  const { pageNo } = pageBounds(rows?.length ?? 0, PAGE_SIZE, page);
+  const pageRows = (rows ?? []).slice(pageNo * PAGE_SIZE, (pageNo + 1) * PAGE_SIZE);
 
   const exportCsv = () =>
     rows &&
@@ -121,12 +127,19 @@ export const FailedTab: React.FC<{ version: number }> = ({ version }) => {
             CSV
           </Button>
         </div>
-        {error && <p className="px-4 text-xs text-red-300">{error}</p>}
+        {error && (
+          <Alert variant="destructive" className="mx-4 w-auto">
+            <AlertDescription>{t("Could not load the failed units: {error}", { error })}</AlertDescription>
+          </Alert>
+        )}
         {!rows ? (
-          <SkeletonRows rows={5} className="px-4" />
-        ) : !rows.length ? (
+          !error && <SkeletonRows rows={5} className="px-4" />
+        ) : (
+          <Suspended busy={busy}>
+          {!rows.length ? (
           <EmptyState title={filter === "open" && !q ? t("No failed units open.") : t("No failed units match.")} />
         ) : (
+          <>
           <Table containerClassName="table-wrap">
             <TableHeader>
               <TableRow>
@@ -140,7 +153,7 @@ export const FailedTab: React.FC<{ version: number }> = ({ version }) => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((u) => (
+              {pageRows.map((u) => (
                 <TableRow
                   key={u.id}
                   className="cursor-pointer"
@@ -173,6 +186,10 @@ export const FailedTab: React.FC<{ version: number }> = ({ version }) => {
               ))}
             </TableBody>
           </Table>
+          <TablePager rows={rows.length} pageSize={PAGE_SIZE} pageNo={pageNo} onPage={setPage} className="px-4" />
+          </>
+        )}
+          </Suspended>
         )}
       </CardContent>
     </Card>

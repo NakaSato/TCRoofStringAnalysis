@@ -77,8 +77,9 @@ export interface StockMovement {
   to_location_code: string | null;
   plant_id: number | null;
   plant_name: string | null;
-  from_state: UnitState | null;
-  to_state: UnitState | null;
+  /** a spare unit's state, or a failed unit's status on rows that move only a failed unit */
+  from_state: UnitState | FailedUnitStatus | null;
+  to_state: UnitState | FailedUnitStatus | null;
   corrects_id: number | null;
   failed_unit_id: number | null;
   by: string | null;

@@ -50,7 +50,7 @@ import { InstalledTab } from "./spares/InstalledTab";
 import { ModelsTab } from "./spares/ModelsTab";
 import { FromModelsDialog } from "./spares/FromModelsDialog";
 import { RegistryChip, registryKey, useClearRegistryOn, useRegistryWhere } from "./spares/RegistryWhere";
-import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, STATE_VARIANT, canManageStock, download, errorText, fmtStockAt } from "./spares/shared";
+import { CATEGORY_LABEL, KIND_LABEL, MOVE_LABEL, STATE_LABEL, STATE_VARIANT, canManageStock, download, errorText, fmtStockAt, movementStateLabel } from "./spares/shared";
 
 const TABS = ["stock", "failed", "installed", "models", "movements", "catalogue", "locations"] as const;
 const MOVE_KINDS = ["all", "receive", "transfer", "issue", "return", "failed_in", "ship_out", "supplier_return", "scrap", "count_adjust", "correction"] as const;
@@ -562,7 +562,7 @@ const MovementsTab: React.FC<{
                   <TableCell className="text-xs">
                     {m.from_location_code ?? ((m.from_state === "installed" || m.kind === "failed_in") ? m.plant_name ?? "—" : "—")}
                   </TableCell>
-                  <TableCell className="text-xs">{m.to_location_code ?? (m.to_state === "installed" ? m.plant_name ?? "—" : m.to_state ? t(STATE_LABEL[m.to_state]) : "—")}</TableCell>
+                  <TableCell className="text-xs">{m.to_location_code ?? (m.to_state === "installed" ? m.plant_name ?? "—" : m.to_state ? t(movementStateLabel(m.to_state)) : "—")}</TableCell>
                   <TableCell className="text-xs">
                     <span className="flex items-center gap-1.5">
                       {m.by ?? "—"}
@@ -570,7 +570,7 @@ const MovementsTab: React.FC<{
                     </span>
                   </TableCell>
                   <TableCell className="pr-4 text-right">
-                    {keeper && m.kind !== "correction" && !corrected.has(m.id) && latest.has(m.id) && (
+                    {keeper && m.kind !== "correction" && m.failed_unit_id == null && !corrected.has(m.id) && latest.has(m.id) && (
                       <Button size="icon-xs" variant="ghost" aria-label={t("Correct")} title={t("Correct")} onClick={() => setCorrecting(m)}>
                         <Undo2 className="size-3.5" />
                       </Button>

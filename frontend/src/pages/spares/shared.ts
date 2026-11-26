@@ -57,6 +57,10 @@ export const STATE_LABEL: Record<UnitState, string> = {
   missing: "Missing",
 };
 
+/** a movement's state: a spare unit's state or, on a failed unit's own rows, its status */
+export const movementStateLabel = (s: UnitState | FailedUnitStatus): string =>
+  (STATE_LABEL as Record<string, string>)[s] ?? (FAILED_STATUS_LABEL as Record<string, string>)[s] ?? s;
+
 /** a unit's state badge */
 export const STATE_VARIANT: Record<UnitState, "ok" | "warn" | "crit" | "neutral"> = {
   in_stock: "ok",

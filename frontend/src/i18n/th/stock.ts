@@ -293,4 +293,5 @@ export const TH_STOCK: Record<string, string> = {
   "Could not load the units: {error}": "โหลดรายการอะไหล่ไม่สำเร็จ: {error}",
   "Could not load the movements: {error}": "โหลดประวัติการเคลื่อนไหวไม่สำเร็จ: {error}",
   "CSV export failed: {error}": "ส่งออก CSV ไม่สำเร็จ: {error}",
+  "Could not load the failed units: {error}": "โหลดรายการอุปกรณ์เสียไม่สำเร็จ: {error}",
 };

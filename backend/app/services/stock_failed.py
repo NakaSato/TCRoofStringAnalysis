@@ -111,7 +111,14 @@ def _part(db: Session, pid: Any) -> Optional[Part]:
     return p
 
 
-def _claim(db: Session, cid: Any, allowed: Optional[Set[int]], plant_id: Optional[int]) -> Optional[Claim]:
+def _admin(user: User) -> bool:
+    return user.role == "admin"
+
+
+def _claim(db: Session, cid: Any, allowed: Optional[Set[int]], plant_id: Optional[int], user: User, current: Optional[int] = None) -> Optional[Claim]:
+    """A claim to link: visible, of the failed unit's plant and, for anyone but an admin, still open
+    (a closed / withdrawn claim is read only for engineers). `current` = the claim already linked,
+    which stays linked as it is."""
     if cid is None:
         return None
     if not isinstance(cid, int) or isinstance(cid, bool):
@@ -122,6 +129,8 @@ def _claim(db: Session, cid: Any, allowed: Optional[Set[int]], plant_id: Optiona
         raise StockError("Claim: one of your claims") from exc
     if c.plant_id != plant_id:
         raise StockError(f"Claim {c.number} is of another plant than the failed unit")
+    if c.status in claims_svc.CLOSED and not _admin(user) and c.id != current:
+        raise _conflict(f"Claim {c.number} is {c.status}: only an admin can link it")
     return c
 
 
@@ -247,6 +256,11 @@ def get_failed(db: Session, user: User, fid: int) -> Dict[str, Any]:
     return _with_trail(db, fu)
 
 
+def open_failed_at(db: Session, location_id: int) -> int:
+    """Open failed units (tagged, in store, sent) at a location: it cannot be switched off or change kind."""
+    return int(db.scalar(select(func.count()).select_from(FailedUnit).where(FailedUnit.location_id == location_id, FailedUnit.status.in_(FAILED_OPEN))) or 0)
+
+
 def failed_counts(db: Session, allowed: Optional[Set[int]] = None) -> Dict[str, int]:
     """`failed_open` (tagged / in store / sent) and `failed_unsent_overdue` (tagged / in store,
     removed more than STOCK_FAILED_UNSENT_DAYS ago), over the plants `allowed` (None = all)."""
@@ -336,7 +350,6 @@ def _create(db: Session, user: User, body: Dict[str, Any], batch_id: Optional[st
         if removed_day > _today():
             raise StockError("Removed day cannot be in the future")
     to = _location(db, body.get("to_location_id"), STOCK_KINDS, "To")
-    claim = _claim(db, body.get("claim_id"), allowed, plant_id)
 
     key = serial_key(serial) if serial else None
     spare: Optional[SpareUnit] = None
@@ -345,16 +358,26 @@ def _create(db: Session, user: User, body: Dict[str, Any], batch_id: Optional[st
         if other is not None:
             held = db.get(RedTag, other.red_tag_id)
             raise _conflict(f"{serial} is already an open failed unit ({held.code if held else other.id})")
-        q = select(SpareUnit).where(SpareUnit.serial_key == key, SpareUnit.state == "installed")
+        # a serial is in one place (plan §3): the spare register's unit of that serial, if it is one
+        q = select(SpareUnit).where(SpareUnit.serial_key == key, SpareUnit.state.in_(("installed", "in_stock", "missing")))
         if part is not None:
             q = q.where(SpareUnit.part_id == part.id)
-        found = [u for u in db.scalars(q) if _visible(allowed, u.plant_id)]
+        found = list(db.scalars(q))
         if len(found) == 1:
-            spare = found[0]
+            u = found[0]
+            if u.state != "installed":
+                raise _conflict(f"{serial} is a spare unit {u.state.replace('_', ' ')} in the register, not on a plant: install it first, or tag it without the serial")
+            if not _visible(allowed, u.plant_id):
+                raise _conflict(f"{serial} is installed on another plant")
+            if plant_id is not None and u.plant_id != plant_id:
+                raise StockError(f"{serial} is installed at plant {u.plant_id}, not {plant_id}")
+            spare = u
             if part is None:
                 part = db.get(Part, spare.part_id)
             if plant_id is None:
                 plant_id = spare.plant_id
+    # after the plant is known from the spare, so a claim of that plant fits
+    claim = _claim(db, body.get("claim_id"), allowed, plant_id, user)
 
     by = _by(user)
     fu = FailedUnit(
@@ -411,6 +434,11 @@ def update_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Di
         fu.fault = _text(body.get("fault"), "Fault", 2000, required=True) or fu.fault
     if "part_id" in body:
         part = _part(db, body.get("part_id"))
+        if (part.id if part else None) != fu.part_id:
+            if fu.status not in FAILED_OPEN:
+                raise _conflict(f"The failed unit is {fu.status.replace('_', ' ')}: its part cannot change")
+            if fu.spare_unit_id is not None:
+                raise _conflict("The failed unit is a spare unit of the register: its part is that unit's")
         if part is not None and fu.serial_key and fu.status in FAILED_OPEN:
             other = _open_with_serial(db, fu.serial_key, part.id, exclude=fu.id)
             if other is not None:
@@ -418,7 +446,7 @@ def update_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Di
                 raise _conflict(f"{fu.serial} is already an open failed unit ({held.code if held else other.id})")
         fu.part_id = part.id if part else None
     if "claim_id" in body:
-        claim = _claim(db, body.get("claim_id"), allowed, fu.plant_id)
+        claim = _claim(db, body.get("claim_id"), allowed, fu.plant_id, user, current=fu.claim_id)
         fu.claim_id = claim.id if claim else None
     _commit(db)
     return failed_out(db, fu)
@@ -454,6 +482,9 @@ def move_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict
     frm = fu.location_id
     before = fu.status
     rows: List[StockMovement] = []
+    if kind in ("ship_out", "supplier_return") and claim is not None and claim.status in claims_svc.CLOSED and not _admin(user):
+        # the move writes a shipment event on the claim, and a closed claim is read only for engineers
+        raise _conflict(f"{tag_code} is linked to claim {claim.number}, which is {claim.status}: an admin records this move, or unlink the claim first")
 
     def row(**kw: Any) -> None:
         kw.setdefault("part_id", fu.part_id)
@@ -477,6 +508,9 @@ def move_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict
         to = _location(db, body.get("to_location_id"), ("supplier",), "To")
         fu.status, fu.location_id = "sent", to.id
         row(from_location_id=frm, to_location_id=to.id, from_state=before, to_state="sent")
+        if spare is not None and spare.state == "failed":
+            spare.state = "at_supplier"
+            row(part_id=spare.part_id, unit_id=spare.id, serial=spare.serial, from_location_id=frm, to_location_id=to.id, from_state="failed", to_state="at_supplier")
         if claim is not None:
             claims_svc._event(db, claim, "shipment", by, f"Failed unit {tag_code} sent", day=day, direction="out", carrier=carrier, tracking_no=tracking, sn=fu.serial)
     elif kind == "supplier_return":
@@ -500,6 +534,7 @@ def move_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict
             new_serial = _text(body.get("new_serial"), "New serial", 64, required=True) or ""
             unit = _spare_for(db, fu.part_id, new_serial, None)
             unit_from = None
+            fu.location_id = None  # the supplier kept it: the failed unit is nowhere now
             if spare is not None and spare.state not in ("scrapped", "void"):
                 old_state = spare.state
                 spare.state, spare.location_id, spare.plant_id = "scrapped", None, None
@@ -521,7 +556,7 @@ def move_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Dict
             raise _conflict(f"{tag_code} is {fu.status.replace('_', ' ')}: it cannot be scrapped")
         fu.status, fu.location_id = "scrapped", None
         row(from_location_id=frm, from_state=before, to_state="scrapped")
-        if spare is not None and spare.state == "failed":
+        if spare is not None and spare.state in ("failed", "at_supplier"):
             old_state = spare.state
             spare.state, spare.location_id, spare.plant_id = "scrapped", None, None
             row(part_id=spare.part_id, unit_id=spare.id, serial=spare.serial, from_state=old_state, to_state="scrapped")

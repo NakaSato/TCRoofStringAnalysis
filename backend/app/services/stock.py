@@ -309,10 +309,16 @@ def update_location(db: Session, user: User, location_id: int, data: Dict[str, A
     if "code" in f and f["code"] != loc.code and db.scalar(select(StockLocation.id).where(StockLocation.code == f["code"])) is not None:
         raise StockConflict([{"row": None, "error": f"Location code {f['code']} is already used"}])
     counts = _counts(db)
-    if f.get("active") is False and counts.get(loc.id):
-        raise StockConflict([{"row": None, "error": f"{loc.code} still holds {counts[loc.id]} units: move them first"}])
+    from app.services.stock_failed import open_failed_at  # imports this module
+
+    failed = open_failed_at(db, loc.id)
+    if f.get("active") is False and (counts.get(loc.id) or failed):
+        held = " and ".join(x for x in (f"{counts[loc.id]} units" if counts.get(loc.id) else "", f"{failed} failed units" if failed else "") if x)
+        raise StockConflict([{"row": None, "error": f"{loc.code} still holds {held}: move them first"}])
     if "kind" in f and f["kind"] != loc.kind and counts.get(loc.id) and f["kind"] not in STOCK_KINDS:
         raise StockConflict([{"row": None, "error": f"{loc.code} still holds units: it must stay a store, bin or van"}])
+    if "kind" in f and f["kind"] != loc.kind and failed:
+        raise StockConflict([{"row": None, "error": f"{loc.code} still holds {failed} failed units: move them before changing its kind"}])
     for k, v in f.items():
         setattr(loc, k, v)
     db.commit()

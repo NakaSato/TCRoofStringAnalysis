@@ -299,16 +299,16 @@ def models(db: Session, user: User) -> Dict[str, Any]:
         k = row_of_part.get(pid)
         if k is not None and _spare_visible(allowed, upid):
             rows[k]["in_stock" if state == "in_stock" else "at_supplier"] += int(n)
-    for pid, status, fpid, n in db.execute(
-        select(FailedUnit.part_id, FailedUnit.status, FailedUnit.plant_id, func.count())
+    for pid, status, fpid, linked, n in db.execute(
+        select(FailedUnit.part_id, FailedUnit.status, FailedUnit.plant_id, FailedUnit.spare_unit_id.is_not(None), func.count())
         .where(FailedUnit.status.in_(FAILED_OPEN), FailedUnit.part_id.is_not(None))
-        .group_by(FailedUnit.part_id, FailedUnit.status, FailedUnit.plant_id)
+        .group_by(FailedUnit.part_id, FailedUnit.status, FailedUnit.plant_id, FailedUnit.spare_unit_id.is_not(None))
     ):
         k = row_of_part.get(pid) if pid is not None else None
         if k is None or not _spare_visible(allowed, fpid):
             continue
         rows[k]["failed_open"] += int(n)
-        if status == "sent":
+        if status == "sent" and not linked:  # a linked spare unit sent is counted above, as `at_supplier`
             rows[k]["at_supplier"] += int(n)
     items = sorted(rows.values(), key=lambda r: (_CAT_ORDER.get(r["category"], 99), r["model_key"] is None, -r["installed"], r["model_key"] or ""))
     return {"items": items}

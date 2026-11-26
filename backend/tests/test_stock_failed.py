@@ -294,3 +294,92 @@ def test_startup_relaxes_part_id_on_an_old_sqlite_table(tmp_path):
             assert conn.execute(sa_text("PRAGMA foreign_key_check")).all() == []
     with eng.begin() as conn:  # a movement without a part is accepted now
         conn.execute(sa_text("INSERT INTO stock_movements (batch_id, kind, part_id, qty, at, day) VALUES ('c', 'failed_in', NULL, 1, '2026-11-26', '2026-11-26')"))
+
+
+def test_closed_claim_is_read_only_for_engineers(api):
+    """#137: a closed claim is not linked, and ship-out / back-from-supplier do not write on it, unless an admin."""
+    t = api
+    c, adm, eng, keeper, locs = t["c"], t["adm"], t["eng"], t["keeper"], t["locs"]
+    cid = t["claims"][P1]
+    fu = _new(t, eng, serial="CC-1", claim_id=cid)
+    with t["f"]() as db:
+        db.get(Claim, cid).status = "closed"
+        db.commit()
+    assert "closed" in _new(t, eng, 409, red_tag="RT-0002", serial="CC-2", claim_id=cid)["detail"]["errors"][0]["error"]
+    # the claim already linked stays linked through an edit; another closed one cannot be linked
+    assert c.patch(f"/stock/failed-units/{fu['id']}", json={"fault": "x", "claim_id": cid}, headers=eng).status_code == 200
+    r = _move(t, keeper, fu["id"], 409, kind="ship_out", to_location_id=locs["supplier"])
+    assert "CL-2026-001" in r["detail"]["errors"][0]["error"]
+    assert _move(t, adm, fu["id"], kind="ship_out", to_location_id=locs["supplier"])["status"] == "sent"
+    assert _new(t, adm, red_tag="RT-0003", serial="CC-3", claim_id=cid)["claim_id"] == cid
+
+
+def test_location_with_failed_units_stays(api):
+    """#137: a location holding open failed units cannot be switched off or change kind."""
+    t = api
+    c, keeper, locs = t["c"], t["keeper"], t["locs"]
+    fu = _new(t, t["eng"], serial="LOC-1")
+    r = c.patch(f"/stock/locations/{locs['van']}", json={"active": False}, headers=keeper)
+    assert r.status_code == 409 and "1 failed units" in r.text
+    assert c.patch(f"/stock/locations/{locs['van']}", json={"kind": "store"}, headers=keeper).status_code == 409
+    _move(t, keeper, fu["id"], kind="ship_out", to_location_id=locs["supplier"])
+    assert c.patch(f"/stock/locations/{locs['supplier']}", json={"active": False}, headers=keeper).status_code == 409
+    assert c.patch(f"/stock/locations/{locs['van']}", json={"active": False}, headers=keeper).status_code == 200
+
+
+def test_serial_is_in_one_place(api):
+    """#137: a failed unit's serial must not be a spare in stock, installed on another plant or a hidden one;
+    the plant comes from the installed spare before the claim is checked."""
+    t = api
+    c, adm, eng, keeper = t["c"], t["adm"], t["eng"], t["keeper"]
+    pid = t["part"]["id"]
+
+    def batch(h, rows):
+        r = c.post("/stock/movements/batch", json={"rows": rows}, headers=h)
+        assert r.status_code == 201, r.text
+
+    batch(keeper, [{"kind": "receive", "part_id": pid, "serial": s, "to_location_id": t["locs"]["store"]} for s in ("ONE-P1", "ONE-P2", "ONE-STOCK")])
+    batch(adm, [{"kind": "issue", "part_id": pid, "serial": "ONE-P1", "plant_id": P1}, {"kind": "issue", "part_id": pid, "serial": "ONE-P2", "plant_id": P2}])
+    assert "in stock" in _new(t, eng, 409, serial="ONE-STOCK")["detail"]["errors"][0]["error"]
+    r = _new(t, eng, 409, serial="ONE-P2")["detail"]["errors"][0]["error"]
+    assert "another plant" in r and str(P2) not in r
+    _new(t, adm, 422, serial="ONE-P2", plant_id=P1)  # installed at P2, not P1
+    fu = _new(t, eng, serial="ONE-P1", plant_id=None, claim_id=t["claims"][P1])
+    assert (fu["plant_id"], fu["claim_id"]) == (P1, t["claims"][P1])
+    with t["f"]() as db:
+        assert db.scalars(select(SpareUnit.state).where(SpareUnit.serial_key == "ONE-P2")).one() == "installed"
+
+
+def test_linked_spare_follows_the_failed_unit(api):
+    """#137: a linked spare goes to the supplier with its failed unit, its part is fixed, and a
+    replaced failed unit is nowhere afterwards; Spares per model counts the unit at the supplier once."""
+    t = api
+    c, adm, eng, keeper, locs = t["c"], t["adm"], t["eng"], t["keeper"], t["locs"]
+    pid = t["part"]["id"]
+    other = c.post("/stock/parts", json={"code": "P-ROUTER-OTHER", "name": "Other router", "category": "router"}, headers=keeper).json()
+    r = c.post("/stock/movements/batch", json={"rows": [{"kind": "receive", "part_id": pid, "serial": "LS-1", "to_location_id": locs["store"]}]}, headers=keeper)
+    assert r.status_code == 201
+    assert c.post("/stock/movements/batch", json={"rows": [{"kind": "issue", "part_id": pid, "serial": "LS-1", "plant_id": P1}]}, headers=eng).status_code == 201
+    fu = _new(t, eng, serial="LS-1", plant_id=None)
+    assert c.patch(f"/stock/failed-units/{fu['id']}", json={"part_id": other["id"]}, headers=eng).status_code == 409
+    assert c.patch(f"/stock/failed-units/{fu['id']}", json={"part_id": pid}, headers=eng).status_code == 200  # unchanged is fine
+    _move(t, keeper, fu["id"], kind="ship_out", to_location_id=locs["supplier"])
+    with t["f"]() as db:
+        assert db.scalars(select(SpareUnit.state).where(SpareUnit.serial_key == "LS-1")).one() == "at_supplier"
+    rows = c.get("/stock/installed/models", headers=adm).json()["items"]
+    (row,) = [x for x in rows if any(p["id"] == pid for p in x["parts"])]
+    assert (row["at_supplier"], row["failed_open"]) == (1, 1)
+    d = _move(t, keeper, fu["id"], kind="supplier_return", outcome="replaced", new_serial="LS-NEW", to_location_id=locs["store"])
+    assert (d["status"], d["location_id"]) == ("replaced", None)
+    with t["f"]() as db:
+        assert db.scalars(select(SpareUnit.state).where(SpareUnit.serial_key == "LS-1")).one() == "scrapped"
+    # a closed failed unit's part cannot change
+    assert c.patch(f"/stock/failed-units/{fu['id']}", json={"part_id": other["id"]}, headers=eng).status_code == 409
+    # a scrapped unit sent with a linked spare: the spare is scrapped from at_supplier
+    batch = c.post("/stock/movements/batch", json={"rows": [{"kind": "issue", "part_id": pid, "serial": "LS-NEW", "plant_id": P1}]}, headers=eng)
+    assert batch.status_code == 201
+    fu2 = _new(t, eng, red_tag="RT-0002", serial="LS-NEW", plant_id=None)
+    _move(t, keeper, fu2["id"], kind="ship_out", to_location_id=locs["supplier"])
+    _move(t, keeper, fu2["id"], kind="scrap")
+    with t["f"]() as db:
+        assert db.scalars(select(SpareUnit.state).where(SpareUnit.serial_key == "LS-NEW")).one() == "scrapped"
