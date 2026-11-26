@@ -147,15 +147,6 @@ def _get(db: Session, user: User, fid: int) -> Tuple[FailedUnit, Optional[Set[in
     return fu, allowed
 
 
-def _open_with_serial(db: Session, key: str, part_id: Optional[int], exclude: Optional[int] = None) -> Optional[FailedUnit]:
-    q = select(FailedUnit).where(FailedUnit.serial_key == key, FailedUnit.status.in_(FAILED_OPEN))
-    if part_id is not None:
-        q = q.where(or_(FailedUnit.part_id.is_(None), FailedUnit.part_id == part_id))
-    if exclude is not None:
-        q = q.where(FailedUnit.id != exclude)
-    return db.scalars(q).first()
-
-
 # ---------------------------------------------------------------------------------------- out
 
 
@@ -446,11 +437,11 @@ def update_failed(db: Session, user: User, fid: int, body: Dict[str, Any]) -> Di
                 raise _conflict(f"The failed unit is {fu.status.replace('_', ' ')}: its part cannot change")
             if fu.spare_unit_id is not None:
                 raise _conflict("The failed unit is a spare unit of the register: its part is that unit's")
-        if part is not None and fu.serial_key and fu.status in FAILED_OPEN:
-            other = _open_with_serial(db, fu.serial_key, part.id, exclude=fu.id)
-            if other is not None:
-                held = db.get(RedTag, other.red_tag_id)
-                raise _conflict(f"{fu.serial} is already an open failed unit ({held.code if held else other.id})")
+        if part is not None and part.id != fu.part_id and fu.serial_key and fu.status in FAILED_OPEN:
+            # one serial, one place (plan §3): a spare unit of any part or another open failed unit
+            holder = stock_svc.serial_holder(db, fu.serial_key, exclude_unit_id=fu.spare_unit_id, exclude_failed_id=fu.id)
+            if holder is not None:
+                raise _conflict(f"{fu.serial} {stock_svc.holder_text(db, holder, allowed)}")
         fu.part_id = part.id if part else None
     if "claim_id" in body:
         claim = _claim(db, body.get("claim_id"), allowed, fu.plant_id, user, current=fu.claim_id)

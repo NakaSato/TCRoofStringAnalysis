@@ -310,3 +310,20 @@ def test_new_serial_held_elsewhere_is_blocked(api):
     assert [e["row"] for e in r["detail"]["errors"]] == [0, 1]
     with t["f"]() as db:
         assert db.scalars(select(SpareUnit).where(SpareUnit.serial_key == "FU-9")).first() is None
+
+
+def test_new_serial_under_two_parts_in_one_count_is_blocked(api):
+    """#147: the same new serial scanned under two parts in one count is blocked (one serial, one place);
+    again under the same part it stays a duplicate. Confirm is 409 and writes nothing."""
+    t = api
+    rid, lid = t["router"]["id"], t["logger"]["id"]
+    scans = [{"raw": "TWIN", "part_id": rid}, {"raw": "twin", "part_id": lid}, {"raw": "TWIN", "part_id": rid}]
+    p = _preview(t, "store", scans)
+    assert [r["result"] for r in p["rows"]] == ["new", "blocked", "duplicate"]
+    assert p["rows"][1]["message"] == "P-LOGGER TWIN is already scanned in this count as P-ROUTER"
+    assert p["counts"]["new"] == 1 and p["counts"]["blocked"] == 1
+    r = _confirm(t, "store", scans, p["expected_ids"], status=409)
+    assert [e["row"] for e in r["detail"]["errors"]] == [1]
+    with t["f"]() as db:
+        assert db.scalars(select(SpareUnit).where(SpareUnit.serial_key == "TWIN")).first() is None
+        assert db.scalars(select(StockCount)).first() is None

@@ -89,6 +89,7 @@ def _plan(db: Session, user: User, loc: StockLocation, scans: List[Dict[str, Any
     expected = list(db.scalars(select(SpareUnit).where(SpareUnit.location_id == loc.id, SpareUnit.state == "in_stock").order_by(SpareUnit.id)))
     allowed = allowed_plant_ids(db, user)
     seen: Set[Tuple[Any, ...]] = set()
+    new_parts: Dict[str, int] = {}  # serial key counted in as new in this count -> its part (one serial, one place)
     found_ids: Set[int] = set()
     rows: List[Dict[str, Any]] = []
 
@@ -132,7 +133,7 @@ def _plan(db: Session, user: User, loc: StockLocation, scans: List[Dict[str, Any
                         row.update(result="ambiguous", message=f"{len(units)} units share serial {value}: choose the part ({', '.join(u['part_code'] for u in units)})")
                         continue
                 else:  # not in the register (or only on a plant the user may not see)
-                    _new_serial(db, row, value, s["part_id"], parts, seen, allowed)
+                    _new_serial(db, row, value, s["part_id"], parts, seen, allowed, new_parts)
                     continue
             else:
                 row["message"] = {"location": "A location label, not a unit", "part": "A part label, not a unit"}.get(kind, "Not a unit of the register")
@@ -166,7 +167,14 @@ def _plan(db: Session, user: User, loc: StockLocation, scans: List[Dict[str, Any
 
 
 def _new_serial(
-    db: Session, row: Dict[str, Any], value: str, part_id: Optional[int], parts: Dict[int, Part], seen: Set[Tuple[Any, ...]], allowed: Optional[Set[int]]
+    db: Session,
+    row: Dict[str, Any],
+    value: str,
+    part_id: Optional[int],
+    parts: Dict[int, Part],
+    seen: Set[Tuple[Any, ...]],
+    allowed: Optional[Set[int]],
+    new_parts: Dict[str, int],
 ) -> None:
     key = serial_key(value)
     if len(value) > 64:
@@ -191,6 +199,11 @@ def _new_serial(
     if not part.active:
         row.update(result="blocked", message=f"{part.code} is not active in the catalogue")
         return
+    first = new_parts.get(key)
+    if first is not None and first != part.id:  # the same new serial under another part earlier in this count
+        other = parts.get(first)
+        row.update(result="blocked", message=f"{part.code} {value} is already scanned in this count as {other.code if other else first}")
+        return
     held = db.scalars(select(SpareUnit).where(SpareUnit.part_id == part.id, SpareUnit.serial_key == key)).first()
     if held is not None and held.state != "void":  # a unit on a plant the user may not see
         row.update(result="blocked", message=f"{part.code} {value} cannot be counted in here")
@@ -203,6 +216,7 @@ def _new_serial(
         else:
             row.update(result="blocked", message=f"{part.code} {value} {stock.holder_text(db, holder, allowed)}")
         return
+    new_parts[key] = part.id
     row["_unit"] = held  # a voided unit of this part + serial is reused
     row.update(result="new", message=f"New: {part.code} {value} counted into stock")
 

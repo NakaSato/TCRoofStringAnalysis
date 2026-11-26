@@ -325,6 +325,7 @@ export const FailedUnitDialog: React.FC<{
 
   const stockLocs = useMemo(() => locations.filter((l) => l.active && l.kind !== "supplier"), [locations]);
   const supplierLocs = useMemo(() => locations.filter((l) => l.active && l.kind === "supplier"), [locations]);
+  const unitPart = unit?.part_id != null ? (parts.find((p) => p.id === unit.part_id) ?? null) : null; // the part it comes back as
   const plantClaims = useMemo(
     // the backend links only a claim of the failed unit's plant (none without a plant), and an engineer only an open one
     () =>
@@ -534,6 +535,7 @@ export const FailedUnitDialog: React.FC<{
                           upper
                           formats={SERIAL_FORMATS}
                           scanTitle={t("New serial no.")}
+                          fieldHint={unitPart ? { category: unitPart.category, model: [unitPart.make, unitPart.model].filter(Boolean).join(" ") || unitPart.code } : undefined}
                           value={newSerial}
                           onValueChange={(v, m, raw) => {
                             setNewSerial(v);

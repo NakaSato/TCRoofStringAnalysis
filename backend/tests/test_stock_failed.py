@@ -490,3 +490,38 @@ def test_supplier_return_checks_the_serial_everywhere(api):
     assert d["status"] == "repaired"
     with t["f"]() as db:
         assert db.scalars(select(SpareUnit.state).where(SpareUnit.serial_key == "SR-1", SpareUnit.part_id == pid)).one() == "in_stock"
+
+
+def test_part_change_checks_the_serial_everywhere(api):
+    """#147: setting a failed unit's part refuses a serial held by a spare unit of any part or by another
+    open failed unit, and never names a hidden plant's red tag."""
+    t = api
+    c, adm, eng, keeper = t["c"], t["adm"], t["eng"], t["keeper"]
+    pid = t["part"]["id"]
+    other = c.post("/stock/parts", json={"code": "P-ROUTER-OTHER", "name": "Other router", "category": "router"}, headers=keeper).json()
+    fu = _new(t, eng, serial="PC-1")
+    hidden = _new(t, adm, red_tag="RT-0002", plant_id=P2, serial="PC-HID")
+    # data from before the serial checks: the same serial on a hidden plant's open failed unit
+    with t["f"]() as db:
+        from app.db.models import FailedUnit
+
+        h = db.get(FailedUnit, hidden["id"])
+        h.serial, h.serial_key = "PC-1", "PC-1"
+        db.commit()
+    r = c.patch(f"/stock/failed-units/{fu['id']}", json={"part_id": pid}, headers=eng)
+    assert r.status_code == 409, r.text
+    msg = r.json()["detail"]["errors"][0]["error"]
+    assert msg == "PC-1 is an open failed unit on another plant" and "RT-0002" not in msg
+    # an admin sees which one
+    r = c.patch(f"/stock/failed-units/{fu['id']}", json={"part_id": pid}, headers=adm)
+    assert r.status_code == 409 and r.json()["detail"]["errors"][0]["error"] == "PC-1 is an open failed unit (RT-0002)"
+    # a spare unit under another part holds it
+    with t["f"]() as db:
+        h = db.get(FailedUnit, hidden["id"])
+        h.serial, h.serial_key = "PC-HID", "PC-HID"
+        db.add(SpareUnit(part_id=other["id"], serial="PC-1", serial_key="PC-1", state="in_stock", location_id=t["locs"]["store"]))
+        db.commit()
+    r = c.patch(f"/stock/failed-units/{fu['id']}", json={"part_id": pid}, headers=eng)
+    assert r.status_code == 409 and r.json()["detail"]["errors"][0]["error"] == "PC-1 is already in the register as P-ROUTER-OTHER (in stock)"
+    # a fault edit that leaves the part unchanged is not refused
+    assert c.patch(f"/stock/failed-units/{fu['id']}", json={"fault": "Dead", "part_id": None}, headers=eng).status_code == 200
