@@ -1,6 +1,6 @@
 /** Barcode / QR scans (`/scan/resolve`, docs/plans/barcode-scanning.md §9). */
 
-export type ScanMatchKind = "instrument" | "inverter" | "datalogger" | "site_device" | "failed_unit";
+export type ScanMatchKind = "instrument" | "inverter" | "datalogger" | "site_device" | "failed_unit" | "spare_unit" | "part" | "location";
 
 export interface ScanMatch {
   kind: ScanMatchKind;
@@ -67,7 +67,8 @@ export interface RedTagInfo {
   reserved_at: string | null;
 }
 
-export type ScanLabelKind = "tool" | "dev" | "rt";
+/** tool = instrument, dev = site device, rt = red tag, sp = spare unit, loc = stock location */
+export type ScanLabelKind = "tool" | "dev" | "rt" | "sp" | "loc";
 
 /** one printable label (`/scan/labels`); the QR holds `origin + path`, `code` is printed under it */
 export interface ScanLabel {
@@ -90,6 +91,8 @@ export interface ScanLabelQuery {
   plant_id?: number;
   site_code?: string;
   batch?: number;
+  /** sp: the units in stock of this part */
+  part_id?: number;
 }
 
 export interface RedTagBatch {

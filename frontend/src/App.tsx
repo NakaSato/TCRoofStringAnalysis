@@ -49,6 +49,7 @@ const VisitRoutePage = page(() => import("./pages/VisitRoutePage"), "VisitRouteP
 const ScanRedirectPage = page(() => import("./pages/ScanRedirectPage"), "ScanRedirectPage");
 const LabelsPage = page(() => import("./pages/LabelsPage"), "LabelsPage");
 const SparesPage = page(() => import("./pages/SparesPage"), "SparesPage");
+const BatchScanPage = page(() => import("./pages/spares/BatchScanPage"), "BatchScanPage");
 
 /** `/kb/doc/:docId/rev/:rev`: one revision, read only = the viewer on that revision. */
 const KbRevisionRedirect: React.FC = () => {
@@ -186,6 +187,7 @@ export const App: React.FC = () => {
             <Route path="s/:kind/:code" element={<ScanRedirectPage />} />
             <Route path="labels" element={<LabelsPage />} />
             <Route path="inventory" element={<SparesPage />} />
+            <Route path="inventory/scan" element={<BatchScanPage />} />
             <Route path="spares" element={<SparesRedirect />} />
             <Route path="claims" element={<ClaimsPage />} />
             <Route path="kb" element={<KnowledgeBasePage />} />

@@ -149,8 +149,9 @@ def test_site_devices_serial_sim_and_scope(api):
 
 def test_unsupported_kind_unknown_and_bad_input(api):
     client, adm, eng, _, _ = api
-    body = _resolve(client, eng, "/s/sp/P-ROUTER-RUT")
-    assert body["unsupported_kind"] == "sp" and body["matches"] == [] and body["code"] == "P-ROUTER-RUT"
+    body = _resolve(client, eng, "/s/df/D-0001")
+    assert body["unsupported_kind"] == "df" and body["matches"] == [] and body["code"] == "D-0001"
+    _resolve(client, eng, "/s/sp/P-ROUTER-RUT", 404)  # spares have records now: an unknown part code
     body = _resolve(client, eng, "NOTHING-HERE")
     assert body["matches"] == [] and body["app_code"] is None
     assert _resolve(client, eng, "P/N:ABC")["part_number"] is True

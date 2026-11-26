@@ -16,11 +16,14 @@ import { useI18n } from "../i18n";
 import { qrSvg } from "../lib/scan/qr";
 import { LAYOUTS, cellAt, defaultLayout, isLocalOrigin, labelsCsv, perSheet, qrUrl, toSheets, type LayoutId, type SheetLayout } from "../lib/scan/labelSheet";
 
-const KIND_TITLE: Record<ScanLabelKind, string> = { tool: "Instrument labels", dev: "Site device labels", rt: "Red tags" };
+const KIND_TITLE: Record<ScanLabelKind, string> = { tool: "Instrument labels", dev: "Site device labels", rt: "Red tags", sp: "Spare unit labels", loc: "Stock location labels" };
+const KINDS: readonly ScanLabelKind[] = ["tool", "dev", "rt", "sp", "loc"];
 const BACK: Record<ScanLabelKind, (q: URLSearchParams) => string> = {
   tool: () => "/tools",
   dev: (q) => (q.get("plant_id") ? `/plant/${q.get("plant_id")}/documents` : "/settings?tab=register"),
   rt: () => "/settings?tab=scanning",
+  sp: (q) => (q.get("part_id") ? `/inventory?part=${q.get("part_id")}` : "/inventory"),
+  loc: () => "/inventory?tab=locations",
 };
 
 // on screen the sheet is hidden; in print only the sheet shows, at true size
@@ -118,14 +121,14 @@ const Sheet: React.FC<{ cells: Array<ScanLabel | null>; layout: SheetLayout; ori
 );
 
 /**
- * Print labels (docs/plans/barcode-scanning.md §12 step 5): `/labels?kind=tool|dev|rt` with
- * `plant_id` / `site_code` / `ids` / `batch`. Pick the items, the sheet and where to start on it,
+ * Print labels (docs/plans/barcode-scanning.md §12 step 5): `/labels?kind=tool|dev|rt|sp|loc` with
+ * `plant_id` / `site_code` / `ids` / `batch` / `part_id` (sp: the part's units in stock). sp and loc use the generic layout. Pick the items, the sheet and where to start on it,
  * then print (A4, no margins) or download a CSV. The QR holds this host's `/s/<kind>/<code>` URL.
  */
 export const LabelsPage: React.FC = () => {
   const { t } = useI18n();
   const [params] = useSearchParams();
-  const kind = (["tool", "dev", "rt"].includes(params.get("kind") ?? "") ? params.get("kind") : "tool") as ScanLabelKind;
+  const kind = ((KINDS as readonly string[]).includes(params.get("kind") ?? "") ? params.get("kind") : "tool") as ScanLabelKind;
   const [items, setItems] = useState<ScanLabel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [off, setOff] = useState<Set<string>>(new Set());
@@ -136,7 +139,7 @@ export const LabelsPage: React.FC = () => {
 
   useEffect(() => {
     const num = (k: string) => (params.get(k) ? Number(params.get(k)) : undefined);
-    const q: ScanLabelQuery = { kind, ids: params.get("ids") ?? undefined, plant_id: num("plant_id"), site_code: params.get("site_code") ?? undefined, batch: num("batch") };
+    const q: ScanLabelQuery = { kind, ids: params.get("ids") ?? undefined, plant_id: num("plant_id"), site_code: params.get("site_code") ?? undefined, batch: num("batch"), part_id: num("part_id") };
     let alive = true;
     setItems(null);
     setError(null);

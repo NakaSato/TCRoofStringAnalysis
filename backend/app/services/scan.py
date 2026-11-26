@@ -2,7 +2,7 @@
 
 A scanned or typed code is matched against what the app already registers: an app code
 (`/s/<kind>/<code>`, the full URL or `kind:code`), then instruments (asset tag, serial), Growatt
-inverters, dataloggers, open failed units (serial) and the site register's devices (serial, SIM). Matching is exact on the
+inverters, dataloggers, open failed units (serial), spare units (serial) and the site register's devices (serial, SIM). Matching is exact on the
 normalised value (trimmed, label prefix removed, upper case); there is no fuzzy matching. For a typed
 code that matches nothing, `did_you_mean` lists the spellings with O ↔ 0 / I ↔ 1 swapped that do
 (exact lookups of a bounded set); the UI offers them and the person chooses, nothing is swapped
@@ -25,15 +25,31 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids
-from app.db.models import FailedUnit, GrowattInverter, GrowattPlant, Instrument, RedTag, SiteDevice, SiteRegister, User
+from app.db.models import (
+    FailedUnit,
+    GrowattInverter,
+    GrowattPlant,
+    Instrument,
+    Part,
+    RedTag,
+    SiteDevice,
+    SiteRegister,
+    SpareUnit,
+    StockLocation,
+    User,
+)
 from app.services.growatt_common import GrowattNotFound
 from app.services.visit_route import SlidingWindowLimiter
 
 MAX_CODE_LEN = 512
 GS = "\x1d"
-# kinds of app label (§6.1); `tool` and `dev` open records, `rt` a bound red tag's failed unit
+# kinds of app label (§6.1); `tool`, `dev`, `sp` (spare unit id or part code) and `loc` (stock
+# location code) open records, `rt` a bound red tag's failed unit
 APP_KINDS = ("rt", "sp", "loc", "tool", "dev", "df")
-RESOLVABLE_KINDS = ("tool", "dev")
+RESOLVABLE_KINDS = ("tool", "dev", "sp", "loc")
+# spare unit states a raw serial matches (a voided receive is not in the register)
+SPARE_MATCH_STATES = ("in_stock", "installed", "failed")
+LOCATION_KIND_LABEL = {"store": "Store", "bin": "Bin", "van": "Van", "supplier": "Supplier"}
 _SITE_DEVICE_LABEL = {
     "datalogger": "Data logger",
     "weather_station": "Weather station",
@@ -52,10 +68,10 @@ limiter = SlidingWindowLimiter()
 
 @dataclass
 class Match:
-    kind: str  # instrument | inverter | datalogger | site_device | failed_unit
+    kind: str  # instrument | inverter | datalogger | site_device | failed_unit | spare_unit | part | location
     id: str
     label: str
-    field: str  # what matched: asset_tag | serial | sim | device_sn | datalogger_sn | red_tag
+    field: str  # what matched: asset_tag | serial | sim | device_sn | datalogger_sn | red_tag | id | code
     path: str
     plant_id: Optional[int] = None
     plant_name: Optional[str] = None
@@ -153,6 +169,39 @@ def _failed_visible(allowed: Optional[Set[int]], plant_id: Optional[int]) -> boo
     return allowed is None or plant_id is None or plant_id in allowed
 
 
+def _spare_unit_match(db: Session, u: SpareUnit, part: Part, field: str) -> Match:
+    installed = u.state == "installed"
+    where: Optional[str] = None
+    if u.location_id is not None:
+        loc = db.get(StockLocation, u.location_id)
+        where = loc.code if loc is not None else None
+    elif installed and u.plant_id is not None:
+        where = _plant_names(db, {u.plant_id}).get(u.plant_id) or f"plant {u.plant_id}"
+    state = u.state.replace("_", " ")
+    return Match(
+        "spare_unit",
+        str(u.id),
+        f"{part.code} · {u.serial}",
+        field,
+        f"/inventory?tab=stock&part={part.id}&unit={u.id}",
+        plant_id=u.plant_id if installed else None,
+        detail=f"{state} · {where}" if where else state,
+    )
+
+
+def _part_match(db: Session, p: Part) -> Match:
+    n = int(db.scalar(select(func.count()).select_from(SpareUnit).where(SpareUnit.part_id == p.id, SpareUnit.state == "in_stock")) or 0)
+    return Match("part", str(p.id), f"{p.code} · {p.name}", "code", f"/inventory?tab=stock&part={p.id}", detail=f"{n} in stock")
+
+
+def _location_match(db: Session, loc: StockLocation) -> Match:
+    n = int(db.scalar(select(func.count()).select_from(SpareUnit).where(SpareUnit.location_id == loc.id, SpareUnit.state == "in_stock")) or 0)
+    detail = f"{LOCATION_KIND_LABEL.get(loc.kind, loc.kind)} · {n} unit{'' if n == 1 else 's'}"
+    if not loc.active:
+        detail += " · inactive"
+    return Match("location", str(loc.id), f"{loc.code} · {loc.name}", "code", f"/inventory/scan?loc={loc.id}", detail=detail)
+
+
 def _app_code_matches(db: Session, kind: str, code: str, allowed: Optional[Set[int]]) -> List[Match]:
     if kind == "tool":
         i = db.scalars(select(Instrument).where(func.upper(Instrument.asset_tag) == code.upper())).first()
@@ -168,6 +217,22 @@ def _app_code_matches(db: Session, kind: str, code: str, allowed: Optional[Set[i
         if row is None or not _visible(allowed, row[1].plant_id):
             raise GrowattNotFound(f"No device {code}")
         return [_site_device_match(row[0], row[1], "id")]
+    if kind == "sp":
+        if code.isdigit():
+            hit = db.execute(select(SpareUnit, Part).join(Part, Part.id == SpareUnit.part_id).where(SpareUnit.id == int(code))).first()
+            # a voided receive is not in the register; a unit on a hidden plant is not revealed
+            if hit is None or hit[0].state == "void" or not _failed_visible(allowed, hit[0].plant_id):
+                raise GrowattNotFound(f"No spare unit {code}")
+            return [_spare_unit_match(db, hit[0], hit[1], "id")]
+        p = db.scalars(select(Part).where(func.upper(Part.code) == code.upper())).first()
+        if p is None:
+            raise GrowattNotFound(f"No part {code}")
+        return [_part_match(db, p)]
+    if kind == "loc":
+        loc = db.scalars(select(StockLocation).where(func.upper(StockLocation.code) == code.upper())).first()
+        if loc is None:
+            raise GrowattNotFound(f"No stock location {code}")
+        return [_location_match(db, loc)]
     return []
 
 
@@ -216,7 +281,13 @@ def _raw_matches_many(db: Session, values: Set[str], allowed: Optional[Set[int]]
     ):
         if _failed_visible(allowed, fu.plant_id):
             add(fu.serial_key, _failed_unit_match(fu, tag_code, "serial"))
-    # 5. site register devices: serial or SIM
+    # 5. spare units (in stock, installed, failed) by serial, any part
+    for u, p in db.execute(
+        select(SpareUnit, Part).join(Part, Part.id == SpareUnit.part_id).where(SpareUnit.serial_key.in_(vals), SpareUnit.state.in_(SPARE_MATCH_STATES))
+    ):
+        if _failed_visible(allowed, u.plant_id):
+            add(u.serial_key, _spare_unit_match(db, u, p, "serial"))
+    # 6. site register devices: serial or SIM
     rows = db.execute(
         select(SiteDevice, SiteRegister)
         .join(SiteRegister, SiteRegister.site_code == SiteDevice.site_code)
@@ -304,7 +375,7 @@ def resolve(db: Session, user: User, raw: str, suggest: bool = False) -> Dict[st
             else:
                 unsupported, matches = kind, []
         else:
-            # a label kind whose register is not built yet (red tags, spares, bins, defects)
+            # a label kind whose register is not built yet (defects)
             unsupported, matches, value = kind, [], code.upper()
     else:
         value, part = normalise(raw)

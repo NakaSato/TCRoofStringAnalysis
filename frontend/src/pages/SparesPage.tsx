@@ -8,9 +8,12 @@
  * `tab=failed`, `fu` opens one, so a scanned red tag lands on it); anyone tags and moves one, an admin
  * or store keeper ships it to the supplier, takes it back and scraps it. Phase 3: Replace a device
  * (`spares/ReplaceDialog.tsx`, also on the Site register card) = failed unit off, spare on, register updated.
+ * Phase 4: Batch scan (`spares/BatchScanPage.tsx`, `/inventory/scan`); the Stock tab opens `part=<id>`
+ * and highlights `unit=<id>` (where scanned `sp:` labels land); `sp` / `loc` labels print from here.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeftRight, Download, PackagePlus, Pencil, Plus, Replace, Tag, Undo2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowLeftRight, Download, PackagePlus, Pencil, Plus, Printer, Replace, ScanLine, Tag, Undo2 } from "lucide-react";
 import {
   api,
   type StockLocation,
@@ -59,6 +62,12 @@ export const SparesPage: React.FC = () => {
   const tab = pick(url.get("tab"), TABS, "stock");
   const fuRaw = Number(url.get("fu"));
   const fu = Number.isInteger(fuRaw) && fuRaw > 0 ? fuRaw : null;
+  const idParam = (k: string) => {
+    const n = Number(url.get(k));
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
+  const openPart = idParam("part");
+  const unitParam = idParam("unit");
   const [tagging, setTagging] = useState(false);
   const [replacing, setReplacing] = useState(false);
   const [parts, setParts] = useState<StockPart[] | null>(null);
@@ -100,6 +109,12 @@ export const SparesPage: React.FC = () => {
           <p className="text-xs text-muted-foreground">{t("Spare units in the store and the crews' vans, failed units, and every move in and out")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button asChild size="sm" variant="outline">
+            <Link to="/inventory/scan">
+              <ScanLine data-icon="inline-start" />
+              {t("Batch scan")}
+            </Link>
+          </Button>
           <Button size="sm" variant="accent" onClick={() => setReplacing(true)} disabled={!locations?.length}>
             <Replace data-icon="inline-start" />
             {t("Replace a device")}
@@ -158,7 +173,15 @@ export const SparesPage: React.FC = () => {
       {!parts || !locations ? (
         <SkeletonRows rows={6} />
       ) : tab === "stock" ? (
-        <StockTab parts={activeParts} locById={locById} version={version} onMove={(kind, unit) => setMove({ kind, unit })} />
+        <StockTab
+          parts={activeParts}
+          locById={locById}
+          version={version}
+          open={openPart}
+          highlight={unitParam}
+          onOpen={(id) => setUrl({ part: id, unit: null })}
+          onMove={(kind, unit) => setMove({ kind, unit })}
+        />
       ) : tab === "failed" ? (
         <FailedTab version={version} />
       ) : tab === "movements" ? (
@@ -199,11 +222,20 @@ const StockTab: React.FC<{
   parts: StockPart[];
   locById: Map<number, StockLocation>;
   version: number;
+  /** the part whose units are open (URL `part`) */
+  open: number | null;
+  /** a unit row to highlight (URL `unit`, a scanned `sp:` label) */
+  highlight: number | null;
+  onOpen: (id: number | null) => void;
   onMove: (kind: MoveKind, unit: StockUnit) => void;
-}> = ({ parts, locById, version, onMove }) => {
+}> = ({ parts, locById, version, open, highlight, onOpen, onMove }) => {
   const { t } = useI18n();
-  const [open, setOpen] = useState<number | null>(null);
+  const setOpen = onOpen;
   const [units, setUnits] = useState<StockUnit[] | null>(null);
+  const hlRef = React.useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (units && highlight != null) hlRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [units, highlight]);
   useEffect(() => {
     if (open == null) return;
     let alive = true;
@@ -260,9 +292,26 @@ const StockTab: React.FC<{
                       ) : !units.length ? (
                         <p className="text-xs text-muted-foreground">{t("No units of this part yet.")}</p>
                       ) : (
+                        <div className="flex flex-col gap-2">
+                        {units.some((u) => u.state === "in_stock") && (
+                          <Button asChild size="xs" variant="outline" className="self-start">
+                            <Link to={`/labels?kind=sp&part_id=${p.id}`}>
+                              <Printer data-icon="inline-start" />
+                              {t("Print labels")}
+                            </Link>
+                          </Button>
+                        )}
                         <ul className="flex flex-col gap-1">
                           {units.map((u) => (
-                            <li key={u.id} className="flex flex-wrap items-center gap-2 text-xs">
+                            <li
+                              key={u.id}
+                              ref={u.id === highlight ? hlRef : undefined}
+                              className={
+                                u.id === highlight
+                                  ? "-mx-1.5 flex flex-wrap items-center gap-2 rounded px-1.5 py-0.5 text-xs ring-2 ring-sky-400/70"
+                                  : "flex flex-wrap items-center gap-2 text-xs"
+                              }
+                            >
                               <span className="min-w-36 font-mono text-slate-100">{u.serial}</span>
                               <Badge variant={u.state === "in_stock" ? "ok" : "neutral"}>{t(STATE_LABEL[u.state])}</Badge>
                               <span className="min-w-0 flex-1 truncate text-muted-foreground">{u.location_code ?? u.plant_name ?? "—"}</span>
@@ -284,6 +333,7 @@ const StockTab: React.FC<{
                             </li>
                           ))}
                         </ul>
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>
@@ -525,14 +575,22 @@ const LocationsTab: React.FC<{ locations: StockLocation[]; locById: Map<number, 
   return (
     <Card className="gap-3 py-3">
       <CardContent className="flex flex-col gap-3 px-0">
-        {keeper && (
-          <div className="px-4">
+        <div className="flex flex-wrap gap-2 px-4">
+          {keeper && (
             <Button size="sm" variant="outline" onClick={() => onEdit(null)}>
               <Plus data-icon="inline-start" />
               {t("Add location")}
             </Button>
-          </div>
-        )}
+          )}
+          {locations.some((l) => l.active) && (
+            <Button asChild size="sm" variant="outline">
+              <Link to="/labels?kind=loc">
+                <Printer data-icon="inline-start" />
+                {t("Print labels")}
+              </Link>
+            </Button>
+          )}
+        </div>
         {!locations.length ? (
           <EmptyState title={t("No stock locations yet.")} />
         ) : (
@@ -558,7 +616,22 @@ const LocationsTab: React.FC<{ locations: StockLocation[]; locById: Map<number, 
                   <TableCell className="text-xs">{t(KIND_LABEL[l.kind])}</TableCell>
                   <TableCell className="text-xs">{l.kind === "bin" ? (l.parent_id != null ? locById.get(l.parent_id)?.code : null) ?? "—" : l.holder_name ?? "—"}</TableCell>
                   <TableCell className="num text-right text-xs">{l.units}</TableCell>
-                  <TableCell className="pr-4 text-right">
+                  <TableCell className="pr-4 text-right whitespace-nowrap">
+                    {l.active && l.kind !== "supplier" && (
+                      <Button asChild size="xs" variant="ghost">
+                        <Link to={`/inventory/scan?loc=${l.id}`}>
+                          <ScanLine data-icon="inline-start" />
+                          {t("Scan into")}
+                        </Link>
+                      </Button>
+                    )}
+                    {l.active && (
+                      <Button asChild size="icon-xs" variant="ghost" aria-label={t("Print the label of {code}", { code: l.code })} title={t("Print the label of {code}", { code: l.code })}>
+                        <Link to={`/labels?kind=loc&ids=${l.id}`}>
+                          <Printer className="size-3.5" />
+                        </Link>
+                      </Button>
+                    )}
                     {keeper && (
                       <Button size="icon-xs" variant="ghost" aria-label={t("Edit {code}", { code: l.code })} onClick={() => onEdit(l)}>
                         <Pencil className="size-3.5" />

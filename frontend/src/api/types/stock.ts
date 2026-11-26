@@ -283,3 +283,17 @@ export interface RegisterMismatch extends StockBatchError {
   register_serial: string | null;
   label_serial: string;
 }
+
+// ---- batch scanning (phase 4): what a scanned code is in the register
+
+export type StockLookupKind = "location" | "unit" | "part" | "serial" | "unknown";
+
+/** `GET /stock/lookup?code=` (DB only): a `loc:` / exact location code, an `sp:<unit id>`, an `sp:<PARTCODE>` / exact part code, else a serial */
+export interface StockLookup {
+  code: string;
+  kind: StockLookupKind;
+  location: StockLocation | null;
+  part: StockPart | null;
+  /** unit: the one unit; serial: exact matches in any state but void (empty = a new serial) */
+  units: StockUnit[];
+}

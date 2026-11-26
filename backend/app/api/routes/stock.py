@@ -19,6 +19,7 @@ from app.db.models import User
 from app.db.session import get_db
 from app.services import stock as svc
 from app.services import stock_failed as failed_svc
+from app.services import stock_lookup as lookup_svc
 from app.services import stock_replace as replace_svc
 
 router = APIRouter(prefix="/stock", tags=["Spares"])
@@ -132,6 +133,13 @@ def list_units(
     user: User = Depends(get_current_user),
 ) -> List[Dict[str, Any]]:
     return svc.list_units(db, user, part_id, location_id, state, q)
+
+
+@router.get("/lookup")
+def lookup_code(code: str = Query(..., max_length=512), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """What a batch-page scan is: `kind` location / unit / part / serial / unknown (DB only, not
+    rate limited, never 404; hidden units are not listed)."""
+    return lookup_svc.lookup(db, user, code)
 
 
 @router.get("/movements")

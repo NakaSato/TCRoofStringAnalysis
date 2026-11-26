@@ -99,21 +99,27 @@ def _ids(raw: Optional[str]) -> Optional[List[int]]:
 
 @router.get("/labels")
 def get_labels(
-    kind: str = Query(..., pattern="^(tool|dev|rt)$"),
+    kind: str = Query(..., pattern="^(tool|dev|rt|sp|loc)$"),
     ids: Optional[str] = Query(None, max_length=4000),
     plant_id: Optional[int] = None,
     site_code: Optional[str] = Query(None, max_length=16),
     batch: Optional[int] = None,
+    part_id: Optional[int] = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Label data to print: `tool` (instruments), `dev` (site devices of a plant / station), `rt`
-    (a red tag batch). The browser draws the QR codes and the sheet."""
+    (a red tag batch), `sp` (spare units by `ids`, or a part's units in stock by `part_id`), `loc`
+    (stock locations by `ids`, else every active one). The browser draws the QR codes and the sheet."""
     try:
         if kind == "tool":
             items = labels.tool_labels(db, _ids(ids))
         elif kind == "dev":
             items = labels.device_labels(db, user, plant_id, site_code, _ids(ids))
+        elif kind == "sp":
+            items = labels.spare_labels(db, user, _ids(ids), part_id)
+        elif kind == "loc":
+            items = labels.location_labels(db, _ids(ids))
         else:
             if batch is None:
                 raise HTTPException(422, "batch is required for red tags")

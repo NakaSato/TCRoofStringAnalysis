@@ -161,7 +161,12 @@ export class BurstDetector {
     let ch: string | null = null;
     if (e.ctrlKey && (e.code === "BracketRight" || e.key === "]")) ch = GS; // GS sent as Ctrl+]
     else if (e.ctrlKey || e.metaKey || e.altKey) return { kind: "ignore" };
-    else ch = e.code ? charFromCode(e.code, e.shiftKey, e.capsLock ?? false) : charFromKey(e.key);
+    else if (e.code && (e.key === charFromCode(e.code, false) || e.key === charFromCode(e.code, true))) {
+      // `key` is one of the two characters this physical key makes on a US layout: trust it, so a
+      // scanner that sends ':' without reporting Shift (some iOS Bluetooth ones) still reads right.
+      // A Thai layout's key (Thai, or ASCII on another key such as '-' on Digit3) is rebuilt from `code`.
+      ch = e.key;
+    } else ch = e.code ? charFromCode(e.code, e.shiftKey, e.capsLock ?? false) : charFromKey(e.key);
     if (ch == null) return { kind: "ignore" };
     const fast = last != null && this.chars.length > 0 && e.time - last <= this.settings.maxGapMs;
     this.chars.push(ch);

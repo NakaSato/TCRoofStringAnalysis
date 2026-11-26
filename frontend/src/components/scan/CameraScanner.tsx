@@ -49,7 +49,9 @@ export const CameraScanner: React.FC<{
   onDetect: (code: DetectedBarcode) => void;
   /** offered when the camera cannot be used */
   onFallback?: (to: "photo" | "type") => void;
-}> = ({ formats, paused = false, onDetect, onFallback }) => {
+  /** beep and flash on each read (default); false = the parent gives the feedback (batch mode: a code held in view reads again every frame) */
+  feedback?: boolean;
+}> = ({ formats, paused = false, onDetect, onFallback, feedback = true }) => {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -67,6 +69,8 @@ export const CameraScanner: React.FC<{
   onDetectRef.current = onDetect;
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const feedbackRef = useRef(feedback);
+  feedbackRef.current = feedback;
   const boxRef = useRef(box);
   boxRef.current = box;
 
@@ -161,9 +165,11 @@ export const CameraScanner: React.FC<{
           const found = await det.detect(canvas);
           const hit = found.find((b) => b.rawValue);
           if (alive && hit && !pausedRef.current) {
-            signal("ok");
-            setFlash(true);
-            window.setTimeout(() => setFlash(false), 350);
+            if (feedbackRef.current) {
+              signal("ok");
+              setFlash(true);
+              window.setTimeout(() => setFlash(false), 350);
+            }
             onDetectRef.current(hit);
           }
         }

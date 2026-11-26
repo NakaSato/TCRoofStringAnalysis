@@ -53,6 +53,7 @@ import type {
   ReplaceTargets,
   StockLocation,
   StockLocationBody,
+  StockLookup,
   StockMovement,
   StockMovementList,
   StockMovementQuery,
@@ -635,6 +636,7 @@ export const api = {
   listRedTagBatches: () => apiFetch<RedTagBatch[]>("/scan/labels/redtags"),
 
   // ---- spares register (/stock): catalogue, locations, units, movement ledger (DB only, no money)
+  stockLookup: (code: string) => apiFetch<StockLookup>(`/stock/lookup?code=${encodeURIComponent(code)}`),
   getStockSummary: () => apiFetch<StockSummary>("/stock/summary"),
   listStockParts: (includeInactive = false) => apiFetch<StockPart[]>(`/stock/parts${includeInactive ? "?include_inactive=true" : ""}`),
   createStockPart: (body: StockPartBody) => apiFetch<StockPart>("/stock/parts", { method: "POST", body: JSON.stringify(body) }),

@@ -318,7 +318,7 @@ Built so far (2026-11-26): `/scan/resolve` matches app codes `tool` / `dev` and 
 3. Camera: decoder (native + ponyfill, self-hosted WASM, PWA cache), `CameraScanner`, permission UI, torch / zoom.
 4. Photo fallback; FieldPicker + field hints for multi-field labels.
 5. Labels: red tag reservation, A4 sheet / CSV, instrument and bin labels.
-6. Batch mode (receive / issue / transfer / count) with `POST /stock/movements/batch`.
+6. Batch mode (receive / issue / transfer / count) with `POST /stock/movements/batch`. **Built 2026-11-26** for receive / transfer / return (`/inventory/scan`, docs/plans/spares-failed-units.md step 4); count is that plan's step 5; issue to a plant goes through the replacement flow.
 7. Device matrix test (§11), then `bun run lint && bun run build`, role tests as admin and engineer, and an update of `frontend/CLAUDE.md` (scanning section, LAN HTTPS for testing).
 
 ## 13. Decisions and open questions

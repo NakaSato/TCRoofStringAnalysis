@@ -81,3 +81,18 @@ describe("BurstDetector", () => {
     expect(s?.kind === "scan" && s.burst.end).toBe("idle");
   });
 });
+
+describe("BurstDetector: Shift not reported", () => {
+  test("':' on the Semicolon key without shiftKey still reads ':' (some iOS Bluetooth scanners)", () => {
+    const det = new BurstDetector({ ...DEFAULT_SCAN_SETTINGS });
+    let t = 1000;
+    let out: ReturnType<BurstDetector["feed"]> | null = null;
+    for (const ch of "loc:A-01") {
+      const code = ch === ":" ? "Semicolon" : ch === "-" ? "Minus" : /\d/.test(ch) ? `Digit${ch}` : `Key${ch.toUpperCase()}`;
+      out = det.feed({ key: ch, code, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, time: (t += 5) });
+    }
+    out = det.feed({ key: "Enter", code: "Enter", shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, time: (t += 5) });
+    expect(out.kind).toBe("scan");
+    if (out.kind === "scan") expect(out.burst.value).toBe("loc:A-01");
+  });
+});

@@ -11,6 +11,9 @@ label, never personal data.
   register: a plant the user may not see answers 404 (not revealed); a station without a plant is
   admin only.
 - `rt`: one batch of red tags (`RedTag`). Reserving a batch is admin only.
+- `sp`: spare units (the ids asked for, or a part's units in stock); a unit installed on a plant
+  the user may not see is left out. Code `sp:<unit id>`, title the serial.
+- `loc`: stock locations (the ids asked for, or every active one). Code `loc:<CODE>`.
 """
 
 from __future__ import annotations
@@ -25,9 +28,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import allowed_plant_ids
-from app.db.models import Instrument, RedTag, SiteDevice, SiteRegister, User
+from app.db.models import Instrument, Part, RedTag, SiteDevice, SiteRegister, SpareUnit, StockLocation, User
 from app.services.growatt_common import GrowattNotFound
-from app.services.scan import _SITE_DEVICE_LABEL, _plant_names, _visible
+from app.services.scan import _SITE_DEVICE_LABEL, LOCATION_KIND_LABEL, _failed_visible, _plant_names, _visible
 
 MAX_RESERVE = 500
 MAX_IDS = 500
@@ -101,6 +104,27 @@ def device_labels(
             )
         )
     return out
+
+
+def spare_labels(db: Session, user: User, ids: Optional[Sequence[int]] = None, part_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    if not ids and part_id is None:
+        raise ValueError("Give ids or part_id")
+    allowed = allowed_plant_ids(db, user)
+    q = select(SpareUnit, Part).join(Part, Part.id == SpareUnit.part_id).where(SpareUnit.state != "void")
+    if ids:
+        q = q.where(SpareUnit.id.in_(list(ids)))
+    if part_id is not None:
+        q = q.where(SpareUnit.part_id == part_id)
+        if not ids:
+            q = q.where(SpareUnit.state == "in_stock")
+    rows = db.execute(q.order_by(Part.code, SpareUnit.serial_key)).all()
+    return [_label("sp", str(u.id), u.serial, [p.code, p.name], u.id) for u, p in rows if _failed_visible(allowed, u.plant_id)]
+
+
+def location_labels(db: Session, ids: Optional[Sequence[int]] = None) -> List[Dict[str, Any]]:
+    q = select(StockLocation).order_by(StockLocation.code)
+    q = q.where(StockLocation.id.in_(list(ids))) if ids else q.where(StockLocation.active.is_(True))
+    return [_label("loc", loc.code, loc.code, [loc.name, LOCATION_KIND_LABEL.get(loc.kind, loc.kind)], loc.id) for loc in db.scalars(q)]
 
 
 def red_tag_labels(db: Session, batch: int) -> List[Dict[str, Any]]:
