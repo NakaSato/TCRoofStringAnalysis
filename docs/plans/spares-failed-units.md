@@ -1,6 +1,6 @@
 # Plan & Spec: Spares and failed units (store register)
 
-Status: **Proposed 2026-11-26, not built** · Owner: Chanthawat
+Status: **Planned 2026-11-26, decisions taken (§9), not built** · Owner: Chanthawat
 
 A register of the **spare parts** the O&M team keeps (in the store and in the crews' vans) and of the **failed units** taken off site, with every move between them recorded. It is the piece the scanning plan is waiting on (docs/plans/barcode-scanning.md §7.2, §7.3, §12 steps 5–6): binding a red tag to a failed unit, labels for bins and spares, and batch receive / issue / count at the store desk.
 
@@ -125,12 +125,12 @@ POST            /stock/counts  → proposal;  POST /stock/counts/{id}/confirm �
 5. Count mode with confirmed adjustments.
 6. Initial stock load (D-5), then the device matrix check of barcode-scanning.md §11 at the store desk.
 
-## 9. Decisions needed
+## 9. Decisions (2026-11-26)
 
-1. **D-1 Who manages stock?** Admins only, or a **store keeper** permission on a user (receive, count confirm, catalogue, locations) while engineers do field moves (load van, replace, return)? The app has two roles today; a permission flag on a user is smaller than a third role.
-2. **D-2 Consumables in v1?** Serialised units only first (routers, dataloggers, meters, inverters), or also counted consumables (fuses, MC4 connectors, cable by the metre)?
-3. **D-3 Vans as locations?** One van location per crew (stock follows the crew), or the store only, with "issued to a crew" as a state?
-4. **D-4 Site Register update on replacement.** The register is imported from the O&M workbook, and a re-import shows differences before applying. Should a replacement change the device's serial in the app at once (the next workbook import then shows the workbook as out of date), or record a pending change an admin applies, keeping the workbook the source?
-5. **D-5 Initial stock.** Import from the current spreadsheet (if there is one: which file?), or a first full count with the scanner at the store?
-6. **D-6 Minimum quantities and alerts.** Set a minimum per part and flag "below minimum" on the Stock tab (no orders)? And flag failed units not sent to the supplier after N days?
-7. **D-7 Manual serials** (barcode-scanning.md §13 question 5): must a typed serial on a replacement have a photo of the label, or stay optional?
+1. **D-1 Who manages stock:** admins, plus users with a **store keeper** permission (a flag on the user, set in Users & Access). Store keepers and admins receive, confirm counts and edit the catalogue and locations; engineers do the field moves (load a van, replace a device, return parts, move a failed unit).
+2. **D-2 Scope of v1:** **serialised units only** (routers, dataloggers, meters, inverters, one row per serial). Counted consumables (fuses, MC4 connectors, cable) come in a later phase; the data model keeps `qty` so they need no migration.
+3. **D-3 Vans:** **one stock location per crew van**. A crew sees its van's stock before a visit, and a replacement takes the spare from the van.
+4. **D-4 Site Register on replacement:** **updated at once** with the new serial (the replacement records who and when). The next O&M workbook import then shows the workbook as out of date for that device; the workbook is brought up to date from the app's register export.
+5. **D-5 Starting stock:** **a first full count with the scanner** at the store desk, after the bins are set up and labelled. No spreadsheet import.
+6. **D-6 Alerts (in the app only, nothing ordered or emailed):** a **minimum per part** with "below minimum" on the Stock tab, and **failed units not sent** to the supplier after a number of days (a setting, `STOCK_FAILED_UNSENT_DAYS`, default 14, until you set another).
+7. **D-7 Typed serials:** a label **photo is optional**. A typed serial is marked "Typed" (`input_method = manual`, `raw_scan` kept) on its movement.
