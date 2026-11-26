@@ -175,6 +175,18 @@ def test_fleet_ranking_lists_zero_yield_plants_apart(env):
     assert r["plants_without_data"] == 0
 
 
+def test_fleet_ranking_leaves_out_a_not_installed_inverter(env):
+    """An inverter marked not installed adds nothing to its plant's yield (#149)."""
+    from app.db.models import GrowattInverterReading
+
+    with env.Session() as s:
+        s.add(GrowattInverter(device_sn="INVX", plant_id=PLANT, not_installed_at=datetime(2026, 11, 1, tzinfo=timezone.utc)))
+        s.add(GrowattInverterReading(device_sn="INVX", timestamp=datetime(2026, 11, 11, 12), pac_w=0, ppv_w=0, eac_today_kwh=50.0))
+        s.commit()
+    [top] = _run(env.Session, "fleet_ranking", {"day": "2026-11-11"})["ranking"]
+    assert top["plant_id"] == PLANT and top["yield_kwh"] == pytest.approx(9.9)
+
+
 def test_tools_hide_plants_outside_the_scope(env):
     scoped = _ctx(env.Session, allowed={OTHER})
     text, err = run_tool("plant_overview", {"plant_id": PLANT}, scoped)

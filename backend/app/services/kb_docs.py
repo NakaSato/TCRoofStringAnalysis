@@ -227,6 +227,10 @@ def link_out(link: KbDocLink, plant_names: Dict[int, str]) -> Dict[str, Any]:
     return {"target_type": link.target_type, "target_id": link.target_id, "page": link.page, "label": label}
 
 
+def _hidden_plant_link(x: KbDocLink, allowed: Set[int]) -> bool:
+    return x.target_type == "plant" and not (str(x.target_id).isdigit() and int(x.target_id) in allowed)
+
+
 def _plant_names(db: Session, ids: Iterable[int]) -> Dict[int, str]:
     ids = list(set(ids))
     if not ids:
@@ -284,9 +288,14 @@ def doc_out(db: Session, d: KbDocument, user: User) -> Dict[str, Any]:
             )
         }
     links = list(db.scalars(select(KbDocLink).where(KbDocLink.doc_id == d.id).order_by(KbDocLink.target_type, KbDocLink.target_id, KbDocLink.page)))
+    allowed = allowed_plant_ids(db, user)
+    if allowed is not None:  # links to plants the user is not assigned: not shown (ids are not revealed)
+        links = [x for x in links if not _hidden_plant_link(x, allowed)]
     names = _plant_names(db, [int(x.target_id) for x in links if x.target_type == "plant" and str(x.target_id).isdigit()])
     out = doc_summary(d, user, current, pinned=d.id in _pinned(db, user))
     sup = db.get(KbDocument, d.superseded_by_id) if d.superseded_by_id else None
+    if sup is not None and not can_view(sup, user, _plants_of(db, [sup.id]).get(sup.id, set()), allowed):
+        sup = None  # a draft, a withdrawn document or one of another plant: not shown
     out.update(
         {
             "status_note": d.status_note,
@@ -343,7 +352,11 @@ def list_docs(
     if equipment:
         docs = [d for d in docs if has(d, "equipment", model_key(equipment))]
     if plant_id is not None:
-        docs = [d for d in docs if has(d, "plant", str(plant_id))]
+        allowed = allowed_plant_ids(db, user)
+        if allowed is not None and plant_id not in allowed:
+            docs = []  # a plant the user is not assigned: nothing, as for a plant that does not exist
+        else:
+            docs = [d for d in docs if has(d, "plant", str(plant_id))]
     if fault:
         m = FAULT_RE.match(fault.strip())
         if m:
@@ -683,6 +696,10 @@ def update_doc(db: Session, user: User, d: KbDocument, fields: Dict[str, Any]) -
             raise DocInvalid("Only an admin changes a document number.")
         changes["number"] = _check_number(db, fields["number"], d.id)
     changes = {k: v for k, v in changes.items() if v != getattr(d, k)}
+    if changes.get("general") is False and not is_admin(user):
+        mine = _plants_of(db, [d.id]).get(d.id, set()) & (allowed_plant_ids(db, user) or set())
+        if not mine:  # they could no longer open it
+            raise DocInvalid("A document that is not general needs at least one of your plants: link one first.")
     title_en = changes.get("title_en", d.title_en)
     title_th = changes.get("title_th", d.title_th)
     if not title_en and not title_th:
@@ -745,7 +762,10 @@ def _replace_links(db: Session, user: User, d: KbDocument, links: List[Dict[str,
         seen[(kind, tid, page)] = label
     if not is_admin(user) and not d.general and not any(k == "plant" for k, _, _ in seen):
         raise DocInvalid("A document that is not general needs at least one of your plants.")
-    db.execute(delete(KbDocLink).where(KbDocLink.doc_id == d.id))
+    keep: List[int] = []
+    if allowed is not None:  # links to plants the user cannot see (an admin's): they never saw them, so kept
+        keep = [x.id for x in db.scalars(select(KbDocLink).where(KbDocLink.doc_id == d.id)) if _hidden_plant_link(x, allowed)]
+    db.execute(delete(KbDocLink).where(KbDocLink.doc_id == d.id, KbDocLink.id.not_in(keep)))
     for (kind, tid, page), label in seen.items():
         db.add(KbDocLink(doc_id=d.id, target_type=kind, target_id=tid, page=page, label=label))
 

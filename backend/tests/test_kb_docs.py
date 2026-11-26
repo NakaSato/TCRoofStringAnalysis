@@ -141,6 +141,52 @@ def test_visibility_drafts_and_plant_scope(api):
     assert upload(client, eng2, general=False).status_code == 422
 
 
+def test_engineer_never_learns_about_plants_or_documents_outside_their_scope(api):
+    """#148: links to unassigned plants, a plant_id filter on one, and a superseding document the
+    engineer may not open are all left out; an engineer cannot lock themselves out of a draft."""
+    client, adm, eng, _, f, _ = api
+    both = upload(client, adm, title_en="Two roofs", general=False,
+                  links=[{"target_type": "plant", "target_id": "101"}, {"target_type": "plant", "target_id": "202"},
+                         {"target_type": "fault_code", "target_id": "Error:203"}]).json()
+    general = upload(client, adm, title_en="General with a plant", links=[{"target_type": "plant", "target_id": "202"}]).json()
+    for d in (both, general):
+        assert client.post(f"/kb/docs/{d['id']}/release", headers=adm).status_code == 200
+    assert {x["target_id"] for x in client.get(f"/kb/docs/{both['id']}", headers=adm).json()["links"]} == {"101", "202", "Error:203"}
+    seen = client.get(f"/kb/docs/{both['id']}", headers=eng).json()["links"]
+    assert {x["target_id"] for x in seen} == {"101", "Error:203"} and "Other Roof" not in json.dumps(seen)
+    assert client.get(f"/kb/docs/{general['id']}", headers=eng).json()["links"] == []
+
+    # filtering on an unassigned plant finds nothing, as for a plant that does not exist
+    assert client.get("/kb/docs?plant_id=202", headers=eng).json()["total"] == 0
+    assert client.get("/kb/docs?plant_id=999", headers=eng).json()["total"] == 0
+    assert client.get("/kb/docs?plant_id=101", headers=eng).json()["total"] == 1
+    assert client.get("/kb/docs?plant_id=202", headers=adm).json()["total"] == 2
+
+    # superseded by a draft: the engineer reads the old one without the new one's number or title
+    draft = upload(client, adm, title_en="Secret successor").json()
+    out = client.post(f"/kb/docs/{general['id']}/supersede", headers=adm, json={"by_doc_id": draft["id"]}).json()
+    assert out["superseded_by"]["id"] == draft["id"]
+    mine = client.get(f"/kb/docs/{general['id']}", headers=eng).json()
+    assert mine["status"] == "superseded" and mine["superseded_by"] is None
+    client.post(f"/kb/docs/{draft['id']}/release", headers=adm)
+    assert client.get(f"/kb/docs/{general['id']}", headers=eng).json()["superseded_by"]["id"] == draft["id"]
+
+    # an engineer's general draft with no plant of theirs cannot be made plant-only
+    own = upload(client, eng, title_en="My draft").json()
+    r = client.patch(f"/kb/docs/{own['id']}", headers=eng, json={"general": False})
+    assert r.status_code == 422
+    assert client.get(f"/kb/docs/{own['id']}", headers=eng).status_code == 200
+    assert client.put(f"/kb/docs/{own['id']}/links", headers=eng, json={"links": [{"target_type": "plant", "target_id": "101"}]}).status_code == 200
+    assert client.patch(f"/kb/docs/{own['id']}", headers=eng, json={"general": False}).json()["general"] is False
+
+    # an admin's link to a plant the engineer cannot see survives the engineer's link edit
+    assert client.put(f"/kb/docs/{own['id']}/links", headers=adm, json={"links": [
+        {"target_type": "plant", "target_id": "101"}, {"target_type": "plant", "target_id": "202"}]}).status_code == 200
+    assert client.put(f"/kb/docs/{own['id']}/links", headers=eng, json={"links": [
+        {"target_type": "plant", "target_id": "101"}, {"target_type": "fault_code", "target_id": "Error:117"}]}).status_code == 200
+    assert {x["target_id"] for x in client.get(f"/kb/docs/{own['id']}", headers=adm).json()["links"]} == {"101", "202", "Error:117"}
+
+
 def test_edit_rights_release_withdraw_supersede(api):
     client, adm, eng, _, _, _ = api
     d = upload(client, eng).json()

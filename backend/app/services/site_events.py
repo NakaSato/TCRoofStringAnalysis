@@ -118,7 +118,14 @@ def _resolve_issue(db: Session, i: GrowattIssue, ev: SiteEvent, username: str) -
 # --------------------------------------------------------------------------- reading
 
 
-def serialize(ev: SiteEvent, plants: Dict[int, str], inverters: Dict[str, str], issues: Dict[int, GrowattIssue]) -> Dict[str, Any]:
+def serialize(
+    ev: SiteEvent,
+    plants: Dict[int, str],
+    inverters: Dict[str, str],
+    issues: Dict[int, GrowattIssue],
+    hidden: Optional[Set[int]] = None,
+) -> Dict[str, Any]:
+    """`hidden`: shadow issues the caller may not see; their id is left out too."""
     i = issues.get(ev.issue_id) if ev.issue_id is not None else None
     return {
         "id": ev.id,
@@ -132,7 +139,7 @@ def serialize(ev: SiteEvent, plants: Dict[int, str], inverters: Dict[str, str], 
         "inverter_name": inverters.get(ev.device_sn or ""),
         "string_no": ev.string_no,
         "cost_thb": ev.cost_thb,
-        "issue_id": ev.issue_id,
+        "issue_id": None if hidden and ev.issue_id in hidden else ev.issue_id,
         "issue": (
             {"id": i.id, "rule": i.rule, "status": i.status, "string_no": i.string_no, "device_sn": i.device_sn}
             if i is not None
@@ -156,11 +163,14 @@ def _serialize_all(db: Session, rows: List[SiteEvent], allow_shadow: bool) -> Li
         for sn, alias in db.execute(select(GrowattInverter.device_sn, GrowattInverter.alias).where(GrowattInverter.device_sn.in_(sns))):
             inverters[sn] = alias or sn
     issues: Dict[int, GrowattIssue] = {}
+    hidden: Set[int] = set()  # shadow issues: engineers see neither their id nor their details
     if iids:
         for i in db.scalars(select(GrowattIssue).where(GrowattIssue.id.in_(iids))):
             if allow_shadow or not i.shadow:
                 issues[i.id] = i
-    return [serialize(e, plants, inverters, issues) for e in rows]
+            else:
+                hidden.add(i.id)
+    return [serialize(e, plants, inverters, issues, hidden) for e in rows]
 
 
 def list_events(
@@ -292,6 +302,10 @@ def update_event(
     cost = get("cost_thb")
     _check(db, ev.plant_id, event_type, day, end_day, device_sn, string_no, cost)
     issue = None
+    if not allow_shadow and "issue_id" in changes and changes["issue_id"] is None and ev.issue_id is not None:
+        linked = db.get(GrowattIssue, ev.issue_id)
+        if linked is not None and linked.shadow:
+            changes = {k: v for k, v in changes.items() if k != "issue_id"}  # they never saw the link: keep it
     if "issue_id" in changes:
         if changes["issue_id"] is not None:
             issue = _issue(db, ev.plant_id, int(changes["issue_id"]), allow_shadow)

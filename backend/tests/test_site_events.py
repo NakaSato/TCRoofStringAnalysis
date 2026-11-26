@@ -157,3 +157,28 @@ def test_patch_and_delete(api):
     with f() as db:
         assert db.scalars(select(SiteEvent)).all() == []
         assert db.get(GrowattIssue, iid).status == "resolved"  # stays resolved
+
+
+def test_engineer_never_sees_or_unlinks_a_shadow_issue_link(api):
+    """An admin's link to a shadow issue: engineers get neither its id nor its details, and an
+    engineer's edit sending `issue_id: null` (they never saw the link) keeps it (#149)."""
+    f, client, admin, eng = api
+    shadow = _issue(f, shadow=True, sno=5)
+    ev = client.post(f"/growatt/plants/{P1}/events", headers=admin, json={"event_type": "repair", "day": "2026-11-14", "issue_id": shadow}).json()
+    url = f"/growatt/plants/{P1}/events/{ev['id']}"
+    listed = lambda h: client.get(f"/growatt/plants/{P1}/events", headers=h).json()["events"][0]  # noqa: E731
+    assert listed(admin)["issue_id"] == shadow and listed(admin)["issue"]["id"] == shadow
+    assert listed(eng)["issue_id"] is None and listed(eng)["issue"] is None
+    fleet = client.get("/growatt/events", headers=eng).json()["events"][0]
+    assert fleet["issue_id"] is None and fleet["issue"] is None
+
+    out = client.patch(url, headers=eng, json={"issue_id": None, "note": "fuse swapped"})
+    assert out.status_code == 200, out.text
+    assert out.json()["issue_id"] is None and out.json()["note"] == "fuse swapped"
+    with f() as db:
+        assert db.get(SiteEvent, ev["id"]).issue_id == shadow  # the admin's link stays
+
+    # an admin clearing it does clear it
+    assert client.patch(url, headers=admin, json={"issue_id": None}).json()["issue_id"] is None
+    with f() as db:
+        assert db.get(SiteEvent, ev["id"]).issue_id is None

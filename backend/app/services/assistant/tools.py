@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
-from app.db.models import GrowattInverter, GrowattPlant
+from app.db.models import GrowattInverter, GrowattPlant, inverter_installed
 from app.services import google_weather as gw, growatt_alarms, growatt_overview as ov, growatt_sensors
 from app.services import growatt_weather as wx
 from app.services.growatt_inverter_history import build_inverter_daily, build_inverter_timeseries
@@ -342,7 +342,7 @@ def _plant_day_yields(db: Session, day: date, plant_ids: Optional[Set[int]]) -> 
         .correlate(inv)
         .scalar_subquery()
     )
-    q = select(inv.plant_id, newest)
+    q = select(inv.plant_id, newest).where(inverter_installed())  # a "not installed" inverter is left out
     if plant_ids is not None:
         q = q.where(inv.plant_id.in_(plant_ids or {-1}))
     out: Dict[int, float] = {}
