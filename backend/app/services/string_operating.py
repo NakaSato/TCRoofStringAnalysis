@@ -29,8 +29,6 @@ from app.services import growatt_weather as wx
 from app.services import live_string_check
 from app.services.fleet_settings import get_fleet_module
 from app.services.growatt_live import GrowattLiveService, LiveUnavailable
-from solar_core.iv_analysis import ModuleStcSpec
-from solar_core.iv_operating import judge_point, string_curve_at
 
 CRITERIA_FILE = Path(__file__).with_name("string_live_criteria.json")
 TS_FMT = "%Y-%m-%d %H:%M:%S"
@@ -74,7 +72,11 @@ def _weather(rows: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Opti
 def build(db: Session, live: GrowattLiveService, plant_id: int) -> Dict[str, Any]:
     """The live envelope (`source`, `fetched_at`, `stale`, `refresh_in_s`, `data`). Raises
     `LiveUnavailable` when no inverter record can be had (the route answers 503)."""
-    invs = list(db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id, inverter_installed()).order_by(GrowattInverter.device_sn)))
+    # Imported here: the curve model loads numpy, which the API start doesn't need
+    from solar_core.iv_analysis import ModuleStcSpec
+    from solar_core.iv_operating import judge_point, string_curve_at
+
+    invs =list(db.scalars(select(GrowattInverter).where(GrowattInverter.plant_id == plant_id, inverter_installed()).order_by(GrowattInverter.device_sn)))
     if not invs:
         raise LookupError(f"Plant {plant_id} has no inverters")
     sns = [i.device_sn for i in invs]

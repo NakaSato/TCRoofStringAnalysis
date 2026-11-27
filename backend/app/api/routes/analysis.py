@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,19 +12,6 @@ from app.auth import require_write_access
 from app.db.models import AnalysisRun, Dataset, Plant, User
 from app.db.session import get_db
 from app.schemas.api_schemas import AnalysisRunOut, AnalyzeDatasetRequest
-from app.services.solar_service import (
-    execute_and_store_analysis,
-    reconstruct_analysis_results,
-)
-from solar_core.charts import (
-    plot_daily_generation_and_pr_trend,
-    plot_energy_loss_waterfall,
-    plot_monthly_generation_and_pr_trend,
-    plot_operating_iv_pv_curves,
-    plot_string_deviation_heatmap,
-    plot_string_yield_and_pr_bar,
-    plot_timeseries_telemetry,
-)
 
 router = APIRouter(tags=["2 & 3. Generation, PR, String Analysis & Charts"])
 
@@ -80,6 +66,9 @@ def analyze_dataset(
     plant = db.get(Plant, dataset.plant_id)
     if plant is None:
         raise HTTPException(status_code=404, detail=f"Plant {dataset.plant_id} of dataset {dataset_id} not found")
+    # Imported here: pandas / numpy load only when an analysis runs (API cold start)
+    from app.services.solar_service import execute_and_store_analysis
+
     req = payload or AnalyzeDatasetRequest()
     run, _ = execute_and_store_analysis(
         db=db,
@@ -151,6 +140,20 @@ def get_analysis_chart(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Return Plotly Figure serialized via `fig.to_json()` for `react-plotly.js`."""
+    # Imported here: pandas / plotly load only when a chart is drawn (API cold start)
+    import pandas as pd
+
+    from app.services.solar_service import reconstruct_analysis_results
+    from solar_core.charts import (
+        plot_daily_generation_and_pr_trend,
+        plot_energy_loss_waterfall,
+        plot_monthly_generation_and_pr_trend,
+        plot_operating_iv_pv_curves,
+        plot_string_deviation_heatmap,
+        plot_string_yield_and_pr_bar,
+        plot_timeseries_telemetry,
+    )
+
     run = _get_run_or_404(db, run_id)
 
     if chart_name == "daily_pr":

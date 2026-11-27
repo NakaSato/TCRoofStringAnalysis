@@ -15,11 +15,12 @@ import shutil
 import subprocess
 import unicodedata
 from dataclasses import dataclass
-from typing import List, Optional
-
-import numpy as np
+from typing import TYPE_CHECKING, List, Optional
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    import numpy as np
 
 # a page whose text layer has fewer visible characters than this is treated as a scan
 MIN_TEXT_CHARS = 10
@@ -118,6 +119,8 @@ def ocr_langs() -> Optional[str]:
 
 
 def _pgm(gray: np.ndarray) -> bytes:
+    import numpy as np  # OCR runs in the worker only; the API starts without numpy
+
     a = np.ascontiguousarray(gray.reshape(gray.shape[0], gray.shape[1]), dtype=np.uint8)
     h, w = a.shape
     return b"P5\n%d %d\n255\n" % (w, h) + a.tobytes()

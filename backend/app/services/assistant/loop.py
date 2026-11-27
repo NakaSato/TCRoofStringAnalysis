@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, Iterator, List, Literal, Optional
 
-import anthropic
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import settings
@@ -121,6 +120,8 @@ def run_chat(
     user_id: int,
 ) -> Iterator[Dict[str, Any]]:
     """Run one turn and yield its events. `history` ends with the user's question."""
+    import anthropic  # the SDK takes ~0.5 s to import: loaded on the first question, not at API start
+
     client = get_client()
     tools = tool_definitions()
     extra: Dict[str, Any] = {} if settings.ai_thinking else {"thinking": {"type": "disabled"}}

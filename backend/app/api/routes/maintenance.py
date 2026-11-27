@@ -11,10 +11,6 @@ from app.auth import require_write_access
 from app.db.models import AnalysisRun, CMWorkOrder, PMTask, User
 from app.db.session import get_db
 from app.schemas.api_schemas import CMWorkOrderIn, CMWorkOrderOut, PMTaskIn, PMTaskOut
-from app.services.solar_service import (
-    reconstruct_analysis_results,
-    regenerate_cm_work_orders,
-)
 
 router = APIRouter(tags=["4. PM & CM Maintenance"])
 
@@ -130,6 +126,9 @@ def generate_cm_orders_for_run(
     run = db.get(AnalysisRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Analysis run {run_id} not found")
+    # Imported here: solar_service loads pandas / numpy, which the API start doesn't need
+    from app.services.solar_service import reconstruct_analysis_results, regenerate_cm_work_orders
+
     results, _ = reconstruct_analysis_results(db, run)
     created = regenerate_cm_work_orders(db, run.plant_id, run.id, results)
     db.commit()

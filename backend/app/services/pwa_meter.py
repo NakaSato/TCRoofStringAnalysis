@@ -29,14 +29,19 @@ import math
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, cast
 
-import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import GrowattPlantEnergyDay, PwaMeterDay, PwaMeterSite, SiteEvent
 from app.services.growatt_common import GrowattNotFound
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+# pandas is imported inside the functions that build frames, so the API starts without it
+# (Cloud Run cold start); the routes that use it load it on their first call.
 
 CRITERIA_FILE = Path(__file__).with_name("pwa_meter_criteria.json")
 STATUSES = ("ok", "outage", "loss_inv", "loss_meter")
@@ -244,6 +249,8 @@ def site_days(db: Session, allowed: Optional[Set[int]], site_id: str, start: Opt
 
 
 def _frame(db: Session, start: Optional[date], end: Optional[date]) -> pd.DataFrame:
+    import pandas as pd
+
     q = select(PwaMeterDay.site_id, PwaMeterDay.day, PwaMeterDay.meter_kwh, PwaMeterDay.inverter_kwh, PwaMeterDay.contract_kwh,
                PwaMeterDay.pvsyst_kwh, PwaMeterDay.status, PwaMeterDay.curtailment_note, PwaMeterDay.note, PwaMeterDay.weather)
     if start:
@@ -298,6 +305,8 @@ def _pi_free(df: pd.DataFrame, curtailed: Set[str]) -> Dict[int, Optional[float]
 
 def summary(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None, phase: Optional[int] = None) -> Dict[str, Any]:
     """Per-site and per-phase KPIs and estimated losses over [start, end] (criteria-driven)."""
+    import pandas as pd
+
     c = criteria()
     price = c["tariff"]["book_price_thb_per_kwh"]
     cur_min = c["curtailment"]["site_curtailed_min_note_days"]
@@ -386,6 +395,8 @@ def daily(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None
     """The report days of [start, end]: each phase's metered and contract energy, specific yield and sites
     with a curtailment note per day (admins only, like the phase totals), and each visible site's yield,
     status, report weather and curtailment note per day (site × day chart, weather box plot)."""
+    import pandas as pd
+
     df = _frame(db, start, end)
     if df.empty:
         return {"days": [], "phases": [], "sites": [], "labels": {"contract_mwh": "modelled"}}
@@ -474,6 +485,8 @@ def outage_events(db: Session, allowed: Optional[Set[int]], start: Optional[date
 def meter_check(db: Session, allowed: Optional[Set[int]], start: Optional[date] = None, end: Optional[date] = None) -> List[Dict[str, Any]]:
     """Meter vs inverter per site: normal ratio, abnormal days and the energy the meter may have
     missed (estimated)."""
+    import pandas as pd
+
     c = criteria()
     m = c["meter_vs_inverter"]
     fl = m["flags"]
@@ -539,6 +552,8 @@ def billing(db: Session, allowed: Optional[Set[int]], start: Optional[date] = No
     period summary. A missing reading stays null; kWh and THB of the losses are estimated.
     `causes=False` skips the causes (each month's fleet-wide summary and meter check, the slow part):
     the cause, recoverable and unexplained fields are then null (not computed), never 0."""
+    import pandas as pd
+
     c = criteria()
     price = c["tariff"]["book_price_thb_per_kwh"]
     bc = c["billing"]
@@ -883,6 +898,8 @@ def plant_days(db: Session, allowed: Optional[Set[int]], plant_id: int, start: O
     Default window: the last PLANT_DEFAULT_DAYS report days of the site. A Growatt day above
     MAX_GROWATT_KWH_PER_KWP_DAY × kWp is withheld (null, `growatt_implausible`). Ratios only where
     both are > 0. 404 (GrowattNotFound) outside the scope or without a report site."""
+    import pandas as pd
+
     if allowed is not None and plant_id not in allowed:
         raise GrowattNotFound(f"Plant {plant_id} not found")
     site = db.scalars(select(PwaMeterSite).where(PwaMeterSite.growatt_plant_id == plant_id).order_by(PwaMeterSite.site_id)).first()
@@ -1033,6 +1050,8 @@ def meter_vs_growatt(db: Session, allowed: Optional[Set[int]], start: Optional[d
     sides measured, nothing estimated. A Growatt day above `growatt_max_kwh_per_kwp_day` × kWp is
     withheld (`implausible_days`); a ratio only where both are > 0. A Growatt day counts as missing
     only on days Growatt is stored for some of these plants. Totals cover the visible sites only."""
+    import pandas as pd
+
     c = criteria()["meter_vs_growatt"]
     fl = c["flags"]
     sites = _visible_sites(db, allowed)

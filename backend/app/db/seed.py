@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pathlib
 import sqlite3
-import pandas as pd
+from typing import TYPE_CHECKING
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,17 +19,12 @@ from app.db.models import (
     User,
 )
 from app.db.session import Base, engine, ensure_schema
-from app.services.solar_service import (
-    df_to_records,
-    execute_and_store_analysis,
-    store_dataset_from_dataframe,
-)
-from solar_core.ingestion import generate_simulated_string_data
-from solar_core.om_management import (
-    get_default_pm_schedule,
-    get_default_rca_records,
-    get_she_dashboard_data,
-)
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+# The demo data (pandas / numpy) is imported in ensure_seeded only when it is seeded, so the
+# API starts without those libraries (Cloud Run cold start).
 
 
 def _load_legacy_or_default(table_name: str, default_df: pd.DataFrame) -> pd.DataFrame:
@@ -36,6 +32,8 @@ def _load_legacy_or_default(table_name: str, default_df: pd.DataFrame) -> pd.Dat
     legacy_path: pathlib.Path = DATA_DIR / "solar_om.db"
     if legacy_path.exists():
         try:
+            import pandas as pd
+
             with sqlite3.connect(str(legacy_path)) as conn:
                 df = pd.read_sql(f"SELECT * FROM {table_name}", conn)
                 if not df.empty:
@@ -178,6 +176,14 @@ def ensure_seeded(db: Session, cfg: Settings | None = None) -> Plant:
         # prod: plant configuration only — no invented registers, telemetry or analysis runs
         db.commit()
         return plant
+
+    from app.services.solar_service import execute_and_store_analysis, store_dataset_from_dataframe
+    from solar_core.ingestion import generate_simulated_string_data
+    from solar_core.om_management import (
+        get_default_pm_schedule,
+        get_default_rca_records,
+        get_she_dashboard_data,
+    )
 
     # 3. Seed default PM schedule
     pm_df = _load_legacy_or_default("pm_schedule", get_default_pm_schedule())

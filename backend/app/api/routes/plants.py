@@ -11,7 +11,6 @@ from app.auth import require_write_access
 from app.db.models import Dataset, Plant, StringSpecModel, User
 from app.db.session import get_db
 from app.schemas.api_schemas import PlantCreateUpdate, PlantOut, StringSpecSchema
-from app.services.solar_service import execute_and_store_analysis
 
 router = APIRouter(prefix="/plants", tags=["Plants & String Specs"])
 
@@ -83,6 +82,9 @@ def update_plant(
         .limit(1)
     )
     if latest_ds is not None:
+        # Imported here: solar_service loads pandas / numpy, which the API start doesn't need
+        from app.services.solar_service import execute_and_store_analysis
+
         execute_and_store_analysis(
             db=db,
             plant=plant,

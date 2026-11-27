@@ -10,8 +10,6 @@ from __future__ import annotations
 import threading
 from typing import Any, Optional
 
-import anthropic
-
 from app.config import settings
 
 _lock = threading.Lock()
@@ -27,6 +25,8 @@ def get_client() -> Any:
     global _client
     with _lock:
         if _client is None:
+            import anthropic  # the SDK takes ~0.5 s to import: loaded on first use, not at API start
+
             _client = anthropic.Anthropic(
                 api_key=settings.ai_api_key,
                 base_url=settings.ai_base_url or None,

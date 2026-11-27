@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import io
-from typing import List
+from typing import TYPE_CHECKING, List
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,18 +18,12 @@ from app.schemas.api_schemas import (
     FetchAPIDatasetRequest,
     SimulateDatasetRequest,
 )
-from app.services.solar_service import (
-    df_to_records,
-    execute_and_store_analysis,
-    load_dataset_dataframe,
-    store_dataset_from_dataframe,
-)
-from solar_core.ingestion import (
-    EndpointUnreachable,
-    SolarAPIClient,
-    generate_simulated_string_data,
-    load_from_uploaded_file,
-)
+
+if TYPE_CHECKING:
+    from solar_core.ingestion import SolarAPIClient
+
+# app.services.solar_service and solar_core.ingestion (pandas / numpy) are imported inside the
+# routes, so the API starts without them (Cloud Run cold start).
 
 router = APIRouter(tags=["1. Ingestion & Datasets"])
 
@@ -50,6 +44,8 @@ def get_dataset_detail(dataset_id: int, db: Session = Depends(get_db)) -> Datase
     if dataset is None:
         raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
 
+    from app.services.solar_service import df_to_records, load_dataset_dataframe
+
     df = load_dataset_dataframe(db, dataset_id)
     latest_run = db.scalar(
         select(AnalysisRun)
@@ -68,6 +64,8 @@ def download_sample_csv(dataset_id: int, db: Session = Depends(get_db)) -> Respo
     dataset = db.get(Dataset, dataset_id)
     if dataset is None:
         raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
+    from app.services.solar_service import load_dataset_dataframe
+
     df = load_dataset_dataframe(db, dataset_id)
     csv_bytes = df.head(160).to_csv(index=False).encode("utf-8")
     return Response(
@@ -91,6 +89,13 @@ async def upload_dataset(
     plant = db.get(Plant, plant_id)
     if plant is None:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} not found")
+
+    from app.services.solar_service import (
+        df_to_records,
+        execute_and_store_analysis,
+        store_dataset_from_dataframe,
+    )
+    from solar_core.ingestion import load_from_uploaded_file
 
     raw_bytes = await file.read()
     filename = file.filename or "uploaded_telemetry.csv"
@@ -116,6 +121,8 @@ async def upload_dataset(
 
 def _sandbox_fallback(client: SolarAPIClient, prov: str, dev_id: str):
     """Simulated stand-in for an unreachable provider (Huawei goes through its real parser)."""
+    from solar_core.ingestion import generate_simulated_string_data
+
     if "huawei" in prov:
         return client.parse_huawei_response(client.build_mock_huawei_payload(dev_id=dev_id), inverter_id=dev_id)
     df, _ = generate_simulated_string_data(days=5, num_strings=8)
@@ -136,6 +143,13 @@ def fetch_dataset_from_api(
     plant = db.get(Plant, plant_id)
     if plant is None:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} not found")
+
+    from app.services.solar_service import (
+        df_to_records,
+        execute_and_store_analysis,
+        store_dataset_from_dataframe,
+    )
+    from solar_core.ingestion import EndpointUnreachable, SolarAPIClient
 
     client = SolarAPIClient()
     prov = payload.provider.lower()
@@ -213,6 +227,13 @@ def simulate_dataset(
     plant = db.get(Plant, plant_id)
     if plant is None:
         raise HTTPException(status_code=404, detail=f"Plant {plant_id} not found")
+
+    from app.services.solar_service import (
+        df_to_records,
+        execute_and_store_analysis,
+        store_dataset_from_dataframe,
+    )
+    from solar_core.ingestion import generate_simulated_string_data
 
     mods = int(payload.modules_per_string or plant.modules_per_string)
     wp = float(payload.module_wp or plant.module_wp)
