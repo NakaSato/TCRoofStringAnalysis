@@ -4,10 +4,10 @@
 //! Online state (`lost`, last upload) is realtime and never stored, so this list carries only what
 //! SQL knows; a sensor's status here is `not_synced` or `unknown`.
 //!
-//! TODO(Phase 3, live wave): `live_status`, `live_row`, `stale_history_flag`,
-//! `overlay_live_status`, `visible_sensors`, `find_sensor`, `measured_for` and the `env_list`
-//! sweep behind `/growatt/live/sensors/*` belong to the live services (memory / Redis only) and
-//! are not ported yet.
+//! The live overlay helpers (`live_status`, `live_row`, `stale_history_flag`,
+//! `overlay_live_status`, `visible_sensors`, `find_sensor`, `measured_for`) judge the cached
+//! `env_list` entries of `/growatt/live/sensors/*` (memory / Redis only, [`crate::live`]); they
+//! only read the registry.
 
 #![allow(clippy::type_complexity)] // sqlx row tuples
 
@@ -448,6 +448,198 @@ pub async fn list_sensors(
     }))
 }
 
+// --------------------------------------------------------------------------- live overlay
+
+/// Python `STALE_HISTORY` (2 h)
+const STALE_HISTORY_S: i64 = 2 * 3600;
+/// Python `STALE_DAY_START_H` / `STALE_DAY_END_H` (plant-local, end exclusive)
+const STALE_DAY_START_H: u32 = 6;
+const STALE_DAY_END_H: u32 = 19;
+
+fn parse_ts(s: Option<&str>) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(s?, "%Y-%m-%d %H:%M:%S").ok()
+}
+
+/// Python `growatt_sensors.live_status`: status from Growatt's live `env_list` entry.
+/// `inactive_days` 0 (or None) = off.
+pub fn live_status(
+    lost: Option<bool>,
+    last_update: Option<&str>,
+    now_local: NaiveDateTime,
+    late_min: f64,
+    offline_min: f64,
+    inactive_days: Option<f64>,
+) -> &'static str {
+    let at = parse_ts(last_update);
+    if let (Some(at), Some(days)) = (at, inactive_days) {
+        if days != 0.0 && ((now_local - at).num_microseconds().unwrap_or(i64::MAX) as f64 / 1e6) > days * 86400.0 {
+            return "inactive";
+        }
+    }
+    if lost == Some(true) {
+        return "offline";
+    }
+    let Some(at) = at else { return "unknown" };
+    let age_min = (now_local - at).num_microseconds().unwrap_or(i64::MAX) as f64 / 1e6 / 60.0;
+    if age_min <= late_min {
+        "online"
+    } else if age_min <= offline_min {
+        "late"
+    } else {
+        "offline"
+    }
+}
+
+/// Python `growatt_sensors.stale_history_flag`: `stale_history` when the sensor is online but its
+/// stored history ends more than 2 h before its last upload (daylight uploads only).
+pub fn stale_history_flag(status: &str, last_update: Option<&str>, synced_until: Option<NaiveDateTime>) -> Option<Value> {
+    if status != "online" {
+        return None;
+    }
+    let synced = synced_until?;
+    let at = parse_ts(last_update)?;
+    if !(STALE_DAY_START_H..STALE_DAY_END_H).contains(&at.hour()) {
+        return None;
+    }
+    let day_start = at_hour(at.date(), STALE_DAY_START_H);
+    let behind = at - synced.max(day_start);
+    if behind <= Duration::seconds(STALE_HISTORY_S) {
+        return None;
+    }
+    let minutes = behind.num_seconds().div_euclid(60);
+    let last = at.format("%H:%M").to_string();
+    let until = synced.format("%Y-%m-%d %H:%M").to_string();
+    Some(json!({
+        "code": "stale_history",
+        "params": {"last_upload": last, "synced_until": until, "minutes": minutes},
+        "reason": format!(
+            "Online (last upload {last}) but stored readings end at {until}, {} behind: history sync problem, not a sensor fault",
+            span(minutes)
+        ),
+    }))
+}
+
+/// Python `growatt_sensors.live_row`: one sensor's live state from its datalogger's cached
+/// `env_list` entry (`None` = not checked).
+#[allow(clippy::too_many_arguments)] // mirrors the Python signature
+pub fn live_row(
+    dl: &str,
+    addr: i32,
+    entry: Option<&Value>,
+    now_local: NaiveDateTime,
+    late_min: f64,
+    offline_min: f64,
+    synced_until: Option<NaiveDateTime>,
+    inactive_days: Option<f64>,
+) -> Value {
+    let hit = entry.and_then(|e| {
+        e.get("sensors")?.as_array()?.iter().find(|s| s.get("address").and_then(Value::as_i64) == Some(i64::from(addr)))
+    });
+    let (status, stale) = match hit {
+        Some(h) => {
+            let upd = h.get("last_update_time").and_then(Value::as_str);
+            let st = live_status(h.get("lost").and_then(Value::as_bool), upd, now_local, late_min, offline_min, inactive_days);
+            (st, stale_history_flag(st, upd, synced_until))
+        }
+        None => ("unknown", None),
+    };
+    let field = |k: &str| hit.map(|h| h.get(k).cloned().unwrap_or(Value::Null)).unwrap_or(Value::Null);
+    json!({
+        "key": key(dl, addr),
+        "status": status,
+        "lost": field("lost"),
+        "last_update_time": field("last_update_time"),
+        "checked_at": entry.map(|e| e.get("fetched_at").cloned().unwrap_or(Value::Null)),
+        "stale": entry.map(|e| e.get("stale").cloned().unwrap_or(Value::Null)),
+        "listed": entry.map(|_| hit.is_some()),
+        "flags": stale.into_iter().collect::<Vec<_>>(),
+    })
+}
+
+/// Python `VisibleSensor`: (datalogger_sn, address, plant phase, history_synced_until)
+pub type VisibleSensor = (String, i32, Option<i32>, Option<NaiveDateTime>);
+
+/// Python `growatt_sensors.visible_sensors`: every registered sensor the user may see
+/// (`allowed` None = all), ordered by datalogger, address.
+pub async fn visible_sensors(pool: &PgPool, allowed: Option<&HashSet<i64>>) -> Result<Vec<VisibleSensor>> {
+    let ids: Option<Vec<i32>> = allowed.map(|a| {
+        let v: Vec<i32> = a.iter().filter_map(|p| i32::try_from(*p).ok()).collect();
+        if v.is_empty() { vec![-1] } else { v }
+    });
+    Ok(sqlx::query_as(
+        "SELECT s.datalogger_sn, s.address, p.phase, s.history_synced_until FROM growatt_env_sensors s \
+         JOIN growatt_plants p ON p.plant_id = s.plant_id \
+         WHERE ($1::int[] IS NULL OR s.plant_id = ANY($1)) ORDER BY s.datalogger_sn, s.address",
+    )
+    .bind(ids)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// A registered sensor as `find_sensor` returns it.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct FoundSensor {
+    pub datalogger_sn: String,
+    pub address: i32,
+    pub plant_id: i32,
+    pub history_synced_until: Option<NaiveDateTime>,
+    pub phase: Option<i32>,
+}
+
+/// Python `growatt_sensors.find_sensor`: the registered sensor and its plant's phase, or None when
+/// unknown or its plant is not visible.
+pub async fn find_sensor(pool: &PgPool, dl: &str, addr: i64, allowed: Option<&HashSet<i64>>) -> Result<Option<FoundSensor>> {
+    let Ok(addr) = i32::try_from(addr) else { return Ok(None) };
+    let row: Option<FoundSensor> = sqlx::query_as(
+        "SELECT s.datalogger_sn, s.address, s.plant_id, s.history_synced_until, p.phase FROM growatt_env_sensors s \
+         JOIN growatt_plants p ON p.plant_id = s.plant_id WHERE s.datalogger_sn = $1 AND s.address = $2 LIMIT 1",
+    )
+    .bind(dl)
+    .bind(addr)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.filter(|r| allowed.is_none_or(|a| a.contains(&i64::from(r.plant_id)))))
+}
+
+/// Python `growatt_sensors.measured_for`: probes the sensor reported in the last 7 days; None = no
+/// stored reading then (unknown).
+pub async fn measured_for(pool: &PgPool, s: &FoundSensor, now_local: NaiveDateTime) -> Result<Option<Vec<&'static str>>> {
+    let mut m = measured_by_sensor(pool, now_local - Duration::days(MEASURED_LOOKBACK_DAYS), Some(&[s.plant_id]), None).await?;
+    Ok(m.remove(&(s.datalogger_sn.clone(), s.address)))
+}
+
+/// Python `growatt_sensors.overlay_live_status`: per-sensor live status from a `sensor_status`
+/// envelope, judged now.
+pub fn overlay_live_status(
+    env: &Value,
+    sensors: &[VisibleSensor],
+    now_local: NaiveDateTime,
+    late_min: i64,
+    offline_min: i64,
+    inactive_days: Option<f64>,
+) -> Value {
+    let data = &env["data"];
+    let dls = &data["dataloggers"];
+    let rows: Vec<Value> = sensors
+        .iter()
+        .map(|(dl, addr, _ph, su)| {
+            live_row(dl, *addr, dls.get(dl.as_str()), now_local, late_min as f64, offline_min as f64, *su, inactive_days)
+        })
+        .collect();
+    let mut out = env.as_object().cloned().unwrap_or_default();
+    out.insert(
+        "data".into(),
+        json!({
+            "sensors": rows,
+            "errors": data["errors"],
+            "sweep": data["sweep"],
+            "thresholds": {"late_min": late_min, "offline_min": offline_min, "inactive_days": inactive_days},
+        }),
+    );
+    Value::Object(out)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,5 +663,33 @@ mod tests {
     fn spans() {
         assert_eq!(span(55), "55 min");
         assert_eq!(span(65), "1 h 05 min");
+    }
+
+    #[test]
+    fn live_status_thresholds() {
+        let now = dt(12, 0);
+        let st = |lost, upd: Option<&str>, inactive| live_status(lost, upd, now, 15.0, 60.0, inactive);
+        assert_eq!(st(Some(false), Some("2026-11-27 11:50:00"), Some(30.0)), "online");
+        assert_eq!(st(Some(false), Some("2026-11-27 11:30:00"), Some(30.0)), "late");
+        assert_eq!(st(None, Some("2026-11-27 10:30:00"), Some(30.0)), "offline");
+        assert_eq!(st(Some(true), Some("2026-11-27 11:59:00"), Some(30.0)), "offline");
+        assert_eq!(st(Some(true), None, Some(30.0)), "offline");
+        assert_eq!(st(None, None, Some(30.0)), "unknown");
+        assert_eq!(st(Some(true), Some("2026-10-01 10:00:00"), Some(30.0)), "inactive");
+        assert_eq!(st(Some(false), Some("2026-10-01 10:00:00"), Some(0.0)), "offline"); // 0 = off
+    }
+
+    #[test]
+    fn stale_history_daylight_only() {
+        let synced = Some(dt(8, 0));
+        let f = stale_history_flag("online", Some("2026-11-27 11:00:00"), synced).expect("3 h behind");
+        assert_eq!(f["params"]["minutes"], json!(180));
+        assert_eq!(f["params"]["synced_until"], json!("2026-11-27 08:00"));
+        assert!(stale_history_flag("online", Some("2026-11-27 09:59:00"), synced).is_none()); // 1 h 59
+        assert!(stale_history_flag("late", Some("2026-11-27 11:00:00"), synced).is_none());
+        assert!(stale_history_flag("online", Some("2026-11-27 19:30:00"), synced).is_none()); // after dusk
+        // history ending yesterday evening counts from 06:00 today
+        assert!(stale_history_flag("online", Some("2026-11-27 07:00:00"), Some(dt(0, 0) - Duration::hours(6))).is_none());
+        assert!(stale_history_flag("online", Some("2026-11-27 11:00:00"), None).is_none());
     }
 }

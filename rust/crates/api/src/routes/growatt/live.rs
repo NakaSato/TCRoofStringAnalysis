@@ -4,26 +4,29 @@
 //! plants / inverters a user may see, a plant's phase and coordinates, String Layout rows).
 //!
 //! Ported: `/live/plants`, `/live/plants/today`, `/live/inverters/snapshot`,
-//! `/live/plants/{plant_id}/latest`, `/live/plants/{plant_id}/alarms`. The other live routes
-//! (strings/operating, meter, sensors, weather, google-weather, rain*) come in a later wave; their
-//! service features are already in `LiveService`.
+//! `/live/plants/{plant_id}/latest`, `/live/plants/{plant_id}/strings/operating`,
+//! `/live/plants/{plant_id}/meter`, `/live/plants/{plant_id}/alarms`, `/live/sensors/status`,
+//! `/live/sensors/{datalogger_sn}/{address}` (+ `/today`) and `/live/plants/{plant_id}/weather`.
+//! Google Weather live and the rain routes (Longdo / RainViewer) are not Growatt and live elsewhere.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
 
-use axum::extract::{RawQuery, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{NaiveDate, NaiveDateTime};
+use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
-use tcroof_services::common::{self, ServiceError, INACTIVE_MAX_A};
+use tcroof_services::common::{self, ServiceError};
+use tcroof_services::string_operating::{self, OperatingError};
+use tcroof_services::{layout, meter, sensors, weather};
 use tcroof_services::live::string_check::{self, Layout};
 use tcroof_services::live::LiveError;
 
 use crate::error::ApiError;
+use crate::config::parse_bool;
 use crate::extract::{parse_int, PlantRead, PlantScope, Scoped};
 use crate::AppState;
 
@@ -33,7 +36,13 @@ pub fn router() -> Router<AppState> {
         .route("/live/plants/today", get(live_plants_today))
         .route("/live/inverters/snapshot", get(live_inverter_snapshot))
         .route("/live/plants/{plant_id}/latest", get(live_plant_latest))
+        .route("/live/plants/{plant_id}/strings/operating", get(live_string_operating))
+        .route("/live/plants/{plant_id}/meter", get(live_plant_meter))
         .route("/live/plants/{plant_id}/alarms", get(live_plant_alarms))
+        .route("/live/sensors/status", get(live_sensor_status))
+        .route("/live/sensors/{datalogger_sn}/{address}", get(live_sensor))
+        .route("/live/sensors/{datalogger_sn}/{address}/today", get(live_sensor_today))
+        .route("/live/plants/{plant_id}/weather", get(live_plant_weather))
 }
 
 // --------------------------------------------------------------------------- errors
@@ -111,71 +120,14 @@ async fn load_layout(st: &AppState, sns: &[String]) -> Result<Layout, LiveRouteE
     Ok(rows.into_iter().map(|(sn, no, m)| ((sn, i64::from(no)), i64::from(m))).collect())
 }
 
-/// Python `growatt_layout.WIRED_LOOKBACK`
-const WIRED_LOOKBACK_DAYS: i64 = 30;
-/// Python `growatt_layout.WIRED_CACHE_S`
-const WIRED_CACHE_S: u64 = 6 * 3600;
-
-type Wired = HashMap<String, BTreeSet<i64>>;
-/// Python `growatt_layout._wired_cache`: sorted serials → (when, wired inputs)
-type WiredCache = Mutex<HashMap<Vec<String>, (Instant, Wired)>>;
-
-fn wired_cache() -> &'static WiredCache {
-    static CACHE: OnceLock<WiredCache> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Python `growatt_layout.newest_string_ts`: newest stored string record of these inverters, one
-/// short backward index read per inverter.
-async fn newest_string_ts(st: &AppState, sns: &[String]) -> Result<Option<NaiveDateTime>, LiveRouteError> {
-    let mut best: Option<NaiveDateTime> = None;
-    let mut seen = HashSet::new();
-    for sn in sns.iter().filter(|s| seen.insert(s.as_str())) {
-        let ts: Option<NaiveDateTime> = sqlx::query_scalar(
-            "SELECT timestamp FROM growatt_string_readings WHERE device_sn = $1 ORDER BY device_sn DESC, timestamp DESC LIMIT 1",
-        )
-        .bind(sn)
-        .fetch_optional(&st.pool)
-        .await?;
-        if let Some(ts) = ts {
-            if best.is_none_or(|b| ts > b) {
-                best = Some(ts);
-            }
-        }
-    }
-    Ok(best)
-}
-
-/// Python `growatt_layout.wired_inputs`: string inputs known to be connected per inverter (String
-/// Layout rows plus inputs that carried current in the last 30 days), kept in memory 6 h.
-async fn wired_inputs(st: &AppState, sns: &[String]) -> Result<Wired, LiveRouteError> {
-    let mut key: Vec<String> = sns.to_vec();
-    key.sort();
-    if let Some((at, hit)) = wired_cache().lock().unwrap_or_else(|p| p.into_inner()).get(&key) {
-        if at.elapsed() < Duration::from_secs(WIRED_CACHE_S) {
-            return Ok(hit.clone());
-        }
-    }
-    let mut out = Wired::new();
-    for (sn, no) in load_layout(st, sns).await?.into_keys() {
-        out.entry(sn).or_default().insert(no);
-    }
-    if let Some(latest) = newest_string_ts(st, sns).await? {
-        let rows: Vec<(String, i32)> = sqlx::query_as(
-            "SELECT device_sn, string_no FROM growatt_string_readings \
-             WHERE device_sn = ANY($1) AND timestamp >= $2 AND current_a > $3 GROUP BY device_sn, string_no",
-        )
-        .bind(sns)
-        .bind(latest - chrono::Duration::days(WIRED_LOOKBACK_DAYS))
-        .bind(INACTIVE_MAX_A)
-        .fetch_all(&st.pool)
-        .await?;
-        for (sn, no) in rows {
-            out.entry(sn).or_default().insert(i64::from(no));
-        }
-    }
-    wired_cache().lock().unwrap_or_else(|p| p.into_inner()).insert(key, (Instant::now(), out.clone()));
-    Ok(out)
+/// Python `growatt_layout.wired_inputs` (services/layout.rs, one cache shared with
+/// `strings/operating`), string numbers as the live string check wants them.
+async fn wired_inputs(st: &AppState, sns: &[String]) -> Result<HashMap<String, BTreeSet<i64>>, LiveRouteError> {
+    Ok(layout::wired_inputs(&st.pool, sns)
+        .await?
+        .into_iter()
+        .map(|(sn, set)| (sn, set.into_iter().map(i64::from).collect()))
+        .collect())
 }
 
 /// The last value of each query parameter (Starlette's `QueryParams.get`).
@@ -316,4 +268,218 @@ async fn live_plant_alarms(State(st): State<AppState>, pr: PlantRead, RawQuery(r
     let phase = common::plant_phase(&st.pool, plant_id).await?;
     let coords = common::plant_coords(&st.pool, Some(plant_id)).await?;
     Ok(Json(st.live.plant_alarms(plant_id, &sns, &window, phase, &coords).await?))
+}
+
+impl From<OperatingError> for LiveRouteError {
+    fn from(e: OperatingError) -> Self {
+        match e {
+            OperatingError::NotFound(m) => LiveRouteError::Api(ApiError::NotFound(m)),
+            OperatingError::Live(l) => LiveRouteError::Live(l),
+            OperatingError::Service(s) => s.into(),
+        }
+    }
+}
+
+/// A FastAPI `int` path parameter (422 when it is not one).
+fn int_path(path: &HashMap<String, String>, name: &str) -> Result<i64, ApiError> {
+    let raw = path.get(name).map(String::as_str).unwrap_or_default();
+    parse_int(raw)
+        .ok_or_else(|| ApiError::Unprocessable(format!("{name}: Input should be a valid integer, unable to parse string as an integer")))
+}
+
+/// The plant-local clock the live cache uses (Python `datetime.now(PLANT_TZ)`, naive).
+fn now_local(st: &AppState) -> NaiveDateTime {
+    st.live.now_local()
+}
+
+/// Python `live.live_string_operating`: each string's newest operating point on the modelled
+/// string curve at the sensor's live irradiance and module temperature (memory only).
+async fn live_string_operating(State(st): State<AppState>, pr: PlantRead) -> LiveResponse {
+    Ok(Json(string_operating::build(&st.pool, &st.live, pr.plant_id).await?))
+}
+
+/// Python `live.live_plant_meter`: grid import / export now from the plant's energy meter(s)
+/// (`meter_last_data`), and with `load` (default true) the **derived** load = PV AC + grid, PV
+/// from the `/latest` inverter cache. 404 without a meter. Memory only.
+async fn live_plant_meter(State(st): State<AppState>, pr: PlantRead, RawQuery(raw): RawQuery) -> LiveResponse {
+    let plant_id = pr.plant_id;
+    let q = query(&raw);
+    let load = match q.get("load") {
+        Some(v) => parse_bool(v).ok_or_else(|| ApiError::Unprocessable(format!("load: Input should be a valid boolean, got {v:?}")))?,
+        None => true,
+    };
+    let meters: Vec<(String, i64)> =
+        meter::plant_meters(&st.pool, plant_id).await?.into_iter().map(|(dl, a)| (dl, i64::from(a))).collect();
+    if meters.is_empty() {
+        return Err(ApiError::NotFound(format!("Plant {plant_id} has no energy meter")).into());
+    }
+    let phase = common::plant_phase(&st.pool, plant_id).await?;
+    let coords = common::plant_coords(&st.pool, Some(plant_id)).await?;
+    let mut env = st.live.plant_meter(plant_id, &meters, phase, &coords).await?;
+    if !load {
+        return Ok(Json(env));
+    }
+    let sns = plant_inverter_sns(&st, plant_id).await?;
+    let grid = env["data"]["grid"].clone();
+    let mut derived = match st.live.plant_latest(plant_id, &sns, now_local(&st).date(), phase, &coords).await {
+        Ok(inv) => {
+            let d = &inv["data"];
+            let invs: Vec<Value> = d["inverters"].as_array().cloned().unwrap_or_default();
+            let errors: BTreeMap<String, String> = d["errors"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))).collect())
+                .unwrap_or_default();
+            let derived = meter::live_load(&grid, &sns, &invs, &errors);
+            // the inverter cache can expire sooner than the meter's: poll on the earlier of the two
+            if let (Some(a), Some(b)) = (env["refresh_in_s"].as_i64(), inv["refresh_in_s"].as_i64()) {
+                env["refresh_in_s"] = json!(a.min(b));
+            }
+            derived
+        }
+        Err(LiveError::Unavailable(e)) => json!({
+            "timestamp": grid["timestamp"],
+            "pv_kw": null,
+            "load_kw": null,
+            "reason": format!("inverters unavailable: {e}"),
+        }),
+        Err(e) => return Err(e.into()),
+    };
+    derived["derived"] = json!(true);
+    env["data"]["load"] = derived;
+    Ok(Json(env))
+}
+
+/// Python `routes/growatt/_common.sensor_scope`: plants whose sensors a request covers (None =
+/// every plant); a `plant_id` the user may not see gives the empty set.
+fn sensor_scope(scope: &PlantScope, plant_id: Option<i64>) -> Option<HashSet<i64>> {
+    match (scope, plant_id) {
+        (PlantScope::All, None) => None,
+        (PlantScope::Assigned(ids), None) => Some(ids.clone()),
+        (_, Some(p)) => Some(if scope.allows(p) { HashSet::from([p]) } else { HashSet::new() }),
+    }
+}
+
+/// Python `live.live_sensor_status`: live online state of every weather sensor the user may see
+/// (`env_list`, swept `SENSOR_SWEEP_PER_REQUEST` dataloggers per request; memory only).
+async fn live_sensor_status(State(st): State<AppState>, scoped: Scoped, RawQuery(raw): RawQuery) -> LiveResponse {
+    let q = query(&raw);
+    let plant_id = match q.get("plant_id") {
+        Some(v) => {
+            Some(parse_int(v).ok_or_else(|| ApiError::Unprocessable(format!("plant_id: Input should be a valid integer, got {v:?}")))?)
+        }
+        None => None,
+    };
+    let allowed = sensor_scope(&scoped.scope, plant_id);
+    let visible = sensors::visible_sensors(&st.pool, allowed.as_ref()).await?;
+    let dataloggers: Vec<(String, Option<i32>)> =
+        visible.iter().map(|(dl, _, ph, _)| (dl.clone(), *ph)).collect::<BTreeSet<_>>().into_iter().collect();
+    let coords = common::plant_coords(&st.pool, plant_id).await?;
+    let env = st.live.sensor_status(&dataloggers, &coords).await?;
+    let s = &st.settings;
+    Ok(Json(sensors::overlay_live_status(
+        &env,
+        &visible,
+        now_local(&st),
+        s.sensor_late_min,
+        s.sensor_offline_min,
+        Some(s.sensor_inactive_days),
+    )))
+}
+
+/// The user's plants for a sensor lookup (Python `allowed_plant_ids`: None = every plant).
+fn allowed_ids(scope: &PlantScope) -> Option<&HashSet<i64>> {
+    match scope {
+        PlantScope::All => None,
+        PlantScope::Assigned(ids) => Some(ids),
+    }
+}
+
+/// Python `live.live_sensor`: one weather sensor for the Info view (memory only): live state and
+/// newest `env_last_data` record; `raw` for admins only. 404 when not registered or not visible.
+async fn live_sensor(State(st): State<AppState>, scoped: Scoped, Path(path): Path<HashMap<String, String>>) -> LiveResponse {
+    let dl = path.get("datalogger_sn").cloned().unwrap_or_default();
+    let address = int_path(&path, "address")?;
+    let Some(sensor) = sensors::find_sensor(&st.pool, &dl, address, allowed_ids(&scoped.scope)).await? else {
+        return Err(ApiError::NotFound(format!("Weather sensor {dl}#{address} not found")).into());
+    };
+    let now = now_local(&st);
+    let measured: Option<Vec<String>> =
+        sensors::measured_for(&st.pool, &sensor, now).await?.map(|v| v.into_iter().map(str::to_owned).collect());
+    let coords = common::plant_coords(&st.pool, Some(i64::from(sensor.plant_id))).await?;
+    let mut env = st.live.sensor_live(&dl, address, sensor.phase, measured.as_deref(), &coords).await?;
+    let s = &st.settings;
+    let d = env["data"].take();
+    let status = sensors::live_row(
+        &dl,
+        sensor.address,
+        d.get("datalogger").filter(|v| !v.is_null()),
+        now,
+        s.sensor_late_min as f64,
+        s.sensor_offline_min as f64,
+        sensor.history_synced_until,
+        Some(s.sensor_inactive_days),
+    );
+    env["data"] = json!({
+        "status": status,
+        "measured": measured,
+        "reading": d["reading"],
+        "raw": if scoped.user.is_admin() { d["raw"].clone() } else { Value::Null },
+        "errors": d["errors"],
+        "thresholds": {
+            "late_min": s.sensor_late_min,
+            "offline_min": s.sensor_offline_min,
+            "inactive_days": s.sensor_inactive_days,
+        },
+    });
+    Ok(Json(env))
+}
+
+/// Python `live.live_sensor_today`: today's 5-minute records of one weather sensor straight from
+/// Growatt (`env_data`, today only; memory only). 404 when not registered or not visible.
+async fn live_sensor_today(State(st): State<AppState>, scoped: Scoped, Path(path): Path<HashMap<String, String>>) -> LiveResponse {
+    let dl = path.get("datalogger_sn").cloned().unwrap_or_default();
+    let address = int_path(&path, "address")?;
+    let Some(sensor) = sensors::find_sensor(&st.pool, &dl, address, allowed_ids(&scoped.scope)).await? else {
+        return Err(ApiError::NotFound(format!("Weather sensor {dl}#{address} not found")).into());
+    };
+    let coords = common::plant_coords(&st.pool, Some(i64::from(sensor.plant_id))).await?;
+    Ok(Json(st.live.sensor_today(&dl, address, sensor.phase, &coords).await?))
+}
+
+/// Python `live.live_plant_weather`: newest weather-sensor reading per sensor (memory only), with
+/// `stored_until` (newest stored reading). 404 when the plant has no weather sensor.
+async fn live_plant_weather(State(st): State<AppState>, pr: PlantRead) -> LiveResponse {
+    let plant_id = pr.plant_id;
+    let since = now_local(&st) - chrono::Duration::days(7);
+    let measured = weather::measured_fields(&st.pool, plant_id, since).await?;
+    if measured.is_empty() {
+        return Err(ApiError::NotFound(format!("Plant {plant_id} has no weather sensor")).into());
+    }
+    let list: Vec<(String, i64, Option<Vec<String>>)> = measured
+        .into_iter()
+        .map(|((dl, a), f)| (dl, i64::from(a), f.map(|v| v.into_iter().map(str::to_owned).collect())))
+        .collect();
+    let phase = common::plant_phase(&st.pool, plant_id).await?;
+    let coords = common::plant_coords(&st.pool, Some(plant_id)).await?;
+    let mut env = st.live.plant_weather(plant_id, &list, phase, &coords).await?;
+    // Python `wx.plant_sensors(...).history_synced_until`
+    let stored: Vec<(String, i32, Option<NaiveDateTime>)> = match i32::try_from(plant_id) {
+        Ok(id) => {
+            sqlx::query_as("SELECT datalogger_sn, address, history_synced_until FROM growatt_env_sensors WHERE plant_id = $1")
+                .bind(id)
+                .fetch_all(&st.pool)
+                .await?
+        }
+        Err(_) => Vec::new(),
+    };
+    let stored: HashMap<(String, i64), Option<NaiveDateTime>> =
+        stored.into_iter().map(|(dl, a, u)| ((dl, i64::from(a)), u)).collect();
+    if let Some(Value::Array(rows)) = env.pointer_mut("/data/sensors") {
+        for row in rows.iter_mut() {
+            let k = (row["datalogger_sn"].as_str().unwrap_or_default().to_owned(), row["address"].as_i64().unwrap_or(i64::MIN));
+            let until = stored.get(&k).copied().flatten();
+            row["stored_until"] = json!(until.map(|u| u.format("%Y-%m-%d %H:%M:%S").to_string()));
+        }
+    }
+    Ok(Json(env))
 }

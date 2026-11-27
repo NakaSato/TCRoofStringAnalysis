@@ -34,6 +34,16 @@ def ok(data):
 
 
 LIMITED = {"error_code": 10012, "error_msg": "error_frequently_access"}
+REFUSE_DATALOGGERS = {"DL71R"}
+
+
+def env_record(t: datetime, addr: int, i: int = 0) -> dict:
+    """One weather-sensor record; humidity and wind read 0 (probes not fitted), address 3 has no
+    module temperature."""
+    return {
+        "timeText": fmt(t), "radiant": 650.5 - 10 * i, "envTemp": "31.2", "panelTemp": 0 if addr == 3 else 48.0 + i / 10,
+        "envHumidity": 0, "windSpeed": 0, "windAngle": 0, "rain": 0, "address": addr,
+    }
 
 
 def max_record(sn: str, mins: int, open4: bool) -> dict:
@@ -129,6 +139,54 @@ class Handler(BaseHTTPRequestHandler):
                 {"start_time": f"{day} 13:30:00", "end_time": "", "alarm_code": 117, "alarm_message": "",
                  "fault_type": 3, "status": 1},
             ]}))
+        # weather sensors and energy meters (seed.d/71_live_sensors.sql): datalogger DL71R refuses
+        # everything; address 9 has no record. env_list's lastUpdateTime is China time (UTC+8).
+        if path == "device/env/env_list":
+            dl = p.get("datalog_sn", "")
+            if dl in REFUSE_DATALOGGERS:
+                return self._send(LIMITED)
+            china = T0 + timedelta(hours=1)
+            envs = [
+                {"address": "1", "name": "ENV1", "lost": "false", "lastUpdateTime": fmt(china - timedelta(minutes=3))},
+                {"address": "2", "name": "ENV2", "lost": "false", "lastUpdateTime": fmt(china - timedelta(minutes=35))},
+                {"address": "3", "name": "ENV3", "lost": "true", "lastUpdateTime": fmt(china - timedelta(minutes=10))},
+                {"address": "4", "name": "ENV4", "lost": 0, "lastUpdateTime": fmt(china - timedelta(days=40))},
+                {"address": "5", "name": "ENV5", "lost": "", "lastUpdateTime": ""},
+                {"address": "x", "name": "bad"},
+            ]
+            if dl == "DL71B":  # this datalogger's sensor 1 is late
+                envs[0] = {**envs[0], "lastUpdateTime": fmt(china - timedelta(minutes=30))}
+            return self._send(ok({"count": len(envs), "envs": envs}))
+        if path == "device/env/env_last_data":
+            dl, addr = p.get("datalog_sn", ""), p.get("address", "")
+            if dl in REFUSE_DATALOGGERS:
+                return self._send(LIMITED)
+            if addr == "9":
+                return self._send(ok({}))
+            return self._send(ok({**env_record(T0 - timedelta(minutes=2), int(addr or 0)), "lost": False, "calendar": {"x": 1}}))
+        if path == "device/env/env_data":
+            dl, addr = p.get("datalog_sn", ""), p.get("address", "")
+            if dl in REFUSE_DATALOGGERS:
+                return self._send(LIMITED)
+            day0 = T0.replace(hour=0, minute=0, second=0)
+            recs = [env_record(T0 - timedelta(minutes=5 * i + 1), int(addr or 0), i) for i in range(12)]
+            recs.insert(1, env_record(T0 - timedelta(minutes=3), int(addr or 0), 99))  # same slot as a newer one
+            recs = [r for r in recs if r["timeText"] >= fmt(day0)]
+            if p.get("page", "1") != "1":
+                recs = []
+            return self._send(ok({"count": len(recs), "env_data": recs}))
+        if path == "device/ammeter/meter_last_data":
+            dl, addr = p.get("datalog_sn", ""), p.get("address", "")
+            if dl in REFUSE_DATALOGGERS:
+                return self._send(LIMITED)
+            if addr == "99":
+                return self._send(ok({}))
+            return self._send(ok({
+                "timeText": fmt(T0 - timedelta(minutes=1)), "activePower": "-12345.6" if dl == "DL71B" else 8000.25,
+                "activePowerL1": 2600.0, "activePowerL2": "", "activePowerL3": None, "reactivePower": 120.5,
+                "powerFactor": 0.99, "frequency": 50.0, "posiActivePower": 1000.5, "positiveActiveTodayEnergy": 12.5,
+                "reverActivePower": 0, "reverseActiveTodayEnergy": 3.25, "lost": "0",
+            }))
         return self._send({"error_code": 10001, "error_msg": f"stub has no {path}"})
 
 
