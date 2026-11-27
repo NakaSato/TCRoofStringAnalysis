@@ -59,6 +59,40 @@ def max_record(sn: str, mins: int, open4: bool) -> dict:
     }
 
 
+def worker_alarms(sn: str, day: str, page: int) -> dict:
+    """`alarm_data` of the worker parity's alarm inverters (rust/tests/worker_parity/seed.d/
+    50_alarms.sql, serials AL5…): AL5RL0 is always refused (10012), AL5RL1-4 only for a day other
+    than the stub's today (the `alarms_yesterday` sweep ends there), AL5CLD* have no alarms,
+    AL5ODD1 sends odd values, AL5BAD1 a record that is not an object, AL5PAGE 150 records over
+    two pages; every other AL5 serial one closed and one open alarm."""
+    if sn == "AL5RL0" or (sn in {"AL5RL1", "AL5RL2", "AL5RL3", "AL5RL4"} and day != T0.date().isoformat()):
+        return LIMITED
+    if sn.startswith("AL5CLD"):
+        return ok({"count": 0, "alarms": []})
+    if sn == "AL5BAD1":
+        return ok({"count": 1, "alarms": ["x"]})
+    if sn == "AL5ODD1":
+        return ok({"count": 4, "alarms": [
+            {"start_time": f"{day}T08:00:00", "end_time": f"{day} 8:5:7.250", "alarm_code": 2.5,
+             "alarm_message": "ข้อความ" * 50, "fault_type": "Fault-" + "x" * 40, "status": " 7 "},
+            {"start_time": f"{day} 25:00:00", "end_time": 0, "alarm_code": "", "alarm_message": 0,
+             "fault_type": None, "status": "1.5"},
+            {"start_time": f"{day}  10:00:00", "alarm_code": True, "alarm_message": ["a"], "status": 4.9},
+            {},
+        ]})
+    if sn == "AL5PAGE":
+        recs = [{"start_time": f"{day} {6 + i // 60:02d}:{i % 60:02d}:00", "end_time": f"{day} {6 + i // 60:02d}:{i % 60:02d}:30",
+                 "alarm_code": 100 + i, "alarm_message": f"page alarm {i}", "fault_type": "Warning", "status": 0}
+                for i in range(150)]
+        return ok({"count": 150, "alarms": recs[(page - 1) * 100: page * 100]})
+    return ok({"count": 2, "alarms": [
+        {"start_time": f"{day} 07:15:00", "end_time": f"{day} 07:20:00", "alarm_code": "305",
+         "alarm_message": "Grid voltage high", "fault_type": "Warning", "status": 0},
+        {"start_time": f"{day} 11:45:00", "end_time": None, "alarm_code": 117, "alarm_message": "Fan fault",
+         "fault_type": "Fault", "status": 1},
+    ]})
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # quiet
         pass
@@ -133,6 +167,8 @@ class Handler(BaseHTTPRequestHandler):
             sn, day = p.get("max_sn", ""), p.get("date", "")
             if sn in REFUSE_ALARMS:
                 return self._send(LIMITED)
+            if sn.startswith("AL5"):
+                return self._send(worker_alarms(sn, day, int(p.get("page") or 1)))
             return self._send(ok({"count": 2, "alarms": [
                 {"start_time": f"{day} 09:00:00", "end_time": f"{day} 09:10:00", "alarm_code": 202,
                  "alarm_message": "PV isolation low", "fault_type": "", "status": 0},

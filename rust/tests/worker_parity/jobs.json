@@ -17,5 +17,21 @@
       "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"]},
       "om_push_marks": {"order": ["user_id", "kind", "day"]}
     }
+  },
+  "alarms": {
+    "stubs": ["growatt"],
+    "tables": {
+      "growatt_alarms": {"order": ["id"]},
+      "growatt_alarm_syncs": {"order": ["device_sn", "day"], "ignore": ["synced_at"]}
+    },
+    "log_ignore": ["^phase \\d+ done in "]
+  },
+  "alarms_yesterday": {
+    "stubs": ["growatt"],
+    "tables": {
+      "growatt_alarms": {"order": ["id"]},
+      "growatt_alarm_syncs": {"order": ["device_sn", "day"], "ignore": ["synced_at"]}
+    },
+    "log_ignore": ["^phase \\d+ done in "]
   }
 }

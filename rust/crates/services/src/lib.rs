@@ -16,6 +16,7 @@ pub mod meter;
 pub mod curtailment;
 pub mod sensors;
 pub mod alarms;
+pub mod alarm_sync;
 pub mod devices;
 pub mod device_checks;
 pub mod fleet_settings;
