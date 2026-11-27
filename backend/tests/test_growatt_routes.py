@@ -166,6 +166,21 @@ def test_string_detail_day_and_peer(client):
     assert client.get(f"/api/growatt/plants/{PLANT}/strings/{SN_A}/1", params={"day": "2026-11-01"}).status_code == 404
 
 
+def test_string_detail_refuses_an_inverter_of_another_plant(client):
+    """The serial must belong to the plant in the path; access to plant A must not read plant B."""
+    from app.db.models import GrowattInverter, GrowattPlant
+    from app.db.session import get_db
+
+    db = next(client.app.dependency_overrides[get_db]())
+    db.add(GrowattPlant(plant_id=PLANT + 1, name="Other"))
+    db.add(GrowattInverter(device_sn="OTHERINV", plant_id=PLANT + 1))
+    db.commit()
+    r = client.get(f"/api/growatt/plants/{PLANT}/strings/OTHERINV/1")
+    assert r.status_code == 404 and r.json()["detail"] == f"Inverter OTHERINV not found on plant {PLANT}"
+    r = client.get(f"/api/growatt/plants/{PLANT}/strings/{SN_A}/1")
+    assert r.status_code == 200
+
+
 def test_inverter_timeseries_5min_slots_and_modelled_reference(client):
     d = client.get(f"/api/growatt/plants/{PLANT}/inverters/{SN_A}/timeseries").json()
     assert d["meta"] == {"source": "db", "day": "2026-11-11"}

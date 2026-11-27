@@ -1,5 +1,5 @@
 {
- "_doc": "History area (rust/crates/api/src/routes/growatt/history.rs). Not here on purpose: /plants/{allowed}/strings/{foreign_sn}/{n} -- Python answers 200 with the other plant's string (no ownership check in build_string_detail, a cross-plant IDOR); Rust answers 404 (plan section 4, PlantInverter). Covered by crates/api/tests/growatt_history.rs.",
+ "_doc": "History area (rust/crates/api/src/routes/growatt/history.rs). /plants/{allowed}/strings/{foreign_sn}/{n} answers 404 on both sides since Python's build_string_detail checks the inverter belongs to the plant (branch fix-string-detail-plant-check, 2026-11-27); before that Python leaked the other plant's string.",
  "cases": [
   {
    "name": "history: (setup) engineer id",
@@ -249,6 +249,18 @@
    "method": "GET",
    "path": "/api/growatt/plants/3001/inverters/H3002A/daily",
    "auth": "engineer"
+  },
+  {
+   "method": "GET",
+   "auth": "admin",
+   "name": "history: string detail foreign device_sn on an allowed plant (admin)",
+   "path": "/api/growatt/plants/3001/strings/H3002A/1"
+  },
+  {
+   "method": "GET",
+   "auth": "engineer",
+   "name": "history: string detail foreign device_sn on an allowed plant (engineer)",
+   "path": "/api/growatt/plants/3001/strings/H3002A/1"
   },
   {
    "name": "history: daily unknown device_sn",

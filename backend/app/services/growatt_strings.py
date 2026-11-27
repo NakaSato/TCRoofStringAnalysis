@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models import GrowattInverter
+
 from app.services.growatt_common import GrowattNotFound, S, SAMPLE_H, _bucket, _day_bounds, _fmt_ts, _get_plant, _integrate_kwh, _mean, _round
 from app.services.growatt_layout import Layout, load_layout, newest_string_ts
 
@@ -284,6 +286,12 @@ def build_string_detail(
     everything (series, curves, MPP, energy, PR) to that time-of-day window (`meta.window`), on
     every day of a range."""
     plant = _get_plant(db, plant_id)
+    # The serial must be one of this plant's inverters: the route only checks access to
+    # `plant_id`, so without this any plant's string data was readable through an allowed plant.
+    if db.scalar(
+        select(GrowattInverter.device_sn).where(GrowattInverter.plant_id == plant_id, GrowattInverter.device_sn == device_sn)
+    ) is None:
+        raise GrowattNotFound(f"Inverter {device_sn} not found on plant {plant_id}")
 
     if day is None:
         latest = newest_string_ts(db, [device_sn], string_no)
