@@ -27,3 +27,4 @@ pub mod plant_documents;
 pub mod publish;
 pub mod live_store;
 pub mod live;
+pub mod string_operating;

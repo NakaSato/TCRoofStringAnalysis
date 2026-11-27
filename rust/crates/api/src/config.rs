@@ -75,6 +75,11 @@ pub struct Settings {
     pub plant_today_sweep_per_request: i64,
     pub inverter_snapshot_ttl_s: i64,
     pub inverter_snapshot_sweep_per_request: i64,
+    // Weather sensor live status (growatt_sensors.live_status): minutes / days since the last upload
+    pub sensor_late_min: i64,
+    pub sensor_offline_min: i64,
+    /// Python float; 0 = off
+    pub sensor_inactive_days: f64,
 }
 
 impl Default for Settings {
@@ -130,6 +135,9 @@ impl Default for Settings {
             plant_today_sweep_per_request: 40,
             inverter_snapshot_ttl_s: 300,
             inverter_snapshot_sweep_per_request: 4,
+            sensor_late_min: 15,
+            sensor_offline_min: 60,
+            sensor_inactive_days: 30.0,
         }
     }
 }
@@ -249,6 +257,9 @@ impl Settings {
             plant_today_sweep_per_request: int("PLANT_TODAY_SWEEP_PER_REQUEST")?.unwrap_or(d.plant_today_sweep_per_request),
             inverter_snapshot_ttl_s: int("INVERTER_SNAPSHOT_TTL_S")?.unwrap_or(d.inverter_snapshot_ttl_s),
             inverter_snapshot_sweep_per_request: int("INVERTER_SNAPSHOT_SWEEP_PER_REQUEST")?.unwrap_or(d.inverter_snapshot_sweep_per_request),
+            sensor_late_min: int("SENSOR_LATE_MIN")?.unwrap_or(d.sensor_late_min),
+            sensor_offline_min: int("SENSOR_OFFLINE_MIN")?.unwrap_or(d.sensor_offline_min),
+            sensor_inactive_days: num("SENSOR_INACTIVE_DAYS")?.unwrap_or(d.sensor_inactive_days),
         };
         if s.jwt_algorithm != "HS256" {
             anyhow::bail!("JWT_ALGORITHM {:?} is not supported (HS256 only, as in production)", s.jwt_algorithm);

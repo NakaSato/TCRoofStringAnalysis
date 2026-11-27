@@ -1,0 +1,651 @@
+{
+ "_doc": "Growatt live weather sensors, energy meters and string operating points against the stub Growatt (growatt_stub.py; seed.d/71_live_sensors.sql). Ignored: each backend's own fetch times, refresh_in_s and record ages (they depend on when the request lands), and interval_s. The engineer's plants are set to [7101] and restored at the end.",
+ "cases": [
+  {
+   "name": "live sensors: setup save engineer plants",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "auth": "engineer",
+   "save": {
+    "lsens_eng_plants": "plant_ids"
+   }
+  },
+  {
+   "name": "live sensors: setup assign engineer 7101",
+   "method": "PUT",
+   "path": "/api/users/${eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     7101
+    ]
+   }
+  },
+  {
+   "name": "live sensors: weather 7101 admin",
+   "method": "GET",
+   "path": "/api/growatt/live/plants/7101/weather",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: weather 7101 engineer (cached)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7101/weather",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: weather 7102 admin",
+   "method": "GET",
+   "path": "/growatt/live/plants/7102/weather",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: weather 7102 engineer not assigned",
+   "method": "GET",
+   "path": "/growatt/live/plants/7102/weather",
+   "auth": "engineer"
+  },
+  {
+   "name": "live sensors: weather 7103 no sensor",
+   "method": "GET",
+   "path": "/growatt/live/plants/7103/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: weather 7104 phase without token",
+   "method": "GET",
+   "path": "/growatt/live/plants/7104/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: weather unknown plant",
+   "method": "GET",
+   "path": "/growatt/live/plants/999999/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: weather bad plant id",
+   "method": "GET",
+   "path": "/growatt/live/plants/abc/weather",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live sensors: weather unauthenticated",
+   "method": "GET",
+   "path": "/growatt/live/plants/7101/weather",
+   "auth": null
+  },
+  {
+   "name": "live sensors: status engineer",
+   "method": "GET",
+   "path": "/growatt/live/sensors/status",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: status admin plant 7101",
+   "method": "GET",
+   "path": "/api/growatt/live/sensors/status?plant_id=7101",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: status admin",
+   "method": "GET",
+   "path": "/growatt/live/sensors/status",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: status admin again (sweep goes on)",
+   "method": "GET",
+   "path": "/growatt/live/sensors/status",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: status engineer plant 7102 (not assigned)",
+   "method": "GET",
+   "path": "/growatt/live/sensors/status?plant_id=7102",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: status admin unknown plant",
+   "method": "GET",
+   "path": "/growatt/live/sensors/status?plant_id=424242",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: status bad plant id",
+   "method": "GET",
+   "path": "/growatt/live/sensors/status?plant_id=x",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live sensors: status unauthenticated",
+   "method": "GET",
+   "path": "/growatt/live/sensors/status",
+   "auth": null
+  },
+  {
+   "name": "live sensors: sensor admin DL71A/1",
+   "method": "GET",
+   "path": "/api/growatt/live/sensors/DL71A/1",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: sensor engineer DL71A/1 (no raw)",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71A/1",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: sensor admin DL71A/2 (measured unknown)",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71A/2",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: sensor admin DL71A/3 (no module temperature)",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71A/3",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: sensor admin DL71B/1 (late)",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71B/1",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: sensor engineer DL71B/1 not visible",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71B/1",
+   "auth": "engineer"
+  },
+  {
+   "name": "live sensors: sensor refused both parts",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71R/1",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: sensor phase without token",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL74/9",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: sensor unknown",
+   "method": "GET",
+   "path": "/growatt/live/sensors/NOPE/1",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: sensor bad address",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71A/abc",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live sensors: today admin DL71A/1",
+   "method": "GET",
+   "path": "/api/growatt/live/sensors/DL71A/1/today",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: today engineer DL71A/3",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71A/3/today",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: today engineer DL71B/1 not visible",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71B/1/today",
+   "auth": "engineer"
+  },
+  {
+   "name": "live sensors: today refused",
+   "method": "GET",
+   "path": "/growatt/live/sensors/DL71R/1/today",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: today unknown",
+   "method": "GET",
+   "path": "/growatt/live/sensors/NOPE/2/today",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: meter 7101 admin (one meter without record)",
+   "method": "GET",
+   "path": "/api/growatt/live/plants/7101/meter",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: meter 7101 load=false",
+   "method": "GET",
+   "path": "/growatt/live/plants/7101/meter?load=false",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: meter 7102 admin (derived load)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7102/meter",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: meter 7102 engineer not assigned",
+   "method": "GET",
+   "path": "/growatt/live/plants/7102/meter",
+   "auth": "engineer"
+  },
+  {
+   "name": "live sensors: meter 7101 engineer",
+   "method": "GET",
+   "path": "/growatt/live/plants/7101/meter?load=true",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: meter 7103 none",
+   "method": "GET",
+   "path": "/growatt/live/plants/7103/meter",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: meter 7104 phase without token",
+   "method": "GET",
+   "path": "/growatt/live/plants/7104/meter",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: meter bad load",
+   "method": "GET",
+   "path": "/growatt/live/plants/7101/meter?load=maybe",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live sensors: operating 7101 admin",
+   "method": "GET",
+   "path": "/api/growatt/live/plants/7101/strings/operating",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: operating 7101 engineer",
+   "method": "GET",
+   "path": "/growatt/live/plants/7101/strings/operating",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: operating 7102 admin (sensor)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7102/strings/operating",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: operating 7001 admin (no sensor)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7001/strings/operating",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: operating 7005 admin (refused inverters)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7005/strings/operating",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s",
+    "data.sensors.*.fetched_at",
+    "data.sensors.*.checked_at",
+    "data.meters.*.fetched_at",
+    "data.reading.fetched_at",
+    "data.status.checked_at",
+    "data.inverters.*.age_s",
+    "data.sensors.*.interval_s",
+    "data.meters.*.interval_s",
+    "data.reading.interval_s"
+   ]
+  },
+  {
+   "name": "live sensors: operating 7103 no inverters",
+   "method": "GET",
+   "path": "/growatt/live/plants/7103/strings/operating",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: operating 7104 phase without token",
+   "method": "GET",
+   "path": "/growatt/live/plants/7104/strings/operating",
+   "auth": "admin"
+  },
+  {
+   "name": "live sensors: operating 7102 engineer not assigned",
+   "method": "GET",
+   "path": "/growatt/live/plants/7102/strings/operating",
+   "auth": "engineer"
+  },
+  {
+   "name": "live sensors: teardown restore engineer plants",
+   "method": "PUT",
+   "path": "/api/users/${eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": "${lsens_eng_plants}"
+   }
+  }
+ ]
+}
