@@ -144,6 +144,13 @@ Port all 19 files (~5.9k lines) with zero DB/HTTP server dependencies:
 - **Exit gate:** Fleet Directory, Plant Map, Plant Overview, Inverters, String Detail, Weather Sensors, Active Alarm, and Devices pages pass full Golden-Diff parity against Python.
 
 ### Phase 4 — Background Worker & Sync Engine (`crates/worker`) (Weeks 8–9)
+**Progress:** started 2026-11-27, in three waves:
+- **4.1 Worker and harness: done** (`33a8381`, merged in `75537ee`). `crates/worker` (`tcroof-worker`: `--once JOB`, `--list`, or the loop) with `sync_runs` locking, the queue, `fail_abandoned`, the scheduler and the per-account runner `phases::per_phase`. All 25 job names exist; a job not ported yet fails its run with `not_ported` in the detail, never `ok`. `retention` is ported (`services/retention.rs`). Worker parity harness `rust/tests/worker_parity/run.sh [job]` (jobs and compared tables in `jobs.json`, seeds in `seed.d/`): the same job in Python and in Rust on two copies of one seeded database against the stub servers, then the rows each wrote, `sync_runs` and `app_logs` are diffed. `retention` equal, 258 tests on Postgres 16. Differences: the Rust worker never calls `ensure_schema`; `remove_blocked_plants` at worker start waits for 4.2 (a warning is logged when `GROWATT_BLOCKED_PLANT_IDS` is set); a database error is named `DatabaseError`, and a failed run keeps only the error text, not a traceback. Open for 4.3: Python's JSON publish sink writes under the fixed `config.DATA_DIR`, so the harness cannot yet point it at a temporary folder.
+- **4.2 Growatt sync:** `history`, `env_history`, `inverter_latest`, `backfill`, `power_limits`, `growatt_energy`, `energy_backfill`, `alarms`, `alarms_yesterday` (`services/growatt_sync/`, `growatt_energy`, the alarm log sync).
+- **4.3 Publish and push:** `publish_today`, `publish_yesterday` (`daily_summary`, `check_slots`; Firestore REST sink and JSON sink), `pwa_sheet`, `google_weather`, `push_test`, `faults_push`, the alarm push after `alarms`.
+
+The jobs that need services from later phases are ported with those phases: `rules_*`, `epi_refit` (Phase 5), `om_*` (Phase 6), `kb_ocr` (Phase 7). So the Python worker stays the only production worker until Phase 7, and the Phase 4 exit gate is checked locally with the harness.
+
 - `sync_runs` job locking, queue polling, and scheduler (`app.worker` equivalent).
 All 25 jobs of `JOBS` in `backend/app/services/jobs.py`:
 - Growatt sync (parallel per phase): `fleet`, `history`, `env_history`, `inverter_latest`, `backfill`, `power_limits`, `growatt_energy`, `energy_backfill`, `alarms`, `alarms_yesterday`.
