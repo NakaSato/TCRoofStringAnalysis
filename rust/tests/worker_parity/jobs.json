@@ -1,0 +1,21 @@
+{
+  "_doc": "Per job: env = extra variables for both workers; stubs = stub servers to start (growatt, weather); tables = what the job may write, compared row by row after the run (order = ORDER BY columns, ignore = columns not compared, e.g. now() stamps the job writes). sync_runs and app_logs are always compared (compare.py). detail_ignore = keys of the run's detail_json not compared (dot paths).",
+  "retention": {
+    "env": {"LOG_MAX_ROWS": "8"},
+    "stubs": [],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_meter_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "google_weather_hourly": {"order": ["cell_key", "hour"]},
+      "growatt_alarms": {"order": ["id"]},
+      "growatt_alarm_syncs": {"order": ["device_sn", "day"]},
+      "pwa_check_slots": {"order": ["day", "plant_id", "hour"]},
+      "growatt_plant_power": {"order": ["plant_id", "timestamp"]},
+      "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"]},
+      "om_push_marks": {"order": ["user_id", "kind", "day"]}
+    }
+  }
+}

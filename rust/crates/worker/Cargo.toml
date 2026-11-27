@@ -1,0 +1,25 @@
+[package]
+name = "tcroof-worker"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Background worker (backend/app/worker.py + the run log / lock of services/jobs.py)"
+
+[[bin]]
+name = "tcroof-worker"
+path = "src/main.rs"
+
+[dependencies]
+tcroof-api = { path = "../api" }       # Settings (same .env keys) and the app_logs handler
+tcroof-clients = { path = "../clients" }
+tcroof-db = { path = "../db" }
+tcroof-services = { path = "../services" }
+anyhow.workspace = true
+chrono.workspace = true
+dotenvy.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing.workspace = true

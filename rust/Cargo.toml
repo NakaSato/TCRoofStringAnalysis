@@ -4,7 +4,7 @@
 # Crates are added when their phase starts: db, api (Phase 0 / 1), solar-core (pure engine), clients (external HTTP APIs), services (Phase 3+ domain services).
 [workspace]
 resolver = "2"
-members = ["crates/db", "crates/api", "crates/solar-core", "crates/clients", "crates/services"]
+members = ["crates/db", "crates/api", "crates/solar-core", "crates/clients", "crates/services", "crates/worker"]
 
 [workspace.package]
 edition = "2021"
