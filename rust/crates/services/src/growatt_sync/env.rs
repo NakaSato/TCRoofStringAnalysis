@@ -194,14 +194,14 @@ async fn sync_envs(
             }
             Err(e) => {
                 failed.push(failed_entry(format!("{}/{}", s.datalogger_sn, s.address), e.to_string()));
-                tracing::error!("env {}/{} sync failed: {e}", s.datalogger_sn, s.address);
+                tracing::error!(target: "growatt_sync", "env {}/{} sync failed: {e}", s.datalogger_sn, s.address);
                 if let Some(max) = max_rate_limited.filter(|m| *m > 0) {
                     if e.is_rate_limited() {
                         limited += 1;
                         if limited >= max {
                             let left = sensors.len() - idx - 1;
                             failed.push(failed_entry("rate limited", format!("{left} sensors left for the next run")));
-                            tracing::warn!("env_data rate limited; {left} sensors wait for the next run");
+                            tracing::warn!(target: "growatt_sync", "env_data rate limited; {left} sensors wait for the next run");
                             break;
                         }
                     }

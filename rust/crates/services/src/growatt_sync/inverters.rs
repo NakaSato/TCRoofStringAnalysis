@@ -361,10 +361,10 @@ pub async fn sync_all_history(
             Ok((a, b)) => {
                 add(&mut totals, "inverter_rows", a);
                 add(&mut totals, "string_rows", b);
-                tracing::debug!("[{}/{total}] {} (plant {}): {a} records, {b} string rows", idx + 1, inv.device_sn, inv.plant_id);
+                tracing::debug!(target: "growatt_sync", "[{}/{total}] {} (plant {}): {a} records, {b} string rows", idx + 1, inv.device_sn, inv.plant_id);
             }
             Err(e) => {
-                tracing::error!("[{}/{total}] {} failed: {e}", idx + 1, inv.device_sn);
+                tracing::error!(target: "growatt_sync", "[{}/{total}] {} failed: {e}", idx + 1, inv.device_sn);
                 push_failed(&mut totals, failed_entry(inv.device_sn.clone(), e.to_string()));
             }
         }
@@ -416,14 +416,14 @@ pub async fn sync_incremental(
             }
             Err(e) => match sync_today_single(pool, client, opts, inv, today, overlap).await {
                 None => {
-                    tracing::error!("{} incremental sync failed: {e}", inv.device_sn);
+                    tracing::error!(target: "growatt_sync", "{} incremental sync failed: {e}", inv.device_sn);
                     push_failed(&mut totals, failed_entry(inv.device_sn.clone(), e.to_string()));
                 }
                 Some((a, b)) => {
                     add(&mut totals, "inverter_rows", a);
                     add(&mut totals, "string_rows", b);
                     add(&mut totals, "day_fallback", 1);
-                    tracing::warn!("{} max_data failed ({e}): today read through queryHistoricalData", inv.device_sn);
+                    tracing::warn!(target: "growatt_sync", "{} max_data failed ({e}): today read through queryHistoricalData", inv.device_sn);
                 }
             },
         }
@@ -488,14 +488,14 @@ async fn sync_today_single(
         Ok(Some(r)) => as_values(r),
         Ok(None) => return None,
         Err(e) => {
-            tracing::debug!("{} queryHistoricalData fallback failed: {e}", inv.device_sn);
+            tracing::debug!(target: "growatt_sync", "{} queryHistoricalData fallback failed: {e}", inv.device_sn);
             return None;
         }
     };
     match store_today(pool, opts, inv, &records, today, overlap).await {
         Ok(r) => r,
         Err(e) => {
-            tracing::debug!("{} queryHistoricalData fallback failed: {e}", inv.device_sn);
+            tracing::debug!(target: "growatt_sync", "{} queryHistoricalData fallback failed: {e}", inv.device_sn);
             None
         }
     }
@@ -537,9 +537,9 @@ async fn sync_today_batched(
             Err(e @ tcroof_clients::growatt::GrowattError::Api(_)) => {
                 add(totals, "batch_errors", 1);
                 in_a_row += 1;
-                tracing::warn!("batch history failed for {} inverters: {e}", chunk.len());
+                tracing::warn!(target: "growatt_sync", "batch history failed for {} inverters: {e}", chunk.len());
                 if in_a_row >= BATCH_MAX_ERRORS {
-                    tracing::warn!("batch history refused {in_a_row} times in a row: the rest of this run uses max_data");
+                    tracing::warn!(target: "growatt_sync", "batch history refused {in_a_row} times in a row: the rest of this run uses max_data");
                     add(totals, "batch_fallback", eligible.len() - i);
                     return Ok(done);
                 }
@@ -554,7 +554,7 @@ async fn sync_today_batched(
             let rows = match store_today(pool, opts, inv, &records, today, overlap).await {
                 Ok(r) => r,
                 Err(e) => {
-                    tracing::warn!("{} batch history rows failed: {e}", inv.device_sn);
+                    tracing::warn!(target: "growatt_sync", "{} batch history rows failed: {e}", inv.device_sn);
                     None
                 }
             };
@@ -656,11 +656,11 @@ pub async fn sync_latest_records(
                 for &j in &order[n..] {
                     push_failed(&mut totals, failed_entry(label(j), e.to_string()));
                 }
-                tracing::warn!("maxs_data rate limited at {}: {} chunk(s) left for the next run", label(k), order.len() - n);
+                tracing::warn!(target: "growatt_sync", "maxs_data rate limited at {}: {} chunk(s) left for the next run", label(k), order.len() - n);
                 break;
             }
             Err(e) => {
-                tracing::error!("maxs_data {} failed: {e}", label(k));
+                tracing::error!(target: "growatt_sync", "maxs_data {} failed: {e}", label(k));
                 push_failed(&mut totals, failed_entry(label(k), e.to_string()));
             }
         }

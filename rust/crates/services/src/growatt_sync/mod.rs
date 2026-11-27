@@ -160,7 +160,7 @@ where
                     return Err(e.into());
                 }
                 let wait = if e.is_rate_limited() { (60 * (attempt + 1)).min(120) } else { 5 * (attempt + 1) };
-                tracing::warn!("{label}: {} — retry in {wait}s", growatt_text(&e));
+                tracing::warn!(target: "growatt_sync", "{label}: {} — retry in {wait}s", growatt_text(&e));
                 opts.sleep(wait as f64).await;
                 attempt += 1;
             }

@@ -58,7 +58,7 @@ pub async fn sync_power_limits(
                 if a.is_rate_limited() {
                     in_a_row += 1;
                     if in_a_row >= max_rate_limited {
-                        tracing::warn!("readPower rate limited {in_a_row} times in a row; the rest wait for the next run");
+                        tracing::warn!(target: "growatt_sync", "readPower rate limited {in_a_row} times in a row; the rest wait for the next run");
                         failed.push(json!(format!("phase {}: readPower rate limited", phase_text(phase))));
                         break;
                     }
@@ -68,20 +68,20 @@ pub async fn sync_power_limits(
                 unreadable += 1;
                 let key = a.error_code.as_ref().map_or_else(|| "None".to_owned(), py::str_of);
                 *errors.entry(key).or_default() += 1;
-                tracing::debug!("inverter {} readPower refused: {}", inv.device_sn, a.message);
+                tracing::debug!(target: "growatt_sync", "inverter {} readPower refused: {}", inv.device_sn, a.message);
                 continue;
             }
             Err(e) => {
                 in_a_row = 0;
                 unreadable += 1;
                 *errors.entry("error".into()).or_default() += 1;
-                tracing::warn!("inverter {} readPower failed: {e}", inv.device_sn);
+                tracing::warn!(target: "growatt_sync", "inverter {} readPower failed: {e}", inv.device_sn);
                 continue;
             }
         };
         in_a_row = 0;
         if inv.power_limit_pct.is_some_and(|old| old != pct) {
-            tracing::info!("inverter {} power limit {:?} -> {pct} %", inv.device_sn, inv.power_limit_pct);
+            tracing::info!(target: "growatt_sync", "inverter {} power limit {:?} -> {pct} %", inv.device_sn, inv.power_limit_pct);
         }
         sqlx::query("UPDATE growatt_inverters SET power_limit_pct = $1, power_limit_read_at = $2, synced_at = now() WHERE device_sn = $3")
             .bind(pct)
@@ -94,7 +94,7 @@ pub async fn sync_power_limits(
             limited += 1;
         }
     }
-    tracing::info!(
+    tracing::info!(target: "growatt_sync",
         "phase {} readPower: {read} read ({limited} below 100 %), {unreadable} refused {errors:?}",
         phase_text(phase)
     );

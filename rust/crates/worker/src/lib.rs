@@ -85,3 +85,16 @@ impl From<tcroof_services::common::ServiceError> for JobError {
         }
     }
 }
+
+impl From<tcroof_services::growatt_sync::SyncError> for JobError {
+    /// Python's exception class names: `GrowattAPIError` (solar_core.growatt), the parsers'
+    /// `ValueError`, a database error as `DatabaseError` (as above).
+    fn from(e: tcroof_services::growatt_sync::SyncError) -> Self {
+        use tcroof_services::growatt_sync::SyncError as S;
+        match e {
+            S::Growatt(_) => JobError::new("GrowattAPIError", e.to_string()),
+            S::Db(e) => e.into(),
+            S::Parse(m) => JobError::new("ValueError", m),
+        }
+    }
+}

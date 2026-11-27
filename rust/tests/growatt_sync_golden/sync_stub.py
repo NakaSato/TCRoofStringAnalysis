@@ -137,6 +137,9 @@ DEVICES = {
 
 REFUSE_MAX_DATA = {"INV-A2": LIMITED, "INV-B1": refused(10001, "device_not_exist")}
 REFUSE_ENV = {("DL-A", "2"), ("DL-A", "3"), ("DL-B", "1")}
+# worker parity (rust/tests/worker_parity/seed.d/20_history.sql, plants 9300-9499, serials H-*):
+# no 10012 on a path that retries (the real jobs wait minutes between retries)
+REFUSE_MAX_DATA["H-B1"] = refused(10001, "device_not_exist")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -237,6 +240,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(new_ok({"haveNext": True, "datas": recs}))
             return self._send(new_ok({"haveNext": False, "datas": recs}))
         if path == "new-api/queryDevicesHistoricalData":
+            if sn.startswith("H-"):  # worker parity: H-B1 is not answered, H-U1 not a list
+                return self._send(new_ok({**{s: max_records(s, d, d) for s in sn.split(",") if s not in ("H-B1", "H-U1")},
+                                          "H-U1": "not a list"}))
             if {"INV-A2", "INV-U1"} & set(sn.split(",")):  # two refusals in a row end batching
                 return self._send(NEW_LIMITED)
             return self._send(new_ok({"INV-A1": max_records("INV-A1", d, d), "INV-U1": "not a list"}))
@@ -255,7 +261,7 @@ class Handler(BaseHTTPRequestHandler):
             for s in [s for s in p.get("maxs", "").split(",") if s]:
                 if s == "INV-U1":
                     continue  # not answered
-                t = datetime.combine(TODAY - timedelta(days=5), datetime.min.time()) + timedelta(hours=10) if s == "INV-B1" \
+                t = datetime.combine(TODAY - timedelta(days=5), datetime.min.time()) + timedelta(hours=10) if s in ("INV-B1", "H-B1") \
                     else datetime.combine(TODAY, datetime.min.time()) + timedelta(hours=12, minutes=5)
                 out[s] = {s: max_rec(s, t), "dataloggerSn": "DL-A"}
             return self._send(ok(out if p.get("pageNum", "1") == "1" else {}))

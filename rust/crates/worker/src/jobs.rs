@@ -8,11 +8,14 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::Utc;
+use chrono::{Duration, Timelike, Utc};
 use serde_json::{json, Map, Value};
+use tcroof_services::growatt_sync::inverters::default_overlap;
+use tcroof_services::growatt_sync::{self as gs, SyncOptions};
 use tcroof_services::retention as r;
 
-use crate::{today, Ctx, JobError};
+use crate::phases::{per_phase, PhaseCtx};
+use crate::{plant_now, today, Ctx, JobError};
 
 pub type JobResult = Result<(String, Value), JobError>;
 pub type JobFuture = Pin<Box<dyn Future<Output = JobResult> + Send>>;
@@ -31,10 +34,10 @@ pub enum Job {
 pub fn job(name: &str) -> Option<Job> {
     use Job::*;
     Some(match name {
-        "history" => NotPorted { phase: "4.2" },
-        "env_history" => NotPorted { phase: "4.2" },
-        "inverter_latest" => NotPorted { phase: "4.2" },
-        "backfill" => NotPorted { phase: "4.2" },
+        "history" => Ported(|ctx| Box::pin(job_history(ctx))),
+        "env_history" => Ported(|ctx| Box::pin(job_env_history(ctx))),
+        "inverter_latest" => Ported(|ctx| Box::pin(job_inverter_latest(ctx))),
+        "backfill" => Ported(|ctx| Box::pin(job_backfill(ctx))),
         "fleet" => NotPorted { phase: "4.2" },
         "power_limits" => NotPorted { phase: "4.2" },
         "growatt_energy" => NotPorted { phase: "4.2" },
@@ -94,6 +97,105 @@ pub async fn job_retention(ctx: Ctx) -> JobResult {
     Ok(("ok".into(), Value::Object(detail)))
 }
 
+// --------------------------------------------------------------------------- Growatt history (4.2)
+
+/// Python `{**a, **b, **c}`: later keys win, a key keeps its first place.
+fn merge(into: &mut Map<String, Value>, v: Value) {
+    if let Value::Object(m) = v {
+        into.extend(m);
+    }
+}
+
+/// Python `sync_incremental` / `sync_env_incremental` / `sync_meter_incremental` defaults
+/// (`overlap` 30 min, `max_back_days` 7, `pause_s` 0.3)
+const MAX_BACK_DAYS: i64 = 7;
+const PAUSE_S: f64 = 0.3;
+
+/// Python `job_history`: new inverter/string, weather-sensor and energy-meter records since the
+/// last run, per account; the meter sweep last (a rate-limited one stops early and never delays
+/// inverter history).
+pub async fn job_history(ctx: Ctx) -> JobResult {
+    let today = today();
+    let batch = ctx.worker.worker_history_batch_size.max(0) as usize;
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let (pool, c, ph, ut) = (&pc.pool, &pc.client, Some(pc.phase), pc.include_untagged);
+        let ov = default_overlap();
+        let mut d = Map::new();
+        merge(&mut d, gs::sync_incremental(pool, c, &opts, today, ov, MAX_BACK_DAYS, PAUSE_S, ph, ut, batch).await?);
+        merge(&mut d, gs::sync_env_incremental(pool, c, &opts, today, ov, MAX_BACK_DAYS, PAUSE_S, ph, ut, 3, None).await?);
+        merge(&mut d, gs::sync_meter_incremental(pool, c, &opts, today, ov, MAX_BACK_DAYS, PAUSE_S, ph, ut).await?);
+        Ok(d)
+    })
+    .await
+}
+
+/// Python `job_env_history`: weather-sensor records only, no retries on 10012; 3 in a row end
+/// the account's sweep (`MAX_RATE_LIMITED`, run `partial`).
+pub async fn job_env_history(ctx: Ctx) -> JobResult {
+    let today = today();
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let v = gs::sync_env_incremental(
+            &pc.pool,
+            &pc.client,
+            &opts,
+            today,
+            default_overlap(),
+            MAX_BACK_DAYS,
+            PAUSE_S,
+            Some(pc.phase),
+            pc.include_untagged,
+            0,
+            Some(gs::MAX_RATE_LIMITED),
+        )
+        .await?;
+        let mut d = Map::new();
+        merge(&mut d, v);
+        Ok(d)
+    })
+    .await
+}
+
+/// Python `jobs.LATEST_MIN_INTERVAL_MIN`: `maxs_data` answers an account again only about 5 min
+/// after a sweep
+pub const LATEST_MIN_INTERVAL_MIN: i64 = 5;
+
+/// Python `job_inverter_latest`: each inverter's newest record of today (`maxs_data`) into the
+/// history tables; the starting chunk moves on with every interval of the plant-local day.
+pub async fn job_inverter_latest(ctx: Ctx) -> JobResult {
+    let now = plant_now();
+    let minutes = i64::from(now.hour()) * 60 + i64::from(now.minute());
+    let turn = (minutes / LATEST_MIN_INTERVAL_MIN.max(ctx.worker.worker_latest_interval_min)) as usize;
+    let today = today();
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let v = gs::sync_latest_records(&pc.pool, &pc.client, &opts, today, Some(pc.phase), pc.include_untagged, turn, PAUSE_S)
+            .await?;
+        let mut d = Map::new();
+        merge(&mut d, v);
+        Ok(d)
+    })
+    .await
+}
+
+/// Python `job_backfill`: re-read the previous two full days (inverters, sensors, meters) to catch
+/// uploads that arrived late.
+pub async fn job_backfill(ctx: Ctx) -> JobResult {
+    let today = today();
+    let (start, end) = (today - Duration::days(2), today - Duration::days(1));
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let (pool, c, ph, ut) = (&pc.pool, &pc.client, Some(pc.phase), pc.include_untagged);
+        let mut d = Map::new();
+        merge(&mut d, gs::sync_all_history(pool, c, &opts, start, end, None, PAUSE_S, ph, ut).await?);
+        merge(&mut d, gs::sync_env_all(pool, c, &opts, start, end, PAUSE_S, ph, ut).await?);
+        merge(&mut d, gs::sync_meter_all(pool, c, &opts, start, end, PAUSE_S, ph, ut).await?);
+        Ok(d)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,7 +208,7 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["retention"]);
+        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "retention"]);
     }
 
     #[test]

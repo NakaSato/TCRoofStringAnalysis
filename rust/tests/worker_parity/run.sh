@@ -29,6 +29,7 @@ WX_PID=""
 cleanup() {
   [[ -n "$STUB_PID" ]] && kill "$STUB_PID" 2>/dev/null || true
   [[ -n "$WX_PID" ]] && kill "$WX_PID" 2>/dev/null || true
+  [[ -n "${SYNC_STUB_PID:-}" ]] && kill "$SYNC_STUB_PID" 2>/dev/null || true
   wait 2>/dev/null || true
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   rm -rf "$DATA"
@@ -103,6 +104,8 @@ echo "worker parity: Postgres on :$PG_PORT, logs in $LOGS"
 FAILED=0
 for job in "${JOBS[@]}"; do
   stubs="$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))[sys.argv[2]].get("stubs", [])))' "$HERE/jobs.json" "$job")"
+  # "job": the worker job a variant entry runs (default: the entry's own name)
+  run_job="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]].get("job", sys.argv[2]))' "$HERE/jobs.json" "$job")"
   jobenv=()
   while IFS= read -r kv; do [[ -n "$kv" ]] && jobenv+=("$kv"); done < <(python3 -c '
 import json, sys
@@ -120,9 +123,21 @@ for k, v in json.load(open(sys.argv[1]))[sys.argv[2]].get("env", {}).items():
     WX_PID=$!
     for _ in $(seq 1 40); do curl -sS "http://127.0.0.1:$WX_PORT/ping" >/dev/null 2>&1 && break; sleep 0.25; done
   fi
+  # the Growatt sync stub of rust/tests/growatt_sync_golden (history endpoints, two accounts:
+  # tokens tok-p1 / tok-p2), answering for today's plant-local day
+  if [[ " $stubs " == *" growatt_sync "* && -z "${SYNC_STUB_PID:-}" ]]; then
+    SYNC_STUB_PORT="$(free_port "${GROWATT_SYNC_STUB_PORT:-8192}")"
+    python3 -I "$ROOT/rust/tests/growatt_sync_golden/sync_stub.py" "$SYNC_STUB_PORT" "$(TZ=Asia/Bangkok date +%F)" \
+      >"$LOGS/growatt_sync_stub.log" 2>&1 &
+    SYNC_STUB_PID=$!
+    for _ in $(seq 1 40); do curl -sS "http://127.0.0.1:$SYNC_STUB_PORT/v1/ping" >/dev/null 2>&1 && break; sleep 0.25; done
+  fi
   stubenv=()
   if [[ " $stubs " == *" growatt "* ]]; then
     stubenv+=("GROWATT_BASE_URL=http://127.0.0.1:$STUB_PORT/v1/" "GROWATT_TOKEN_PHASE1=parity-stub-token")
+  fi
+  if [[ " $stubs " == *" growatt_sync "* ]]; then
+    stubenv+=("GROWATT_BASE_URL=http://127.0.0.1:$SYNC_STUB_PORT/v1/" "GROWATT_TOKEN_PHASE1=tok-p1" "GROWATT_TOKEN_PHASE2=tok-p2")
   fi
   if [[ " $stubs " == *" weather "* ]]; then
     WX="http://127.0.0.1:$WX_PORT"
@@ -134,10 +149,10 @@ for k, v in json.load(open(sys.argv[1]))[sys.argv[2]].get("env", {}).items():
   done
   set +e
   env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} DATABASE_URL="$(url "py_$job")" PYTHONPATH=backend \
-    uv run --quiet --with "psycopg[binary]>=3.2" python -m app.worker --once "$job" >"$LOGS/$job.python.out" 2>"$LOGS/$job.python.err"
+    uv run --quiet --with "psycopg[binary]>=3.2" python -m app.worker --once "$run_job" >"$LOGS/$job.python.out" 2>"$LOGS/$job.python.err"
   py_code=$?
   (cd rust && exec env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} DATABASE_URL="$(url "rs_$job")" \
-    ./target/debug/tcroof-worker --once "$job") >"$LOGS/$job.rust.out" 2>"$LOGS/$job.rust.err"
+    ./target/debug/tcroof-worker --once "$run_job") >"$LOGS/$job.rust.out" 2>"$LOGS/$job.rust.err"
   rs_code=$?
   set -e
   if [[ $py_code -ne $rs_code ]]; then

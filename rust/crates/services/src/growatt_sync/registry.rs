@@ -75,7 +75,7 @@ pub async fn remove_blocked_plants(pool: &PgPool, plant_ids: &[i64]) -> SyncResu
             sqlx::query(sql).bind(&found).execute(&mut *tx).await?;
         }
         tx.commit().await?;
-        tracing::info!("blocked plants removed from the registry: {found:?}");
+        tracing::info!(target: "growatt_sync", "blocked plants removed from the registry: {found:?}");
     }
     Ok(found.into_iter().map(i64::from).collect())
 }
@@ -129,7 +129,7 @@ pub async fn sync_fleet(
     let mut conn = pool.acquire().await?;
     upsert(&mut conn, "growatt_plants", &cols, &["plant_id"], rows, BATCH).await?;
     drop(conn);
-    tracing::info!("phase {} plants: {}", phase_text(phase), plants.len());
+    tracing::info!(target: "growatt_sync", "phase {} plants: {}", phase_text(phase), plants.len());
 
     for &pid in &pids {
         let label = format!("plant {pid} device/list");
@@ -159,23 +159,23 @@ pub async fn sync_fleet(
         )
         .await?;
         drop(conn);
-        tracing::info!("plant {pid}: {} inverters", invs.len());
+        tracing::info!(target: "growatt_sync", "plant {pid}: {} inverters", invs.len());
         match sync_env_sensors(pool, client, opts, pid, now).await {
-            Ok(n) if n > 0 => tracing::info!("plant {pid}: {n} weather sensors"),
+            Ok(n) if n > 0 => tracing::info!(target: "growatt_sync", "plant {pid}: {n} weather sensors"),
             Ok(_) => {}
-            Err(e) => tracing::error!("plant {pid} weather-sensor discovery failed: {e}"),
+            Err(e) => tracing::error!(target: "growatt_sync", "plant {pid} weather-sensor discovery failed: {e}"),
         }
         match sync_meters(pool, client, opts, pid, now).await {
-            Ok(n) if n > 0 => tracing::debug!("plant {pid}: {n} meters"),
+            Ok(n) if n > 0 => tracing::debug!(target: "growatt_sync", "plant {pid}: {n} meters"),
             Ok(_) => {}
-            Err(e) => tracing::error!("plant {pid} meter discovery failed: {e}"),
+            Err(e) => tracing::error!(target: "growatt_sync", "plant {pid} meter discovery failed: {e}"),
         }
         opts.sleep(pause_s).await;
     }
     let ids: Vec<i32> = pids.iter().map(|&p| p as i32).collect();
     match sync_inverter_info(pool, client, opts, &ids, now, pause_s).await {
-        Ok(n) => tracing::info!("phase {}: inverter info/settings read for {n} inverters", phase_text(phase)),
-        Err(e) => tracing::error!("phase {} inverter info sweep failed: {e}", phase_text(phase)),
+        Ok(n) => tracing::info!(target: "growatt_sync", "phase {}: inverter info/settings read for {n} inverters", phase_text(phase)),
+        Err(e) => tracing::error!(target: "growatt_sync", "phase {} inverter info sweep failed: {e}", phase_text(phase)),
     }
     for (label, res) in [
         ("plant details", sync_plant_details(pool, client, opts, &ids, now, pause_s).await),
@@ -184,8 +184,8 @@ pub async fn sync_fleet(
         ("inverter datalogger", sync_missing_dataloggers(pool, client, opts, &ids, now, pause_s).await),
     ] {
         match res {
-            Ok(n) => tracing::info!("phase {}: {label} read for {n}", phase_text(phase)),
-            Err(e) => tracing::error!("phase {} {label} sweep failed: {e}", phase_text(phase)),
+            Ok(n) => tracing::info!(target: "growatt_sync", "phase {}: {label} read for {n}", phase_text(phase)),
+            Err(e) => tracing::error!(target: "growatt_sync", "phase {} {label} sweep failed: {e}", phase_text(phase)),
         }
     }
     Ok(sqlx::query_scalar(
@@ -249,7 +249,7 @@ async fn sync_inverter_info(
             match client.max_info(&sn).await {
                 Err(e) if e.is_rate_limited() => {
                     fallback = true;
-                    tracing::info!("max_data_info rate limited after {done} inverters; continuing with queryDeviceInfo");
+                    tracing::info!(target: "growatt_sync", "max_data_info rate limited after {done} inverters; continuing with queryDeviceInfo");
                     client.device_info(&sn).await
                 }
                 other => other,
@@ -260,7 +260,7 @@ async fn sync_inverter_info(
             Err(GrowattError::Api(a)) if a.code() == Some(RATE_LIMIT_CODE) => {
                 in_a_row += 1;
                 if in_a_row >= INFO_MAX_RATE_LIMITED {
-                    tracing::warn!("inverter info rate limited after {done} inverters; the rest wait for the next run");
+                    tracing::warn!(target: "growatt_sync", "inverter info rate limited after {done} inverters; the rest wait for the next run");
                     break;
                 }
                 opts.sleep(pause_s).await;
@@ -268,13 +268,13 @@ async fn sync_inverter_info(
             }
             Err(e) => {
                 in_a_row = 0;
-                tracing::warn!("inverter {sn} info failed: {e}");
+                tracing::warn!(target: "growatt_sync", "inverter {sn} info failed: {e}");
                 continue;
             }
         };
         in_a_row = 0;
         if all_none(&info) {
-            tracing::warn!("inverter {sn} info returned no data");
+            tracing::warn!(target: "growatt_sync", "inverter {sn} info returned no data");
             continue;
         }
         sqlx::query(
@@ -315,11 +315,11 @@ fn classify<T>(label: &str, r: Result<T, GrowattError>) -> Read<T> {
         Ok(v) => Read::Ok(v),
         Err(GrowattError::Api(a)) if a.code() == Some(RATE_LIMIT_CODE) => Read::RateLimited,
         Err(e @ GrowattError::Api(_)) => {
-            tracing::debug!("{label} failed: {e}");
+            tracing::debug!(target: "growatt_sync", "{label} failed: {e}");
             Read::Skip
         }
         Err(e) => {
-            tracing::warn!("{label} failed: {e}");
+            tracing::warn!(target: "growatt_sync", "{label} failed: {e}");
             Read::Skip
         }
     }
@@ -355,7 +355,7 @@ async fn sync_plant_details(
             Read::RateLimited => {
                 in_a_row += 1;
                 if in_a_row >= REGISTRY_MAX_RATE_LIMITED {
-                    tracing::warn!("plant/details rate limited after {done} reads; the rest wait for the next run");
+                    tracing::warn!(target: "growatt_sync", "plant/details rate limited after {done} reads; the rest wait for the next run");
                     break;
                 }
                 continue;
@@ -413,7 +413,7 @@ async fn sync_device_params(
             Read::RateLimited => {
                 in_a_row += 1;
                 if in_a_row >= REGISTRY_MAX_RATE_LIMITED {
-                    tracing::warn!("queryDeviceInfoParam rate limited after {done} reads; the rest wait for the next run");
+                    tracing::warn!(target: "growatt_sync", "queryDeviceInfoParam rate limited after {done} reads; the rest wait for the next run");
                     break;
                 }
                 continue;
@@ -474,7 +474,7 @@ async fn sync_create_dates(
                 if a.code() == Some(RATE_LIMIT_CODE) {
                     in_a_row += 1;
                     if in_a_row >= REGISTRY_MAX_RATE_LIMITED {
-                        tracing::warn!(
+                        tracing::warn!(target: "growatt_sync",
                             "device/all/create_date rate limited after {done} inverters; the rest wait for the next run"
                         );
                         break;
@@ -482,7 +482,7 @@ async fn sync_create_dates(
                     continue;
                 }
                 in_a_row = 0;
-                tracing::warn!("device/all/create_date failed: {}", a.message);
+                tracing::warn!(target: "growatt_sync", "device/all/create_date failed: {}", a.message);
                 continue;
             }
             Err(e) => return Err(SyncError::from(e)),
@@ -502,7 +502,7 @@ async fn sync_create_dates(
     if !missing.is_empty() {
         // the account's own device list carries the same date (`new-api/queryDeviceList`)
         let listed = client.account_create_times(20).await.unwrap_or_else(|e| {
-            tracing::warn!("queryDeviceList failed: {e}");
+            tracing::warn!(target: "growatt_sync", "queryDeviceList failed: {e}");
             Default::default()
         });
         let mut tx = pool.begin().await?;
@@ -545,7 +545,7 @@ async fn sync_missing_dataloggers(
             Read::RateLimited => {
                 in_a_row += 1;
                 if in_a_row >= REGISTRY_MAX_RATE_LIMITED {
-                    tracing::warn!("device/sn_datalog rate limited after {done} reads; the rest wait for the next run");
+                    tracing::warn!(target: "growatt_sync", "device/sn_datalog rate limited after {done} reads; the rest wait for the next run");
                     break;
                 }
                 continue;

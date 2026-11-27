@@ -39,7 +39,7 @@ pub async fn sync_meters(
             let m = m.as_object().cloned().unwrap_or_default();
             let Some(addr) = int_of_str(py::get(&m, "address")) else { continue };
             if let Some(i) = keys.iter().position(|k| *k == (dl.clone(), addr)) {
-                tracing::warn!(
+                tracing::warn!(target: "growatt_sync",
                     "plant {plant_id}: meter_list names {dl} address {addr} twice ({:?} / {}); keeping the first",
                     names[i],
                     py::str_of(py::get(&m, "device_name"))
@@ -187,13 +187,13 @@ async fn sync_meter_list(
             }
             Err(e) => {
                 failed.push(failed_entry(format!("{}/{}", m.datalogger_sn, m.address), e.to_string()));
-                tracing::error!("meter {}/{} sync failed: {e}", m.datalogger_sn, m.address);
+                tracing::error!(target: "growatt_sync", "meter {}/{} sync failed: {e}", m.datalogger_sn, m.address);
                 if e.is_rate_limited() {
                     limited += 1;
                     if limited >= MAX_RATE_LIMITED {
                         let left = list.len() - idx - 1;
                         failed.push(failed_entry("rate limited", format!("{left} meters left for the next run")));
-                        tracing::warn!("meter_data rate limited; {left} meters wait for the next run");
+                        tracing::warn!(target: "growatt_sync", "meter_data rate limited; {left} meters wait for the next run");
                         break;
                     }
                 }

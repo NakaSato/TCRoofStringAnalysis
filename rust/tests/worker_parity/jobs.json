@@ -17,5 +17,74 @@
       "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"]},
       "om_push_marks": {"order": ["user_id", "kind", "day"]}
     }
+  },
+  "_doc_history": "history / history_batch / backfill / env_history / inverter_latest: seed.d/20_history.sql, stub growatt_sync (rust/tests/growatt_sync_golden/sync_stub.py, tokens tok-p1 / tok-p2). job = the worker job a variant entry runs (default: the entry's own name). log_ignore = regexes of app_logs messages not compared (the phase timing line); seeded_runs_ignore = columns of the seeded sync_runs not compared (a stale running run of the job is failed as abandoned at the claim, at now()). Accounts one after the other, so the log order is fixed.",
+  "history": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_meter_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]}
+    }
+  },
+  "history_batch": {
+    "job": "history",
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false", "WORKER_HISTORY_BATCH_SIZE": "1", "HISTORY_STORE_RAW": "true", "METER_HISTORY_ENABLED": "false"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_meter_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]}
+    }
+  },
+  "backfill": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false"},
+    "seeded_runs_ignore": ["finished_at"],
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_meter_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]}
+    }
+  },
+  "env_history": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]}
+    }
+  },
+  "inverter_latest": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false", "HISTORY_STORE_RAW": "true", "WORKER_LATEST_INTERVAL_MIN": "5"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]}
+    }
   }
 }

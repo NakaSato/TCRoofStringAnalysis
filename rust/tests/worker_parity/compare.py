@@ -104,7 +104,14 @@ def main() -> int:
 
         # sync_runs: seeded rows in full, the job's own run(s) by outcome
         seeded = "SELECT * FROM sync_runs WHERE id <= %s ORDER BY id"
-        d = diff_lists("sync_runs (seeded)", rows(py, seeded, (args.seed_runs,)), rows(rs, seeded, (args.seed_runs,)))
+        # seeded_runs_ignore: columns of the seeded runs not compared (a stale `running` run of the
+        # job is failed as abandoned at the claim, finished_at = now() on each side)
+        sr_ign = set(spec.get("seeded_runs_ignore", []))
+        d = diff_lists(
+            "sync_runs (seeded)",
+            [drop(r, sr_ign) for r in rows(py, seeded, (args.seed_runs,))],
+            [drop(r, sr_ign) for r in rows(rs, seeded, (args.seed_runs,))],
+        )
         new_sql = "SELECT id, job, trigger, status, detail_json, error, finished_at IS NOT NULL AS finished FROM sync_runs WHERE id > %s ORDER BY id"
         new = []
         for conn in (py, rs):
