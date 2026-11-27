@@ -28,13 +28,28 @@ pub struct AppState {
     pub settings: Arc<Settings>,
     /// the `app_logs` sink (None when `LOG_DB_ENABLED` is false); the request middleware flushes it
     pub logs: Option<Arc<DbLog>>,
+    /// Growatt live service (services/live.rs, Python `get_live_service`): memory cache mirrored
+    /// in Redis when `REDIS_URL` is set; never written to SQL
+    pub live: tcroof_services::live::LiveService,
 }
 
 impl AppState {
     /// A state without DB logging (tests that don't look at `app_logs`).
     pub fn new(pool: PgPool, settings: Settings) -> AppState {
-        AppState { pool, settings: Arc::new(settings), logs: None }
+        let live = live_service(&settings);
+        AppState { pool, settings: Arc::new(settings), logs: None, live }
     }
+}
+
+/// Python `get_live_service`: the accounts of `settings`, the Redis mirror of `REDIS_URL`.
+pub fn live_service(settings: &Settings) -> tcroof_services::live::LiveService {
+    let accounts = tcroof_services::live::GrowattAccounts {
+        tokens: settings.growatt_accounts(),
+        base_url: settings.growatt_base_url.clone(),
+        blocked_plant_ids: settings.blocked_plant_ids(),
+    };
+    let redis = tcroof_services::live_store::redis_link(&settings.redis_url);
+    tcroof_services::live::LiveService::new(settings.live_config(), accounts, redis)
 }
 
 pub fn app(state: AppState) -> Router {

@@ -1,0 +1,274 @@
+{
+ "cases": [
+  {
+   "name": "devices: (setup) engineer id",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "auth": "engineer",
+   "save": {
+    "devices_eng_id": "id"
+   },
+   "ignore": [
+    "plant_ids"
+   ]
+  },
+  {
+   "name": "devices: (setup) engineer gets plants [5002, 5003] (cases.json leaves only 10, 30)",
+   "method": "PUT",
+   "path": "/api/users/${devices_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30,
+     5002,
+     5003
+    ]
+   }
+  },
+  {
+   "name": "devices: sensors admin",
+   "method": "GET",
+   "path": "/api/growatt/sensors",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: sensors plant 5001 admin",
+   "method": "GET",
+   "path": "/api/growatt/sensors?plant_id=5001",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: sensors plant 5003 admin",
+   "method": "GET",
+   "path": "/growatt/sensors?plant_id=5003",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: sensors past day admin",
+   "method": "GET",
+   "path": "/api/growatt/sensors?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: sensors past day plant 5003 admin",
+   "method": "GET",
+   "path": "/api/growatt/sensors?day=2026-11-20&plant_id=5003",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: sensors future day admin",
+   "method": "GET",
+   "path": "/api/growatt/sensors?day=2099-01-01",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: alarms today admin",
+   "method": "GET",
+   "path": "/api/growatt/alarms",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: alarms past day admin",
+   "method": "GET",
+   "path": "/api/growatt/alarms?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: alarms empty day admin",
+   "method": "GET",
+   "path": "/growatt/alarms?day=2025-01-01",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: inverters admin",
+   "method": "GET",
+   "path": "/api/growatt/devices/inverters",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: inverters with not installed admin",
+   "method": "GET",
+   "path": "/api/growatt/devices/inverters?include_not_installed=true",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: meters admin",
+   "method": "GET",
+   "path": "/api/growatt/devices/meters",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: dataloggers admin",
+   "method": "GET",
+   "path": "/api/growatt/devices/dataloggers",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: checks admin",
+   "method": "GET",
+   "path": "/api/growatt/devices/checks",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: sensors engineer",
+   "method": "GET",
+   "path": "/api/growatt/sensors",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: sensors plant 5001 engineer",
+   "method": "GET",
+   "path": "/api/growatt/sensors?plant_id=5001",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: sensors plant 5003 engineer",
+   "method": "GET",
+   "path": "/growatt/sensors?plant_id=5003",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: sensors past day engineer",
+   "method": "GET",
+   "path": "/api/growatt/sensors?day=2026-11-20",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: sensors past day plant 5003 engineer",
+   "method": "GET",
+   "path": "/api/growatt/sensors?day=2026-11-20&plant_id=5003",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: sensors future day engineer",
+   "method": "GET",
+   "path": "/api/growatt/sensors?day=2099-01-01",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: alarms today engineer",
+   "method": "GET",
+   "path": "/api/growatt/alarms",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: alarms past day engineer",
+   "method": "GET",
+   "path": "/api/growatt/alarms?day=2026-11-20",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: alarms empty day engineer",
+   "method": "GET",
+   "path": "/growatt/alarms?day=2025-01-01",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: inverters engineer",
+   "method": "GET",
+   "path": "/api/growatt/devices/inverters",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: inverters with not installed engineer",
+   "method": "GET",
+   "path": "/api/growatt/devices/inverters?include_not_installed=true",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: meters engineer",
+   "method": "GET",
+   "path": "/api/growatt/devices/meters",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: dataloggers engineer",
+   "method": "GET",
+   "path": "/api/growatt/devices/dataloggers",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: checks engineer",
+   "method": "GET",
+   "path": "/api/growatt/devices/checks",
+   "auth": "engineer"
+  },
+  {
+   "name": "devices: sensors unknown plant",
+   "method": "GET",
+   "path": "/api/growatt/sensors?plant_id=5999",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: inverters include=0",
+   "method": "GET",
+   "path": "/api/growatt/devices/inverters?include_not_installed=0",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: inverters include=yes",
+   "method": "GET",
+   "path": "/growatt/devices/inverters?include_not_installed=yes",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: checks without /api",
+   "method": "GET",
+   "path": "/growatt/devices/checks",
+   "auth": "admin"
+  },
+  {
+   "name": "devices: sensors bad day",
+   "method": "GET",
+   "path": "/api/growatt/sensors?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "devices: sensors bad plant_id",
+   "method": "GET",
+   "path": "/api/growatt/sensors?plant_id=abc",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "devices: alarms bad day",
+   "method": "GET",
+   "path": "/api/growatt/alarms?day=yesterday",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "devices: inverters bad bool",
+   "method": "GET",
+   "path": "/api/growatt/devices/inverters?include_not_installed=maybe",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "devices: alarms no auth",
+   "method": "GET",
+   "path": "/api/growatt/alarms",
+   "auth": null
+  },
+  {
+   "name": "devices: checks no auth",
+   "method": "GET",
+   "path": "/api/growatt/devices/checks",
+   "auth": null
+  },
+  {
+   "name": "devices: (teardown) engineer plants back to 10, 30",
+   "method": "PUT",
+   "path": "/api/users/${devices_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30
+    ]
+   }
+  }
+ ]
+}

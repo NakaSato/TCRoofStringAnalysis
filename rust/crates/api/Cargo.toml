@@ -11,6 +11,9 @@ path = "src/main.rs"
 
 [dependencies]
 tcroof-db = { path = "../db" }
+tcroof-services = { path = "../services" }
+tcroof-clients = { path = "../clients" }
+tcroof-solar-core = { path = "../solar-core" }
 anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true

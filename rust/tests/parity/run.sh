@@ -18,8 +18,10 @@ PW="parity"
 LOGS="${PARITY_LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/tcroof-parity.XXXXXX")}"
 PY_PID=""
 RS_PID=""
+STUB_PID=""
 
 cleanup() {
+  [[ -n "$STUB_PID" ]] && kill "$STUB_PID" 2>/dev/null || true
   [[ -n "$PY_PID" ]] && kill "$PY_PID" 2>/dev/null || true
   [[ -n "$RS_PID" ]] && kill "$RS_PID" 2>/dev/null || true
   wait 2>/dev/null || true
@@ -84,6 +86,11 @@ VALUES
   (date_trunc('second', now()) - interval '30 minutes', 'ERROR', 40, 'api', 'tcroof-api-00042', 'app.api.request',
    'GET /api/growatt/plants failed: unhandled exception', 'Traceback ...', NULL, NULL, '0123456789abcdef', NULL);
 SQL
+# one seed file per area (seed.d/*.sql, applied in name order), so parallel work never edits this script
+for f in "$(dirname "$0")"/seed.d/*.sql; do
+  [ -e "$f" ] || continue
+  docker exec -i "$NAME" psql -U postgres -d parity_seed -v ON_ERROR_STOP=1 -q >/dev/null < "$f"
+done
 for db in parity_py parity_rs; do
   docker exec "$NAME" psql -U postgres -qc "CREATE DATABASE $db TEMPLATE parity_seed" >/dev/null
 done
@@ -93,6 +100,21 @@ RS_DB_URL="postgresql+psycopg://postgres:${PW}@127.0.0.1:${PG_PORT}/parity_rs"
 export DATABASE_URL="$DB_URL"
 export JWT_SECRET_KEY="parity-$(date +%s)-shared-secret-for-both-backends"
 export APP_ENV=dev SEED_DEMO_DATA=false
+# never reach the real Firestore project: routes that save settings publish right away, and the
+# repo .env may set PUBLISH_SINK=firestore with credentials (backend/tests/conftest.py guards the same)
+export PUBLISH_SINK=json FIREBASE_CREDENTIALS_FILE= FIREBASE_PROJECT_ID=
+# never the real Growatt cloud or a shared Redis (the repo .env may hold real tokens / REDIS_URL);
+# the live cases (/growatt/live/*) get a stub Growatt (growatt_stub.py), started only when a case file
+# asks for one; night TTL stretching off so refresh_in_s does not depend on the clock
+export GROWATT_API_TOKEN= GROWATT_TOKEN_PHASE1= GROWATT_TOKEN_PHASE2= GROWATT_TOKEN_PHASE3= GROWATT_TOKEN_PHASE4=
+export REDIS_URL= GROWATT_BLOCKED_PLANT_IDS=
+if grep -qs '/growatt/live/' "$ROOT"/rust/tests/parity/cases.json "$ROOT"/rust/tests/parity/cases.d/*.json; then
+  STUB_PORT="$(free_port "${GROWATT_STUB_PORT:-8090}")"
+  python3 -I "$ROOT/rust/tests/parity/growatt_stub.py" "$STUB_PORT" >"$LOGS/growatt_stub.log" 2>&1 &
+  STUB_PID=$!
+  export GROWATT_BASE_URL="http://127.0.0.1:$STUB_PORT/v1/" GROWATT_TOKEN_PHASE1=parity-stub-token GROWATT_LIVE_NIGHT_TTL_S=0
+  for _ in $(seq 1 40); do curl -sS "http://127.0.0.1:$STUB_PORT/v1/ping" >/dev/null 2>&1 && break; sleep 0.25; done
+fi
 
 echo "parity: Python on :$PY_PORT, Rust on :$RUST_PORT, Postgres on :$PG_PORT, logs in $LOGS"
 (cd rust && cargo build -q -p tcroof-api)

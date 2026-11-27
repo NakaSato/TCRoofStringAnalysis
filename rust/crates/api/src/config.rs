@@ -40,6 +40,41 @@ pub struct Settings {
     pub ai_api_key: String,
     pub longdo_api_key: String,
     pub geoapify_api_key: String,
+
+    // Summary sink publishing after a settings save (services/daily_summary.py; fleet_config routes)
+    pub publish_sink: String,
+    pub publish_daily_write_budget: i64,
+    pub firebase_credentials_file: String,
+    pub firebase_project_id: String,
+    /// Rust only, not an environment variable: Python's `config.DATA_DIR` (the JSON sink writes
+    /// `firestore_export/` under it); tests point it at a temporary folder
+    pub data_dir: std::path::PathBuf,
+
+    // Google Maps Weather, stored day (services/google_weather.py)
+    pub google_weather_cell_deg: f64,
+    pub google_weather_day_start_h: i64,
+    pub google_weather_day_end_h: i64,
+
+    // Weather Sensors / Active Alarm / device checks (routes/growatt/devices.rs)
+    pub sensor_alarm_coverage_pct: f64,
+    pub worker_alarms_tick_min: i64,
+    pub worker_alarms_start_h: i64,
+    pub worker_alarms_end_h: i64,
+    pub meter_history_enabled: bool,
+
+    // Growatt live (services/growatt_live, services/live.rs): memory / Redis only, never stored
+    pub growatt_base_url: String,
+    pub growatt_blocked_plant_ids: String,
+    pub growatt_live_ttl_s: i64,
+    pub growatt_live_night_ttl_s: i64,
+    pub growatt_live_device_gap_s: i64,
+    pub growatt_live_latest_ttl_s: i64,
+    pub sensor_status_ttl_s: i64,
+    pub sensor_sweep_per_request: i64,
+    pub plant_today_ttl_s: i64,
+    pub plant_today_sweep_per_request: i64,
+    pub inverter_snapshot_ttl_s: i64,
+    pub inverter_snapshot_sweep_per_request: i64,
 }
 
 impl Default for Settings {
@@ -70,6 +105,31 @@ impl Default for Settings {
             ai_api_key: String::new(),
             longdo_api_key: String::new(),
             geoapify_api_key: String::new(),
+            publish_sink: "json".into(),
+            publish_daily_write_budget: 15000,
+            firebase_credentials_file: String::new(),
+            firebase_project_id: String::new(),
+            data_dir: tcroof_services::publish::default_data_dir(),
+            google_weather_cell_deg: 0.01,
+            google_weather_day_start_h: 6,
+            google_weather_day_end_h: 18,
+            sensor_alarm_coverage_pct: 80.0,
+            worker_alarms_tick_min: 10,
+            worker_alarms_start_h: 5,
+            worker_alarms_end_h: 20,
+            meter_history_enabled: true,
+            growatt_base_url: tcroof_clients::growatt::DEFAULT_BASE_URL.into(),
+            growatt_blocked_plant_ids: String::new(),
+            growatt_live_ttl_s: 120,
+            growatt_live_night_ttl_s: 1800,
+            growatt_live_device_gap_s: 270,
+            growatt_live_latest_ttl_s: 300,
+            sensor_status_ttl_s: 300,
+            sensor_sweep_per_request: 12,
+            plant_today_ttl_s: 300,
+            plant_today_sweep_per_request: 40,
+            inverter_snapshot_ttl_s: 300,
+            inverter_snapshot_sweep_per_request: 4,
         }
     }
 }
@@ -84,6 +144,46 @@ pub fn parse_bool(v: &str) -> Option<bool> {
 }
 
 impl Settings {
+    /// Python `Settings.growatt_accounts`: configured Growatt accounts as {phase: token}, ascending,
+    /// empty tokens skipped (`GROWATT_API_TOKEN` is phase 1 when `GROWATT_TOKEN_PHASE1` is empty).
+    pub fn growatt_accounts(&self) -> std::collections::BTreeMap<i32, String> {
+        let p1 = if self.growatt_token_phase1.is_empty() { &self.growatt_api_token } else { &self.growatt_token_phase1 };
+        [(1, p1), (2, &self.growatt_token_phase2), (3, &self.growatt_token_phase3), (4, &self.growatt_token_phase4)]
+            .into_iter()
+            .filter(|(_, t)| !t.trim().is_empty())
+            .map(|(p, t)| (p, t.trim().to_owned()))
+            .collect()
+    }
+
+    /// Python `Settings.blocked_plant_ids`: `GROWATT_BLOCKED_PLANT_IDS` as plant ids (`,` or `;`);
+    /// anything that is not a number is ignored.
+    pub fn blocked_plant_ids(&self) -> Vec<i64> {
+        self.growatt_blocked_plant_ids
+            .replace(';', ",")
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+            .filter_map(|p| p.parse().ok())
+            .collect()
+    }
+
+    /// Python `get_live_service` keyword arguments.
+    pub fn live_config(&self) -> tcroof_services::live::LiveConfig {
+        tcroof_services::live::LiveConfig {
+            ttl_s: self.growatt_live_ttl_s as f64,
+            latest_ttl_s: self.growatt_live_latest_ttl_s as f64,
+            cooldown_s: tcroof_services::live::COOLDOWN_S,
+            night_ttl_s: self.growatt_live_night_ttl_s as f64,
+            device_gap_s: self.growatt_live_device_gap_s as f64,
+            sensor_ttl_s: self.sensor_status_ttl_s as f64,
+            sensor_sweep: self.sensor_sweep_per_request.max(1) as usize,
+            plant_today_ttl_s: self.plant_today_ttl_s as f64,
+            plant_today_sweep: self.plant_today_sweep_per_request.max(1) as usize,
+            snapshot_ttl_s: self.inverter_snapshot_ttl_s as f64,
+            snapshot_sweep: self.inverter_snapshot_sweep_per_request.max(1) as usize,
+        }
+    }
+
     pub fn from_env() -> anyhow::Result<Self> {
         let get = |k: &str| env::var(k).ok().filter(|v| !v.trim().is_empty());
         let num = |k: &str| -> anyhow::Result<Option<f64>> {
@@ -121,6 +221,34 @@ impl Settings {
             ai_api_key: get("AI_API_KEY").unwrap_or_default(),
             longdo_api_key: get("LONGDO_API_KEY").unwrap_or_default(),
             geoapify_api_key: get("GEOAPIFY_API_KEY").unwrap_or_default(),
+            publish_sink: get("PUBLISH_SINK").unwrap_or(d.publish_sink),
+            publish_daily_write_budget: int("PUBLISH_DAILY_WRITE_BUDGET")?.unwrap_or(d.publish_daily_write_budget),
+            firebase_credentials_file: get("FIREBASE_CREDENTIALS_FILE").unwrap_or_default(),
+            firebase_project_id: get("FIREBASE_PROJECT_ID").unwrap_or_default(),
+            data_dir: d.data_dir,
+            google_weather_cell_deg: num("GOOGLE_WEATHER_CELL_DEG")?.unwrap_or(d.google_weather_cell_deg),
+            google_weather_day_start_h: int("GOOGLE_WEATHER_DAY_START_H")?.unwrap_or(d.google_weather_day_start_h),
+            google_weather_day_end_h: int("GOOGLE_WEATHER_DAY_END_H")?.unwrap_or(d.google_weather_day_end_h),
+            sensor_alarm_coverage_pct: num("SENSOR_ALARM_COVERAGE_PCT")?.unwrap_or(d.sensor_alarm_coverage_pct),
+            worker_alarms_tick_min: int("WORKER_ALARMS_TICK_MIN")?.unwrap_or(d.worker_alarms_tick_min),
+            worker_alarms_start_h: int("WORKER_ALARMS_START_H")?.unwrap_or(d.worker_alarms_start_h),
+            worker_alarms_end_h: int("WORKER_ALARMS_END_H")?.unwrap_or(d.worker_alarms_end_h),
+            meter_history_enabled: match get("METER_HISTORY_ENABLED") {
+                Some(v) => parse_bool(&v).ok_or_else(|| anyhow::anyhow!("METER_HISTORY_ENABLED: not a boolean: {v:?}"))?,
+                None => d.meter_history_enabled,
+            },
+            growatt_base_url: get("GROWATT_BASE_URL").unwrap_or(d.growatt_base_url),
+            growatt_blocked_plant_ids: get("GROWATT_BLOCKED_PLANT_IDS").unwrap_or_default(),
+            growatt_live_ttl_s: int("GROWATT_LIVE_TTL_S")?.unwrap_or(d.growatt_live_ttl_s),
+            growatt_live_night_ttl_s: int("GROWATT_LIVE_NIGHT_TTL_S")?.unwrap_or(d.growatt_live_night_ttl_s),
+            growatt_live_device_gap_s: int("GROWATT_LIVE_DEVICE_GAP_S")?.unwrap_or(d.growatt_live_device_gap_s),
+            growatt_live_latest_ttl_s: int("GROWATT_LIVE_LATEST_TTL_S")?.unwrap_or(d.growatt_live_latest_ttl_s),
+            sensor_status_ttl_s: int("SENSOR_STATUS_TTL_S")?.unwrap_or(d.sensor_status_ttl_s),
+            sensor_sweep_per_request: int("SENSOR_SWEEP_PER_REQUEST")?.unwrap_or(d.sensor_sweep_per_request),
+            plant_today_ttl_s: int("PLANT_TODAY_TTL_S")?.unwrap_or(d.plant_today_ttl_s),
+            plant_today_sweep_per_request: int("PLANT_TODAY_SWEEP_PER_REQUEST")?.unwrap_or(d.plant_today_sweep_per_request),
+            inverter_snapshot_ttl_s: int("INVERTER_SNAPSHOT_TTL_S")?.unwrap_or(d.inverter_snapshot_ttl_s),
+            inverter_snapshot_sweep_per_request: int("INVERTER_SNAPSHOT_SWEEP_PER_REQUEST")?.unwrap_or(d.inverter_snapshot_sweep_per_request),
         };
         if s.jwt_algorithm != "HS256" {
             anyhow::bail!("JWT_ALGORITHM {:?} is not supported (HS256 only, as in production)", s.jwt_algorithm);

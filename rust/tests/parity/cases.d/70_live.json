@@ -1,0 +1,290 @@
+{
+ "_doc": "Growatt live routes against the stub Growatt (growatt_stub.py, started by run.sh). Ignored: fetched_at (each backend's own fetch time) and, where the value depends on when the request lands, refresh_in_s (cached repeats count down from each backend's own fetch; /latest expiry is measured from the record time to each backend's clock). Night TTL stretching is off in the parity run (GROWATT_LIVE_NIGHT_TTL_S=0). The engineer's plants are set to [7001] for these cases (cases.json reassigns them) and restored at the end.",
+ "cases": [
+  {
+   "name": "live: setup save engineer plants",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "auth": "engineer",
+   "save": {
+    "live_eng_plants": "plant_ids"
+   }
+  },
+  {
+   "name": "live: setup assign engineer 7001",
+   "method": "PUT",
+   "path": "/api/users/${eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     7001
+    ]
+   }
+  },
+  {
+   "name": "live: plants admin",
+   "method": "GET",
+   "path": "/api/growatt/live/plants",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at"
+   ]
+  },
+  {
+   "name": "live: plants engineer (cached, filtered)",
+   "method": "GET",
+   "path": "/growatt/live/plants",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: plants unauthenticated",
+   "method": "GET",
+   "path": "/growatt/live/plants",
+   "auth": null
+  },
+  {
+   "name": "live: plants today admin (sweep, refused, unknown phase)",
+   "method": "GET",
+   "path": "/api/growatt/live/plants/today",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at"
+   ]
+  },
+  {
+   "name": "live: plants today engineer",
+   "method": "GET",
+   "path": "/growatt/live/plants/today",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: snapshot admin",
+   "method": "GET",
+   "path": "/api/growatt/live/inverters/snapshot",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at"
+   ]
+  },
+  {
+   "name": "live: snapshot engineer plant 7001 (cached)",
+   "method": "GET",
+   "path": "/growatt/live/inverters/snapshot?plant_id=7001",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: snapshot admin plant 7002",
+   "method": "GET",
+   "path": "/growatt/live/inverters/snapshot?plant_id=7002",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: snapshot admin unknown plant",
+   "method": "GET",
+   "path": "/growatt/live/inverters/snapshot?plant_id=7999",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at"
+   ]
+  },
+  {
+   "name": "live: snapshot engineer plant 7002 (not assigned)",
+   "method": "GET",
+   "path": "/growatt/live/inverters/snapshot?plant_id=7002",
+   "auth": "engineer"
+  },
+  {
+   "name": "live: snapshot bad plant_id",
+   "method": "GET",
+   "path": "/growatt/live/inverters/snapshot?plant_id=abc",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live: latest 7001 admin (string check, dataloggers)",
+   "method": "GET",
+   "path": "/api/growatt/live/plants/7001/latest",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: latest 7001 engineer (cached)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7001/latest",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: latest 7005 admin (fallback record, refused inverter)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7005/latest",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at",
+    "data.*.fetched_at",
+    "data.plants.*.fetched_at",
+    "data.inverters.*.fetched_at",
+    "data.dataloggers.*.fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: latest 7004 admin (phase without token)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7004/latest",
+   "auth": "admin"
+  },
+  {
+   "name": "live: latest 7003 admin (no inverters)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7003/latest",
+   "auth": "admin"
+  },
+  {
+   "name": "live: latest 7002 engineer (not assigned)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7002/latest",
+   "auth": "engineer"
+  },
+  {
+   "name": "live: latest bad plant id",
+   "method": "GET",
+   "path": "/growatt/live/plants/abc/latest",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live: alarms 7001 past window",
+   "method": "GET",
+   "path": "/api/growatt/live/plants/7001/alarms?day=2026-11-20&days=2",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at"
+   ]
+  },
+  {
+   "name": "live: alarms 7001 past window again (cached)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7001/alarms?day=2026-11-20&days=2",
+   "auth": "engineer",
+   "ignore": [
+    "fetched_at",
+    "refresh_in_s"
+   ]
+  },
+  {
+   "name": "live: alarms 7001 default window",
+   "method": "GET",
+   "path": "/growatt/live/plants/7001/alarms",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at"
+   ]
+  },
+  {
+   "name": "live: alarms 7005 one day",
+   "method": "GET",
+   "path": "/growatt/live/plants/7005/alarms?days=1&day=2026-11-21",
+   "auth": "admin",
+   "ignore": [
+    "fetched_at"
+   ]
+  },
+  {
+   "name": "live: alarms 7003 (no inverters)",
+   "method": "GET",
+   "path": "/growatt/live/plants/7003/alarms",
+   "auth": "admin"
+  },
+  {
+   "name": "live: alarms days=0",
+   "method": "GET",
+   "path": "/growatt/live/plants/7001/alarms?days=0",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live: alarms days=32",
+   "method": "GET",
+   "path": "/growatt/live/plants/7001/alarms?days=32",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live: alarms bad day",
+   "method": "GET",
+   "path": "/growatt/live/plants/7001/alarms?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "live: alarms engineer not assigned",
+   "method": "GET",
+   "path": "/growatt/live/plants/7002/alarms",
+   "auth": "engineer"
+  },
+  {
+   "name": "live: teardown restore engineer plants",
+   "method": "PUT",
+   "path": "/api/users/${eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": "${live_eng_plants}"
+   }
+  }
+ ]
+}

@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use tcroof_api::logging::{init_tracing, DbLog};
@@ -20,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     let flusher = logs.as_ref().map(|l| l.spawn_flusher(Duration::from_secs_f64(settings.log_flush_interval_s.max(0.1))));
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], settings.port));
-    let state = AppState { pool, settings: Arc::new(settings), logs: logs.clone() };
+    let state = AppState { logs: logs.clone(), ..AppState::new(pool, settings) };
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     // console only (Python's start-up lines are uvicorn's, which don't reach app_logs)

@@ -1,0 +1,353 @@
+{
+ "_doc": "Plants area (rust/tests/parity/seed.d/20_plants.sql): /growatt/plants, /plants/{id}/inverters, /overview, /power, /growatt/sync/*. The engineer is assigned plants 42, 7, 1001 (run.sh) and 2001 (seed). The first cases assign 2001 to the engineer (cases.json leaves the engineer with 10, 30); the last puts 10, 30 back.",
+ "cases": [
+  {
+   "name": "plants: (setup) engineer id",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "auth": "engineer",
+   "save": {
+    "plants_eng_id": "id"
+   },
+   "ignore": [
+    "plant_ids"
+   ]
+  },
+  {
+   "name": "plants: (setup) assign 2001 to the engineer",
+   "method": "PUT",
+   "path": "/api/users/${plants_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     2001,
+     10,
+     30
+    ]
+   }
+  },
+  {
+   "name": "plants: list admin",
+   "method": "GET",
+   "path": "/api/growatt/plants",
+   "auth": "admin"
+  },
+  {
+   "name": "plants: list engineer (assigned only)",
+   "method": "GET",
+   "path": "/growatt/plants",
+   "auth": "engineer"
+  },
+  {
+   "name": "plants: list without login",
+   "method": "GET",
+   "path": "/api/growatt/plants",
+   "auth": null
+  },
+  {
+   "name": "plants: inverters admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/inverters",
+   "auth": "admin"
+  },
+  {
+   "name": "plants: inverters incl. not installed",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/inverters?include_not_installed=true",
+   "auth": "admin"
+  },
+  {
+   "name": "plants: inverters include_not_installed=1",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/inverters?include_not_installed=1",
+   "auth": "engineer"
+  },
+  {
+   "name": "plants: inverters bad bool (422)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/inverters?include_not_installed=maybe",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "plants: inverters engineer assigned",
+   "method": "GET",
+   "path": "/growatt/plants/2001/inverters",
+   "auth": "engineer"
+  },
+  {
+   "name": "plants: inverters engineer unassigned (404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2002/inverters",
+   "auth": "engineer"
+  },
+  {
+   "name": "plants: inverters unknown plant (admin, empty)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2999/inverters",
+   "auth": "admin"
+  },
+  {
+   "name": "plants: inverters bad plant id (422)",
+   "method": "GET",
+   "path": "/api/growatt/plants/abc/inverters",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "plants: inverters plant without inverters",
+   "method": "GET",
+   "path": "/api/growatt/plants/2003/inverters",
+   "auth": "admin"
+  },
+  {
+   "name": "overview: default day (night record on the newest day)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/overview",
+   "auth": "admin"
+  },
+  {
+   "name": "overview: engineer, a day",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/overview?day=2026-11-25",
+   "auth": "engineer"
+  },
+  {
+   "name": "overview: the night-only day",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/overview?day=2026-11-27",
+   "auth": "admin"
+  },
+  {
+   "name": "overview: a day with no data",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/overview?day=2026-10-01",
+   "auth": "admin"
+  },
+  {
+   "name": "overview: implausible capacity plant",
+   "method": "GET",
+   "path": "/api/growatt/plants/2002/overview",
+   "auth": "admin"
+  },
+  {
+   "name": "overview: plant without inverters",
+   "method": "GET",
+   "path": "/api/growatt/plants/2003/overview",
+   "auth": "admin"
+  },
+  {
+   "name": "overview: unknown plant (404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2999/overview",
+   "auth": "admin"
+  },
+  {
+   "name": "overview: engineer unassigned (404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2002/overview",
+   "auth": "engineer"
+  },
+  {
+   "name": "overview: bad day (422)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/overview?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "power: one day",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-11-26",
+   "auth": "admin"
+  },
+  {
+   "name": "power: range, engineer",
+   "method": "GET",
+   "path": "/growatt/plants/2001/power?day=2026-11-25&end_day=2026-11-26",
+   "auth": "engineer"
+  },
+  {
+   "name": "power: window",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-11-25&end_day=2026-11-26&start=09:00&end=12:30",
+   "auth": "admin"
+  },
+  {
+   "name": "power: start only",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-11-25&start=17:00",
+   "auth": "admin"
+  },
+  {
+   "name": "power: records=false",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-11-25&records=false",
+   "auth": "admin"
+  },
+  {
+   "name": "power: end_day before day ignored? no: 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-11-26&end_day=2026-11-25",
+   "auth": "admin"
+  },
+  {
+   "name": "power: start after end (422)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-11-26&start=12:00&end=09:00",
+   "auth": "admin"
+  },
+  {
+   "name": "power: range over 31 days (422)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-10-01&end_day=2026-11-26",
+   "auth": "admin"
+  },
+  {
+   "name": "power: missing day (422)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "power: bad time (422)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2001/power?day=2026-11-26&start=9am",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "power: implausible-capacity plant",
+   "method": "GET",
+   "path": "/api/growatt/plants/2002/power?day=2026-11-26",
+   "auth": "admin"
+  },
+  {
+   "name": "power: engineer unassigned (404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2002/power?day=2026-11-26",
+   "auth": "engineer"
+  },
+  {
+   "name": "power: unknown plant (404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/2999/power?day=2026-11-26",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: status",
+   "method": "GET",
+   "path": "/api/growatt/sync/status",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: status limit 2",
+   "method": "GET",
+   "path": "/growatt/sync/status?limit=2",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: status limit 0 (422)",
+   "method": "GET",
+   "path": "/api/growatt/sync/status?limit=0",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "sync: status limit 201 (422)",
+   "method": "GET",
+   "path": "/api/growatt/sync/status?limit=201",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "sync: status engineer (403)",
+   "method": "GET",
+   "path": "/api/growatt/sync/status",
+   "auth": "engineer"
+  },
+  {
+   "name": "sync: status no login (401)",
+   "method": "GET",
+   "path": "/api/growatt/sync/status",
+   "auth": null
+  },
+  {
+   "name": "sync: unknown job (404)",
+   "method": "POST",
+   "path": "/api/growatt/sync/nope",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: POST status is an unknown job (404)",
+   "method": "POST",
+   "path": "/api/growatt/sync/status",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: GET a job path (405)",
+   "method": "GET",
+   "path": "/api/growatt/sync/history",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: engineer (403)",
+   "method": "POST",
+   "path": "/api/growatt/sync/history",
+   "auth": "engineer"
+  },
+  {
+   "name": "sync: already queued (409)",
+   "method": "POST",
+   "path": "/api/growatt/sync/fleet",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: queue retention",
+   "method": "POST",
+   "path": "/api/growatt/sync/retention",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: queue retention again (409)",
+   "method": "POST",
+   "path": "/growatt/sync/retention",
+   "auth": "admin",
+   "ignore": [
+    "detail"
+   ]
+  },
+  {
+   "name": "sync: stale queued backfill is failed, a new one queued",
+   "method": "POST",
+   "path": "/api/growatt/sync/backfill",
+   "auth": "admin"
+  },
+  {
+   "name": "sync: status after queueing",
+   "method": "GET",
+   "path": "/api/growatt/sync/status?limit=5",
+   "auth": "admin",
+   "ignore": [
+    "jobs.retention.started_at",
+    "jobs.backfill.started_at",
+    "recent.0.started_at",
+    "recent.1.started_at",
+    "recent.*.finished_at"
+   ]
+  },
+  {
+   "name": "plants: (teardown) engineer plants back to 10, 30",
+   "method": "PUT",
+   "path": "/api/users/${plants_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30
+    ]
+   }
+  }
+ ]
+}

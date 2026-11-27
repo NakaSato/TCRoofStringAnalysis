@@ -177,6 +177,11 @@ def main() -> int:
     args = ap.parse_args()
 
     spec = json.loads(Path(args.cases).read_text(encoding="utf-8"))
+    # one extra file per area (cases.d/*.json, each {"cases": [...]}), so parallel work never edits
+    # the same file; users come from the main cases file
+    if Path(args.cases).name == "cases.json":
+        for extra in sorted(Path(args.cases).with_name("cases.d").glob("*.json")):
+            spec["cases"].extend(json.loads(extra.read_text(encoding="utf-8"))["cases"])
     bases = {"python": args.python.rstrip("/"), "rust": args.rust.rstrip("/")}
     failed = 0
     saved: Dict[str, Dict[str, Any]] = {"python": {}, "rust": {}}

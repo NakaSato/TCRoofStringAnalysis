@@ -1,0 +1,21 @@
+[package]
+name = "tcroof-services"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Domain services ported from backend/app/services (DB reads, live memory caches)"
+
+[dependencies]
+tcroof-clients = { path = "../clients" }
+tcroof-solar-core = { path = "../solar-core" }
+chrono.workspace = true
+redis.workspace = true
+sha1 = "0.10"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true  # publish: content hash of a document (daily_summary._canonical)
+sqlx.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing.workspace = true

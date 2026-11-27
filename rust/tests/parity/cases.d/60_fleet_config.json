@@ -1,0 +1,1299 @@
+{
+ "cases": [
+  {
+   "name": "fleet_config: assign 6002 and 6003 to the engineer (keeps the users cases' 10, 30)",
+   "method": "PUT",
+   "path": "/api/users/${eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30,
+     6002,
+     6003
+    ]
+   }
+  },
+  {
+   "name": "fleet_config: fleet module admin",
+   "method": "GET",
+   "path": "/api/growatt/fleet-module",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: fleet module engineer",
+   "method": "GET",
+   "path": "/growatt/fleet-module",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: fleet module no auth",
+   "method": "GET",
+   "path": "/api/growatt/fleet-module"
+  },
+  {
+   "name": "fleet_config: layout 6001 admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: layout 6002 engineer",
+   "method": "GET",
+   "path": "/api/growatt/plants/6002/string-layout",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: layout 6003 engineer (no inverters)",
+   "method": "GET",
+   "path": "/api/growatt/plants/6003/string-layout",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: layout 6001 engineer 404",
+   "method": "GET",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: layout unknown plant 404",
+   "method": "GET",
+   "path": "/api/growatt/plants/6999/string-layout",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: layout bad plant id 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/abc/string-layout",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: tariff admin",
+   "method": "GET",
+   "path": "/api/growatt/tariff",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: tariff engineer",
+   "method": "GET",
+   "path": "/api/growatt/tariff",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: tariff rates admin today",
+   "method": "GET",
+   "path": "/api/growatt/tariff/rates",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: tariff rates engineer",
+   "method": "GET",
+   "path": "/api/growatt/tariff/rates",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: tariff rates fixed Saturday",
+   "method": "GET",
+   "path": "/api/growatt/tariff/rates?day=2026-11-28",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: tariff rates fixed weekday",
+   "method": "GET",
+   "path": "/api/growatt/tariff/rates?day=2026-11-26",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: tariff rates bad day 422",
+   "method": "GET",
+   "path": "/api/growatt/tariff/rates?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: documents admin",
+   "method": "GET",
+   "path": "/api/growatt/documents",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: documents engineer",
+   "method": "GET",
+   "path": "/api/growatt/documents",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: plant documents 6001 admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/6001/documents",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: plant documents 6002 engineer",
+   "method": "GET",
+   "path": "/api/growatt/plants/6002/documents",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: plant documents 6001 engineer 404",
+   "method": "GET",
+   "path": "/api/growatt/plants/6001/documents",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: plant documents unknown plant admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/6998/documents",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: fleet module put engineer 403",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "auth": "engineer",
+   "body": {
+    "manufacturer": "Jinko",
+    "model": "JKM580N",
+    "wp": 580,
+    "vmp_stc": "43.1",
+    "imp_stc": 13.46,
+    "rs_ohm": null,
+    "cell_technology": "topcon",
+    "extra": "ignored"
+   }
+  },
+  {
+   "name": "fleet_config: fleet module put no auth 401",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "body": {
+    "manufacturer": "Jinko",
+    "model": "JKM580N",
+    "wp": 580,
+    "vmp_stc": "43.1",
+    "imp_stc": 13.46,
+    "rs_ohm": null,
+    "cell_technology": "topcon",
+    "extra": "ignored"
+   }
+  },
+  {
+   "name": "fleet_config: fleet module put wp too low 422",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "auth": "admin",
+   "body": {
+    "manufacturer": "Jinko",
+    "model": "JKM580N",
+    "wp": 10,
+    "vmp_stc": "43.1",
+    "imp_stc": 13.46,
+    "rs_ohm": null,
+    "cell_technology": "topcon",
+    "extra": "ignored"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: fleet module put missing model 422",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "auth": "admin",
+   "body": {
+    "manufacturer": "x",
+    "wp": 500
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: fleet module put bad technology 422",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "auth": "admin",
+   "body": {
+    "manufacturer": "Jinko",
+    "model": "JKM580N",
+    "wp": 580,
+    "vmp_stc": "43.1",
+    "imp_stc": 13.46,
+    "rs_ohm": null,
+    "cell_technology": "PERC",
+    "extra": "ignored"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: fleet module put array body 422",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "auth": "admin",
+   "body": [
+    1
+   ],
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: fleet module put",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "auth": "admin",
+   "body": {
+    "manufacturer": "Jinko",
+    "model": "JKM580N",
+    "wp": 580,
+    "vmp_stc": "43.1",
+    "imp_stc": 13.46,
+    "rs_ohm": null,
+    "cell_technology": "topcon",
+    "extra": "ignored"
+   },
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: fleet module get after put",
+   "method": "GET",
+   "path": "/api/growatt/fleet-module",
+   "auth": "engineer",
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: fleet module put same again (unchanged)",
+   "method": "PUT",
+   "path": "/api/growatt/fleet-module",
+   "auth": "admin",
+   "body": {
+    "manufacturer": "Jinko",
+    "model": "JKM580N",
+    "wp": 580,
+    "vmp_stc": "43.1",
+    "imp_stc": 13.46,
+    "rs_ohm": null,
+    "cell_technology": "topcon",
+    "extra": "ignored"
+   },
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: layout put engineer 6002",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6002/string-layout",
+   "auth": "engineer",
+   "body": [
+    {
+     "device_sn": "CFGB0001",
+     "string_no": 1,
+     "modules": 20
+    },
+    {
+     "device_sn": "CFGB0001",
+     "string_no": "2",
+     "modules": 19.0,
+     "module_wp": "590",
+     "tilt_deg": 5
+    }
+   ]
+  },
+  {
+   "name": "fleet_config: layout put engineer 6001 404",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "engineer",
+   "body": []
+  },
+  {
+   "name": "fleet_config: layout put admin duplicate 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin",
+   "body": [
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 1,
+     "modules": 18
+    },
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 1,
+     "removed": true
+    }
+   ],
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: layout put other plant inverter 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin",
+   "body": [
+    {
+     "device_sn": "CFGB0001",
+     "string_no": 1,
+     "modules": 18
+    }
+   ],
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: layout put missing modules 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin",
+   "body": [
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 1
+    }
+   ],
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: layout put string_no 65 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin",
+   "body": [
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 65,
+     "modules": 3
+    }
+   ],
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: layout put object body 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin",
+   "body": {
+    "device_sn": "CFGA0001"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: layout put unknown plant 404",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6999/string-layout",
+   "auth": "admin",
+   "body": []
+  },
+  {
+   "name": "fleet_config: layout put admin 6001",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin",
+   "body": [
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 1,
+     "modules": 18,
+     "azimuth_deg": 90
+    },
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 5,
+     "removed": true,
+     "modules": 3
+    },
+    {
+     "device_sn": "CFGA0002",
+     "string_no": 3,
+     "modules": 17,
+     "module_wp": 575.5
+    },
+    {
+     "device_sn": "CFGA0003",
+     "string_no": 1,
+     "modules": 10
+    }
+   ]
+  },
+  {
+   "name": "fleet_config: layout get after put",
+   "method": "GET",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: layout put admin 6001 same again",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin",
+   "body": [
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 1,
+     "modules": 18,
+     "azimuth_deg": 90
+    },
+    {
+     "device_sn": "CFGA0001",
+     "string_no": 5,
+     "removed": true,
+     "modules": 3
+    },
+    {
+     "device_sn": "CFGA0002",
+     "string_no": 3,
+     "modules": 17,
+     "module_wp": 575.5
+    },
+    {
+     "device_sn": "CFGA0003",
+     "string_no": 1,
+     "modules": 10
+    }
+   ]
+  },
+  {
+   "name": "fleet_config: layout put empty clears 6002",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6002/string-layout",
+   "auth": "engineer",
+   "body": []
+  },
+  {
+   "name": "fleet_config: installed engineer 403",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6002/inverters/CFGB0001/installed",
+   "auth": "engineer",
+   "body": {
+    "installed": false
+   }
+  },
+  {
+   "name": "fleet_config: installed unknown inverter 404",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/inverters/NOPE/installed",
+   "auth": "admin",
+   "body": {
+    "installed": false
+   }
+  },
+  {
+   "name": "fleet_config: installed wrong plant 404",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6002/inverters/CFGA0001/installed",
+   "auth": "admin",
+   "body": {
+    "installed": false
+   }
+  },
+  {
+   "name": "fleet_config: installed missing field 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/inverters/CFGA0002/installed",
+   "auth": "admin",
+   "body": {
+    "note": "x"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: installed note too long 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/inverters/CFGA0002/installed",
+   "auth": "admin",
+   "body": {
+    "installed": false,
+    "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: installed bad plant id 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/x/inverters/CFGA0002/installed",
+   "auth": "admin",
+   "body": {
+    "installed": false
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: mark CFGA0002 not installed",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/inverters/CFGA0002/installed",
+   "auth": "admin",
+   "body": {
+    "installed": "false",
+    "note": "  roof B  "
+   },
+   "ignore": [
+    "inverter.synced_at",
+    "inverter.not_installed.at"
+   ]
+  },
+  {
+   "name": "fleet_config: mark CFGA0002 again (no issues left)",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/inverters/CFGA0002/installed",
+   "auth": "admin",
+   "body": {
+    "installed": 0,
+    "note": null
+   },
+   "ignore": [
+    "inverter.synced_at",
+    "inverter.not_installed.at"
+   ]
+  },
+  {
+   "name": "fleet_config: clear CFGA0003",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/inverters/CFGA0003/installed",
+   "auth": "admin",
+   "body": {
+    "installed": true,
+    "note": "ignored"
+   },
+   "ignore": [
+    "inverter.synced_at",
+    "inverter.not_installed.at"
+   ]
+  },
+  {
+   "name": "fleet_config: clear CFGA0003 again",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/inverters/CFGA0003/installed",
+   "auth": "admin",
+   "body": {
+    "installed": true
+   },
+   "ignore": [
+    "inverter.synced_at",
+    "inverter.not_installed.at"
+   ]
+  },
+  {
+   "name": "fleet_config: layout after marks",
+   "method": "GET",
+   "path": "/api/growatt/plants/6001/string-layout",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: tariff put engineer 403",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "engineer",
+   "body": {
+    "on_peak_thb": 4.5,
+    "off_peak_thb": "2.7",
+    "ft_thb": -0.1,
+    "on_peak_days": [
+     4,
+     2,
+     2,
+     0
+    ],
+    "on_peak_start": "08:30",
+    "on_peak_end": "24:00",
+    "holidays": [
+     "2026-12-31",
+     " 20261205 ",
+     "",
+     "2026-W53-4"
+    ],
+    "valid_from": "2026-11-01",
+    "plant_rates": {
+     "6002": {
+      "thb_per_kwh": 3.25,
+      "basis": "PPA"
+     },
+     "42": {
+      "thb_per_kwh": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "fleet_config: tariff put bad day 422",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4.5,
+    "off_peak_thb": "2.7",
+    "ft_thb": -0.1,
+    "on_peak_days": [
+     7
+    ],
+    "on_peak_start": "08:30",
+    "on_peak_end": "24:00",
+    "holidays": [
+     "2026-12-31",
+     " 20261205 ",
+     "",
+     "2026-W53-4"
+    ],
+    "valid_from": "2026-11-01",
+    "plant_rates": {
+     "6002": {
+      "thb_per_kwh": 3.25,
+      "basis": "PPA"
+     },
+     "42": {
+      "thb_per_kwh": 2
+     }
+    }
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: tariff put bad holiday 422",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4.5,
+    "off_peak_thb": "2.7",
+    "ft_thb": -0.1,
+    "on_peak_days": [
+     4,
+     2,
+     2,
+     0
+    ],
+    "on_peak_start": "08:30",
+    "on_peak_end": "24:00",
+    "holidays": [
+     "2026-02-30"
+    ],
+    "valid_from": "2026-11-01",
+    "plant_rates": {
+     "6002": {
+      "thb_per_kwh": 3.25,
+      "basis": "PPA"
+     },
+     "42": {
+      "thb_per_kwh": 2
+     }
+    }
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: tariff put bad start 422",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4.5,
+    "off_peak_thb": "2.7",
+    "ft_thb": -0.1,
+    "on_peak_days": [
+     4,
+     2,
+     2,
+     0
+    ],
+    "on_peak_start": "9:00",
+    "on_peak_end": "24:00",
+    "holidays": [
+     "2026-12-31",
+     " 20261205 ",
+     "",
+     "2026-W53-4"
+    ],
+    "valid_from": "2026-11-01",
+    "plant_rates": {
+     "6002": {
+      "thb_per_kwh": 3.25,
+      "basis": "PPA"
+     },
+     "42": {
+      "thb_per_kwh": 2
+     }
+    }
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: tariff put bad plant key 422",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4.5,
+    "off_peak_thb": "2.7",
+    "ft_thb": -0.1,
+    "on_peak_days": [
+     4,
+     2,
+     2,
+     0
+    ],
+    "on_peak_start": "08:30",
+    "on_peak_end": "24:00",
+    "holidays": [
+     "2026-12-31",
+     " 20261205 ",
+     "",
+     "2026-W53-4"
+    ],
+    "valid_from": "2026-11-01",
+    "plant_rates": {
+     "x1": {
+      "thb_per_kwh": 2
+     }
+    }
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: tariff put rate 0 422",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4.5,
+    "off_peak_thb": "2.7",
+    "ft_thb": -0.1,
+    "on_peak_days": [
+     4,
+     2,
+     2,
+     0
+    ],
+    "on_peak_start": "08:30",
+    "on_peak_end": "24:00",
+    "holidays": [
+     "2026-12-31",
+     " 20261205 ",
+     "",
+     "2026-W53-4"
+    ],
+    "valid_from": "2026-11-01",
+    "plant_rates": {
+     "1": {
+      "thb_per_kwh": 0
+     }
+    }
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: tariff put missing ft 422",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4,
+    "off_peak_thb": 2
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: tariff put",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4.5,
+    "off_peak_thb": "2.7",
+    "ft_thb": -0.1,
+    "on_peak_days": [
+     4,
+     2,
+     2,
+     0
+    ],
+    "on_peak_start": "08:30",
+    "on_peak_end": "24:00",
+    "holidays": [
+     "2026-12-31",
+     " 20261205 ",
+     "",
+     "2026-W53-4"
+    ],
+    "valid_from": "2026-11-01",
+    "plant_rates": {
+     "6002": {
+      "thb_per_kwh": 3.25,
+      "basis": "PPA"
+     },
+     "42": {
+      "thb_per_kwh": 2
+     }
+    }
+   },
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: tariff get engineer after put",
+   "method": "GET",
+   "path": "/api/growatt/tariff",
+   "auth": "engineer",
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: tariff rates after put",
+   "method": "GET",
+   "path": "/api/growatt/tariff/rates",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: tariff rates engineer after put fixed day",
+   "method": "GET",
+   "path": "/api/growatt/tariff/rates?day=2026-11-26",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: pwa rates engineer 403",
+   "method": "POST",
+   "path": "/api/growatt/tariff/pwa-rates",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: pwa rates admin",
+   "method": "POST",
+   "path": "/api/growatt/tariff/pwa-rates",
+   "auth": "admin",
+   "ignore": [
+    "tariff.updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: pwa rates admin again (nothing to add)",
+   "method": "POST",
+   "path": "/api/growatt/tariff/pwa-rates",
+   "auth": "admin",
+   "ignore": [
+    "tariff.updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: tariff put minimal (defaults)",
+   "method": "PUT",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "body": {
+    "on_peak_thb": 4,
+    "off_peak_thb": 2,
+    "ft_thb": 0
+   },
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: tariff get admin after minimal",
+   "method": "GET",
+   "path": "/api/growatt/tariff",
+   "auth": "admin",
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: doc put engineer 403",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6002/documents/asbuilt",
+   "auth": "engineer",
+   "body": {
+    "url": "https://example.com/a.pdf"
+   }
+  },
+  {
+   "name": "fleet_config: doc put bad kind 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/documents/manual",
+   "auth": "admin",
+   "body": {
+    "url": "https://example.com/a.pdf"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: doc put http url 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/documents/asbuilt",
+   "auth": "admin",
+   "body": {
+    "url": "http://example.com/a.pdf"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: doc put short url 422",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/documents/asbuilt",
+   "auth": "admin",
+   "body": {
+    "url": "https://"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: doc put unknown plant 404",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6999/documents/asbuilt",
+   "auth": "admin",
+   "body": {
+    "url": "https://example.com/a.pdf"
+   }
+  },
+  {
+   "name": "fleet_config: doc put asbuilt 6001",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6001/documents/asbuilt",
+   "auth": "admin",
+   "body": {
+    "url": "  https://drive.google.com/drive/folders/ZyXwVuTsRq_-12?usp=x ",
+    "title": "  Alpha new  "
+   },
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: doc put site photos 6003",
+   "method": "PUT",
+   "path": "/api/growatt/plants/6003/documents/site_photos",
+   "auth": "admin",
+   "body": {
+    "url": "HTTPS://photos.example/x",
+    "title": "   "
+   },
+   "ignore": [
+    "updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: plant documents 6001 after put",
+   "method": "GET",
+   "path": "/api/growatt/plants/6001/documents",
+   "auth": "admin",
+   "ignore": [
+    "documents.asbuilt.updated_at"
+   ]
+  },
+  {
+   "name": "fleet_config: doc delete engineer 403",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/6002/documents/site_photos",
+   "auth": "engineer"
+  },
+  {
+   "name": "fleet_config: doc delete bad kind 422",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/6002/documents/other",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: doc delete 6002 site photos",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/6002/documents/site_photos",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: doc delete again 404",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/6002/documents/site_photos",
+   "auth": "admin"
+  },
+  {
+   "name": "fleet_config: import engineer 403",
+   "method": "POST",
+   "path": "/api/growatt/documents/import",
+   "auth": "engineer",
+   "body": {
+    "rows": [
+     {
+      "plant_id": 6001,
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/AAAAAAAAAAAA/view",
+      "match_score": 0.95
+     },
+     {
+      "plant_id": "6002",
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/BBBBBBBBBBBB/view",
+      "drive_id": "BBBBBBBBBBBB",
+      "title": "Beta REV.1",
+      "revision": "REV.1",
+      "match_score": 0.91
+     },
+     {
+      "plant_id": 6002,
+      "kind": "asbuilt",
+      "url": "https://x.example/dup"
+     },
+     {
+      "plant_id": 6777,
+      "kind": "asbuilt",
+      "url": "https://x.example/unknown"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "site_photos",
+      "url": "ftp://x"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "plans",
+      "url": "https://x.example/k"
+     },
+     {
+      "plant_id": 6003,
+      "kind": "asbuilt",
+      "url": "https://x.example/c",
+      "match_score": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "fleet_config: import bad apply 422",
+   "method": "POST",
+   "path": "/api/growatt/documents/import?apply=maybe",
+   "auth": "admin",
+   "body": {
+    "rows": [
+     {
+      "plant_id": 6001,
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/AAAAAAAAAAAA/view",
+      "match_score": 0.95
+     },
+     {
+      "plant_id": "6002",
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/BBBBBBBBBBBB/view",
+      "drive_id": "BBBBBBBBBBBB",
+      "title": "Beta REV.1",
+      "revision": "REV.1",
+      "match_score": 0.91
+     },
+     {
+      "plant_id": 6002,
+      "kind": "asbuilt",
+      "url": "https://x.example/dup"
+     },
+     {
+      "plant_id": 6777,
+      "kind": "asbuilt",
+      "url": "https://x.example/unknown"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "site_photos",
+      "url": "ftp://x"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "plans",
+      "url": "https://x.example/k"
+     },
+     {
+      "plant_id": 6003,
+      "kind": "asbuilt",
+      "url": "https://x.example/c",
+      "match_score": 0
+     }
+    ]
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: import missing rows 422",
+   "method": "POST",
+   "path": "/api/growatt/documents/import",
+   "auth": "admin",
+   "body": {},
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: import bad score 422",
+   "method": "POST",
+   "path": "/api/growatt/documents/import",
+   "auth": "admin",
+   "body": {
+    "rows": [
+     {
+      "plant_id": 6001,
+      "kind": "asbuilt",
+      "url": "https://a",
+      "match_score": 2
+     }
+    ]
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "fleet_config: import dry run",
+   "method": "POST",
+   "path": "/api/growatt/documents/import",
+   "auth": "admin",
+   "body": {
+    "rows": [
+     {
+      "plant_id": 6001,
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/AAAAAAAAAAAA/view",
+      "match_score": 0.95
+     },
+     {
+      "plant_id": "6002",
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/BBBBBBBBBBBB/view",
+      "drive_id": "BBBBBBBBBBBB",
+      "title": "Beta REV.1",
+      "revision": "REV.1",
+      "match_score": 0.91
+     },
+     {
+      "plant_id": 6002,
+      "kind": "asbuilt",
+      "url": "https://x.example/dup"
+     },
+     {
+      "plant_id": 6777,
+      "kind": "asbuilt",
+      "url": "https://x.example/unknown"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "site_photos",
+      "url": "ftp://x"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "plans",
+      "url": "https://x.example/k"
+     },
+     {
+      "plant_id": 6003,
+      "kind": "asbuilt",
+      "url": "https://x.example/c",
+      "match_score": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "fleet_config: import apply",
+   "method": "POST",
+   "path": "/api/growatt/documents/import?apply=true",
+   "auth": "admin",
+   "body": {
+    "rows": [
+     {
+      "plant_id": 6001,
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/AAAAAAAAAAAA/view",
+      "match_score": 0.95
+     },
+     {
+      "plant_id": "6002",
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/BBBBBBBBBBBB/view",
+      "drive_id": "BBBBBBBBBBBB",
+      "title": "Beta REV.1",
+      "revision": "REV.1",
+      "match_score": 0.91
+     },
+     {
+      "plant_id": 6002,
+      "kind": "asbuilt",
+      "url": "https://x.example/dup"
+     },
+     {
+      "plant_id": 6777,
+      "kind": "asbuilt",
+      "url": "https://x.example/unknown"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "site_photos",
+      "url": "ftp://x"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "plans",
+      "url": "https://x.example/k"
+     },
+     {
+      "plant_id": 6003,
+      "kind": "asbuilt",
+      "url": "https://x.example/c",
+      "match_score": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "fleet_config: import apply again (unchanged)",
+   "method": "POST",
+   "path": "/api/growatt/documents/import?apply=1",
+   "auth": "admin",
+   "body": {
+    "rows": [
+     {
+      "plant_id": 6001,
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/AAAAAAAAAAAA/view",
+      "match_score": 0.95
+     },
+     {
+      "plant_id": "6002",
+      "kind": "asbuilt",
+      "url": "https://drive.google.com/file/d/BBBBBBBBBBBB/view",
+      "drive_id": "BBBBBBBBBBBB",
+      "title": "Beta REV.1",
+      "revision": "REV.1",
+      "match_score": 0.91
+     },
+     {
+      "plant_id": 6002,
+      "kind": "asbuilt",
+      "url": "https://x.example/dup"
+     },
+     {
+      "plant_id": 6777,
+      "kind": "asbuilt",
+      "url": "https://x.example/unknown"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "site_photos",
+      "url": "ftp://x"
+     },
+     {
+      "plant_id": 6001,
+      "kind": "plans",
+      "url": "https://x.example/k"
+     },
+     {
+      "plant_id": 6003,
+      "kind": "asbuilt",
+      "url": "https://x.example/c",
+      "match_score": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "fleet_config: documents admin after import",
+   "method": "GET",
+   "path": "/api/growatt/documents",
+   "auth": "admin",
+   "ignore": [
+    "plants.*.asbuilt.updated_at",
+    "plants.*.site_photos.updated_at"
+   ]
+  }
+ ]
+}

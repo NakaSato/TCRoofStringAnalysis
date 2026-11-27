@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::AppState;
 
 pub mod auth;
+pub mod growatt;
 pub mod system;
 pub mod users;
 
@@ -15,7 +16,11 @@ pub mod users;
 /// `/system` are admin only there (`include_router(..., dependencies=[Depends(require_admin)])`);
 /// here each of their handlers takes `AdminUser`.
 pub fn router() -> Router<AppState> {
-    Router::new().merge(auth::router()).merge(users::router()).merge(system::router())
+    Router::new()
+        .merge(auth::router())
+        .merge(users::router())
+        .merge(system::router())
+        .nest("/growatt", growatt::router())
 }
 
 /// Starlette's 404 for an unknown path

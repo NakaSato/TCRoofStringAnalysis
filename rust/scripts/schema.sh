@@ -25,7 +25,9 @@ case "$URL" in
   *) echo "schema.sh: not a Postgres URL: ${URL%%://*}://..." >&2; exit 2 ;;
 esac
 
+# The repo .env publishes to the production Firestore (PUBLISH_SINK=firestore + key); never from here.
 PYTHONPATH=backend DATABASE_URL="$PY_URL" APP_ENV="${APP_ENV:-dev}" SEED_DEMO_DATA="${SEED_DEMO_DATA:-false}" \
+  PUBLISH_SINK=json FIREBASE_CREDENTIALS_FILE= FIREBASE_PROJECT_ID= \
   uv run --quiet --with "psycopg[binary]>=3.2" python -c '
 from app.db.seed import ensure_seeded
 from app.db.session import SessionLocal, engine

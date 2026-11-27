@@ -1,0 +1,482 @@
+{
+ "_doc": "History area (rust/crates/api/src/routes/growatt/history.rs). Not here on purpose: /plants/{allowed}/strings/{foreign_sn}/{n} -- Python answers 200 with the other plant's string (no ownership check in build_string_detail, a cross-plant IDOR); Rust answers 404 (plan section 4, PlantInverter). Covered by crates/api/tests/growatt_history.rs.",
+ "cases": [
+  {
+   "name": "history: (setup) engineer id",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "auth": "engineer",
+   "save": {
+    "history_eng_id": "id"
+   },
+   "ignore": [
+    "plant_ids"
+   ]
+  },
+  {
+   "name": "history: (setup) engineer gets plants [3001] (cases.json leaves only 10, 30)",
+   "method": "PUT",
+   "path": "/api/users/${history_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30,
+     3001
+    ]
+   }
+  },
+  {
+   "name": "history: timeseries default day (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/timeseries",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw default day (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/raw",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily default day (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string detail default day (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/3",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries default day (engineer)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/timeseries",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: raw default day (engineer)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/raw",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: daily default day (engineer)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: string detail default day (engineer)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/3",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: timeseries day 20",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/timeseries?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries day without data",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/timeseries?day=2026-10-01",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries inverter B (plant share, two records a slot)",
+   "method": "GET",
+   "path": "/growatt/plants/3001/inverters/H3001B/timeseries?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries not-installed inverter",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001X/timeseries",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries unassigned plant (engineer 404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/inverters/H3002A/timeseries",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: timeseries unassigned plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/inverters/H3002A/timeseries?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries foreign device_sn on an allowed plant",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3002A/timeseries",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: timeseries unknown device_sn",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/NOPE/timeseries",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries unknown plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3999/inverters/H3001A/timeseries",
+   "auth": "admin"
+  },
+  {
+   "name": "history: timeseries bad day",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/timeseries?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: timeseries no token",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/timeseries",
+   "auth": null
+  },
+  {
+   "name": "history: raw day 20",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/raw?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw day without data",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/raw?day=2026-10-01",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw inverter B (plant share, two records a slot)",
+   "method": "GET",
+   "path": "/growatt/plants/3001/inverters/H3001B/raw?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw not-installed inverter",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001X/raw",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw unassigned plant (engineer 404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/inverters/H3002A/raw",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: raw unassigned plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/inverters/H3002A/raw?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw foreign device_sn on an allowed plant",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3002A/raw",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: raw unknown device_sn",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/NOPE/raw",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw unknown plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3999/inverters/H3001A/raw",
+   "auth": "admin"
+  },
+  {
+   "name": "history: raw bad day",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/raw?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: raw no token",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/raw",
+   "auth": null
+  },
+  {
+   "name": "history: daily day 20",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily day without data",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?day=2026-10-01",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily inverter B (plant share, two records a slot)",
+   "method": "GET",
+   "path": "/growatt/plants/3001/inverters/H3001B/daily?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily not-installed inverter",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001X/daily",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily unassigned plant (engineer 404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/inverters/H3002A/daily",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: daily unassigned plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/inverters/H3002A/daily?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily foreign device_sn on an allowed plant",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3002A/daily",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: daily unknown device_sn",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/NOPE/daily",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily unknown plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3999/inverters/H3001A/daily",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily bad day",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: daily no token",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily",
+   "auth": null
+  },
+  {
+   "name": "history: daily days=7 day=21",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?day=2026-11-21&days=7",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily days=1",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001B/daily?days=1&day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily days=90",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?days=90&day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: daily days=0",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?days=0",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: daily days=91",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?days=91",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: daily days=x",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/inverters/H3001A/daily?days=x",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: daily days bad on unassigned plant (404 first)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/inverters/H3002A/daily?days=0",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: string 1 day 21",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/1?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string 2 day 21",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string 4 day 21",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/4?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string weak 3 day 20",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/3?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string B 2 (no current, peers raw)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001B/2?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string B 1",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001B/1?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string range",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/1?day=2026-11-20&end_day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string range with window",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/4?day=2026-11-20&end_day=2026-11-22&start=09:00&end=12:30",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string window",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-11-21&start=10:00",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string window end only",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-11-21&end=07:00:30",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string window without data",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-11-21&start=19:00&end=20:00",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string end_day before day",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-11-21&end_day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string end_day without day",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?end_day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string start after end",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-11-21&start=12:00&end=10:00",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string range over 31 days",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-10-01&end_day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string day without data",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-10-01",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string unknown string_no",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/9",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string bad string_no",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/x",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: string string_no 01",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/01?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string bad time",
+   "method": "GET",
+   "path": "/api/growatt/plants/3001/strings/H3001A/2?day=2026-11-21&start=25:00",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "history: string unassigned plant (engineer 404)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/strings/H3002A/1",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: string unassigned plant bad string_no (engineer 404 first)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/strings/H3002A/x",
+   "auth": "engineer"
+  },
+  {
+   "name": "history: string unassigned plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3002/strings/H3002A/1?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "history: string unknown plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/3999/strings/H3001A/1",
+   "auth": "admin"
+  },
+  {
+   "name": "history: (teardown) engineer plants back to 10, 30",
+   "method": "PUT",
+   "path": "/api/users/${history_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30
+    ]
+   }
+  }
+ ]
+}

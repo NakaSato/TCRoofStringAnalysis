@@ -1,0 +1,361 @@
+{
+ "cases": [
+  {
+   "name": "weather: (setup) engineer id",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "auth": "engineer",
+   "save": {
+    "weather_eng_id": "id"
+   },
+   "ignore": [
+    "plant_ids"
+   ]
+  },
+  {
+   "name": "weather: (setup) engineer gets plants [4001, 4002] (cases.json leaves only 10, 30)",
+   "method": "PUT",
+   "path": "/api/users/${weather_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30,
+     4001,
+     4002
+    ]
+   }
+  },
+  {
+   "name": "weather latest day, two sensors averaged",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "weather latest day (engineer, assigned)",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather",
+   "auth": "engineer"
+  },
+  {
+   "name": "weather mounted at /",
+   "method": "GET",
+   "path": "/growatt/plants/4001/weather?day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "weather one sensor",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=2026-11-21&sensor=WXDL4001B:2",
+   "auth": "admin"
+  },
+  {
+   "name": "weather one sensor A, window",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=2026-11-21&sensor=WXDL4001A:1&start=09:00&end=13:30",
+   "auth": "admin"
+  },
+  {
+   "name": "weather window start only",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=2026-11-21&start=12:00",
+   "auth": "admin"
+  },
+  {
+   "name": "weather window end only, seconds",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=2026-11-21&end=07:30:00",
+   "auth": "admin"
+  },
+  {
+   "name": "weather day before (zero probes null)",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "weather day without readings",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=2026-11-01",
+   "auth": "admin"
+  },
+  {
+   "name": "weather sensor not the plant's",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?sensor=WXDL4003:1",
+   "auth": "admin"
+  },
+  {
+   "name": "weather sensor address overflow",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?sensor=WXDL4001A:99999999999",
+   "auth": "admin"
+  },
+  {
+   "name": "weather sensor bad pattern",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?sensor=WXDL4001A",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "weather start after end",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?start=13:00&end=09:00",
+   "auth": "admin"
+  },
+  {
+   "name": "weather bad day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=2026-13-01",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "weather empty day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?day=",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "weather bad time",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather?start=9",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "weather plant without sensor",
+   "method": "GET",
+   "path": "/api/growatt/plants/4002/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "weather plant without sensor (engineer)",
+   "method": "GET",
+   "path": "/api/growatt/plants/4002/weather?day=2026-11-21",
+   "auth": "engineer"
+  },
+  {
+   "name": "weather sensor without readings",
+   "method": "GET",
+   "path": "/api/growatt/plants/4004/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "weather sensor without readings, window",
+   "method": "GET",
+   "path": "/api/growatt/plants/4004/weather?start=08:00&day=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "weather humidity never fitted",
+   "method": "GET",
+   "path": "/api/growatt/plants/4003/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "weather unassigned plant (engineer) 404",
+   "method": "GET",
+   "path": "/api/growatt/plants/4003/weather",
+   "auth": "engineer"
+  },
+  {
+   "name": "weather unassigned + bad day (engineer) 404 first",
+   "method": "GET",
+   "path": "/api/growatt/plants/4003/weather?day=x",
+   "auth": "engineer"
+  },
+  {
+   "name": "weather unknown plant",
+   "method": "GET",
+   "path": "/api/growatt/plants/4900/weather",
+   "auth": "admin"
+  },
+  {
+   "name": "weather bad plant id",
+   "method": "GET",
+   "path": "/api/growatt/plants/abc/weather",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "weather no token",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/weather",
+   "auth": null
+  },
+  {
+   "name": "google latest complete day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather",
+   "auth": "admin"
+  },
+  {
+   "name": "google latest (engineer)",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather",
+   "auth": "engineer"
+  },
+  {
+   "name": "google rain day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=2026-11-14",
+   "auth": "admin"
+  },
+  {
+   "name": "google day after rain",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=2026-11-16",
+   "auth": "admin"
+  },
+  {
+   "name": "google incomplete day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=2026-11-17",
+   "auth": "admin"
+  },
+  {
+   "name": "google day after gap",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=2026-11-18",
+   "auth": "admin"
+  },
+  {
+   "name": "google hour with nulls",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "google night-only newest day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=2026-11-22",
+   "auth": "admin"
+  },
+  {
+   "name": "google no stored hours that day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=2026-10-01",
+   "auth": "admin"
+  },
+  {
+   "name": "google no location",
+   "method": "GET",
+   "path": "/api/growatt/plants/4002/google-weather",
+   "auth": "admin"
+  },
+  {
+   "name": "google no stored hours for cell",
+   "method": "GET",
+   "path": "/api/growatt/plants/4004/google-weather",
+   "auth": "admin"
+  },
+  {
+   "name": "google unassigned (engineer)",
+   "method": "GET",
+   "path": "/api/growatt/plants/4003/google-weather",
+   "auth": "engineer"
+  },
+  {
+   "name": "google unassigned plant (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/4003/google-weather",
+   "auth": "admin"
+  },
+  {
+   "name": "google unknown plant",
+   "method": "GET",
+   "path": "/api/growatt/plants/4901/google-weather",
+   "auth": "admin"
+  },
+  {
+   "name": "google bad day",
+   "method": "GET",
+   "path": "/api/growatt/plants/4001/google-weather?day=21-11-2026",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "curtailment window admin",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?start=2026-11-15&end=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment window engineer",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?start=2026-11-15&end=2026-11-21",
+   "auth": "engineer"
+  },
+  {
+   "name": "curtailment one day",
+   "method": "GET",
+   "path": "/growatt/curtailment?start=2026-11-20&end=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment end only",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?end=2026-11-18",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment default (today)",
+   "method": "GET",
+   "path": "/api/growatt/curtailment",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment no rows",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?start=2025-01-01&end=2025-01-31",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment start after end",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?start=2026-11-21&end=2026-11-20",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment too long",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?start=2026-08-01&end=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment 92 days ok",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?start=2026-08-22&end=2026-11-21",
+   "auth": "admin"
+  },
+  {
+   "name": "curtailment bad date",
+   "method": "GET",
+   "path": "/api/growatt/curtailment?start=nope",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "curtailment no token",
+   "method": "GET",
+   "path": "/api/growatt/curtailment",
+   "auth": null
+  },
+  {
+   "name": "weather: (teardown) engineer plants back to 10, 30",
+   "method": "PUT",
+   "path": "/api/users/${weather_eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     10,
+     30
+    ]
+   }
+  }
+ ]
+}
