@@ -19,6 +19,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: api  # no tesseract (OCR runs only in the worker)
     env_file: .env  # GROWATT_API_TOKEN etc. (backend only, never sent to the browser)
     environment:
       DATABASE_URL: postgresql+psycopg://solar:solar_password@postgres:5432/tc_roof_solar
@@ -35,6 +36,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: worker  # with tesseract for `kb_ocr`
     command: ["python", "-m", "app.worker"]
     env_file: .env
     environment:

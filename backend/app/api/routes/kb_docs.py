@@ -140,7 +140,7 @@ def link_catalog(db: Session = Depends(get_db), user: User = Depends(get_current
         "equipment": svc.equipment_models(db),
         "doc_types": svc.DOC_TYPES,
         "disciplines": list(svc.DISCIPLINES),
-        "ocr": {"langs": svc.kb_pdf.ocr_langs()},
+        "ocr": svc.ocr_status(db),  # the worker's, not this process's: the API image has no tesseract
         "max_upload_mb": settings.kb_max_upload_mb,
     }
 

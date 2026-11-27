@@ -16,7 +16,7 @@
 #   deploy/gcp.sh upsize     # VM to MACHINE_TYPE / DISK_TYPE (stops the VM ~15 min; maintenance window)
 #   deploy/gcp.sh costguard  # budget BUDGET_AMOUNT + Pub/Sub + function that disables billing at COST_CAP_PCT
 #   deploy/gcp.sh monitoring # email alerts: API down, worker not syncing, disk > 85 %; Ops Agent on the VM
-#   deploy/gcp.sh backend    # build image, update VM (Postgres + worker), deploy Cloud Run API
+#   deploy/gcp.sh backend    # build the api + worker images, update VM (Postgres + worker), deploy Cloud Run API
 #   deploy/gcp.sh frontend   # build UI, deploy Firebase Hosting
 #   deploy/gcp.sh ai         # AI Assistant key: AI_API_KEY from .env -> secret tcroof-ai-api-key (add / rotate), then: backend
 #   deploy/gcp.sh all        # backend + frontend
@@ -130,7 +130,7 @@ cmd_setup() {
 
   cmd_costguard
 
-  log "Artifact Registry (keep only the 3 newest images to stay in the 0.5 GB free tier)"
+  log "Artifact Registry (keep the 3 newest versions of each image, backend = worker and backend-api = API, near the 0.5 GB free tier)"
   g artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1 || \
     g artifacts repositories create "$REPO" --location "$REGION" --repository-format docker
   cat > /tmp/tcroof-ar-policy.json <<'EOF'
@@ -408,11 +408,14 @@ redis_setup() {
 
 cmd_backend() {
   [ -f secrets/firebase-service-account.json ] || { echo "secrets/firebase-service-account.json missing"; exit 1; }
-  local tag image; tag="$(git rev-parse --short HEAD)$(git diff --quiet || echo -dirty)-$(date +%Y%m%d%H%M)"
+  # Two images of one tag (backend/Dockerfile targets): `api` for Cloud Run (no tesseract, starts
+  # faster), `worker` for the VM's growatt-worker (tesseract for `kb_ocr`).
+  local tag image api_image; tag="$(git rev-parse --short HEAD)$(git diff --quiet || echo -dirty)-$(date +%Y%m%d%H%M)"
   image="${REGISTRY}/backend:${tag}"
+  api_image="${REGISTRY}/backend-api:${tag}"
 
-  log "Building $image (Cloud Build)"
-  g builds submit --region "$REGION" --config deploy/cloudbuild.yaml --substitutions "_IMAGE=${image}" .
+  log "Building $api_image and $image (Cloud Build)"
+  g builds submit --region "$REGION" --config deploy/cloudbuild.yaml --substitutions "_API_IMAGE=${api_image},_IMAGE=${image}" .
 
   pwa_sheet_access
   redis_setup
@@ -472,7 +475,7 @@ EOF
   [ -z "$(ai_secret)" ] || secrets+=",AI_API_KEY=tcroof-ai-api-key:latest"
 
   log "Deploying Cloud Run $SERVICE"
-  g run deploy "$SERVICE" --region "$REGION" --image "$image" \
+  g run deploy "$SERVICE" --region "$REGION" --image "$api_image" \
     --service-account "${API_SA}@${PROJECT}.iam.gserviceaccount.com" \
     --port 8000 --cpu 1 --memory 1Gi --cpu-boost \
     --min-instances "$API_MIN_INSTANCES" --max-instances 1 --concurrency 80 --timeout 300 \

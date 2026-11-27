@@ -1,9 +1,18 @@
-# Builds the backend image (API + worker share it). Used by deploy/gcp.sh:
-#   gcloud builds submit --config deploy/cloudbuild.yaml --substitutions=_IMAGE=<registry>/backend:<tag> .
+# Builds the two backend images from backend/Dockerfile. Used by deploy/gcp.sh `backend`:
+#   gcloud builds submit --config deploy/cloudbuild.yaml \
+#     --substitutions=_API_IMAGE=<registry>/backend-api:<tag>,_IMAGE=<registry>/backend:<tag> .
+#   _API_IMAGE  target `api`     Cloud Run API (no tesseract)
+#   _IMAGE      target `worker`  growatt-worker on the VM (tesseract for `kb_ocr`)
+# The second build reuses the first one's dependency layers from the same build machine.
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "backend/Dockerfile", "-t", "${_IMAGE}", "."]
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "-f", "backend/Dockerfile", "--target", "api", "-t", "${_API_IMAGE}", "."]
+  - name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "-f", "backend/Dockerfile", "--target", "worker", "-t", "${_IMAGE}", "."]
 images:
+  - "${_API_IMAGE}"
   - "${_IMAGE}"
 options:
   logging: CLOUD_LOGGING_ONLY

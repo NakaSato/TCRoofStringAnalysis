@@ -170,8 +170,9 @@ export interface KbDocCatalog {
   equipment: { key: string; model: string; inverters: number }[];
   doc_types: Record<KbDocType, string>;
   disciplines: KbDiscipline[];
-  /** tesseract languages the server would use; null = OCR not installed on the API host (the worker may have it) */
-  ocr: { langs: string | null };
+  /** tesseract languages the worker used in its newest finished `kb_ocr` run (null = none
+   *  installed there, or no run yet: `checked_at` null); the API itself has no tesseract */
+  ocr: { langs: string | null; checked_at: string | null };
   max_upload_mb: number;
 }
 

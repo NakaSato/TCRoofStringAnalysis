@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.auth import hash_password
-from app.db.models import GrowattInverter, GrowattPlant, KbDocPage, KbDocRevision, User, UserPlantAssignment
+from app.db.models import GrowattInverter, GrowattPlant, KbDocPage, KbDocRevision, SyncRun, User, UserPlantAssignment
 from app.db.seed import ensure_seeded
 from app.db.session import Base, build_engine, get_db
 from app.main import create_app
@@ -333,6 +333,42 @@ def test_scanned_pages_wait_for_ocr(api, monkeypatch):
     r = client.get("/kb/search", params={"q": "wiring diagram"}, headers=adm).json()
     assert r["documents"][0]["pages"][0]["page_no"] == 2
     assert client.get(f"/kb/docs/{d['id']}", headers=adm).json()["current_revision"]["text_status"] == "ok"
+
+
+def test_catalog_reports_the_workers_ocr_not_the_apis(api, monkeypatch):
+    """The API image has no tesseract: `/kb/docs/catalog` reports the languages of the worker's
+    newest finished `kb_ocr` run, never a check of the API's own host."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import jobs
+
+    client, adm, _, _, f, _ = api
+    asked = []
+    monkeypatch.setattr(kb_pdf, "ocr_langs", lambda: asked.append(1) or "eng")
+    # no run yet: unknown, not "installed"
+    assert client.get("/kb/docs/catalog", headers=adm).json()["ocr"] == {"langs": None, "checked_at": None}
+    assert asked == []
+    t0 = datetime(2026, 11, 27, 3, 0, tzinfo=timezone.utc)
+    with f() as db:
+        db.add(SyncRun(job="kb_ocr", trigger="schedule", status="ok", started_at=t0, finished_at=t0 + timedelta(seconds=2),
+                       detail_json={"revisions": 0, "langs": "tha+eng"}))
+        # a newer failed run and a running one carry no answer and are skipped
+        db.add(SyncRun(job="kb_ocr", trigger="upload", status="failed", started_at=t0 + timedelta(minutes=5), error="boom"))
+        db.add(SyncRun(job="kb_ocr", trigger="schedule", status="running", started_at=t0 + timedelta(minutes=6)))
+        db.commit()
+    ocr = client.get("/kb/docs/catalog", headers=adm).json()["ocr"]
+    assert ocr["langs"] == "tha+eng" and ocr["checked_at"].startswith("2026-11-27T03:00:02")
+    # the worker without tesseract: its run records langs None, and the API says so
+    with f() as db:
+        db.add(SyncRun(job="kb_ocr", trigger="schedule", status="ok", started_at=t0 + timedelta(minutes=30),
+                       finished_at=t0 + timedelta(minutes=30), detail_json={"revisions": 0, "langs": None}))
+        db.commit()
+    assert client.get("/kb/docs/catalog", headers=adm).json()["ocr"]["langs"] is None
+    assert asked == []
+    # and a real run of the job records what the worker's host has
+    with f() as db:
+        status, detail = jobs.job_kb_ocr(db)
+    assert detail["langs"] == "eng" and asked == [1]
 
 
 def test_ocr_page_through_tesseract_if_installed():

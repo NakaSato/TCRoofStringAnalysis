@@ -1,0 +1,30 @@
+# Docker build context (repo root) for backend/Dockerfile and frontend/Dockerfile.
+# Keep local data, secrets, caches and dependency folders out of every image build.
+.git/
+**/.venv/
+.codegraph/
+.claude/
+.agents/
+**/.pytest_cache/
+**/.ruff_cache/
+.firebase/
+**/__pycache__/
+**/*.py[oc]
+**/.DS_Store
+data/
+secrets/
+.env
+.env.*
+**/*.db
+**/*.db-*
+**/*.sqlite3
+docs/
+specs/
+billing/
+ipswitcher/
+Monitoring Report/
+sample_data/
+backend/tests/
+**/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo

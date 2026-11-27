@@ -43,6 +43,7 @@ from app.db.models import (
     KbDocPin,
     KbDocRevision,
     KbDocument,
+    SyncRun,
     User,
 )
 from app.db.models.base import _utcnow
@@ -1072,6 +1073,24 @@ def equipment_models(db: Session) -> List[Dict[str, Any]]:
 
 
 # --------------------------------------------------------------------------- OCR (worker)
+
+
+def ocr_status(db: Session) -> Dict[str, Any]:
+    """OCR as the worker last found it: `langs` of its newest finished `kb_ocr` run (each run
+    records them, even with nothing to read) and when that run finished. Only the worker image has
+    tesseract, so the API never checks its own host; no run yet = `langs` and `checked_at` null."""
+    run = db.scalars(
+        select(SyncRun)
+        .where(SyncRun.job == "kb_ocr", SyncRun.status.in_(("ok", "partial")))
+        .order_by(SyncRun.started_at.desc(), SyncRun.id.desc())
+        .limit(1)
+    ).first()
+    detail = run.detail_json if run is not None and isinstance(run.detail_json, dict) else {}
+    langs = detail.get("langs")
+    return {
+        "langs": langs if isinstance(langs, str) and langs else None,
+        "checked_at": _iso(run.finished_at) if run is not None else None,
+    }
 
 
 def ocr_pending(db: Session, *, max_pages: Optional[int] = None) -> Tuple[str, Dict[str, Any]]:
