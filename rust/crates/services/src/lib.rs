@@ -28,3 +28,6 @@ pub mod publish;
 pub mod live_store;
 pub mod live;
 pub mod string_operating;
+pub mod google_weather_live;
+pub mod longdo;
+pub mod rainviewer;

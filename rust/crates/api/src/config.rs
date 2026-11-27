@@ -80,6 +80,26 @@ pub struct Settings {
     pub sensor_offline_min: i64,
     /// Python float; 0 = off
     pub sensor_inactive_days: f64,
+
+    // Live weather / rain (services/google_weather_live.rs, longdo.rs, rainviewer.rs): memory /
+    // Redis only, never stored; only the call counts go to SQL
+    pub google_weather_base_url: String,
+    pub google_weather_live_ttl_s: i64,
+    pub google_weather_monthly_budget: i64,
+    pub longdo_base_url: String,
+    pub longdo_monthly_budget: i64,
+    pub longdo_timeout_s: f64,
+    pub longdo_calls_per_min: i64,
+    pub longdo_interactive_reserve_per_min: i64,
+    pub longdo_radar_ttl_s: i64,
+    pub longdo_rain_ttl_s: i64,
+    pub longdo_area_radius_km: f64,
+    pub longdo_fleet_rain_ttl_s: i64,
+    pub longdo_rain_sweep_per_request: i64,
+    pub rainviewer_enabled: bool,
+    pub rainviewer_url: String,
+    pub rainviewer_ttl_s: i64,
+    pub rainviewer_timeout_s: f64,
 }
 
 impl Default for Settings {
@@ -138,6 +158,23 @@ impl Default for Settings {
             sensor_late_min: 15,
             sensor_offline_min: 60,
             sensor_inactive_days: 30.0,
+            google_weather_base_url: tcroof_clients::google_weather::DEFAULT_BASE_URL.into(),
+            google_weather_live_ttl_s: 1800,
+            google_weather_monthly_budget: 30000,
+            longdo_base_url: tcroof_clients::longdo_weather::DEFAULT_BASE_URL.into(),
+            longdo_monthly_budget: 60000,
+            longdo_timeout_s: 6.0,
+            longdo_calls_per_min: 30,
+            longdo_interactive_reserve_per_min: 8,
+            longdo_radar_ttl_s: 300,
+            longdo_rain_ttl_s: 300,
+            longdo_area_radius_km: 10.0,
+            longdo_fleet_rain_ttl_s: 1800,
+            longdo_rain_sweep_per_request: 20,
+            rainviewer_enabled: true,
+            rainviewer_url: tcroof_clients::rainviewer::DEFAULT_URL.into(),
+            rainviewer_ttl_s: 300,
+            rainviewer_timeout_s: 6.0,
         }
     }
 }
@@ -260,6 +297,26 @@ impl Settings {
             sensor_late_min: int("SENSOR_LATE_MIN")?.unwrap_or(d.sensor_late_min),
             sensor_offline_min: int("SENSOR_OFFLINE_MIN")?.unwrap_or(d.sensor_offline_min),
             sensor_inactive_days: num("SENSOR_INACTIVE_DAYS")?.unwrap_or(d.sensor_inactive_days),
+            google_weather_base_url: get("GOOGLE_WEATHER_BASE_URL").unwrap_or(d.google_weather_base_url),
+            google_weather_live_ttl_s: int("GOOGLE_WEATHER_LIVE_TTL_S")?.unwrap_or(d.google_weather_live_ttl_s),
+            google_weather_monthly_budget: int("GOOGLE_WEATHER_MONTHLY_BUDGET")?.unwrap_or(d.google_weather_monthly_budget),
+            longdo_base_url: get("LONGDO_BASE_URL").unwrap_or(d.longdo_base_url),
+            longdo_monthly_budget: int("LONGDO_MONTHLY_BUDGET")?.unwrap_or(d.longdo_monthly_budget),
+            longdo_timeout_s: num("LONGDO_TIMEOUT_S")?.unwrap_or(d.longdo_timeout_s),
+            longdo_calls_per_min: int("LONGDO_CALLS_PER_MIN")?.unwrap_or(d.longdo_calls_per_min),
+            longdo_interactive_reserve_per_min: int("LONGDO_INTERACTIVE_RESERVE_PER_MIN")?.unwrap_or(d.longdo_interactive_reserve_per_min),
+            longdo_radar_ttl_s: int("LONGDO_RADAR_TTL_S")?.unwrap_or(d.longdo_radar_ttl_s),
+            longdo_rain_ttl_s: int("LONGDO_RAIN_TTL_S")?.unwrap_or(d.longdo_rain_ttl_s),
+            longdo_area_radius_km: num("LONGDO_AREA_RADIUS_KM")?.unwrap_or(d.longdo_area_radius_km),
+            longdo_fleet_rain_ttl_s: int("LONGDO_FLEET_RAIN_TTL_S")?.unwrap_or(d.longdo_fleet_rain_ttl_s),
+            longdo_rain_sweep_per_request: int("LONGDO_RAIN_SWEEP_PER_REQUEST")?.unwrap_or(d.longdo_rain_sweep_per_request),
+            rainviewer_enabled: match get("RAINVIEWER_ENABLED") {
+                Some(v) => parse_bool(&v).ok_or_else(|| anyhow::anyhow!("RAINVIEWER_ENABLED: not a boolean: {v:?}"))?,
+                None => d.rainviewer_enabled,
+            },
+            rainviewer_url: get("RAINVIEWER_URL").unwrap_or(d.rainviewer_url),
+            rainviewer_ttl_s: int("RAINVIEWER_TTL_S")?.unwrap_or(d.rainviewer_ttl_s),
+            rainviewer_timeout_s: num("RAINVIEWER_TIMEOUT_S")?.unwrap_or(d.rainviewer_timeout_s),
         };
         if s.jwt_algorithm != "HS256" {
             anyhow::bail!("JWT_ALGORITHM {:?} is not supported (HS256 only, as in production)", s.jwt_algorithm);
@@ -268,5 +325,55 @@ impl Settings {
             anyhow::bail!("APP_ENV=prod refuses the default JWT_SECRET_KEY");
         }
         Ok(s)
+    }
+}
+
+/// The live weather / rain services' settings (Python `get_google_live`, `get_longdo_live`,
+/// `get_rainviewer_live` read them from `settings`).
+impl Settings {
+    /// Python `google_weather.window()` and the cell size (shared with the stored day)
+    pub fn google_cells(&self) -> tcroof_services::google_weather_stored::GoogleWeatherConfig {
+        tcroof_services::google_weather_stored::GoogleWeatherConfig {
+            configured: !self.google_weather_api_key.is_empty(),
+            cell_deg: self.google_weather_cell_deg,
+            day_start_h: self.google_weather_day_start_h,
+            day_end_h: self.google_weather_day_end_h,
+        }
+    }
+
+    pub fn google_live_config(&self) -> tcroof_services::google_weather_live::GoogleLiveConfig {
+        tcroof_services::google_weather_live::GoogleLiveConfig {
+            api_key: self.google_weather_api_key.clone(),
+            base_url: self.google_weather_base_url.clone(),
+            ttl_s: self.google_weather_live_ttl_s as f64,
+            monthly_budget: self.google_weather_monthly_budget,
+            cells: self.google_cells(),
+        }
+    }
+
+    pub fn longdo_config(&self) -> tcroof_services::longdo::LongdoConfig {
+        tcroof_services::longdo::LongdoConfig {
+            api_key: self.longdo_api_key.clone(),
+            base_url: self.longdo_base_url.clone(),
+            timeout_s: self.longdo_timeout_s,
+            monthly_budget: self.longdo_monthly_budget,
+            calls_per_min: self.longdo_calls_per_min,
+            interactive_reserve_per_min: self.longdo_interactive_reserve_per_min,
+            radar_ttl_s: self.longdo_radar_ttl_s as f64,
+            rain_ttl_s: self.longdo_rain_ttl_s as f64,
+            area_radius_km: self.longdo_area_radius_km,
+            fleet_rain_ttl_s: self.longdo_fleet_rain_ttl_s as f64,
+            rain_sweep_per_request: self.longdo_rain_sweep_per_request,
+            cells: self.google_cells(),
+        }
+    }
+
+    pub fn rainviewer_config(&self) -> tcroof_services::rainviewer::RainViewerConfig {
+        tcroof_services::rainviewer::RainViewerConfig {
+            enabled: self.rainviewer_enabled,
+            url: self.rainviewer_url.clone(),
+            ttl_s: self.rainviewer_ttl_s as f64,
+            timeout_s: self.rainviewer_timeout_s,
+        }
     }
 }

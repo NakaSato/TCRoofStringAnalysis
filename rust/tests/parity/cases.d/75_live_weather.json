@@ -1,0 +1,37 @@
+{
+ "_doc": "Live weather / rain routes (/growatt/live/rain-radar, /live/rain, /live/plants/{id}/rain, /live/plants/{id}/google-weather) against the stub Longdo / RainViewer / Google Weather (weather_stub.py, started by run.sh; PARITY_WEATHER=stub). Plants 7501-7506 (seed.d/75_live_weather.sql). Ignored: fetched_at (each backend's own fetch time) and refresh_in_s where it counts down from each backend's own fetch. Google's live calls run only in its daytime window (06-18 plant time): outside it both answer 503; weather_modes/degraded.json covers the fetch at any hour. The engineer's plants are set to [7501, 7503] and restored at the end. More states (Longdo refused, Longdo off) are separate runs: weather_modes/*.json.",
+ "cases": [
+  {"name": "weather: setup save engineer plants", "method": "GET", "path": "/api/auth/me", "auth": "engineer", "save": {"lw_eng_plants": "plant_ids"}},
+  {"name": "weather: setup assign engineer 7501, 7503", "method": "PUT", "path": "/api/users/${eng_id}/plants", "auth": "admin", "body": {"plant_ids": [7501, 7503]}},
+
+  {"name": "weather: rain radar unauthenticated", "method": "GET", "path": "/growatt/live/rain-radar", "auth": null},
+  {"name": "weather: rain radar admin (Longdo, fetched)", "method": "GET", "path": "/api/growatt/live/rain-radar", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "weather: rain radar engineer (cached)", "method": "GET", "path": "/growatt/live/rain-radar", "auth": "engineer", "ignore": ["fetched_at", "refresh_in_s"]},
+
+  {"name": "weather: plant rain admin 7501 (point + area)", "method": "GET", "path": "/api/growatt/live/plants/7501/rain", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "weather: plant rain admin 7502 (same cell, cached)", "method": "GET", "path": "/growatt/live/plants/7502/rain", "auth": "admin", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "weather: plant rain engineer 7501", "method": "GET", "path": "/growatt/live/plants/7501/rain", "auth": "engineer", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "weather: plant rain engineer 7502 not assigned", "method": "GET", "path": "/growatt/live/plants/7502/rain", "auth": "engineer"},
+  {"name": "weather: plant rain north 7503 (rain, nowcast)", "method": "GET", "path": "/growatt/live/plants/7503/rain", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "weather: plant rain south 7506 (nowcast fails)", "method": "GET", "path": "/growatt/live/plants/7506/rain", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "weather: plant rain no coordinates", "method": "GET", "path": "/growatt/live/plants/7504/rain", "auth": "admin"},
+  {"name": "weather: plant rain at 0,0", "method": "GET", "path": "/growatt/live/plants/7505/rain", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "weather: plant rain unknown plant", "method": "GET", "path": "/growatt/live/plants/999999/rain", "auth": "admin"},
+  {"name": "weather: plant rain unauthenticated", "method": "GET", "path": "/growatt/live/plants/7501/rain", "auth": null},
+
+  {"name": "weather: fleet rain admin (regions, then cells of wet regions)", "method": "GET", "path": "/api/growatt/live/rain", "auth": "admin", "ignore": ["fetched_at", "refresh_in_s", "data.plants.*.fetched_at"]},
+  {"name": "weather: fleet rain engineer (scoped, cached)", "method": "GET", "path": "/growatt/live/rain", "auth": "engineer", "ignore": ["fetched_at", "refresh_in_s", "data.plants.*.fetched_at"]},
+  {"name": "weather: fleet rain admin again (cached)", "method": "GET", "path": "/growatt/live/rain", "auth": "admin", "ignore": ["fetched_at", "refresh_in_s", "data.plants.*.fetched_at"]},
+  {"name": "weather: fleet rain unauthenticated", "method": "GET", "path": "/growatt/live/rain", "auth": null},
+
+  {"name": "weather: google live admin 7501", "method": "GET", "path": "/api/growatt/live/plants/7501/google-weather", "auth": "admin", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "weather: google live admin 7502 (same cell)", "method": "GET", "path": "/growatt/live/plants/7502/google-weather", "auth": "admin", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "weather: google live engineer 7503", "method": "GET", "path": "/growatt/live/plants/7503/google-weather", "auth": "engineer", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "weather: google live engineer 7502 not assigned", "method": "GET", "path": "/growatt/live/plants/7502/google-weather", "auth": "engineer"},
+  {"name": "weather: google live no coordinates", "method": "GET", "path": "/growatt/live/plants/7504/google-weather", "auth": "admin"},
+  {"name": "weather: google live unknown plant", "method": "GET", "path": "/growatt/live/plants/999999/google-weather", "auth": "admin"},
+  {"name": "weather: stored google day still answers (key set)", "method": "GET", "path": "/growatt/plants/7501/google-weather", "auth": "admin"},
+
+  {"name": "weather: teardown restore engineer plants", "method": "PUT", "path": "/api/users/${eng_id}/plants", "auth": "admin", "body": {"plant_ids": "${lw_eng_plants}"}}
+ ]
+}

@@ -19,9 +19,11 @@ LOGS="${PARITY_LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/tcroof-parity.XXXXXX")}"
 PY_PID=""
 RS_PID=""
 STUB_PID=""
+WX_PID=""
 
 cleanup() {
   [[ -n "$STUB_PID" ]] && kill "$STUB_PID" 2>/dev/null || true
+  [[ -n "$WX_PID" ]] && kill "$WX_PID" 2>/dev/null || true
   [[ -n "$PY_PID" ]] && kill "$PY_PID" 2>/dev/null || true
   [[ -n "$RS_PID" ]] && kill "$RS_PID" 2>/dev/null || true
   wait 2>/dev/null || true
@@ -114,6 +116,38 @@ if grep -qs '/growatt/live/' "$ROOT"/rust/tests/parity/cases.json "$ROOT"/rust/t
   STUB_PID=$!
   export GROWATT_BASE_URL="http://127.0.0.1:$STUB_PORT/v1/" GROWATT_TOKEN_PHASE1=parity-stub-token GROWATT_LIVE_NIGHT_TTL_S=0
   for _ in $(seq 1 40); do curl -sS "http://127.0.0.1:$STUB_PORT/v1/ping" >/dev/null 2>&1 && break; sleep 0.25; done
+fi
+# never the real Google Weather, Longdo or RainViewer (the repo .env may hold real keys): keys blank
+# and RainViewer off, unless a case file asks for the live weather / rain routes; then a stub
+# (weather_stub.py) answers all three. PARITY_WEATHER picks what the backends see:
+#   stub (default)  Longdo, RainViewer and Google Weather configured, Google's daytime window as set
+#   degraded        Longdo with a key the stub refuses (HTTP 403: RainViewer fallback, held-back
+#                   rain), Google Weather all day (GOOGLE_WEATHER_DAY_START_H=0, _END_H=24)
+#   off             no Longdo key, no Google key (only RainViewer)
+# e.g. PARITY_WEATHER=degraded rust/tests/parity/run.sh --cases rust/tests/parity/weather_modes/degraded.json
+# Blanked / pinned for both APIs (an empty variable is set, so the Rust API's .env lookup, which can
+# climb out of a worktree to the main checkout's .env, never fills it in): no real key ever reaches
+# either backend, and both see the same window and cell size.
+export GOOGLE_WEATHER_API_KEY= LONGDO_API_KEY= RAINVIEWER_ENABLED=false \
+  GOOGLE_WEATHER_BASE_URL=http://127.0.0.1:9/ LONGDO_BASE_URL=http://127.0.0.1:9/ RAINVIEWER_URL=http://127.0.0.1:9/ \
+  GOOGLE_WEATHER_DAY_START_H=6 GOOGLE_WEATHER_DAY_END_H=18 GOOGLE_WEATHER_CELL_DEG=0.01
+WEATHER_CASES=("$ROOT"/rust/tests/parity/cases.json "$ROOT"/rust/tests/parity/cases.d/*.json)
+for a in "$@"; do [[ -f "$a" ]] && WEATHER_CASES+=("$a"); done
+if grep -qsE '/growatt/live/(rain|plants/[^"]*/(rain|google-weather))' "${WEATHER_CASES[@]}"; then
+  WX_PORT="$(free_port "${WEATHER_STUB_PORT:-8490}")"
+  python3 -I "$ROOT/rust/tests/parity/weather_stub.py" "$WX_PORT" >"$LOGS/weather_stub.log" 2>&1 &
+  WX_PID=$!
+  WX="http://127.0.0.1:$WX_PORT"
+  export LONGDO_BASE_URL="$WX/longdo/" RAINVIEWER_URL="$WX/rainviewer/weather-maps.json" RAINVIEWER_ENABLED=true \
+    GOOGLE_WEATHER_BASE_URL="$WX/google/v1/"
+  case "${PARITY_WEATHER:-stub}" in
+    stub) export LONGDO_API_KEY=parity-stub-key GOOGLE_WEATHER_API_KEY=parity-stub-key ;;
+    degraded) export LONGDO_API_KEY=parity-refused-key GOOGLE_WEATHER_API_KEY=parity-stub-key \
+                GOOGLE_WEATHER_DAY_START_H=0 GOOGLE_WEATHER_DAY_END_H=24 ;;
+    off) ;;
+    *) echo "parity: PARITY_WEATHER must be stub, degraded or off" >&2; exit 2 ;;
+  esac
+  for _ in $(seq 1 40); do curl -sS "$WX/ping" >/dev/null 2>&1 && break; sleep 0.25; done
 fi
 
 echo "parity: Python on :$PY_PORT, Rust on :$RUST_PORT, Postgres on :$PG_PORT, logs in $LOGS"
