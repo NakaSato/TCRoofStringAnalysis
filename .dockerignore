@@ -28,3 +28,4 @@ backend/tests/
 **/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+rust/target/

@@ -84,3 +84,6 @@ billing/clean/
 
 # Internal-class design spec: kept locally, never pushed (public repo)
 specs/ip-switcher-design-spec.md
+
+# Rust port (rust/): build output
+rust/target/

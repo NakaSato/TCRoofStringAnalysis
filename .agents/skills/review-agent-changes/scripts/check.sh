@@ -4,8 +4,8 @@
 #
 # Usage (from repo root):
 #   .agents/skills/review-agent-changes/scripts/check.sh                       # smart check + auto-create GitHub issue on FAIL
-#   .agents/skills/review-agent-changes/scripts/check.sh --full                # force full pytest & frontend build regardless of changed paths
-#   .agents/skills/review-agent-changes/scripts/check.sh --fast                # skip pytest & vite build
+#   .agents/skills/review-agent-changes/scripts/check.sh --full                # force full pytest, frontend build & cargo checks regardless of changed paths
+#   .agents/skills/review-agent-changes/scripts/check.sh --fast                # skip pytest, vite build & cargo test (cargo clippy still runs)
 #   .agents/skills/review-agent-changes/scripts/check.sh --no-issue            # run checks only, never create GitHub issue
 #   .agents/skills/review-agent-changes/scripts/check.sh --issue-on-warn       # also create GitHub issue if warnings > 0
 #   .agents/skills/review-agent-changes/scripts/check.sh HEAD~1                # compare committed range HEAD~1..HEAD
@@ -71,10 +71,10 @@ if [ -n "$BASE_REF" ]; then
   DIFF_CMD=(git diff "$DIFF_RANGE")
   CHANGED_FILES="$(git diff --name-only --diff-filter=d "$DIFF_RANGE")"
   DIFF_LABEL="git diff $DIFF_RANGE"
-elif [ -n "$(git status --porcelain -- backend/ frontend/ pyproject.toml .env.example CLAUDE.md)" ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+elif [ -n "$(git status --porcelain -- backend/ frontend/ rust/ pyproject.toml .env.example CLAUDE.md)" ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   DIFF_CMD=(git diff HEAD)
   TRACKED_CHANGED="$(git diff --name-only --diff-filter=d HEAD)"
-  UNTRACKED_CODE="$(git ls-files --others --exclude-standard -- backend/ frontend/)"
+  UNTRACKED_CODE="$(git ls-files --others --exclude-standard -- backend/ frontend/ rust/)"
   CHANGED_FILES="$(printf '%s\n%s\n' "$TRACKED_CHANGED" "$UNTRACKED_CODE" | sed '/^$/d' | sort -u)"
   DIFF_LABEL="uncommitted changes vs HEAD ($COMMIT_SHA)"
 else
@@ -220,9 +220,11 @@ fi
 h "5. Type Checking, Linting & Tests"
 BACKEND_CHANGED=0
 FRONTEND_CHANGED=0
+RUST_CHANGED=0
 if [ "$FULL" -eq 1 ] || [ -z "$CHANGED_FILES" ]; then
   BACKEND_CHANGED=1
   FRONTEND_CHANGED=1
+  RUST_CHANGED=1
 else
   if echo "$CHANGED_FILES" | grep -qE '^(backend/|pyproject\.toml$|uv\.lock$)'; then
     BACKEND_CHANGED=1
@@ -230,6 +232,15 @@ else
   if echo "$CHANGED_FILES" | grep -qE '^frontend/'; then
     FRONTEND_CHANGED=1
   fi
+  if echo "$CHANGED_FILES" | grep -qE '^rust/'; then
+    RUST_CHANGED=1
+  fi
+fi
+
+HAVE_CARGO=1
+if [ "$RUST_CHANGED" -eq 1 ] && ! command -v cargo >/dev/null 2>&1; then
+  warn "cargo not found on PATH (rust/ checks skipped)"
+  HAVE_CARGO=0
 fi
 
 if command -v pyright >/dev/null 2>&1; then
@@ -267,6 +278,20 @@ else
   log "  [SKIP] frontend: bun run lint & bun test (no frontend/ files changed; pass --full to force)"
 fi
 
+if [ "$RUST_CHANGED" -eq 1 ]; then
+  if [ "$HAVE_CARGO" -eq 1 ]; then
+    if (cd rust && cargo clippy --all-targets -- -D warnings) >"${TMP_DIR}/cargo_clippy.log" 2>&1; then
+      pass "rust: cargo clippy --all-targets -- -D warnings"
+    else
+      fail "rust: \`cargo clippy --all-targets -- -D warnings\` failed"
+      grep -vE '^\s*(Compiling|Checking|Downloading|Downloaded|Updating|Locking|Adding|Blocking) ' "${TMP_DIR}/cargo_clippy.log" \
+        | head -n 35 | sed 's/^/    /' | tee -a "$REPORT_FILE"
+    fi
+  fi
+else
+  log "  [SKIP] rust: cargo clippy (no rust/ files changed; pass --full to force)"
+fi
+
 if [ "$FAST" -eq 0 ]; then
   if [ "$BACKEND_CHANGED" -eq 1 ]; then
     # If ONLY test files under backend/tests/ changed (no app/solar_core/pyproject changes), run just those test files
@@ -302,8 +327,21 @@ if [ "$FAST" -eq 0 ]; then
   else
     log "  [SKIP] frontend: bun run build (no frontend/ files changed; pass --full to force)"
   fi
+
+  if [ "$RUST_CHANGED" -eq 1 ]; then
+    if [ "$HAVE_CARGO" -eq 1 ]; then
+      if (cd rust && cargo test) >"${TMP_DIR}/cargo_test.log" 2>&1; then
+        pass "rust: cargo test ($(grep -E '^test result:' "${TMP_DIR}/cargo_test.log" | awk '{p+=$4; f+=$6} END {printf "%d passed, %d failed", p, f}'))"
+      else
+        fail "rust: \`cargo test\` failed"
+        tail -n 40 "${TMP_DIR}/cargo_test.log" | sed 's/^/    /' | tee -a "$REPORT_FILE"
+      fi
+    fi
+  else
+    log "  [SKIP] rust: cargo test (no rust/ files changed; pass --full to force)"
+  fi
 else
-  log "  [SKIP] pytest and bun run build (--fast mode)"
+  log "  [SKIP] pytest, bun run build and cargo test (--fast mode)"
 fi
 
 h "Summary"

@@ -1,7 +1,7 @@
 # Master Plan: Port TC Roof Solar to Rust (Side-by-Side New Project)
 
-Status: **Master Plan, not approved** (2026-11-27; reviewed against the repo and production measurements the same day, §1.1 and §6)
-Constraint: **Copy into a new sibling repository (e.g. `../TCRoofStringAnalysis-rs/`). Do NOT delete or modify the existing Python codebase.**
+Status: **Master Plan, not approved** (2026-11-27; reviewed against the repo and production measurements the same day, §1.1 and §6; layout moved to `rust/` in this repository, §2)
+Constraint: **Do NOT delete the Python codebase.** The Rust code goes in a new `rust/` folder in this repository, next to `backend/`; Python keeps running in production until each part has passed parity and been cut over, and stays as the rollback afterwards. (An earlier draft used a sibling repository; §2 says why it changed.)
 
 ---
 
@@ -18,9 +18,9 @@ Constraint: **Copy into a new sibling repository (e.g. `../TCRoofStringAnalysis-
 | `frontend/src` | React 19 + Vite + TypeScript + D3 | 360 | ~83,400 |
 
 ### Core Strategic Decisions
-1. **Keep the React + TypeScript frontend unchanged:** Copy `frontend/` into the new project as-is and preserve the exact HTTP/JSON API contract (mounted at both `/api/*` and `/*`). Rewriting 83k lines of React/D3 UI in Rust/WASM adds high risk with little benefit; porting the ~50k-line Python backend + worker is where the gains would be. The measurements in §1.1 show the gain is **safety and maintainability** (compile-time checks, decision 4), not CPU, RAM or cost.
-2. **Share the existing PostgreSQL 16 database schema directly:** Zero data migration. The Rust backend connects to the same Postgres 16 schema created by Alembic, using `sqlx` compile-time checked queries.
-3. **Keep Python untouched as the behavioral oracle:** The original repository stays intact so we can run a **Golden-Diff Parity Harness** comparing Python (`:8000`) vs Rust (`:8001`) against the same Postgres snapshot on every phase.
+1. **Keep the React + TypeScript frontend unchanged:** one `frontend/`, served by whichever API is live; preserve the exact HTTP/JSON API contract (mounted at both `/api/*` and `/*`). Rewriting 83k lines of React/D3 UI in Rust/WASM adds high risk with little benefit; porting the ~50k-line Python backend + worker is where the gains would be. The measurements in §1.1 show the gain is **safety and maintainability** (compile-time checks, decision 4), not CPU, RAM or cost.
+2. **Share the existing PostgreSQL 16 database schema directly:** Zero data migration. The Rust backend connects to the same Postgres 16 schema, which Python creates at startup (`ensure_schema`, §2), using `sqlx` compile-time checked queries.
+3. **Keep Python as the behavioral oracle:** `backend/` stays deployed and is changed only for its own features and fixes, never removed during the port, so we can run a **Golden-Diff Parity Harness** comparing Python (`:8000`) vs Rust (`:8001`) against the same Postgres snapshot on every phase.
 4. **Encode domain invariants in the Rust type system:** Prevent entire classes of bugs found in past audits (cross-plant IDORs, shadow-issue leaks, UTC vs Bangkok date mixups, missing `inverter_installed()` filters) via newtypes and typed query builders.
 
 ### 1.1 Measured Resource Use (Python, 2026-11-25 to 2026-11-27)
@@ -32,30 +32,39 @@ Constraint: **Copy into a new sibling repository (e.g. `../TCRoofStringAnalysis-
 | Worker (234 plants) | mean 4.9 % of a core, p95 11.7 % | median 207 MB, max 436 MB (`retention`); 1.2 GB on the first full pull | 24 h run, `data/exports/measure-2026-11-25` (SQLite) |
 | `history` job | 6 min of each 10-min tick | | limited by Growatt's 10012 rate limit, not by Python |
 
-- **Cold start:** the one cold start measured took 29.6 s from instance start to uvicorn ready; app startup was 0.5 s and the imports ~3 s. Most of the rest is Cloud Run pulling the 694 MB image for a new revision. One instance stayed up the whole window (UI polling and health checks keep it warm). The branch `api-cold-start` (a separate API image without tesseract, heavy imports loaded on first use) goes after this in Python.
+- **Cold start:** the one cold start measured took 29.6 s from instance start to uvicorn ready; app startup was 0.5 s and the imports ~3 s. Most of the rest is Cloud Run pulling the 694 MB image for a new revision. One instance stayed up the whole window (UI polling and health checks keep it warm). Done in Python on 2026-11-27 (`e8af27b`, `ae90091`): heavy libraries load on first use (`import app.main` 2.1–3.4 s / 214 MB → ~1.0 s / 118 MB) and the API has its own image without tesseract, with `.pyc` compiled at build. Cold start after the next deploy is not measured yet.
 - **What Rust would change (estimates, not measured):** API RAM to ~80–200 MiB (512 MiB limit becomes safe), worker RAM to ~30–80 MB, compute-heavy jobs (`rules_today` 16 s, daily rollups, I-V fits) several times faster.
 - **What it would not change:** the VM (`e2-standard-2`, ฿1,663/month, the largest cost) is sized for the Postgres page cache (2 GB shared buffers, 5 GB effective cache), not for Python; Postgres and Redis load stay the same; `history` stays bound by Growatt. Expected saving: under ฿100/month (Cloud Run 1 GiB → 512 MiB).
 
 ---
 
-## 2. Target Project Layout (`../TCRoofStringAnalysis-rs/`)
+## 2. Target Layout: a `rust/` folder in this repository
 
 ```text
-TCRoofStringAnalysis-rs/
-├── Cargo.toml                  # Rust workspace
-├── frontend/                   # Copied unchanged from Python repo
-├── migrations/                 # Baseline Postgres 16 schema + future sqlx migrations
-├── crates/
-│   ├── solar-core/             # Pure math, Growatt client/parsers, sun, I-V, TSP route, O&M dates (no DB/HTTP server)
-│   ├── db/                     # sqlx Postgres pool, models, typed PlantScope & InstalledOnly helpers
-│   ├── services/               # Domain services (live cache, overview, rules, issues, stock, kb, assistant, etc.)
-│   ├── api/                    # Axum HTTP server (Cloud Run binary)
-│   ├── worker/                 # Scheduled & queued background jobs binary (sync_runs locking)
-│   └── cli/                    # Admin CLI (backfills, Excel imports: pwa_meter, pvsyst, tfrs16, site_register)
-└── tests/
-    ├── integration/            # Fresh-DB Postgres 16 tests (mirroring tests/pg_plugin.py)
-    └── parity/                 # Golden-Diff harness comparing Python API vs Rust API
+TCRoofStringAnalysis/
+├── backend/                    # Python: unchanged, still deployed; the only schema owner (ensure_schema + Alembic)
+├── frontend/                   # one copy, served by whichever API is live
+└── rust/
+    ├── Cargo.toml              # workspace
+    ├── crates/
+    │   ├── solar-core/         # pure math, Growatt client/parsers, sun, I-V, TSP route, O&M dates (no DB/HTTP server)
+    │   ├── db/                 # sqlx Postgres pool, models, typed PlantScope & InstalledOnly helpers
+    │   ├── services/           # domain services (live cache, overview, rules, issues, stock, kb, assistant, etc.)
+    │   ├── api/                # Axum HTTP server (Cloud Run binary)
+    │   ├── worker/             # scheduled & queued background jobs binary (sync_runs locking)
+    │   └── cli/                # admin CLI (backfills, Excel imports: pwa_meter, pvsyst, tfrs16, site_register)
+    ├── .sqlx/                  # sqlx offline query data, regenerated from a DB built by rust/scripts/schema.sh
+    └── tests/
+        ├── integration/        # fresh-DB Postgres 16 tests (mirroring backend/tests/pg_plugin.py)
+        └── parity/             # Golden-Diff harness: Python API (:8000) vs Rust API (:8001)
 ```
+
+**Why in this repository, not a sibling one:**
+- **Python keeps changing** (§6): a feature can land in `backend/` and `rust/` in the same commit, and the parity check runs on the same tree. Two repositories drift.
+- **One frontend:** a copied `frontend/` would diverge from the first commit.
+- **One schema owner:** Python. The API and worker build the schema at startup with `ensure_schema` (`backend/app/db/session.py`: `create_all` + `_ADDED_COLUMNS` etc.; backend/CLAUDE.md), and hand-written Alembic migrations are kept in step for Postgres. Rust never creates or alters tables; its test and parity databases are built by running `ensure_schema` (`rust/scripts/schema.sh`). After cutover a Rust replacement for `ensure_schema` is needed before Python can ever be removed.
+- **Python is still untouched:** the port only adds `rust/`. Deleting the folder undoes it.
+- **Costs:** a Rust toolchain for whoever builds it; the audit script (`.agents/skills/review-agent-changes/scripts/check.sh`) gets a third path scope (`rust/` → `cargo clippy` + `cargo test`), and `.dockerignore` / `deploy/cloudbuild.yaml` get a Rust image target.
 
 ---
 
@@ -98,9 +107,12 @@ Encode the rules from `CLAUDE.md` / `backend/CLAUDE.md` directly into Rust types
 Each phase ends with: `cargo clippy -- -D warnings`, `cargo test` against Postgres 16, and **Golden-Diff Parity** against the Python API.
 
 ### Phase 0 — Workspace Bootstrap & Parity Harness (Week 1)
-- Create `../TCRoofStringAnalysis-rs/` with Cargo workspace (`solar-core`, `db`, `services`, `api`, `worker`, `cli`).
-- Copy `frontend/` untouched and verify `bun run build` points cleanly at the Rust API.
-- Export the current Postgres 16 schema from the Python repo (`pg_dump --schema-only`) as the baseline `migrations/0001_baseline.sql`.
+**Progress:** workspace scaffolded on branch `rust-port` (2026-11-27): `crates/db` + `crates/api` with `/health`, `/health/worker`, `/auth/login`, `/auth/me` on `:8001`; `check.sh` has the `rust/` scope.
+
+- Create `rust/` with the Cargo workspace (`solar-core`, `db`, `services`, `api`, `worker`, `cli`); add `rust/target/` to `.gitignore`.
+- Check the frontend against the Rust API with the Vite proxy pointed at `:8001` (`frontend/vite.config.ts`); no copy of `frontend/`.
+- Schema: `rust/scripts/schema.sh` runs Python's `ensure_schema` (and the user seed) on a fresh Postgres 16, then `cargo sqlx prepare` in `rust/`. No `pg_dump` baseline and no Rust migrations.
+- Audit script: add the `rust/` path scope to `check.sh`.
 - Build a Postgres 16 test fixture harness (fresh DB per test, mirroring `backend/tests/pg_plugin.py`).
 - Build `tests/parity/` CLI: replays a suite of admin + engineer requests against Python (`:8000`) and Rust (`:8001`) on the same DB snapshot and reports any status, key, or numeric diffs.
 
@@ -111,6 +123,8 @@ Each phase ends with: `cargo clippy -- -D warnings`, `cargo test` against Postgr
 - **Exit gate:** Existing users log in with existing passwords; frontend loads shell & Settings → Users cleanly.
 
 ### Phase 2 — Pure Engine (`crates/solar-core`) (Weeks 3–4)
+**Progress:** started 2026-11-27 with `crates/solar-core`.
+
 Port all 19 files (~5.9k lines) with zero DB/HTTP server dependencies:
 - `growatt/client.py` + `growatt/parsers.py` (all Growatt OpenAPI endpoints + `max_data`, `env_data`, `meter_data`, `alarm_data` parsers).
 - `sun.py` (NOAA sunrise/sunset + Haurwitz clear-sky GHI).
@@ -161,7 +175,7 @@ All 25 jobs of `JOBS` in `backend/app/services/jobs.py`:
 2. Run Rust `api` in production behind a traffic split (or read-only shadow mirror) while Python `worker` continues syncing.
 3. Cut over `api` traffic to Rust; monitor latency, memory, error rates, and `app_logs`.
 4. Stop Python `worker`, start Rust `worker` (only one worker runs at a time to avoid Growatt 10012 rate-limit contention).
-5. Keep the Python repository archived and untouched as a rollback option for 2+ weeks.
+5. Keep `backend/` and its images deployable as the rollback for 2+ weeks (switch Cloud Run back to `backend-api:<tag>`, the VM back to `backend:<tag>`). Remove Python only in a later, separate decision.
 
 ---
 
@@ -174,9 +188,9 @@ All 25 jobs of `JOBS` in `backend/app/services/jobs.py`:
 | Excel/PDF edge cases (`openpyxl` vs `calamine`, Thai text in PDFs) | Import errors or broken Thai search | Test `calamine` / `pdf-extract` against real production `.xlsx` workbooks and Thai PDFs in Phase 0/7 |
 | Scope creep (porting legacy unused modules or rewriting frontend) | Doubles timeline | Freeze legacy modules; keep React frontend untouched |
 | Python keeps changing during the port (370 commits and 49 Alembic migrations in the 30 days before 2026-11-27) | The port chases a moving target; parity checks keep breaking | Decide before Phase 0: a feature freeze on the Python side, or a rule that every Python change lands in Rust in the same week. Without one, port only `solar-core` first (pure code, few changes) |
-| Two schema owners while both backends share one database | sqlx compile-time checks fail whenever Alembic adds a migration; drift between the two | Alembic stays the only schema owner until cutover; Rust regenerates its `.sqlx` offline data from the migrated schema and adds no migrations of its own |
-| Local development moves from SQLite to Postgres only | Every developer needs a Postgres 16 container; `data/solar_fullstack.db` workflows stop | Ship a `docker compose` Postgres for development and say so in the new repo's CLAUDE.md |
-| Port justified by resources it does not save (§1.1) | Months of work for under ฿100/month | Treat the port as a safety / maintainability decision; finish the Python cold-start work (`api-cold-start`) first and measure again |
+| Two schema owners while both backends share one database | sqlx compile-time checks fail whenever Python adds a table or column; drift between the two | Python (`ensure_schema`, with Alembic kept in step) stays the only schema owner; Rust rebuilds its test DB with `rust/scripts/schema.sh`, regenerates `.sqlx` from it and adds no migrations. After cutover, port `ensure_schema` to Rust before Python can be removed |
+| Local development moves from SQLite to Postgres only | Every developer needs a Postgres 16 container; `data/solar_fullstack.db` workflows stop | Use the existing `docker compose` Postgres for Rust development and add a `rust/CLAUDE.md`; Python keeps SQLite meanwhile |
+| Port justified by resources it does not save (§1.1) | Months of work for under ฿100/month | Treat the port as a safety / maintainability decision; the Python cold-start work is merged (§1.1); measure the next deploy's cold start before claiming any Rust gain |
 | 17 weeks for ~50k lines of backend plus ~23k lines of tests | Schedule slips | Plan by exit gates, not weeks; Phase 2 (`solar-core`) is the go / no-go checkpoint |
 | Missing security/scoping checks on 267 endpoints | Cross-plant data leaks | Enforce `PlantScope` & `ShadowPolicy` types + automated engineer-vs-admin 404 test suite |
 
@@ -185,6 +199,7 @@ All 25 jobs of `JOBS` in `backend/app/services/jobs.py`:
 ## 7. Immediate Next Steps (Day 1)
 
 0. Decide the freeze / dual-landing rule and the schema owner (§6). If neither is settled, the first step is only Phase 2 (`solar-core`) under the parity harness.
-1. Confirm the target directory path (e.g. `/Users/chanthawat/Documents/TCRoofStringAnalysis-rs`) and whether legacy routes (`plants`, `datasets`, `analysis`, `maintenance`, `rca`) should be skipped.
-2. Scaffold the Cargo workspace + copy `frontend/` (leaving `/Users/chanthawat/Documents/TCRoofStringAnalysis` untouched).
-3. Dump the baseline Postgres 16 schema and verify `sqlx` + `axum` `/health` + `/auth/login` against a local Postgres 16 container.
+1. Confirm whether the legacy routes (`plants`, `datasets`, `analysis`, `maintenance`, `rca`) are retired rather than ported.
+2. Scaffold `rust/` (workspace, `.gitignore`, `check.sh` scope) on a branch; nothing under `backend/` or `frontend/` changes.
+3. Build a fresh local Postgres 16 with `rust/scripts/schema.sh` (Python `ensure_schema`), run `cargo sqlx prepare`, and get `sqlx` + `axum` `/health` and `/auth/login` (existing PBKDF2 hashes) answering on `:8001`.
+4. Measure the cold start after the next `deploy/gcp.sh backend` (two images) and add it to §1.1.
