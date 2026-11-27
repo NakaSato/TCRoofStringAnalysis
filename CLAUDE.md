@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 TC Roof Solar: a PV string performance and O&M suite. It has a FastAPI backend (`backend/`) and a React frontend (`frontend/`), and monitors a fleet of 234 Growatt plants (629 MAX inverters, 231 weather sensors).
 
-Folder-specific guidance lives in **`backend/CLAUDE.md`** and **`frontend/CLAUDE.md`**. **`rust/CLAUDE.md`** covers the Rust port of the backend (branch `rust-port`, not deployed; docs/plans/rust-port-master-plan.md).
+Folder-specific guidance lives in **`backend/CLAUDE.md`** and **`frontend/CLAUDE.md`**. **`rust/CLAUDE.md`** covers the Rust port of the backend (`rust/`, on `main` and branch `rust-port`; built and parity-tested, not deployed; docs/plans/rust-port-master-plan.md).
 
 ## Commands
 

@@ -1,6 +1,6 @@
 # Master Plan: Port TC Roof Solar to Rust (Side-by-Side New Project)
 
-Status: **Master Plan, not approved** (2026-11-27; reviewed against the repo and production measurements the same day, §1.1 and §6; layout moved to `rust/` in this repository, §2)
+Status: **In progress, not deployed** (written and reviewed 2026-11-27 against the repo and production measurements, §1.1 and §6; layout moved to `rust/` in this repository, §2). Phases 0–2 are done and every Phase 3 route is ported and at parity (progress notes under each phase in §5). `rust/` is on `main` as well as on branch `rust-port`; nothing deploys it. The §7 step 0 decision (Python freeze or same-week dual landing) is still open.
 Constraint: **Do NOT delete the Python codebase.** The Rust code goes in a new `rust/` folder in this repository, next to `backend/`; Python keeps running in production until each part has passed parity and been cut over, and stays as the rollback afterwards. (An earlier draft used a sibling repository; §2 says why it changed.)
 
 ---
@@ -107,7 +107,7 @@ Encode the rules from `CLAUDE.md` / `backend/CLAUDE.md` directly into Rust types
 Each phase ends with: `cargo clippy -- -D warnings`, `cargo test` against Postgres 16, and **Golden-Diff Parity** against the Python API.
 
 ### Phase 0 — Workspace Bootstrap & Parity Harness (Week 1)
-**Progress:** workspace scaffolded on branch `rust-port` (2026-11-27): `crates/db` + `crates/api` with `/health`, `/health/worker`, `/auth/login`, `/auth/me` on `:8001`; `check.sh` has the `rust/` scope.
+**Progress: done** (2026-11-27, `a743d09`, `e68b407`): Cargo workspace in `rust/`, `crates/db` + `crates/api` on `:8001`, `check.sh` has the `rust/` scope. `rust/scripts/schema.sh` (Python `ensure_schema` + seed), `rust/scripts/test_pg.sh` (fresh Postgres 16 per run, a template database copied per test) and `rust/tests/parity/run.sh` (one copy of a seeded template per backend, a stub Growatt server for live cases; it blanks `PUBLISH_SINK`, Firebase, the Growatt tokens, `REDIS_URL`, `GOOGLE_WEATHER_API_KEY` and `LONGDO_API_KEY`, disables RainViewer and points the weather base URLs at stubs, so a run cannot reach production or a paid API, even from a worktree, where Rust's dotenv lookup finds the main checkout's `.env`) are the entry points. Every port and stub is configurable (`TEST_PG_PORT`, `PY_PORT`, `RUST_PORT`, `GROWATT_STUB_PORT`, `WEATHER_STUB_PORT`; a busy one moves to the next free port), so two runs can share a machine.
 
 - Create `rust/` with the Cargo workspace (`solar-core`, `db`, `services`, `api`, `worker`, `cli`); add `rust/target/` to `.gitignore`.
 - Check the frontend against the Rust API with the Vite proxy pointed at `:8001` (`frontend/vite.config.ts`); no copy of `frontend/`.
@@ -117,13 +117,15 @@ Each phase ends with: `cargo clippy -- -D warnings`, `cargo test` against Postgr
 - Build `tests/parity/` CLI: replays a suite of admin + engineer requests against Python (`:8000`) and Rust (`:8001`) on the same DB snapshot and reports any status, key, or numeric diffs.
 
 ### Phase 1 — Core Foundation, Auth & System Ops (Week 2)
+**Progress: done** (2026-11-27, `da1fc83`): auth dependencies as Axum extractors (`extract.rs`: `CurrentUser`, `WriteUser`, `AdminUser`, `StoreKeeper`, `PlantScope`; rejection order 401 → 403 → 422 → 404 as in FastAPI), `/users*`, `/system/logs*`, request logging into `app_logs`. PBKDF2 hashes and JWTs are interchangeable with Python's. Parity 131/131. Known differences: 422 bodies (`{"detail"}` instead of FastAPI's field list, same status), a 500 is JSON, no 307 trailing-slash redirect, a signed token without `exp` is rejected.
+
 - Config (`envy` / `dotenvy` reading the exact same `.env` variables as `backend/app/config.py`).
 - Auth: PBKDF2-SHA256 verification + JWT sign/verify, `get_current_user`, `require_admin`, `require_plant_read/write`, `allowed_plant_ids`, `can_manage_stock`.
 - Routes: `/health`, `/health/worker`, `/auth/*`, `/users/*`, `/system/logs*`, request logging middleware (`app_logs` + `app.audit`).
 - **Exit gate:** Existing users log in with existing passwords; frontend loads shell & Settings → Users cleanly.
 
 ### Phase 2 — Pure Engine (`crates/solar-core`) (Weeks 3–4)
-**Progress:** started 2026-11-27 with `crates/solar-core`.
+**Progress: done** (2026-11-27, `a743d09`, `da1fc83`). `crates/solar-core`: `sun`, `visit_route` (with CPython's random stream for the heuristic starts), `om_planning`, `iv_analysis`, `iv_site_fit`, `iv_operating` (numpy's polyfit / lstsq / interp / gradient re-implemented; one known rounding tie, `KNOWN_ROUNDING_TIES`). `crates/clients`: all 30 `GrowattClient` endpoints and the 8 parsers (746 fixture cases equal), Google Weather, Longdo, RainViewer (3,049 fixture cases equal); their caches and budgets belong to the services (Phase 3). Not ported, because only the legacy modules use them (Phase 7): `analysis`, `charts`, `ingestion`, `models`, `om_management`, `storage`. Python bugs found: `parse_max_records` stores missing values as 0; the Growatt client cache never evicts; an all-zero I-V curve crashes the analysis (`LinAlgError`); a user id above int4 is a 500.
 
 Port all 19 files (~5.9k lines) with zero DB/HTTP server dependencies:
 - `growatt/client.py` + `growatt/parsers.py` (all Growatt OpenAPI endpoints + `max_data`, `env_data`, `meter_data`, `alarm_data` parsers).
@@ -135,6 +137,8 @@ Port all 19 files (~5.9k lines) with zero DB/HTTP server dependencies:
 - **Exit gate:** 100% of pure unit tests from `backend/tests/` ported and matching Python outputs to `1e-6`.
 
 ### Phase 3 — Growatt Stored Views & Live Services (Weeks 5–7)
+**Progress: all 45 routes ported** (2026-11-27, `db4c694`, `7950f13`, `bc67e58`, merged in `57b592d`): new crate `crates/services`. Stored routes: plants, inverters, overview, power, sync, inverter timeseries / raw / daily, string detail (with the `PlantInverter` ownership check), weather, stored Google Weather, curtailment, sensors, alarms, devices, fleet module, string layout, installed flag, tariff, documents. Live routes: `/live/plants`, `/live/plants/today`, `/live/inverters/snapshot`, `/live/plants/{id}/latest`, `/live/plants/{id}/alarms`, `weather`, `meter`, `strings/operating` (thresholds read at compile time from `backend/app/services/string_live_criteria.json`), `sensors/status`, `sensors/{dl}/{addr}`, `sensors/{dl}/{addr}/today`, `google-weather` (live, with the monthly budget), `rain-radar` (Longdo, RainViewer fallback), `rain`, `plants/{id}/rain` (Longdo budget, per-minute limit, interactive reserve). `live_store` uses the same Redis keys and JSON as `TieredDict`, so the two APIs can share a Redis at cutover. Parity 555/555 (plus weather modes `PARITY_WEATHER=degraded` 14/14 and `off` 10/10, against `weather_stub.py`), 243 tests on Postgres 16, clippy clean. The exit gate is met route by route; the page-level check (the frontend against `:8001`) is not done yet. Deviations: the Google billing day (US/Pacific) is computed from the US daylight-saving rule instead of a time-zone database; Rust cache ages use the wall clock where Python without Redis uses `monotonic`. Python bugs found: string detail did not check the inverter belongs to the plant (fixed in Python, `6c893e1`); saving a string layout does not clear the wired-inputs cache; a tariff plant key like `"²"` passes validation and then makes `GET /tariff` a 500 for engineers; plants on a phase with no token make the live pages poll every 15 s forever.
+
 - Stored DB-only services (also `daily_checks`, `drive_match`, `inverter_install`, `system_logs`, `users`): `growatt_overview`, `growatt_strings`, `growatt_layout` (with cache invalidation), `growatt_inverter_history`, `growatt_weather`, `growatt_meter`, `growatt_curtailment`, `growatt_sensors`, `growatt_alarms`, `devices`, `device_checks`, `fleet_settings`, `tariff`, `inverter_models`, `plant_documents`.
 - Live memory/Redis services (`growatt_live`): `TieredCache` (`moka` + `redis`), single-flight coalescing, per-key cooldowns (10012 = 60 s), `device_gap_s` (270 s), night TTL stretching, parallel inverter/account fetching, `live_string_check`, `string_operating`, `google_weather` live, `longdo_weather` + `rainviewer`.
 - **Exit gate:** Fleet Directory, Plant Map, Plant Overview, Inverters, String Detail, Weather Sensors, Active Alarm, and Devices pages pass full Golden-Diff parity against Python.
