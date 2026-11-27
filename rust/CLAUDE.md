@@ -4,7 +4,7 @@ Guidance for the Rust port. Run cargo commands from **`rust/`**; run the scripts
 
 `rust/` is a port of `backend/` (API and, later, worker) to Rust, built side by side (on `main` and branch `rust-port`; not deployed). The plan, phases and exit gates are in **docs/plans/rust-port-master-plan.md**. Python in `backend/` stays deployed and is the oracle: when the two disagree, Python is right until the difference is understood. The port only adds `rust/`; it never changes `backend/` or `frontend/`.
 
-Crates are added when their phase starts. Today: `crates/solar-core` (pure engine: sun, visit_route, om_planning, iv_analysis / iv_site_fit / iv_operating), `crates/clients` (Growatt OpenAPI client + parsers, Google Weather, Longdo, RainViewer; no caches or budgets, those live in `services`), `crates/db` (sqlx Postgres pool), `crates/services` (domain services: Growatt stored views; the live cache `live.rs` + `live_store.rs`, which has no database handle; live Google Weather, Longdo and RainViewer with their budgets) and `crates/api` (Axum; `/health`, `/health/worker`, `/auth/*`, `/users*`, `/system/logs*`, `/growatt/*` of Phase 3, request logging into `app_logs`; auth dependencies as extractors in `extract.rs`).
+Crates are added when their phase starts. Today: `crates/solar-core` (pure engine: sun, visit_route, om_planning, iv_analysis / iv_site_fit / iv_operating), `crates/clients` (Growatt OpenAPI client + parsers, Google Weather, Longdo, RainViewer; no caches or budgets, those live in `services`), `crates/db` (sqlx Postgres pool), `crates/services` (domain services: Growatt stored views; the live cache `live.rs` + `live_store.rs`, which has no database handle; live Google Weather, Longdo and RainViewer with their budgets), `crates/worker` (`tcroof-worker`: backend/app/worker.py + the run log / lock of services/jobs.py; jobs not ported yet fail their run with the phase that ports them) and `crates/api` (Axum; `/health`, `/health/worker`, `/auth/*`, `/users*`, `/system/logs*`, `/growatt/*` of Phase 3, request logging into `app_logs`; auth dependencies as extractors in `extract.rs`).
 
 ## Commands
 
@@ -19,6 +19,8 @@ rust/scripts/test_pg.sh                      # cargo tests against a fresh Postg
 rust/tests/parity/run.sh                     # Golden-Diff: same requests to Python :8000 and Rust :8001, report diffs
 PARITY_WEATHER=degraded rust/tests/parity/run.sh --cases rust/tests/parity/weather_modes/degraded.json   # also: off
 # two runs at once: give each its own TEST_PG_PORT, PY_PORT, RUST_PORT, GROWATT_STUB_PORT, WEATHER_STUB_PORT
+cargo run -p tcroof-worker -- --once retention  # one job now (also: --list; no args = the schedule loop)
+rust/tests/worker_parity/run.sh [JOB ...]     # same job with Python's and Rust's worker on copies of one seeded DB, diff the rows (jobs.json, seed.d/)
 ```
 
 These three scripts are the entry points for database tests and parity; use them rather than hand-built databases. cargo needs network access the first time (crates.io).

@@ -31,3 +31,5 @@ pub mod string_operating;
 pub mod google_weather_live;
 pub mod longdo;
 pub mod rainviewer;
+// Phase 4 (worker): the deletes of the `retention` job
+pub mod retention;

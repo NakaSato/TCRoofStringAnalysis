@@ -48,6 +48,9 @@ const QUIET_PREFIXES: &[&str] =
 tokio::task_local! {
     /// Python `request_id_var`: set by the request middleware for the request's task.
     pub static REQUEST_ID: String;
+    /// Python `run_id_var` / `job_var`: set by the worker (`tcroof-worker`, `runs::execute`) for
+    /// the run's task, so every record logged during a job carries its run id and job.
+    pub static RUN: (i32, String);
 }
 
 /// Python `logging.getLevelNamesMapping()`
@@ -260,8 +263,8 @@ impl DbLog {
             logger: r.logger.chars().take(128).collect(),
             message: trunc(self.redactor.redact(&r.message), MESSAGE_MAX),
             exc_text: r.exc_text.filter(|t| !t.is_empty()).map(|t| trunc(self.redactor.redact(&t), EXC_MAX)),
-            run_id: None,
-            job: None,
+            run_id: RUN.try_with(|r| r.0).ok(),
+            job: RUN.try_with(|r| r.1.clone()).ok(),
             request_id: REQUEST_ID.try_with(Clone::clone).ok(),
             extra_json: r.extra.map(|v| self.redactor.redact_value(&v)),
         };
@@ -399,6 +402,19 @@ pub fn init_tracing(logs: Option<Arc<DbLog>>) {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(tracing_subscriber::fmt::layer())
+        .with(logs.map(db_layer))
+        .init();
+}
+
+/// [`init_tracing`] with the console on stderr (the worker: stdout carries only `--once`'s run,
+/// as Python's worker prints it while its log goes to stderr); colours only on a terminal.
+pub fn init_tracing_stderr(logs: Option<Arc<DbLog>>) {
+    use std::io::IsTerminal;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr).with_ansi(std::io::stderr().is_terminal()))
         .with(logs.map(db_layer))
         .init();
 }
