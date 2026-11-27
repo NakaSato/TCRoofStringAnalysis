@@ -1,0 +1,22 @@
+{
+ "_doc": "Run with PARITY_WEATHER=degraded rust/tests/parity/run.sh --cases rust/tests/parity/weather_modes/degraded.json: Longdo has a key the stub refuses (HTTP 403), so the radar falls back to RainViewer and the rain lookups are held back; Google Weather runs all day (window 0-24), so its fetch is compared at any hour.",
+ "users": {"admin": {"username": "admin", "password": "admin123"}, "engineer": {"username": "engineer", "password": "engineer123"}},
+ "cases": [
+  {"name": "degraded: save engineer id and plants", "method": "GET", "path": "/api/auth/me", "auth": "engineer", "save": {"eng_id": "id"}},
+  {"name": "degraded: assign engineer 7501, 7503", "method": "PUT", "path": "/api/users/${eng_id}/plants", "auth": "admin", "body": {"plant_ids": [7501, 7503]}},
+
+  {"name": "degraded: rain radar admin (Longdo refused, RainViewer)", "method": "GET", "path": "/api/growatt/live/rain-radar", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "degraded: rain radar engineer (Longdo cooldown, RainViewer cached)", "method": "GET", "path": "/growatt/live/rain-radar", "auth": "engineer", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "degraded: plant rain 7501 (both parts refused: 200 stale)", "method": "GET", "path": "/growatt/live/plants/7501/rain", "auth": "admin"},
+  {"name": "degraded: plant rain 7501 again (cooldown)", "method": "GET", "path": "/growatt/live/plants/7501/rain", "auth": "engineer", "ignore": ["refresh_in_s"]},
+  {"name": "degraded: plant rain 7504 no coordinates", "method": "GET", "path": "/growatt/live/plants/7504/rain", "auth": "admin"},
+  {"name": "degraded: fleet rain admin (regions refused)", "method": "GET", "path": "/growatt/live/rain", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "degraded: fleet rain engineer", "method": "GET", "path": "/growatt/live/rain", "auth": "engineer", "ignore": ["fetched_at", "refresh_in_s"]},
+
+  {"name": "degraded: google live 7501 (fetched)", "method": "GET", "path": "/api/growatt/live/plants/7501/google-weather", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "degraded: google live 7502 (same cell, cached)", "method": "GET", "path": "/growatt/live/plants/7502/google-weather", "auth": "admin", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "degraded: google live engineer 7503 (north, wet)", "method": "GET", "path": "/growatt/live/plants/7503/google-weather", "auth": "engineer", "ignore": ["fetched_at"]},
+  {"name": "degraded: google live 7505 at 0,0", "method": "GET", "path": "/growatt/live/plants/7505/google-weather", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "degraded: google live engineer 7502 not assigned", "method": "GET", "path": "/growatt/live/plants/7502/google-weather", "auth": "engineer"}
+ ]
+}

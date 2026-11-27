@@ -1,0 +1,16 @@
+{
+ "_doc": "Run with PARITY_WEATHER=off rust/tests/parity/run.sh --cases rust/tests/parity/weather_modes/off.json: no Longdo key and no Google key, RainViewer on (stub).",
+ "users": {"admin": {"username": "admin", "password": "admin123"}, "engineer": {"username": "engineer", "password": "engineer123"}},
+ "cases": [
+  {"name": "off: rain radar admin (RainViewer, Longdo not configured)", "method": "GET", "path": "/api/growatt/live/rain-radar", "auth": "admin", "ignore": ["fetched_at"]},
+  {"name": "off: rain radar engineer (cached)", "method": "GET", "path": "/growatt/live/rain-radar", "auth": "engineer", "ignore": ["fetched_at", "refresh_in_s"]},
+  {"name": "off: rain radar unauthenticated", "method": "GET", "path": "/growatt/live/rain-radar", "auth": null},
+  {"name": "off: fleet rain 404", "method": "GET", "path": "/growatt/live/rain", "auth": "admin"},
+  {"name": "off: plant rain 404", "method": "GET", "path": "/growatt/live/plants/7501/rain", "auth": "admin"},
+  {"name": "off: plant rain unknown plant 404", "method": "GET", "path": "/growatt/live/plants/999999/rain", "auth": "admin"},
+  {"name": "off: plant rain engineer not assigned", "method": "GET", "path": "/growatt/live/plants/7501/rain", "auth": "engineer"},
+  {"name": "off: google live not configured (503)", "method": "GET", "path": "/growatt/live/plants/7501/google-weather", "auth": "admin"},
+  {"name": "off: google live unknown plant", "method": "GET", "path": "/growatt/live/plants/999999/google-weather", "auth": "admin"},
+  {"name": "off: stored google day (key empty)", "method": "GET", "path": "/growatt/plants/7501/google-weather", "auth": "admin"}
+ ]
+}

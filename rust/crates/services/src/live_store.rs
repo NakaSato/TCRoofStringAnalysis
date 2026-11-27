@@ -124,6 +124,24 @@ impl Key {
     }
 }
 
+/// A key of a [`TieredMap`], identified by Python's `repr(key)`: a tuple [`Key`], or a `str` for
+/// the caches Python keys by a plain string (Google Weather cells, Longdo, RainViewer: `'frames'`).
+pub trait MapKey {
+    fn map_repr(&self) -> String;
+}
+
+impl MapKey for Key {
+    fn map_repr(&self) -> String {
+        self.repr()
+    }
+}
+
+impl MapKey for str {
+    fn map_repr(&self) -> String {
+        py::repr_str(self)
+    }
+}
+
 impl fmt::Display for Key {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.repr())
@@ -386,8 +404,8 @@ impl<V: Mirrored> TieredMap<V> {
         }
     }
 
-    fn rkey(&self, key: &Key) -> String {
-        format!("{}{}", self.prefix, key.repr())
+    fn rkey<K: MapKey + ?Sized>(&self, key: &K) -> String {
+        format!("{}{}", self.prefix, key.map_repr())
     }
 
     fn local(&self) -> std::sync::MutexGuard<'_, HashMap<String, V>> {
@@ -396,22 +414,22 @@ impl<V: Mirrored> TieredMap<V> {
 
     /// Python `TieredDict.get`: the process map first; on a miss Redis, whose value then becomes
     /// the first level. An unreadable Redis value is a miss.
-    pub async fn get(&self, key: &Key) -> Option<V> {
-        if let Some(hit) = self.local().get(&key.repr()) {
+    pub async fn get<K: MapKey + ?Sized>(&self, key: &K) -> Option<V> {
+        if let Some(hit) = self.local().get(&key.map_repr()) {
             return Some(hit.clone());
         }
         let link = self.link.as_ref()?;
         let raw = link.get(&self.rkey(key)).await?;
         let value: V = loads(&raw)?;
-        self.local().insert(key.repr(), value.clone());
+        self.local().insert(key.map_repr(), value.clone());
         Some(value)
     }
 
     /// Python `TieredDict.__setitem__`
-    pub async fn set(&self, key: &Key, value: V) {
+    pub async fn set<K: MapKey + ?Sized>(&self, key: &K, value: V) {
         let ttl = (self.expire_s)(&value);
         let text = if self.link.is_some() && ttl > 0.0 { dumps(&value) } else { None };
-        self.local().insert(key.repr(), value);
+        self.local().insert(key.map_repr(), value);
         if let (Some(link), Some(text)) = (&self.link, text) {
             // max(1, int(ttl))
             link.set_ex(&self.rkey(key), &text, (ttl as u64).max(1)).await;
@@ -419,8 +437,8 @@ impl<V: Mirrored> TieredMap<V> {
     }
 
     /// Python `TieredDict.pop`
-    pub async fn pop(&self, key: &Key) -> Option<V> {
-        let value = self.local().remove(&key.repr());
+    pub async fn pop<K: MapKey + ?Sized>(&self, key: &K) -> Option<V> {
+        let value = self.local().remove(&key.map_repr());
         if let Some(link) = &self.link {
             link.delete(&self.rkey(key)).await;
         }
@@ -428,7 +446,7 @@ impl<V: Mirrored> TieredMap<V> {
     }
 
     /// Python `TieredDict.__contains__`
-    pub async fn contains(&self, key: &Key) -> bool {
+    pub async fn contains<K: MapKey + ?Sized>(&self, key: &K) -> bool {
         self.get(key).await.is_some()
     }
 }

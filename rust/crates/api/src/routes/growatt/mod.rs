@@ -12,6 +12,7 @@ pub mod devices;
 pub mod fleet_config;
 pub mod history;
 pub mod live;
+pub mod live_weather;
 pub mod plants;
 pub mod stored_weather;
 
@@ -19,6 +20,7 @@ pub mod stored_weather;
 pub fn router() -> Router<AppState> {
     Router::new()
         .merge(live::router())
+        .merge(live_weather::router())
         .merge(plants::router())
         .merge(history::router())
         .merge(stored_weather::router())

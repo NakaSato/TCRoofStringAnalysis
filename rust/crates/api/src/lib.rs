@@ -31,13 +31,36 @@ pub struct AppState {
     /// Growatt live service (services/live.rs, Python `get_live_service`): memory cache mirrored
     /// in Redis when `REDIS_URL` is set; never written to SQL
     pub live: tcroof_services::live::LiveService,
+    /// Live weather / rain (Python `get_google_live`, `get_longdo_live`, `get_rainviewer_live`):
+    /// memory cache mirrored in Redis when `REDIS_URL` is set; SQL gets only the call counts
+    pub weather: WeatherLive,
+}
+
+/// The live weather / rain services, one per process like Python's `lru_cache`d getters.
+#[derive(Clone)]
+pub struct WeatherLive {
+    pub google: Arc<tcroof_services::google_weather_live::GoogleWeatherLive>,
+    pub longdo: Arc<tcroof_services::longdo::LongdoLive>,
+    pub rainviewer: Arc<tcroof_services::rainviewer::RainViewerLive>,
+}
+
+impl WeatherLive {
+    pub fn from_settings(settings: &Settings) -> WeatherLive {
+        let redis = tcroof_services::live_store::redis_link(&settings.redis_url);
+        WeatherLive {
+            google: Arc::new(tcroof_services::google_weather_live::GoogleWeatherLive::new(settings.google_live_config(), redis.clone())),
+            longdo: Arc::new(tcroof_services::longdo::LongdoLive::new(settings.longdo_config(), redis.clone())),
+            rainviewer: Arc::new(tcroof_services::rainviewer::RainViewerLive::new(settings.rainviewer_config(), redis)),
+        }
+    }
 }
 
 impl AppState {
     /// A state without DB logging (tests that don't look at `app_logs`).
     pub fn new(pool: PgPool, settings: Settings) -> AppState {
         let live = live_service(&settings);
-        AppState { pool, settings: Arc::new(settings), logs: None, live }
+        let weather = WeatherLive::from_settings(&settings);
+        AppState { pool, settings: Arc::new(settings), logs: None, live, weather }
     }
 }
 
