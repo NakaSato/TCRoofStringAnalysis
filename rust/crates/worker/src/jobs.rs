@@ -10,8 +10,10 @@ use std::pin::Pin;
 
 use chrono::Utc;
 use serde_json::{json, Map, Value};
+use tcroof_services::growatt_energy as ge;
 use tcroof_services::retention as r;
 
+use crate::phases::{per_phase, PhaseCtx};
 use crate::{today, Ctx, JobError};
 
 pub type JobResult = Result<(String, Value), JobError>;
@@ -37,8 +39,8 @@ pub fn job(name: &str) -> Option<Job> {
         "backfill" => NotPorted { phase: "4.2" },
         "fleet" => NotPorted { phase: "4.2" },
         "power_limits" => NotPorted { phase: "4.2" },
-        "growatt_energy" => NotPorted { phase: "4.2" },
-        "energy_backfill" => NotPorted { phase: "4.2" },
+        "growatt_energy" => Ported(|ctx| Box::pin(job_growatt_energy(ctx))),
+        "energy_backfill" => Ported(|ctx| Box::pin(job_energy_backfill(ctx))),
         "publish_today" => NotPorted { phase: "4.3" },
         "publish_yesterday" => NotPorted { phase: "4.3" },
         "retention" => Ported(|ctx| Box::pin(job_retention(ctx))),
@@ -94,6 +96,31 @@ pub async fn job_retention(ctx: Ctx) -> JobResult {
     Ok(("ok".into(), Value::Object(detail)))
 }
 
+/// Python `job_growatt_energy`: Growatt's own figures for finished days: each plant's daily kWh
+/// (`plant/energy`, last 7 days), its 5-minute curve (`plant/power`) and each inverter's kWh
+/// (`day_energy`) for the days not stored yet. Never today (realtime).
+pub async fn job_growatt_energy(ctx: Ctx) -> JobResult {
+    let day = today();
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let o = ge::EnergyOptions::default();
+        Ok(ge::sync_growatt_energy(&pc.pool, &pc.client, day, Some(pc.phase), pc.include_untagged, o).await?)
+    })
+    .await
+}
+
+/// Python `job_energy_backfill`: Growatt's daily kWh (`plant/energy`) for the last
+/// HISTORY_RETENTION_DAYS finished days of every plant missing some (not scheduled: queue once
+/// after deploy).
+pub async fn job_energy_backfill(ctx: Ctx) -> JobResult {
+    let day = today();
+    let days = ctx.worker.history_retention_days;
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let o = ge::EnergyOptions::default();
+        Ok(ge::backfill_plant_energy(&pc.pool, &pc.client, day, days, Some(pc.phase), pc.include_untagged, o).await?)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,7 +133,7 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["retention"]);
+        assert_eq!(ported, ["growatt_energy", "energy_backfill", "retention"]);
     }
 
     #[test]

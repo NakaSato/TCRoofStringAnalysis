@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -100,6 +100,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(LIMITED)
             upd = T0 - (timedelta(days=1) if pid == "7002" else timedelta(minutes=3))
             return self._send(ok({"today_energy": "123.4", "current_power": 5.0, "last_update_time": fmt(upd)}))
+        # Growatt's own energy (worker jobs growatt_energy / energy_backfill, worker_parity
+        # seed.d/40_growatt_energy.sql): plants 4003 / 4004 and INV4003A refuse with 10012,
+        # INV4002A with another error; plant 4002 has no curve.
+        if path in ("plant/energy", "plant/power", "device/inverter/day_energy"):
+            return self._energy(path, p)
         if path == "device/datalogger/list":
             return self._send(ok({"count": 3, "dataloggers": [
                 {"sn": "DL2", "model": "ShineMaster", "lost": "false", "last_update_time": {"time": 1763002800000}},
@@ -188,6 +193,41 @@ class Handler(BaseHTTPRequestHandler):
                 "reverActivePower": 0, "reverseActiveTodayEnergy": 3.25, "lost": "0",
             }))
         return self._send({"error_code": 10001, "error_msg": f"stub has no {path}"})
+
+    def _energy(self, path: str, p: dict) -> None:
+        if path == "plant/energy":
+            pid = p.get("plant_id", "")
+            if pid in ("4003", "4004"):
+                return self._send(LIMITED)
+            lo, hi = date.fromisoformat(p["start_date"]), date.fromisoformat(p["end_date"])
+            days = [lo + timedelta(days=k) for k in range((hi - lo).days + 2)]  # one past the range: dropped
+            rows = [{"date": d.isoformat(), "energy": f"{100 + d.day + int(pid or 0) % 10}.5"} for d in days]
+            if pid == "4002":
+                rows[0]["energy"] = None
+            rows.insert(1, {"date": "not a date", "energy": 1})
+            page, size = int(p.get("page", 1)), 20  # pages of 20, whatever perpage asks
+            return self._send(ok({"count": len(rows) - 1, "energys": rows[(page - 1) * size: page * size]}))
+        if path == "plant/power":
+            pid, day = p.get("plant_id", ""), p.get("date", "")
+            if pid == "4003":
+                return self._send(LIMITED)
+            if pid == "4002":
+                return self._send(ok({"powers": []}))
+            d0 = datetime.fromisoformat(day)
+            pts = [{"time": (d0 + timedelta(minutes=5 * k)).strftime("%Y-%m-%d %H:%M"), "power": 1000.0 * (k % 7)}
+                   for k in range(72, 217)]
+            pts[3]["power"] = None
+            pts.insert(0, {"time": "bad", "power": 5})
+            pts.append({"time": (d0 + timedelta(days=1)).strftime("%Y-%m-%d %H:%M"), "power": 9.0})
+            return self._send(ok({"powers": list(reversed(pts))}))
+        sn = p.get("device_sn", "")
+        if sn == "INV4003A":
+            return self._send(LIMITED)
+        if sn == "INV4002A":
+            return self._send({"error_code": 10002, "error_msg": "device not found"})
+        if sn == "INV4001B":
+            return self._send(ok(None))
+        return self._send(ok(f"{len(sn)}.25"))
 
 
 def main() -> None:

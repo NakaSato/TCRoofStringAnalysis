@@ -33,3 +33,5 @@ pub mod longdo;
 pub mod rainviewer;
 // Phase 4 (worker): the deletes of the `retention` job
 pub mod retention;
+/// Python `services/growatt_energy.py` (jobs `growatt_energy`, `energy_backfill`)
+pub mod growatt_energy;
