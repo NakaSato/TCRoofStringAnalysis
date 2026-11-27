@@ -17,14 +17,17 @@ Use this skill to systematically audit work performed by Claude Code (uncommitte
 Always start by running the verification script from the repository root. By default, if any `[FAIL]` check is triggered, `check.sh` will automatically create (or update an existing open) GitHub Issue on `NakaSato/TCRoofStringAnalysis` via `gh issue create`:
 
 ```bash
-# Full check (static checks + pyright + pytest + bun lint + bun build)
+# Smart check (static checks + pyright + scoped pytest / bun test / bun lint / bun build based on changed paths)
 # Automatically creates/updates a GitHub Issue if any [FAIL] occurs
 .agents/skills/review-agent-changes/scripts/check.sh
 
-# Compare against a specific commit or branch (e.g. HEAD~1 or main)
+# Force full backend pytest + frontend build regardless of which paths changed
+.agents/skills/review-agent-changes/scripts/check.sh --full
+
+# Compare against a specific commit or branch range (e.g. HEAD~1..HEAD or main..HEAD)
 .agents/skills/review-agent-changes/scripts/check.sh HEAD~1
 
-# Fast check (skips pytest and vite build; runs git/rule checks + pyright + tsc)
+# Fast check (skips pytest and vite build; runs git/rule checks + pyright + bun lint + bun test)
 .agents/skills/review-agent-changes/scripts/check.sh --fast
 
 # Also open a GitHub Issue even when there are only [WARN] items (0 failures)
@@ -109,7 +112,7 @@ Read the full diff of the target work (`git diff HEAD` if uncommitted, or `git s
 Git hooks (`post-commit` and `post-merge` in `.git/hooks/`) automatically invoke [`scripts/on-main-change.sh`](./scripts/on-main-change.sh) in the background whenever a commit or merge lands on `main`:
 
 0. Audits run **one at a time** (a `mkdir` lock in `/tmp/tcroof_audit_locks/run.lock`, taken over when its holder is gone): `check.sh` runs `pytest` and `bun run build` in this working tree, and parallel builds share `frontend/dist`. A run that gets the lock waits until `HEAD` has been quiet for 15 s, then audits **from the last audited commit (`/tmp/tcroof_audit_locks/last_audited`) to `HEAD`**, so commits pushed together get one audit of their combined diff; a `HEAD` already audited is skipped (no log).
-1. Runs `scripts/check.sh <last audited>` (`HEAD~1` when there is no record; static/architecture checks, `pyright`, `pytest`, `bun run lint`, `bun run build`, and opens/updates a GitHub Issue on `[FAIL]`).
+1. Runs `scripts/check.sh <last audited>..HEAD` (`HEAD~1..HEAD` when there is no record; static/architecture checks, `pyright`, path-scoped `pytest`, `bun run lint`, `bun test`, `bun run build`, and opens/updates a GitHub Issue on `[FAIL]`).
 2. Calls **Gemini** via the Antigravity CLI (`agy --print --dangerously-skip-permissions`) with this skill (`review-agent-changes`) to inspect `git diff <last audited>..HEAD` for deeper domain/architectural violations and post any additional findings to GitHub Issues.
 3. Writes execution logs to `.agents/skills/review-agent-changes/logs/audit-<sha>-<timestamp>.log` (gitignored).
 

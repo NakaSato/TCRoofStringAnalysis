@@ -29,20 +29,19 @@ if [ "$BRANCH" != "main" ]; then
 fi
 
 COMMIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+HEAD_FULL_NOW="$(git rev-parse HEAD 2>/dev/null || echo "")"
 LOCK_DIR="${TCROOF_AUDIT_LOCK_DIR:-/tmp/tcroof_audit_locks}"
 mkdir -p "$LOCK_DIR"
-STAMP_FILE="${LOCK_DIR}/audited_${COMMIT_SHA}.stamp"
+LAST_FILE="${LOCK_DIR}/last_audited"
 
-# Avoid duplicate audits of the exact same main commit
-if [ -f "$STAMP_FILE" ] && [ "$SYNC_MODE" -eq 0 ]; then
+# Avoid duplicate audits of the exact same main commit if already completed
+if [ "$SYNC_MODE" -eq 0 ] && [ -n "$HEAD_FULL_NOW" ] && [ "$(cat "$LAST_FILE" 2>/dev/null || true)" = "$HEAD_FULL_NOW" ]; then
   exit 0
 fi
-touch "$STAMP_FILE"
 
 LOG_DIR="${REPO_ROOT}/.agents/skills/review-agent-changes/logs"
 mkdir -p "$LOG_DIR"
 RUN_LOCK="${LOCK_DIR}/run.lock"
-LAST_FILE="${LOCK_DIR}/last_audited"
 LOCK_WAIT_MAX_S=3600
 
 # One audit at a time. A lock whose holder is gone (crash, reboot) is taken over.
@@ -73,8 +72,8 @@ run_audit() {
 
     echo "Range: ${BASE_REF}..${COMMIT_SHA} ($(git rev-list --count "${BASE_REF}..HEAD") commit(s))"
 
-    # Step 1: Run deterministic automated check.sh (creates GitHub issue automatically on [FAIL])
-    "$REPO_ROOT/.agents/skills/review-agent-changes/scripts/check.sh" "$BASE_REF"
+    # Step 1: Run deterministic automated check.sh on the exact commit range (creates GitHub issue automatically on [FAIL])
+    "$REPO_ROOT/.agents/skills/review-agent-changes/scripts/check.sh" "${BASE_REF}..${COMMIT_SHA}"
     CHECK_EXIT=$?
 
     # Step 2: Invoke Gemini (via Antigravity CLI `agy` or `gemini` CLI) to perform deep skill review of the diff

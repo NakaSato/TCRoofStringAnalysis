@@ -3,15 +3,17 @@
 # Can automatically open/update a GitHub Issue when failures (or warnings) are found.
 #
 # Usage (from repo root):
-#   .agents/skills/review-agent-changes/scripts/check.sh                       # full check + auto-create GitHub issue on FAIL
+#   .agents/skills/review-agent-changes/scripts/check.sh                       # smart check + auto-create GitHub issue on FAIL
+#   .agents/skills/review-agent-changes/scripts/check.sh --full                # force full pytest & frontend build regardless of changed paths
 #   .agents/skills/review-agent-changes/scripts/check.sh --fast                # skip pytest & vite build
 #   .agents/skills/review-agent-changes/scripts/check.sh --no-issue            # run checks only, never create GitHub issue
 #   .agents/skills/review-agent-changes/scripts/check.sh --issue-on-warn       # also create GitHub issue if warnings > 0
-#   .agents/skills/review-agent-changes/scripts/check.sh HEAD~1                # compare against specific ref
+#   .agents/skills/review-agent-changes/scripts/check.sh HEAD~1                # compare committed range HEAD~1..HEAD
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 FAST=0
+FULL=0
 AUTO_ISSUE=1
 ISSUE_ON_WARN=0
 BASE_REF=""
@@ -19,6 +21,7 @@ BASE_REF=""
 for arg in "$@"; do
   case "$arg" in
     --fast)          FAST=1 ;;
+    --full)          FULL=1 ;;
     --no-issue)      AUTO_ISSUE=0 ;;
     --issue)         AUTO_ISSUE=1 ;;
     --issue-on-warn) ISSUE_ON_WARN=1; AUTO_ISSUE=1 ;;
@@ -30,8 +33,10 @@ FAILURES=0
 WARNINGS=0
 FAIL_ITEMS=()
 WARN_ITEMS=()
-REPORT_FILE="$(mktemp -t tcroof_audit_report.XXXXXX)"
-trap 'rm -f "$REPORT_FILE"' EXIT
+TMP_DIR="$(mktemp -d -t tcroof_audit.XXXXXX)"
+REPORT_FILE="${TMP_DIR}/report.log"
+touch "$REPORT_FILE"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
 log() {
   printf '%s\n' "$1" | tee -a "$REPORT_FILE"
@@ -58,13 +63,20 @@ BRANCH_NAME="$(git rev-parse --abbrev-ref HEAD)"
 
 # Determine diff target
 if [ -n "$BASE_REF" ]; then
-  DIFF_CMD=(git diff "$BASE_REF")
-  CHANGED_FILES="$(git diff --name-only --diff-filter=d "$BASE_REF")"
-  DIFF_LABEL="git diff $BASE_REF"
-elif [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  if [[ "$BASE_REF" == *".."* ]]; then
+    DIFF_RANGE="$BASE_REF"
+  else
+    DIFF_RANGE="${BASE_REF}..HEAD"
+  fi
+  DIFF_CMD=(git diff "$DIFF_RANGE")
+  CHANGED_FILES="$(git diff --name-only --diff-filter=d "$DIFF_RANGE")"
+  DIFF_LABEL="git diff $DIFF_RANGE"
+elif [ -n "$(git status --porcelain -- backend/ frontend/ pyproject.toml .env.example CLAUDE.md)" ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   DIFF_CMD=(git diff HEAD)
-  CHANGED_FILES="$(git diff --name-only --diff-filter=d HEAD)"
-  DIFF_LABEL="uncommitted tracked changes vs HEAD ($COMMIT_SHA)"
+  TRACKED_CHANGED="$(git diff --name-only --diff-filter=d HEAD)"
+  UNTRACKED_CODE="$(git ls-files --others --exclude-standard -- backend/ frontend/)"
+  CHANGED_FILES="$(printf '%s\n%s\n' "$TRACKED_CHANGED" "$UNTRACKED_CODE" | sed '/^$/d' | sort -u)"
+  DIFF_LABEL="uncommitted changes vs HEAD ($COMMIT_SHA)"
 else
   DIFF_CMD=(git diff HEAD~1..HEAD)
   CHANGED_FILES="$(git diff --name-only --diff-filter=d HEAD~1..HEAD)"
@@ -206,43 +218,89 @@ if echo "$CHANGED_FILES" | grep -q '^backend/app/config.py$'; then
 fi
 
 h "5. Type Checking, Linting & Tests"
+BACKEND_CHANGED=0
+FRONTEND_CHANGED=0
+if [ "$FULL" -eq 1 ] || [ -z "$CHANGED_FILES" ]; then
+  BACKEND_CHANGED=1
+  FRONTEND_CHANGED=1
+else
+  if echo "$CHANGED_FILES" | grep -qE '^(backend/|pyproject\.toml$|uv\.lock$)'; then
+    BACKEND_CHANGED=1
+  fi
+  if echo "$CHANGED_FILES" | grep -qE '^frontend/'; then
+    FRONTEND_CHANGED=1
+  fi
+fi
+
 if command -v pyright >/dev/null 2>&1; then
-  changed_py="$(echo "$CHANGED_FILES" | grep -E '^backend/(app|solar_core)/.*\.py$' || true)"
+  changed_py="$(echo "$CHANGED_FILES" | grep -E '^backend/(app|solar_core|tests)/.*\.py$' || true)"
   if [ -n "$changed_py" ]; then
     # shellcheck disable=SC2086
-    if pyright --pythonpath .venv/bin/python $changed_py >/tmp/tcroof_pyright.log 2>&1; then
+    if pyright --pythonpath .venv/bin/python $changed_py >"${TMP_DIR}/pyright.log" 2>&1; then
       pass "pyright on changed Python files"
     else
       fail "pyright failed on changed Python files"
-      head -n 35 /tmp/tcroof_pyright.log | sed 's/^/    /' | tee -a "$REPORT_FILE"
+      head -n 35 "${TMP_DIR}/pyright.log" | sed 's/^/    /' | tee -a "$REPORT_FILE"
     fi
   else
-    pass "No changed Python files in backend/app or backend/solar_core to run pyright on"
+    pass "No changed Python files in backend/app, backend/solar_core, or backend/tests to run pyright on"
   fi
 else
   warn "pyright not found on PATH"
 fi
 
-if (cd frontend && bun run lint) >/tmp/tcroof_bun_lint.log 2>&1; then
-  pass "frontend: bun run lint (tsc --noEmit)"
+if [ "$FRONTEND_CHANGED" -eq 1 ]; then
+  if (cd frontend && bun run lint) >"${TMP_DIR}/bun_lint.log" 2>&1; then
+    pass "frontend: bun run lint (tsc --noEmit)"
+  else
+    fail "frontend: \`bun run lint\` (\`tsc --noEmit\`) failed"
+    head -n 35 "${TMP_DIR}/bun_lint.log" | sed 's/^/    /' | tee -a "$REPORT_FILE"
+  fi
+
+  if (cd frontend && bun test) >"${TMP_DIR}/bun_test.log" 2>&1; then
+    pass "frontend: bun test"
+  else
+    fail "frontend: \`bun test\` failed"
+    tail -n 35 "${TMP_DIR}/bun_test.log" | sed 's/^/    /' | tee -a "$REPORT_FILE"
+  fi
 else
-  fail "frontend: \`bun run lint\` (\`tsc --noEmit\`) failed"
-  head -n 35 /tmp/tcroof_bun_lint.log | sed 's/^/    /' | tee -a "$REPORT_FILE"
+  log "  [SKIP] frontend: bun run lint & bun test (no frontend/ files changed; pass --full to force)"
 fi
 
 if [ "$FAST" -eq 0 ]; then
-  if uv run pytest -q >/tmp/tcroof_pytest.log 2>&1; then
-    pass "backend: uv run pytest -q ($(tail -n 1 /tmp/tcroof_pytest.log))"
+  if [ "$BACKEND_CHANGED" -eq 1 ]; then
+    # If ONLY test files under backend/tests/ changed (no app/solar_core/pyproject changes), run just those test files
+    non_test_backend="$(echo "$CHANGED_FILES" | grep -E '^(backend/|pyproject\.toml$|uv\.lock$)' | grep -vE '^backend/tests/test_.*\.py$' || true)"
+    only_test_files="$(echo "$CHANGED_FILES" | grep -E '^backend/tests/test_.*\.py$' || true)"
+    if [ "$FULL" -eq 0 ] && [ -z "$non_test_backend" ] && [ -n "$only_test_files" ]; then
+      # shellcheck disable=SC2086
+      if uv run pytest -q $only_test_files >"${TMP_DIR}/pytest.log" 2>&1; then
+        pass "backend: uv run pytest -q on changed test files ($(tail -n 1 "${TMP_DIR}/pytest.log"))"
+      else
+        fail "backend: \`uv run pytest -q\` on changed test files failed"
+        tail -n 40 "${TMP_DIR}/pytest.log" | sed 's/^/    /' | tee -a "$REPORT_FILE"
+      fi
+    else
+      if uv run pytest -q >"${TMP_DIR}/pytest.log" 2>&1; then
+        pass "backend: uv run pytest -q ($(tail -n 1 "${TMP_DIR}/pytest.log"))"
+      else
+        fail "backend: \`uv run pytest -q\` failed"
+        tail -n 40 "${TMP_DIR}/pytest.log" | sed 's/^/    /' | tee -a "$REPORT_FILE"
+      fi
+    fi
   else
-    fail "backend: \`uv run pytest -q\` failed"
-    tail -n 40 /tmp/tcroof_pytest.log | sed 's/^/    /' | tee -a "$REPORT_FILE"
+    log "  [SKIP] backend: uv run pytest -q (no backend/ files changed; pass --full to force)"
   fi
 
-  if (cd frontend && bun run build) >/tmp/tcroof_bun_build.log 2>&1; then
-    pass "frontend: bun run build"
+  if [ "$FRONTEND_CHANGED" -eq 1 ]; then
+    if (cd frontend && bun run build) >"${TMP_DIR}/bun_build.log" 2>&1; then
+      pass "frontend: bun run build"
+    else
+      fail "frontend: \`bun run build\` failed"
+      tail -n 30 "${TMP_DIR}/bun_build.log" | sed 's/^/    /' | tee -a "$REPORT_FILE"
+    fi
   else
-    fail "frontend: \`bun run build\` failed"
-    tail -n 30 /tmp/tcroof_bun_build.log | sed 's/^/    /' | tee -a "$REPORT_FILE"
+    log "  [SKIP] frontend: bun run build (no frontend/ files changed; pass --full to force)"
   fi
 else
   log "  [SKIP] pytest and bun run build (--fast mode)"
@@ -273,7 +331,7 @@ if [ "$SHOULD_CREATE_ISSUE" -eq 1 ]; then
     ISSUE_TITLE="[Claude Code Audit] ${FAILURES} failure(s), ${WARNINGS} warning(s) on ${BRANCH_NAME} (${COMMIT_SHA})"
 
     # Build Markdown body
-    BODY_FILE="$(mktemp -t tcroof_issue_body.XXXXXX)"
+    BODY_FILE="${TMP_DIR}/issue_body.md"
     {
       echo "## Automated Claude Code Audit Report"
       echo ""
