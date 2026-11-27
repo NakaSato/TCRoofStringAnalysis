@@ -35,8 +35,8 @@ pub fn job(name: &str) -> Option<Job> {
         "env_history" => NotPorted { phase: "4.2" },
         "inverter_latest" => NotPorted { phase: "4.2" },
         "backfill" => NotPorted { phase: "4.2" },
-        "fleet" => NotPorted { phase: "4.2" },
-        "power_limits" => NotPorted { phase: "4.2" },
+        "fleet" => Ported(|ctx| Box::pin(job_fleet(ctx))),
+        "power_limits" => Ported(|ctx| Box::pin(job_power_limits(ctx))),
         "growatt_energy" => NotPorted { phase: "4.2" },
         "energy_backfill" => NotPorted { phase: "4.2" },
         "publish_today" => NotPorted { phase: "4.3" },
@@ -94,6 +94,45 @@ pub async fn job_retention(ctx: Ctx) -> JobResult {
     Ok(("ok".into(), Value::Object(detail)))
 }
 
+impl From<tcroof_services::sync_registry::SyncError> for JobError {
+    fn from(e: tcroof_services::sync_registry::SyncError) -> Self {
+        JobError::new(&e.kind(), e.message())
+    }
+}
+
+/// Python `job_fleet`: take the blocked plants out of the registry, then per account
+/// `sync_fleet` (plants tagged with the account's phase); detail `{"inverters": n}` per phase.
+pub async fn job_fleet(ctx: Ctx) -> JobResult {
+    use tcroof_services::sync_registry as reg;
+    reg::remove_blocked_plants(&ctx.pool, &ctx.settings.blocked_plant_ids()).await?;
+    crate::phases::per_phase(&ctx, |pc: crate::phases::PhaseCtx| async move {
+        let n = reg::sync_fleet(&pc.pool, &pc.client, reg::FLEET_PAUSE_S, Some(pc.phase)).await?;
+        let mut m = Map::new();
+        m.insert("inverters".into(), json!(n));
+        Ok(m)
+    })
+    .await
+}
+
+/// Python `job_power_limits`: each inverter's active power limit (`readPower`) per account, once a
+/// day in daylight (the read goes through the datalogger to the inverter).
+pub async fn job_power_limits(ctx: Ctx) -> JobResult {
+    use tcroof_services::power_limits as pl;
+    crate::phases::per_phase(&ctx, |pc: crate::phases::PhaseCtx| async move {
+        Ok(pl::sync_power_limits(
+            &pc.pool,
+            &pc.client,
+            Some(pc.phase),
+            pc.include_untagged,
+            None,
+            pl::POWER_LIMIT_PAUSE_S,
+            pl::POWER_LIMIT_MAX_RATE_LIMITED,
+        )
+        .await?)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,7 +145,8 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["retention"]);
+        assert!(ported.contains(&"retention"));
+        assert!(ported.contains(&"fleet") && ported.contains(&"power_limits"));
     }
 
     #[test]

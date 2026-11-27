@@ -17,5 +17,35 @@
       "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"]},
       "om_push_marks": {"order": ["user_id", "kind", "day"]}
     }
+  },
+  "fleet": {
+    "_doc": "present = columns compared only as set / NULL (now() stamps). Phase 2 = the stub's fleet world (plants 3001-3009, seed.d/30_fleet_power_limits.sql); 3009 is blocked.",
+    "env": {"GROWATT_TOKEN_PHASE2": "fleet-stub-phase2", "GROWATT_BLOCKED_PLANT_IDS": "3009", "WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_plants": {"order": ["plant_id"], "present": ["synced_at", "details_synced_at"]},
+      "growatt_inverters": {"order": ["device_sn"], "present": ["synced_at", "info_synced_at", "param_synced_at", "power_limit_read_at", "not_installed_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "present": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "present": ["synced_at"]},
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_issues": {"order": ["id"], "present": ["created_at", "updated_at"]},
+      "om_tasks": {"order": ["id"], "present": ["created_at", "updated_at"]},
+      "om_task_assignees": {"order": ["task_id", "user_id"]},
+      "om_cleaning_suggestion_marks": {"order": ["plant_id", "reset_day"], "present": ["at"]},
+      "om_plan_plants": {"order": ["plan_id", "plant_id"]},
+      "om_plant_settings": {"order": ["plant_id"], "present": ["updated_at"]},
+      "plant_documents": {"order": ["id"], "present": ["created_at", "updated_at"]},
+      "site_register": {"order": ["site_code"], "present": ["imported_at"]},
+      "site_devices": {"order": ["id"]}
+    }
+  },
+  "power_limits": {
+    "env": {"GROWATT_TOKEN_PHASE2": "fleet-stub-phase2", "WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverters": {"order": ["device_sn"], "present": ["synced_at", "info_synced_at", "param_synced_at", "power_limit_read_at", "not_installed_at"]}
+    }
   }
 }

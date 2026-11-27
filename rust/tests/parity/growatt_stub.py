@@ -59,6 +59,105 @@ def max_record(sn: str, mins: int, open4: bool) -> dict:
     }
 
 
+# ---------------------------------------------------------------- worker `fleet` / `power_limits`
+# (rust/tests/worker_parity/seed.d/30_fleet_power_limits.sql). The fleet world (plants 3001-3009)
+# is the account whose token starts "fleet-"; readPower and an empty device/list answer any token.
+FLEET_PLANTS = [
+    {"plant_id": 3001, "name": "Fleet A", "city": "Bangkok", "country": "Thailand", "latitude": "13.75",
+     "longitude": "100.5", "peak_power": "100.5", "create_date": "2024-01-02", "current_power": "5"},
+    {"plant_id": "3002", "name": "", "latitude": 100.6, "longitude": 13.8, "peak_power": ""},  # swapped coords
+    {"plant_id": 3003.0, "name": "Fleet C", "latitude": "x", "longitude": "100", "peak_power": True},
+    {"plant_id": 3009, "name": "Blocked"},  # GROWATT_BLOCKED_PLANT_IDS: the client drops it
+]
+FLEET_DEVICES = {
+    "3001": [
+        {"type": 1, "device_sn": "INVF3001A", "datalogger_sn": "DLF3001", "model": "MAX 80KTL3 LV", "status": 1},
+        {"type": 4, "device_sn": "INVF3001A", "datalogger_sn": "DLF3001", "model": "MAX 80KTL3 LV", "status": 1},
+        {"type": 1, "device_sn": "INVF3001B", "datalogger_sn": "DLF3001", "model": "", "status": 0, "lost": True},
+        {"type": 3, "device_sn": "env", "datalogger_sn": "DLF3001"},
+        {"type": 3.0, "device_sn": "Meter", "datalogger_sn": "DLF3001M"},
+        {"type": 3, "device_sn": "env", "datalogger_sn": ""},
+    ],
+    "3002": [
+        {"type": 1, "device_sn": "INVF3002A", "datalogger_sn": "", "model": "MAX"},
+        {"type": 1, "device_sn": "INVF3002N", "datalogger_sn": "DLF3002"},
+    ],
+    "3003": [
+        {"type": 4, "device_sn": "INVF3003A", "datalogger_sn": "DLF3003", "model": None},
+        {"type": 3, "device_sn": "ENV", "datalogger_sn": "DLF3003"},
+    ],
+}
+READ_POWER = {"INVF3001A": 80.5, "INVF3001B": "100", "INVF3003A": ""}
+
+
+def fleet_route(path: str, p: dict, token: str):
+    """The fleet / power_limits answers, or None for the routes above."""
+    def new(data):
+        return {"code": 0, "message": "", "data": data}
+
+    if path == "new-api/readPower":
+        sn = p.get("deviceSn", "")
+        if sn.startswith("INVF3004"):
+            return {"code": 10012, "message": "error_frequently_access"}
+        if sn == "INVF3002A":
+            return {"code": 5, "message": "DEVICE_OFFLINE"}
+        if sn in READ_POWER:
+            return new(READ_POWER[sn])
+        return {"code": 18, "message": "READ_DEVICE_PARAM_FAIL"}
+    fleet = token.startswith("fleet-")
+    if path == "device/list":
+        devs = FLEET_DEVICES.get(p.get("plant_id", ""), []) if fleet else []
+        return ok({"count": len(devs), "devices": devs})
+    if not fleet:
+        return None
+    if path == "plant/list":
+        return ok({"count": len(FLEET_PLANTS), "plants": FLEET_PLANTS})
+    if path == "device/env/env_list" and p.get("datalog_sn") == "DLF3003":
+        return {"error_code": 10001, "error_msg": "no such datalogger"}  # _retry: 5 + 10 + 15 s, then the plant's error line
+    if path == "device/ammeter/meter_list":
+        meters = [
+            {"address": "1", "device_name": "CHNT_THREE", "device_type": 71},
+            {"address": 1, "device_name": "CHNT_ONE", "device_type": 70},
+            {"address": "2", "device_name": None, "device_type": ""},
+            {"address": "x"},
+        ]
+        return ok({"count": len(meters), "meters": meters})
+    if path == "device/max/max_data_info":
+        sn = p.get("device_sn", "")
+        if sn == "INVF3001B":
+            return ok({"max": {"alias": " INVERTER 2 ", "normalPower": 80000, "fwVersion": "TL1.0", "innerVersion": "",
+                               "activeRate": 100, "reactiveRate": 0, "pf": 1, "pfModel": 0, "onOff": 1}})
+        return LIMITED  # the sweep goes on with queryDeviceInfo
+    if path == "new-api/queryDeviceInfo":
+        if p.get("deviceSn") == "INVF3002A":
+            return new({"max": [{"alias": "INV 3002A", "normalPower": "50000", "activeRate": 0, "pf": 0, "onOff": "0"}]})
+        return new({"max": []})  # answered without data
+    if path == "plant/details":
+        if p.get("plant_id") == "3002":
+            return ok({"timezone": "GMT+7", "address1": "1 Road", "address2": "",
+                       "maxs": [{"max_num": 2}], "dataloggers": [{"datalogger_num": "1"}]})
+        if p.get("plant_id") == "3003":
+            return ok({"timezone": "", "maxs": []})
+        return {"error_code": 10001, "error_msg": "no details"}
+    if path == "new-api/queryDeviceInfoParam":
+        sn = p.get("deviceSn", "")
+        if sn == "INVF3002A":
+            return {"code": 10012, "message": "error_frequently_access"}
+        if sn == "INVF3001B":
+            return new({"deviceModel": "MAX 80KTL3 LV", "dataloggerModel": "ShineMaster", "norminalPower": 80000})
+        if sn == "INVF3001A":
+            return new({"deviceModel": "MAX 80KTL3 LV X", "dataloggerModel": ""})
+        return new({"deviceModel": "", "norminalPower": 0})
+    if path == "device/all/create_date":
+        return ok({"INVF3001B": {"createTime": "2024-03-01 10:00:00"}, "INVF3002A": {"createTime": "bad"}})
+    if path == "new-api/queryDeviceList":
+        return new({"data": [{"deviceSn": "INVF3003A", "createDate": "2024-05-06 07:08:09.0"},
+                             {"deviceSn": "INVF3003B", "createDate": ""}], "pages": 1})
+    if path == "device/sn_datalog":
+        return ok({"datalogSN": "DLF3002"} if p.get("device_sn") == "INVF3002A" else {"datalogSN": ""})
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # quiet
         pass
@@ -88,6 +187,9 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self) -> None:
         path = urlparse(self.path).path.removeprefix("/v1/")
         p = self._params()
+        fleet = fleet_route(path, p, self.headers.get("token", ""))
+        if fleet is not None:
+            return self._send(fleet)
         if path == "plant/list":
             return self._send(ok({"count": 3, "plants": [
                 {"plant_id": 7001, "name": "Live A", "current_power": "12.5", "total_energy": "1000", "peak_power": 100, "status": 1},

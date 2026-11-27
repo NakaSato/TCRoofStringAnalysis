@@ -33,3 +33,6 @@ pub mod longdo;
 pub mod rainviewer;
 // Phase 4 (worker): the deletes of the `retention` job
 pub mod retention;
+// Phase 4.2 (worker): the `fleet` registry and the `power_limits` job
+pub mod sync_registry;
+pub mod power_limits;
