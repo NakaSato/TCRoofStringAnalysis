@@ -20,6 +20,7 @@ export type * from "./types/issues";
 export type * from "./types/events";
 export type * from "./types/tools";
 export type * from "./types/claims";
+export type * from "./types/faults";
 export type * from "./types/calendar";
 export type * from "./types/pwaMeter";
 export type * from "./types/center";
@@ -97,6 +98,7 @@ import type {
   OmTeamBody,
 } from "./types/calendar";
 import type { Claim, ClaimBody, ClaimDetail, ClaimEvent, ClaimEventBody, ClaimEvidence, ClaimEvidenceBody, ClaimLink, ClaimLinkBody, ClaimList, ClaimStatusBody } from "./types/claims";
+import type { Fault, FaultCreateBody, FaultDecisionBody, FaultDetail, FaultLinkBody, FaultList, FaultPatchBody, FaultQuery, FaultStatusBody } from "./types/faults";
 import type { OmCenter } from "./types/center";
 import type { Tfrs16Rollout, Tfrs16Schedule, Tfrs16Summary } from "./types/tfrs16";
 import type { PvsystDesign, PvsystVsMeter } from "./types/pvsyst";
@@ -788,6 +790,41 @@ export const api = {
   addClaimLink: (id: number, body: ClaimLinkBody) =>
     apiFetch<ClaimLink>(`/claims/${id}/links`, { method: "POST", body: JSON.stringify(body) }),
   deleteClaimLink: (id: number, linkId: number) => apiFetch<void>(`/claims/${id}/links/${linkId}`, { method: "DELETE" }),
+  // ---- field faults (the defect register; DB only, docs/plans/defects.md). A create on a device with an
+  // active fault of that kind throws ApiError 409 whose `detail` is `{message, fault_id, no}` (FaultDuplicateDetail)
+  listFaults: (q: FaultQuery = {}) => {
+    const p = new URLSearchParams();
+    if (q.tab) p.set("tab", q.tab);
+    if (q.status?.length) p.set("status", q.status.join(","));
+    if (q.kind) p.set("kind", q.kind);
+    if (q.severity) p.set("severity", q.severity);
+    if (q.plant_id != null) p.set("plant_id", String(q.plant_id));
+    if (q.waiting) p.set("waiting", q.waiting);
+    if (q.overdue) p.set("overdue", "true");
+    if (q.q?.trim()) p.set("q", q.q.trim());
+    if (q.limit != null) p.set("limit", String(q.limit));
+    if (q.offset != null) p.set("offset", String(q.offset));
+    const qs = p.toString();
+    return apiFetch<FaultList>(`/faults${qs ? `?${qs}` : ""}`);
+  },
+  getFault: (id: number) => apiFetch<FaultDetail>(`/faults/${id}`),
+  createFault: (body: FaultCreateBody) => apiFetch<FaultDetail>("/faults", { method: "POST", body: JSON.stringify(body) }),
+  patchFault: (id: number, body: FaultPatchBody) => apiFetch<FaultDetail>(`/faults/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  setFaultStatus: (id: number, body: FaultStatusBody) =>
+    apiFetch<FaultDetail>(`/faults/${id}/status`, { method: "POST", body: JSON.stringify(body) }),
+  setFaultDecision: (id: number, body: FaultDecisionBody) =>
+    apiFetch<FaultDetail>(`/faults/${id}/decision`, { method: "POST", body: JSON.stringify(body) }),
+  addFaultNote: (id: number, text: string) => apiFetch<FaultDetail>(`/faults/${id}/notes`, { method: "POST", body: JSON.stringify({ text }) }),
+  addFaultLink: (id: number, body: FaultLinkBody) => apiFetch<FaultDetail>(`/faults/${id}/links`, { method: "POST", body: JSON.stringify(body) }),
+  deleteFaultLink: (id: number, linkId: number) => apiFetch<void>(`/faults/${id}/links/${linkId}`, { method: "DELETE" }),
+  /** active faults on one device (inverter SN, Site Register device or serial), for the create dialog's duplicate check */
+  faultsOpenOnDevice: (d: { inverter_sn?: string; site_device_id?: number; serial?: string }) => {
+    const p = new URLSearchParams();
+    if (d.inverter_sn) p.set("inverter_sn", d.inverter_sn);
+    if (d.site_device_id != null) p.set("site_device_id", String(d.site_device_id));
+    if (d.serial) p.set("serial", d.serial);
+    return apiFetch<{ faults: Fault[] }>(`/faults/open-on-device?${p}`);
+  },
 
   // ---- knowledge base (O&M manuals as Markdown, with revisions; DB only). PATCH / restore with a
   // stale base_version throw ApiError 409 whose `detail` is `{message, current}` (KbConflictDetail)

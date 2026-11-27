@@ -36,6 +36,7 @@ const AiUsagePage = page(() => import("./pages/AiUsagePage"), "AiUsagePage");
 const CalendarPage = page(() => import("./pages/CalendarPage"), "CalendarPage");
 const ToolsPage = page(() => import("./pages/ToolsPage"), "ToolsPage");
 const ClaimsPage = page(() => import("./pages/ClaimsPage"), "ClaimsPage");
+const FaultsPage = page(() => import("./pages/FaultsPage"), "FaultsPage");
 const OmCenterPage = page(() => import("./pages/OmCenterPage"), "OmCenterPage");
 const KnowledgeBasePage = page(() => import("./pages/KnowledgeBasePage"), "KnowledgeBasePage");
 const KbArticlePage = page(() => import("./pages/kb/ArticlePage"), "KbArticlePage");
@@ -190,6 +191,7 @@ export const App: React.FC = () => {
             <Route path="inventory/scan" element={<BatchScanPage />} />
             <Route path="spares" element={<SparesRedirect />} />
             <Route path="claims" element={<ClaimsPage />} />
+            <Route path="faults" element={<FaultsPage />} />
             <Route path="kb" element={<KnowledgeBasePage />} />
             <Route path="kb/new" element={<KbEditorPage />} />
             <Route path="kb/search" element={<KbSearchPage />} />

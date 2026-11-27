@@ -12,6 +12,7 @@ import { TH_PLANT } from "./th/plant";
 import { TH_STRINGS } from "./th/strings";
 import { TH_CALENDAR } from "./th/calendar";
 import { TH_CLAIMS } from "./th/claims";
+import { TH_FAULTS } from "./th/faults";
 import { TH_ADMIN } from "./th/admin";
 import { TH_LEASE } from "./th/lease";
 import { TH_PVSYST } from "./th/pvsyst";
@@ -27,4 +28,4 @@ import { TH_STOCK_INSTALLED } from "./th/stockInstalled";
 import { TH_STOCK_LINKS } from "./th/stockLinks";
 import { TH_SHARED } from "./th/shared";
 
-export const TH: Record<string, string> = { ...TH_CORE, ...TH_CENTER, ...TH_ALARMS, ...TH_OVERVIEW, ...TH_PLANT, ...TH_STRINGS, ...TH_CALENDAR, ...TH_CLAIMS, ...TH_ADMIN, ...TH_LEASE, ...TH_PVSYST, ...TH_KB, ...TH_ROUTE, ...TH_SITE_REGISTER, ...TH_CURTAILMENT, ...TH_DEVICES, ...TH_DEVICES_TABS, ...TH_SCAN, ...TH_STOCK, ...TH_STOCK_INSTALLED, ...TH_STOCK_LINKS, ...TH_SHARED };
+export const TH: Record<string, string> = { ...TH_CORE, ...TH_FAULTS, ...TH_CENTER, ...TH_ALARMS, ...TH_OVERVIEW, ...TH_PLANT, ...TH_STRINGS, ...TH_CALENDAR, ...TH_CLAIMS, ...TH_ADMIN, ...TH_LEASE, ...TH_PVSYST, ...TH_KB, ...TH_ROUTE, ...TH_SITE_REGISTER, ...TH_CURTAILMENT, ...TH_DEVICES, ...TH_DEVICES_TABS, ...TH_SCAN, ...TH_STOCK, ...TH_STOCK_INSTALLED, ...TH_STOCK_LINKS, ...TH_SHARED };
