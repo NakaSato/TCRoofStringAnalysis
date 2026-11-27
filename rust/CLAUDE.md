@@ -4,7 +4,7 @@ Guidance for the Rust port. Run cargo commands from **`rust/`**; run the scripts
 
 `rust/` is a port of `backend/` (API and, later, worker) to Rust, built side by side on branch `rust-port`. The plan, phases and exit gates are in **docs/plans/rust-port-master-plan.md**. Python in `backend/` stays deployed and is the oracle: when the two disagree, Python is right until the difference is understood. The port only adds `rust/`; it never changes `backend/` or `frontend/`.
 
-Crates are added when their phase starts. Today: `crates/db` (sqlx Postgres pool) and `crates/api` (Axum; `/health`, `/health/worker`, `/auth/login`, `/auth/me`).
+Crates are added when their phase starts. Today: `crates/solar-core` (pure engine: sun, visit_route, om_planning, iv_analysis / iv_site_fit / iv_operating), `crates/clients` (Growatt OpenAPI client + parsers, Google Weather, Longdo, RainViewer; no caches or budgets yet), `crates/db` (sqlx Postgres pool) and `crates/api` (Axum; `/health`, `/health/worker`, `/auth/*`, `/users*`, `/system/logs*`, request logging into `app_logs`; auth dependencies as extractors in `extract.rs`).
 
 ## Commands
 

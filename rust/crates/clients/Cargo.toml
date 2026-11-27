@@ -1,0 +1,21 @@
+[package]
+name = "tcroof-clients"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "External HTTP APIs ported from backend/solar_core: Growatt OpenAPI, Google Weather, Longdo, RainViewer"
+
+[dependencies]
+chrono.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# Correctly rounded float parsing, as Python's json, so the fixtures' floats are read exactly.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+tokio.workspace = true

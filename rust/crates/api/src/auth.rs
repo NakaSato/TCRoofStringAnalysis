@@ -9,6 +9,22 @@ use subtle::ConstantTimeEq;
 
 use tcroof_db::User;
 
+/// Python `secrets.token_hex(n)`: `n` random bytes as lowercase hex.
+pub fn token_hex(n: usize) -> String {
+    let mut buf = vec![0u8; n];
+    getrandom::getrandom(&mut buf).expect("the OS random source");
+    hex::encode(buf)
+}
+
+/// Python `hash_password`: PBKDF2-HMAC-SHA256, 120 000 iterations, a `token_hex(16)` salt whose
+/// text (not its bytes) is the salt. CPU-heavy: call it from `spawn_blocking`.
+pub fn hash_password(password: &str) -> String {
+    let salt = token_hex(16);
+    let mut dk = [0u8; 32];
+    pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), salt.as_bytes(), 120_000, &mut dk);
+    format!("pbkdf2_sha256$120000${salt}${}", hex::encode(dk))
+}
+
 /// `pbkdf2_sha256$<iterations>$<salt>$<hex>`: the salt string's UTF-8 bytes are the salt (Python
 /// passes `salt.encode()`), and the derived key is 32 bytes, compared as lowercase hex.
 pub fn verify_password(plain: &str, stored: &str) -> bool {
@@ -94,6 +110,16 @@ mod tests {
             is_active: true,
             store_keeper: false,
         }
+    }
+
+    #[test]
+    fn own_hash_has_python_form_and_verifies() {
+        let h = hash_password("s3cret-pass");
+        let parts: Vec<&str> = h.split('$').collect();
+        assert_eq!((parts[0], parts[1], parts[2].len(), parts[3].len()), ("pbkdf2_sha256", "120000", 32, 64));
+        assert!(verify_password("s3cret-pass", &h));
+        assert!(!verify_password("s3cret-pasS", &h));
+        assert_ne!(hash_password("s3cret-pass"), h, "a new salt each time");
     }
 
     #[test]

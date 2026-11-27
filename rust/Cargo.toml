@@ -1,10 +1,10 @@
 # Rust port of the TC Roof Solar backend (docs/plans/rust-port-master-plan.md).
 # Python in backend/ stays the deployed system and the behavioural oracle; nothing here replaces it
 # until a part has passed the parity harness (tests/parity) and been cut over.
-# Crates are added when their phase starts: today only `db` and `api` (Phase 0 / 1).
+# Crates are added when their phase starts: db, api (Phase 0 / 1), solar-core (pure engine), clients (external HTTP APIs).
 [workspace]
 resolver = "2"
-members = ["crates/db", "crates/api", "crates/solar-core"]
+members = ["crates/db", "crates/api", "crates/solar-core", "crates/clients"]
 
 [workspace.package]
 edition = "2021"
@@ -18,9 +18,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 dotenvy = "0.15"
 hex = "0.4"
 jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }  # read floats exactly as Python does
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "macros"] }
 subtle = "2"

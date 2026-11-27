@@ -6,9 +6,13 @@
 //! - [`sun`]: NOAA sunrise / sunset and Haurwitz clear-sky GHI (`solar_core/sun.py`).
 //! - [`visit_route`]: the Visit Route order solver (`solar_core/visit_route.py`).
 //! - [`om_planning`]: Calendar Team recurrence and round scheduling (`solar_core/om_planning.py`).
+//! - [`iv_analysis`], [`iv_site_fit`], [`iv_operating`]: I-V analysis (`solar_core/iv_*.py`).
 
 #![forbid(unsafe_code)]
 
+pub mod iv_analysis;
+pub mod iv_operating;
+pub mod iv_site_fit;
 pub mod om_planning;
 mod py_random;
 pub mod sun;

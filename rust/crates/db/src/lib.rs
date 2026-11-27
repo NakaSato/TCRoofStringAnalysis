@@ -8,6 +8,9 @@
 use chrono::{DateTime, Utc};
 use sqlx::postgres::PgPoolOptions;
 
+pub mod logs;
+pub mod users;
+
 pub use sqlx::Error;
 pub type PgPool = sqlx::postgres::PgPool;
 
@@ -54,7 +57,7 @@ impl User {
     }
 }
 
-const USER_COLS: &str = "id, username, email, full_name, hashed_password, role, is_active, store_keeper";
+pub(crate) const USER_COLS: &str = "id, username, email, full_name, hashed_password, role, is_active, store_keeper";
 
 /// Login lookup: the identifier matches the username or the email (Python `routes/auth.py`).
 pub async fn user_by_login(pool: &PgPool, ident: &str) -> Result<Option<User>, Error> {

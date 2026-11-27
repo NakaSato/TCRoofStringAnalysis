@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Golden-Diff parity run: a throwaway Postgres 16, its schema built by Python (rust/scripts/schema.sh),
-# the Python API and the Rust API both on it with the same JWT_SECRET_KEY, then parity.py sends the
-# same requests to both and reports differences. Everything is stopped on exit.
+# Golden-Diff parity run: a throwaway Postgres 16, its schema built by Python (rust/scripts/schema.sh)
+# in a template database with the fixture rows below, one copy of it for the Python API and one for
+# the Rust API (so cases that write change each side the same way, and both write their own
+# app_logs), the same JWT_SECRET_KEY, then parity.py sends the same requests to both and reports
+# differences. Everything is stopped on exit.
 #
 #   rust/tests/parity/run.sh                 # Python on :8000, Rust on :8001 (a free port if busy)
 #   PY_PORT=8100 RUST_PORT=8101 rust/tests/parity/run.sh
@@ -51,18 +53,42 @@ for _ in $(seq 1 60); do
 done
 docker exec "$NAME" pg_isready -U postgres -h 127.0.0.1 >/dev/null
 
-DB_URL="postgresql+psycopg://postgres:${PW}@127.0.0.1:${PG_PORT}/postgres"
-rust/scripts/schema.sh "$DB_URL"
+docker exec "$NAME" psql -U postgres -qc "CREATE DATABASE parity_seed" >/dev/null
+SEED_URL="postgresql+psycopg://postgres:${PW}@127.0.0.1:${PG_PORT}/parity_seed"
+rust/scripts/schema.sh "$SEED_URL"
 
 # Data the cases look at: a finished `history` run 10 minutes ago (worker health 200, a timestamp
-# with microseconds) and some plants assigned to the engineer (plant_ids not empty, sorted).
-docker exec -i "$NAME" psql -U postgres -v ON_ERROR_STOP=1 -q >/dev/null <<'SQL'
+# with microseconds), some plants assigned to the engineer (plant_ids not empty, sorted), Growatt
+# registry plants for /users/{id}/plants, and worker / cli log records for /system/logs (the APIs
+# add their own records while the cases run).
+docker exec -i "$NAME" psql -U postgres -d parity_seed -v ON_ERROR_STOP=1 -q >/dev/null <<'SQL'
 INSERT INTO sync_runs (job, trigger, status, started_at, finished_at)
 VALUES ('history', 'schedule', 'ok', now() - interval '20 minutes', now() - interval '10 minutes'),
        ('history', 'schedule', 'failed', now() - interval '5 minutes', now() - interval '1 minute');
 INSERT INTO user_plant_assignments (user_id, plant_id, assigned_by, created_at)
 SELECT id, p, 'parity', now() FROM users, unnest(ARRAY[42, 7, 1001]) AS p WHERE username = 'engineer';
+INSERT INTO growatt_plants (plant_id, name, synced_at)
+SELECT p, 'Parity plant ' || p, now() FROM unnest(ARRAY[10, 20, 30, 42, 7]) AS p;
+INSERT INTO app_logs (ts, level, level_no, source, host, logger, message, exc_text, run_id, job, request_id, extra_json)
+VALUES
+  (date_trunc('second', now()) - interval '30 hours', 'ERROR', 40, 'worker', 'vm-1', 'app.services.growatt_sync',
+   'history: phase 2 FAILED after 3 tries', 'Traceback (most recent call last): ...', 77, 'history', NULL, '{"phase": 2}'),
+  (date_trunc('second', now()) - interval '3 hours', 'INFO', 20, 'worker', 'vm-1', 'app.services.jobs',
+   'job history started', NULL, 77, 'history', NULL, NULL),
+  (date_trunc('second', now()) - interval '2 hours', 'DEBUG', 10, 'worker', 'vm-1', 'app.services.growatt_sync',
+   'page 3 of 9', NULL, 77, 'history', NULL, NULL),
+  (date_trunc('second', now()) - interval '90 minutes', 'WARNING', 30, 'cli', 'laptop', 'app.cli.import_pwa',
+   'row 12: 100%_done is not a number', NULL, NULL, NULL, NULL, '{"row": 12, "sheet": "Jan"}'),
+  (date_trunc('second', now()) - interval '1 hour', 'CRITICAL', 50, 'worker', 'vm-1', 'app_services',
+   'disk almost full', NULL, NULL, NULL, NULL, NULL),
+  (date_trunc('second', now()) - interval '30 minutes', 'ERROR', 40, 'api', 'tcroof-api-00042', 'app.api.request',
+   'GET /api/growatt/plants failed: unhandled exception', 'Traceback ...', NULL, NULL, '0123456789abcdef', NULL);
 SQL
+for db in parity_py parity_rs; do
+  docker exec "$NAME" psql -U postgres -qc "CREATE DATABASE $db TEMPLATE parity_seed" >/dev/null
+done
+DB_URL="postgresql+psycopg://postgres:${PW}@127.0.0.1:${PG_PORT}/parity_py"
+RS_DB_URL="postgresql+psycopg://postgres:${PW}@127.0.0.1:${PG_PORT}/parity_rs"
 
 export DATABASE_URL="$DB_URL"
 export JWT_SECRET_KEY="parity-$(date +%s)-shared-secret-for-both-backends"
@@ -73,7 +99,7 @@ echo "parity: Python on :$PY_PORT, Rust on :$RUST_PORT, Postgres on :$PG_PORT, l
 PYTHONPATH=backend uv run --quiet --with "psycopg[binary]>=3.2" \
   python -m uvicorn app.main:app --host 127.0.0.1 --port "$PY_PORT" >"$LOGS/python.log" 2>&1 &
 PY_PID=$!
-(cd rust && RUST_API_PORT="$RUST_PORT" exec ./target/debug/tcroof-api) >"$LOGS/rust.log" 2>&1 &
+(cd rust && DATABASE_URL="$RS_DB_URL" RUST_API_PORT="$RUST_PORT" exec ./target/debug/tcroof-api) >"$LOGS/rust.log" 2>&1 &
 RS_PID=$!
 
 wait_up() {  # name url pid log

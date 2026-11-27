@@ -1,196 +1,12 @@
-//! Integration tests: the axum Router driven in-process against a Postgres database whose schema
-//! and seed came from Python (rust/scripts/schema.sh). Run them with rust/scripts/test_pg.sh.
-//!
-//! `TEST_DATABASE_URL` names the seeded database. Each test copies it into a fresh database
-//! (`CREATE DATABASE … TEMPLATE`), so no test sees another's rows. Without the variable the DB
-//! tests print a skip message and pass, so a plain `cargo test` still works.
+//! Integration tests of health and auth (harness in tests/common). Run them with
+//! rust/scripts/test_pg.sh.
 //!
 //! The expected behaviour is Python's: backend/app/main.py (health), backend/app/services/jobs.py
 //! (`worker_health`), backend/app/api/routes/auth.py, backend/app/auth.py and
 //! backend/app/services/users.py (`user_out`).
 
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-
-use axum::body::Body;
-use axum::http::{header, HeaderMap, Method, Request, StatusCode};
-use axum::Router;
-use chrono::{DateTime, SubsecRound, Utc};
-use serde_json::{json, Value};
-use sha2::Sha256;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{Connection, Executor, PgConnection, PgPool};
-use tower::ServiceExt;
-
-use tcroof_api::{app, AppState, Settings};
-
-const SECRET: &str = "integration-test-secret";
-
-fn settings(database_url: &str) -> Settings {
-    Settings {
-        app_env: "dev".into(),
-        database_url: database_url.into(),
-        jwt_secret_key: SECRET.into(),
-        jwt_algorithm: "HS256".into(),
-        jwt_expire_minutes: 60,
-        port: 0,
-    }
-}
-
-fn router(pool: PgPool, url: &str) -> Router {
-    app(AppState { pool, settings: Arc::new(settings(url)) })
-}
-
-// ------------------------------------------------------------------------------- fresh database
-
-/// A fresh copy of the seeded database, dropped by `finish`.
-struct TestDb {
-    name: String,
-    admin_url: String,
-    pool: PgPool,
-    app: Router,
-}
-
-static SEQ: AtomicU32 = AtomicU32::new(0);
-
-/// Split `postgres://…/dbname?x` into (`postgres://…/postgres?x`, `dbname`, `postgres://…/{new}?x` maker).
-fn split_url(url: &str) -> (String, String, impl Fn(&str) -> String) {
-    let url = tcroof_db::normalize_url(url).expect("TEST_DATABASE_URL must be a Postgres URL");
-    let (base, query) = match url.split_once('?') {
-        Some((b, q)) => (b.to_owned(), format!("?{q}")),
-        None => (url.clone(), String::new()),
-    };
-    let (prefix, db) = base.rsplit_once('/').expect("TEST_DATABASE_URL needs a database name");
-    let prefix = prefix.to_owned();
-    let admin = format!("{prefix}/postgres{query}");
-    (admin, db.to_owned(), move |name: &str| format!("{prefix}/{name}{query}"))
-}
-
-impl TestDb {
-    async fn new() -> Option<TestDb> {
-        let Ok(url) = std::env::var("TEST_DATABASE_URL") else {
-            eprintln!("skipped: TEST_DATABASE_URL is not set (run rust/scripts/test_pg.sh)");
-            return None;
-        };
-        let (admin_url, template, url_for) = split_url(&url);
-        let name = format!(
-            "t_{}_{}_{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::SeqCst),
-            Utc::now().timestamp_subsec_nanos()
-        );
-        let mut admin = PgConnection::connect(&admin_url).await.expect("connect to the postgres database");
-        // Two copies of one template at the same moment can collide ("being accessed by other users").
-        let mut tries = 0;
-        loop {
-            match admin.execute(format!(r#"CREATE DATABASE "{name}" TEMPLATE "{template}""#).as_str()).await {
-                Ok(_) => break,
-                Err(e) if tries < 50 && e.to_string().contains("being accessed by other users") => {
-                    tries += 1;
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                Err(e) => panic!("CREATE DATABASE {name} TEMPLATE {template}: {e}"),
-            }
-        }
-        admin.close().await.ok();
-        let db_url = url_for(&name);
-        let pool = PgPoolOptions::new().max_connections(4).connect(&db_url).await.expect("connect to the test database");
-        let app = router(pool.clone(), &db_url);
-        Some(TestDb { name, admin_url, pool, app })
-    }
-
-    async fn finish(self) {
-        self.pool.close().await;
-        if let Ok(mut admin) = PgConnection::connect(&self.admin_url).await {
-            let _ = admin.execute(format!(r#"DROP DATABASE IF EXISTS "{}" WITH (FORCE)"#, self.name).as_str()).await;
-            admin.close().await.ok();
-        }
-    }
-
-    async fn user_id(&self, username: &str) -> i32 {
-        sqlx::query_scalar("SELECT id FROM users WHERE username = $1")
-            .bind(username)
-            .fetch_one(&self.pool)
-            .await
-            .expect("seeded user")
-    }
-
-    /// A user with the password `pw`, hashed the Python way (fewer iterations; the count is in the hash).
-    async fn add_user(&self, username: &str, pw: &str, role: &str, active: bool) -> i32 {
-        let salt = "0123456789abcdef0123456789abcdef";
-        let mut dk = [0u8; 32];
-        pbkdf2::pbkdf2_hmac::<Sha256>(pw.as_bytes(), salt.as_bytes(), 1000, &mut dk);
-        let hashed = format!("pbkdf2_sha256$1000${salt}${}", hex::encode(dk));
-        sqlx::query_scalar(
-            "INSERT INTO users (username, email, full_name, hashed_password, role, is_active, store_keeper, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, false, now()) RETURNING id",
-        )
-        .bind(username)
-        .bind(format!("{username}@example.test"))
-        .bind(format!("Test {username}"))
-        .bind(hashed)
-        .bind(role)
-        .bind(active)
-        .fetch_one(&self.pool)
-        .await
-        .expect("insert user")
-    }
-
-    async fn add_run(&self, job: &str, status: &str, finished_at: Option<DateTime<Utc>>) {
-        let started = finished_at.unwrap_or_else(Utc::now) - chrono::Duration::minutes(5);
-        sqlx::query("INSERT INTO sync_runs (job, trigger, status, started_at, finished_at) VALUES ($1, 'schedule', $2, $3, $4)")
-            .bind(job)
-            .bind(status)
-            .bind(started)
-            .bind(finished_at)
-            .execute(&self.pool)
-            .await
-            .expect("insert sync run");
-    }
-}
-
-// ----------------------------------------------------------------------------------- requests
-
-struct Res {
-    status: StatusCode,
-    headers: HeaderMap,
-    body: Value,
-}
-
-async fn send(app: &Router, method: Method, uri: &str, token: Option<&str>, body: Option<Value>) -> Res {
-    let mut req = Request::builder().method(method).uri(uri);
-    if let Some(t) = token {
-        req = req.header(header::AUTHORIZATION, t);
-    }
-    let req = match body {
-        Some(b) => req.header(header::CONTENT_TYPE, "application/json").body(Body::from(b.to_string())),
-        None => req.body(Body::empty()),
-    }
-    .unwrap();
-    let res = app.clone().oneshot(req).await.unwrap();
-    let status = res.status();
-    let headers = res.headers().clone();
-    let bytes = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
-    let body = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).expect("JSON body") };
-    Res { status, headers, body }
-}
-
-async fn login(app: &Router, body: Value) -> Res {
-    send(app, Method::POST, "/auth/login", None, Some(body)).await
-}
-
-async fn me(app: &Router, authorization: Option<&str>) -> Res {
-    send(app, Method::GET, "/api/auth/me", authorization, None).await
-}
-
-fn bearer(res: &Res) -> String {
-    format!("Bearer {}", res.body["access_token"].as_str().expect("access_token"))
-}
-
-fn www_auth(res: &Res) -> Option<&str> {
-    res.headers.get(header::WWW_AUTHENTICATE).and_then(|v| v.to_str().ok())
-}
+mod common;
+use common::*;
 
 // -------------------------------------------------------------------------- no database needed
 
@@ -331,13 +147,13 @@ async fn me_requires_a_valid_token_of_an_active_user() {
     // a garbage token and one signed with another key: 401 + WWW-Authenticate, PyJWT-style detail
     let other = {
         // the same database, a different signing key
-        let s =Settings { jwt_secret_key: "another-secret".into(), ..settings("unused") };
-        let a = app(AppState { pool: db.pool.clone(), settings: Arc::new(s) });
+        let s = Settings { jwt_secret_key: "another-secret".into(), ..settings("unused") };
+        let a = app(AppState::new(db.pool.clone(), s));
         bearer(&login(&a, json!({"username": "admin", "password": "admin123"})).await)
     };
     let expired = {
         let s = Settings { jwt_expire_minutes: -1, ..settings("unused") };
-        let a = app(AppState { pool: db.pool.clone(), settings: Arc::new(s) });
+        let a = app(AppState::new(db.pool.clone(), s));
         bearer(&login(&a, json!({"username": "admin", "password": "admin123"})).await)
     };
     for (auth, why) in [
