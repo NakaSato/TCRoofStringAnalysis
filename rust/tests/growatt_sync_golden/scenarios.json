@@ -1,0 +1,52 @@
+{
+  "_doc": "Steps of each scenario, run by golden.py (Python functions) and the tcroof-services example growatt_sync_golden (Rust ports) on two copies of one seeded database. account = Growatt account (token tok-p<n>); dates are offsets from the stub's day (D, D-1, ...); store_raw / meter_history set HISTORY_STORE_RAW / METER_HISTORY_ENABLED for that step.",
+  "scenarios": {
+    "fleet": [
+      {"fn": "remove_blocked_plants", "args": {"plant_ids": [9150, 9999]}},
+      {"fn": "sync_fleet", "account": 1, "args": {"phase": 1}},
+      {"fn": "sync_fleet", "account": 2, "args": {"phase": 2}},
+      {"fn": "sync_fleet", "account": 1, "args": {"phase": null}}
+    ],
+    "history": [
+      {"fn": "sync_incremental", "account": 1, "args": {"phase": 1, "include_untagged": true}},
+      {"fn": "sync_env_incremental", "account": 1, "args": {"phase": 1, "include_untagged": true}},
+      {"fn": "sync_meter_incremental", "account": 1, "args": {"phase": 1, "include_untagged": true}},
+      {"fn": "sync_incremental", "account": 2, "args": {"phase": 2}},
+      {"fn": "sync_incremental", "account": 1, "args": {"phase": 1, "include_untagged": true}}
+    ],
+    "history_batch_raw": [
+      {"fn": "sync_incremental", "account": 1, "store_raw": true, "args": {"phase": 1, "include_untagged": true, "batch_size": 2}},
+      {"fn": "sync_incremental", "account": 1, "store_raw": true, "args": {"phase": 1, "include_untagged": true, "batch_size": 1}}
+    ],
+    "backfill": [
+      {"fn": "sync_all_history", "account": 1, "args": {"start": "D-2", "end": "D-1", "phase": 1, "include_untagged": true}},
+      {"fn": "sync_env_all", "account": 1, "args": {"start": "D-2", "end": "D-1", "phase": 1, "include_untagged": true}},
+      {"fn": "sync_meter_all", "account": 1, "args": {"start": "D-2", "end": "D-1", "phase": 1, "include_untagged": true}},
+      {"fn": "sync_all_history", "account": 1, "args": {"start": "D-9", "end": "D", "device_sns": ["INV-A1"]}},
+      {"fn": "sync_meter_all", "account": 1, "meter_history": false, "args": {"start": "D-2", "end": "D-1", "phase": 1}}
+    ],
+    "env_history": [
+      {"fn": "sync_env_incremental", "account": 1, "args": {"phase": 1, "include_untagged": true, "retries": 0, "max_rate_limited": 3}},
+      {"fn": "sync_env_incremental", "account": 2, "args": {"phase": 2, "retries": 0, "max_rate_limited": 3}}
+    ],
+    "latest": [
+      {"fn": "sync_latest_records", "account": 1, "store_raw": true, "args": {"phase": 1, "include_untagged": true, "first_chunk": 3}},
+      {"fn": "sync_latest_records", "account": 2, "args": {"phase": 2}}
+    ],
+    "power_limits": [
+      {"fn": "sync_power_limits", "account": 1, "args": {"phase": 1, "include_untagged": true}},
+      {"fn": "sync_power_limits", "account": 2, "args": {"phase": 2}}
+    ],
+    "energy": [
+      {"fn": "sync_growatt_energy", "account": 1, "args": {"phase": 1, "include_untagged": true}},
+      {"fn": "sync_growatt_energy", "account": 2, "args": {"phase": 2}},
+      {"fn": "backfill_plant_energy", "account": 1, "args": {"days": 40, "phase": 1}},
+      {"fn": "backfill_plant_energy", "account": 2, "args": {"days": 5, "phase": 2}}
+    ],
+    "alarms": [
+      {"fn": "sync_alarms", "account": 1, "args": {"day": "D-1", "phase": 1, "include_untagged": true}},
+      {"fn": "sync_alarms", "account": 1, "args": {"day": "D", "phase": 1, "include_untagged": true, "tiers": [10, 30, 60, 10]}},
+      {"fn": "sync_alarms", "account": 2, "args": {"day": "D", "phase": 2, "tiers": [10, 30, 60, null]}}
+    ]
+  }
+}
