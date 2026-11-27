@@ -1,0 +1,32 @@
+# Rust port of the TC Roof Solar backend (docs/plans/rust-port-master-plan.md).
+# Python in backend/ stays the deployed system and the behavioural oracle; nothing here replaces it
+# until a part has passed the parity harness (tests/parity) and been cut over.
+# Crates are added when their phase starts: today only `db` and `api` (Phase 0 / 1).
+[workspace]
+resolver = "2"
+members = ["crates/db", "crates/api", "crates/solar-core"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1"
+axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+dotenvy = "0.15"
+hex = "0.4"
+jsonwebtoken = "9"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "macros"] }
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

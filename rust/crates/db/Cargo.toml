@@ -1,0 +1,11 @@
+[package]
+name = "tcroof-db"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+sqlx.workspace = true
