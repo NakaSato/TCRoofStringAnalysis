@@ -1,4 +1,4 @@
-"""Parity fixtures for the Rust port of backend/solar_core (crate tcroof-solar-core).
+"""Parity fixtures for the Rust port of backend/solar_core (crate tcroof-core).
 
 Run from the repo root:
 

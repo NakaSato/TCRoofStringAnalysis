@@ -42,7 +42,7 @@ use sha1::{Digest, Sha1};
 use tcroof_clients::growatt::{
     parse_env_records, py, EnvRow, GrowattClient, GrowattClientOptions, GrowattError, ENV_FIELDS,
 };
-use tcroof_solar_core::sun::sun_times;
+use tcroof_core::sun::sun_times;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 

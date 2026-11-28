@@ -8,7 +8,7 @@ description = "Domain services ported from backend/app/services (DB reads, live 
 
 [dependencies]
 tcroof-clients = { path = "../clients" }
-tcroof-solar-core = { path = "../solar-core" }
+tcroof-core = { path = "../solar-core" }
 chrono.workspace = true
 redis.workspace = true
 regex = "1"  # check_slots: inverter names (daily_checks._INV_NO, REPLACED)

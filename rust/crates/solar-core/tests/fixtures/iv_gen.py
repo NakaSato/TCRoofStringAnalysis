@@ -1,5 +1,5 @@
 """Parity fixtures for the Rust port of backend/solar_core/iv_analysis.py, iv_site_fit.py and
-iv_operating.py (crate tcroof-solar-core).
+iv_operating.py (crate tcroof-core).
 
 Run from the repo root:
 

@@ -2,8 +2,8 @@
 mod iv_common;
 
 use iv_common::{check, de, load, opt_f, run_all, spec};
-use tcroof_solar_core::iv_analysis::IvError;
-use tcroof_solar_core::iv_operating::{
+use tcroof_core::iv_analysis::IvError;
+use tcroof_core::iv_operating::{
     judge_point, string_curve_at, JudgeCriteria, JudgeOptions, StringCurve,
 };
 

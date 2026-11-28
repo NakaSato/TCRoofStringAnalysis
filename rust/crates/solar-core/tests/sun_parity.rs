@@ -2,7 +2,7 @@
 mod common;
 
 use common::{close, date, f, load, opt_f};
-use tcroof_solar_core::sun::{clear_sky_ghi, sun_times, DEFAULT_UTC_OFFSET_H};
+use tcroof_core::sun::{clear_sky_ghi, sun_times, DEFAULT_UTC_OFFSET_H};
 
 #[test]
 fn sun_times_match_python_to_the_microsecond() {

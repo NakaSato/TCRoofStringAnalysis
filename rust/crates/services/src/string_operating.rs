@@ -17,8 +17,8 @@ use std::sync::OnceLock;
 use chrono::{Duration, NaiveDateTime};
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
-use tcroof_solar_core::iv_analysis::{ModuleSpecDict, ModuleStcSpec};
-use tcroof_solar_core::iv_operating::{judge_point, string_curve_at, JudgeCriteria, JudgeOptions, StringCurve};
+use tcroof_core::iv_analysis::{ModuleSpecDict, ModuleStcSpec};
+use tcroof_core::iv_operating::{judge_point, string_curve_at, JudgeCriteria, JudgeOptions, StringCurve};
 
 use crate::common::{py_mean, py_round, Inverter, ServiceError, INVERTER_COLS};
 use crate::live::string_check::{self, Layout as CheckLayout};

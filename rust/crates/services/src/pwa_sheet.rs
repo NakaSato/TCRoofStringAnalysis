@@ -239,7 +239,7 @@ pub fn sky_th(irr: f64, cs: f64) -> Option<&'static str> {
 
 /// Python `clear_sky`: Haurwitz clear-sky GHI (modelled) at Bangkok wall-clock `hour:minute`.
 pub fn clear_sky(lat: f64, lon: f64, day: NaiveDate, hour: u32, minute: u32) -> f64 {
-    tcroof_solar_core::sun::clear_sky_ghi(day, lat, lon, f64::from(hour * 60 + minute), tcroof_solar_core::sun::DEFAULT_UTC_OFFSET_H)
+    tcroof_core::sun::clear_sky_ghi(day, lat, lon, f64::from(hour * 60 + minute), tcroof_core::sun::DEFAULT_UTC_OFFSET_H)
 }
 
 // --------------------------------------------------------------------------- layout

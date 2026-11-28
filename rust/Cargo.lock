@@ -2009,9 +2009,9 @@ dependencies = [
  "sqlx",
  "subtle",
  "tcroof-clients",
+ "tcroof-core",
  "tcroof-db",
  "tcroof-services",
- "tcroof-solar-core",
  "thiserror",
  "tokio",
  "tower",
@@ -2032,6 +2032,15 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "tcroof-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2058,19 +2067,10 @@ dependencies = [
  "sha2",
  "sqlx",
  "tcroof-clients",
- "tcroof-solar-core",
+ "tcroof-core",
  "thiserror",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "tcroof-solar-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
 ]
 
 [[package]]

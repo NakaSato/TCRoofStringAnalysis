@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 use serde_json::Value;
-use tcroof_solar_core::iv_analysis::{IvError, ModuleStcSpec};
+use tcroof_core::iv_analysis::{IvError, ModuleStcSpec};
 
 /// Within 1e-6 absolute or relative.
 pub fn close(a: f64, b: f64) -> bool {

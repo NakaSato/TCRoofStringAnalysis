@@ -440,7 +440,7 @@ async fn sensor_health(pool: &PgPool, plant_id: i64, day: Option<NaiveDate>) -> 
 /// coordinates), else 06:00.
 fn sunrise(plant: &Plant, day: NaiveDate) -> NaiveDateTime {
     if let (Some(lat), Some(lon)) = (plant.latitude, plant.longitude) {
-        if let Some((rise, _)) = tcroof_solar_core::sun::sun_times(day, lat, lon, 7.0) {
+        if let Some((rise, _)) = tcroof_core::sun::sun_times(day, lat, lon, 7.0) {
             return rise;
         }
     }

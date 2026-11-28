@@ -2,7 +2,7 @@
 mod iv_common;
 
 use iv_common::{check, de, f, fvec, load, run_all, spec};
-use tcroof_solar_core::iv_site_fit::{fit_site_coefficients, interpolate_procedure_3, SiteSweep};
+use tcroof_core::iv_site_fit::{fit_site_coefficients, interpolate_procedure_3, SiteSweep};
 
 #[test]
 fn fit_site_coefficients_matches_python() {

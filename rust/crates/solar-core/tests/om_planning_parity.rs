@@ -4,7 +4,7 @@ mod common;
 use common::{close, date, dates, f, load, opt_f};
 use serde_json::Value;
 use std::collections::HashSet;
-use tcroof_solar_core::om_planning::*;
+use tcroof_core::om_planning::*;
 
 fn u32s(v: &Value) -> Vec<u32> {
     v.as_array()

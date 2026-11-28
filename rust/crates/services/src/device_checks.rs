@@ -148,7 +148,7 @@ pub fn fw_read(fw: Option<&str>) -> bool {
 fn daylight(p: &Plant, day: NaiveDate, th: &Th) -> (NaiveDateTime, NaiveDateTime) {
     if let (Some(lat), Some(lon)) = (p.latitude, p.longitude) {
         if !(lat == 0.0 && lon == 0.0) {
-            if let Some(st) = tcroof_solar_core::sun::sun_times(day, lat, lon, PLANT_UTC_OFFSET_H) {
+            if let Some(st) = tcroof_core::sun::sun_times(day, lat, lon, PLANT_UTC_OFFSET_H) {
                 return st;
             }
         }

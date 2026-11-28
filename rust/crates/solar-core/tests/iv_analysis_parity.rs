@@ -6,8 +6,8 @@ mod iv_common;
 use iv_common::{check, compare, de, f, fvec, load, opt_f, run_all, spec};
 use serde_json::Value;
 use std::sync::OnceLock;
-use tcroof_solar_core::iv_analysis::numpy;
-use tcroof_solar_core::iv_analysis::*;
+use tcroof_core::iv_analysis::numpy;
+use tcroof_core::iv_analysis::*;
 
 fn fx() -> &'static Value {
     static FX: OnceLock<Value> = OnceLock::new();

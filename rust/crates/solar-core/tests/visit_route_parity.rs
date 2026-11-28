@@ -4,7 +4,7 @@ mod common;
 
 use common::{close, close_opt, f, load, opt_f};
 use serde_json::Value;
-use tcroof_solar_core::visit_route::{
+use tcroof_core::visit_route::{
     evaluate, internals, solve, EndMode, RouteError, Solution, StopSpec,
 };
 

@@ -2,7 +2,7 @@
 //! deterministic generator (not Python's), and are checked against an independent brute force.
 
 use std::time::Instant;
-use tcroof_solar_core::visit_route::{
+use tcroof_core::visit_route::{
     evaluate, internals, solve, Cost, EndMode, Method, RouteError, Solution, StopSpec, MAX_EXACT,
     MAX_STOPS,
 };

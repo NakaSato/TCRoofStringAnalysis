@@ -1,9 +1,9 @@
 //! The pure I-V tests of backend/tests/test_iv_and_timeseries.py and
 //! backend/tests/test_string_operating.py, ported (same synthetic curves, same assertions).
 
-use tcroof_solar_core::iv_analysis::*;
-use tcroof_solar_core::iv_operating::{judge_point, string_curve_at, JudgeCriteria, JudgeOptions};
-use tcroof_solar_core::iv_site_fit::{fit_site_coefficients, interpolate_procedure_3, SiteSweep};
+use tcroof_core::iv_analysis::*;
+use tcroof_core::iv_operating::{judge_point, string_curve_at, JudgeCriteria, JudgeOptions};
+use tcroof_core::iv_site_fit::{fit_site_coefficients, interpolate_procedure_3, SiteSweep};
 
 fn spec() -> ModuleStcSpec {
     ModuleStcSpec::default()
