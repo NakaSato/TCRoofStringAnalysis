@@ -1,0 +1,1369 @@
+{
+ "cases": [
+  {
+   "name": "rules/events: setup save engineer plants",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "auth": "engineer",
+   "save": {
+    "re_eng_plants": "plant_ids"
+   }
+  },
+  {
+   "name": "rules/events: setup assign engineer 8602, 8603",
+   "method": "PUT",
+   "path": "/api/users/${eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": [
+     8602,
+     8603
+    ]
+   }
+  },
+  {
+   "name": "rules/events: issues 8602 active admin",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues 8602 all + shadow admin",
+   "method": "GET",
+   "path": "/growatt/issues?plant_id=8602&status=all&include_shadow=true",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues 8602 shadow only admin",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&shadow=true",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues 8602 shadow=no closed admin",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&shadow=no&status=closed",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues all engineer (scoped, live only)",
+   "method": "GET",
+   "path": "/api/growatt/issues?status=all",
+   "auth": "engineer",
+   "ignore": [
+    "issues.*.ack_at",
+    "issues.*.closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: issues engineer asks for shadow (ignored)",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&shadow=true&include_shadow=1",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: issues engineer unassigned plant 404",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8601",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: issues engineer unknown plant 404",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=99999999999",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: issues tier P1 all",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&status=all&tier=P1&include_shadow=true",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues rule R1 all",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&status=all&rule=R1",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues acknowledged",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&status=acknowledged",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues dismissed",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&status=dismissed",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issues fleet admin all + shadow",
+   "method": "GET",
+   "path": "/api/growatt/issues?status=all&include_shadow=true",
+   "auth": "admin",
+   "ignore": [
+    "issues.*.ack_at",
+    "issues.*.closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: issues fleet admin default",
+   "method": "GET",
+   "path": "/api/growatt/issues",
+   "auth": "admin",
+   "ignore": [
+    "issues.*.ack_at",
+    "issues.*.closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: issues bad status 422",
+   "method": "GET",
+   "path": "/api/growatt/issues?status=bogus",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: issues bad tier 422",
+   "method": "GET",
+   "path": "/api/growatt/issues?tier=P9",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: issues rule too long 422",
+   "method": "GET",
+   "path": "/api/growatt/issues?rule=R123456789",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: issues bad shadow 422",
+   "method": "GET",
+   "path": "/api/growatt/issues?shadow=maybe",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: issues bad plant id 422",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=x",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: issues unauthenticated 401",
+   "method": "GET",
+   "path": "/api/growatt/issues",
+   "auth": null
+  },
+  {
+   "name": "rules/events: issue get admin",
+   "method": "GET",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issue get engineer",
+   "method": "GET",
+   "path": "/growatt/issues/86002",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: issue get shadow admin",
+   "method": "GET",
+   "path": "/api/growatt/issues/86003",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issue get shadow engineer 404",
+   "method": "GET",
+   "path": "/api/growatt/issues/86003",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: issue get other plant engineer 404",
+   "method": "GET",
+   "path": "/api/growatt/issues/86007",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: issue get unknown 404",
+   "method": "GET",
+   "path": "/api/growatt/issues/86099",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: issue get bad id 422",
+   "method": "GET",
+   "path": "/api/growatt/issues/abc",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: issue get null daily",
+   "method": "GET",
+   "path": "/api/growatt/issues/86004",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: patch shadow engineer 404",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86003",
+   "auth": "engineer",
+   "body": {
+    "action": "acknowledge"
+   }
+  },
+  {
+   "name": "rules/events: patch other plant engineer 404",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86007",
+   "auth": "engineer",
+   "body": {
+    "action": "acknowledge"
+   }
+  },
+  {
+   "name": "rules/events: patch unknown 404",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86099",
+   "auth": "admin",
+   "body": {
+    "action": "note",
+    "note": "x"
+   }
+  },
+  {
+   "name": "rules/events: patch no auth 401",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": null,
+   "body": {
+    "action": "acknowledge"
+   }
+  },
+  {
+   "name": "rules/events: patch bad action 422",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "close"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: patch missing action 422",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "note": "x"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: patch bad feedback 422",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "resolve",
+    "feedback": "yes"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: patch note too long 422",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "note",
+    "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: patch array body 422",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": [
+    1
+   ],
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: patch engineer acknowledge",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "engineer",
+   "body": {
+    "action": "acknowledge",
+    "note": "  on it  "
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch engineer acknowledge again",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "engineer",
+   "body": {
+    "action": "acknowledge"
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch note only + feedback",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "note",
+    "note": "   ",
+    "feedback": "false_alarm"
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch note null (nothing)",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "note",
+    "note": null
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch resolve default feedback",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "engineer",
+   "body": {
+    "action": "resolve"
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch resolve again 409",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "resolve"
+   }
+  },
+  {
+   "name": "rules/events: patch acknowledge closed 409",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "acknowledge"
+   }
+  },
+  {
+   "name": "rules/events: patch reopen twin clash 409",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86005",
+   "auth": "admin",
+   "body": {
+    "action": "reopen"
+   }
+  },
+  {
+   "name": "rules/events: patch reopen",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "engineer",
+   "body": {
+    "action": "reopen",
+    "feedback": "confirmed"
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch reopen open 409",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86001",
+   "auth": "admin",
+   "body": {
+    "action": "reopen"
+   }
+  },
+  {
+   "name": "rules/events: patch reopen R7 inverter",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86004",
+   "auth": "admin",
+   "body": {
+    "action": "reopen"
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch dismiss shadow admin",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86003",
+   "auth": "admin",
+   "body": {
+    "action": "dismiss",
+    "note": "calibrating"
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch dismiss with confirmed",
+   "method": "PATCH",
+   "path": "/api/growatt/issues/86009",
+   "auth": "engineer",
+   "body": {
+    "action": "dismiss",
+    "feedback": "confirmed"
+   },
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: issues after patches admin",
+   "method": "GET",
+   "path": "/api/growatt/issues?plant_id=8602&status=all&include_shadow=true",
+   "auth": "admin",
+   "ignore": [
+    "issues.*.ack_at",
+    "issues.*.closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: rules daily inverter admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&days=10",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: rules daily inverter engineer",
+   "method": "GET",
+   "path": "/growatt/plants/8602/rules/daily?sn=EVTB0001",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: rules daily inverter days 60",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&days=60",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: rules daily string",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&string_no=2&days=5",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: rules daily string no rows",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&string_no=9",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: rules daily other plant's inverter (no rows)",
+   "method": "GET",
+   "path": "/api/growatt/plants/8601/rules/daily?sn=EVTB0001",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: rules daily old day",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&day=2026-01-01&days=1",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: rules daily missing sn 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: rules daily string 0 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&string_no=0",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: rules daily days 366 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&days=366",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: rules daily bad day 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=EVTB0001&day=2026-02-30",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: rules daily sn too long 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/rules/daily?sn=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: rules daily engineer unassigned 404",
+   "method": "GET",
+   "path": "/api/growatt/plants/8601/rules/daily?sn=EVTA0001",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: kpi daily 8602 admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/kpi-daily?days=7",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: kpi daily 8602 engineer",
+   "method": "GET",
+   "path": "/growatt/plants/8602/kpi-daily",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: kpi daily 8601 (no fit)",
+   "method": "GET",
+   "path": "/api/growatt/plants/8601/kpi-daily",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: kpi daily 8603 too few days",
+   "method": "GET",
+   "path": "/api/growatt/plants/8603/kpi-daily",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: kpi daily unknown plant admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/8699/kpi-daily?day=2026-11-01",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: kpi daily days 0 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/kpi-daily?days=0",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: kpi daily engineer unassigned 404",
+   "method": "GET",
+   "path": "/api/growatt/plants/8601/kpi-daily",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: events fleet admin",
+   "method": "GET",
+   "path": "/api/growatt/events",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events fleet engineer (shadow link hidden)",
+   "method": "GET",
+   "path": "/growatt/events",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: events fleet engineer plant 8601 404",
+   "method": "GET",
+   "path": "/api/growatt/events?plant_id=8601",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: events fleet admin plant 8601",
+   "method": "GET",
+   "path": "/api/growatt/events?plant_id=8601",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events fleet type cleaning",
+   "method": "GET",
+   "path": "/api/growatt/events?type=cleaning",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events fleet since covers span",
+   "method": "GET",
+   "path": "/api/growatt/events?since=2026-10-10",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events fleet since + until",
+   "method": "GET",
+   "path": "/api/growatt/events?since=2026-10-12&until=2026-10-15&plant_id=8602",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events fleet limit 1",
+   "method": "GET",
+   "path": "/api/growatt/events?limit=1",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events fleet limit 0 422",
+   "method": "GET",
+   "path": "/api/growatt/events?limit=0",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: events fleet limit 5001 422",
+   "method": "GET",
+   "path": "/api/growatt/events?limit=5001",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: events fleet bad type 422",
+   "method": "GET",
+   "path": "/api/growatt/events?type=wash",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: events fleet bad since 422",
+   "method": "GET",
+   "path": "/api/growatt/events?since=yesterday",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: events fleet unauthenticated 401",
+   "method": "GET",
+   "path": "/api/growatt/events",
+   "auth": null
+  },
+  {
+   "name": "rules/events: events plant 8602 admin",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events plant 8602 engineer",
+   "method": "GET",
+   "path": "/growatt/plants/8602/events",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: events plant 8602 by inverter",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/events?sn=EVTB0001",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events plant 8602 type repair",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/events?type=repair&until=2026-10-31",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events plant 8601 with unknown inverter",
+   "method": "GET",
+   "path": "/api/growatt/plants/8601/events",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events plant 8603 empty",
+   "method": "GET",
+   "path": "/api/growatt/plants/8603/events",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: events plant engineer unassigned 404",
+   "method": "GET",
+   "path": "/api/growatt/plants/8601/events",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: events plant sn too long 422",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/events?sn=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "auth": "admin",
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: post engineer unassigned 404",
+   "method": "POST",
+   "path": "/api/growatt/plants/8601/events",
+   "auth": "engineer",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  "
+   }
+  },
+  {
+   "name": "rules/events: post admin unknown plant 404",
+   "method": "POST",
+   "path": "/api/growatt/plants/8699/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  "
+   }
+  },
+  {
+   "name": "rules/events: post no auth 401",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": null,
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  "
+   }
+  },
+  {
+   "name": "rules/events: post future day 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2099-01-01",
+    "cost_thb": "1500",
+    "note": "  washed  "
+   }
+  },
+  {
+   "name": "rules/events: post future end_day 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "end_day": "2099-01-01"
+   }
+  },
+  {
+   "name": "rules/events: post end_day before day 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "end_day": "2026-10-01"
+   }
+  },
+  {
+   "name": "rules/events: post span too long 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2025-01-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "end_day": "2026-02-01"
+   }
+  },
+  {
+   "name": "rules/events: post string without inverter 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "string_no": 2
+   }
+  },
+  {
+   "name": "rules/events: post inverter of other plant 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "device_sn": "EVTA0001"
+   }
+  },
+  {
+   "name": "rules/events: post close_issue without issue 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "close_issue": true
+   }
+  },
+  {
+   "name": "rules/events: post issue of other plant 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "issue_id": 86007
+   }
+  },
+  {
+   "name": "rules/events: post shadow issue engineer 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "engineer",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "issue_id": 86003
+   }
+  },
+  {
+   "name": "rules/events: post unknown issue 422",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "issue_id": 86099
+   }
+  },
+  {
+   "name": "rules/events: post bad type 422 (validation)",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "wash",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  "
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: post missing day 422 (validation)",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "repair"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: post negative cost 422 (validation)",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": -1,
+    "note": "  washed  "
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: post string 65 422 (validation)",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "string_no": 65,
+    "device_sn": "EVTB0001"
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: post bad date 422 (validation)",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-31",
+    "cost_thb": "1500",
+    "note": "  washed  "
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: post close_issue null 422 (validation)",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  ",
+    "close_issue": null
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: post engineer cleaning",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "engineer",
+   "body": {
+    "event_type": "cleaning",
+    "day": "2026-11-01",
+    "cost_thb": "1500",
+    "note": "  washed  "
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ],
+   "save": {
+    "re_ev1": "id"
+   }
+  },
+  {
+   "name": "rules/events: post admin repair closes R8",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "repair",
+    "day": "2026-11-02",
+    "end_day": "2026-11-02",
+    "device_sn": "EVTB0001",
+    "string_no": "3",
+    "issue_id": 86006,
+    "close_issue": true,
+    "note": "replaced fuse",
+    "extra": 1
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ],
+   "save": {
+    "re_ev2": "id"
+   }
+  },
+  {
+   "name": "rules/events: issue R8 resolved by the event",
+   "method": "GET",
+   "path": "/api/growatt/issues/86006",
+   "auth": "admin",
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: post engineer links closed issue (kept, nothing resolved)",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "engineer",
+   "body": {
+    "event_type": "site_visit",
+    "day": "2026-11-03",
+    "issue_id": "86006",
+    "close_issue": true,
+    "device_sn": ""
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ],
+   "save": {
+    "re_ev3": "id"
+   }
+  },
+  {
+   "name": "rules/events: post admin links shadow issue",
+   "method": "POST",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "admin",
+   "body": {
+    "event_type": "pm_inspection",
+    "day": "2026-11-04",
+    "issue_id": 86003,
+    "cost_thb": 0
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ],
+   "save": {
+    "re_ev4": "id"
+   }
+  },
+  {
+   "name": "rules/events: patch event engineer cost null + note",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "engineer",
+   "body": {
+    "cost_thb": null,
+    "note": " dry clean "
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event day null (unchanged) + end_day",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "engineer",
+   "body": {
+    "day": null,
+    "event_type": null,
+    "end_day": "2026-11-03"
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event set inverter + string",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "admin",
+   "body": {
+    "device_sn": "EVTB0001",
+    "string_no": 3
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event clear inverter clears string",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "admin",
+   "body": {
+    "device_sn": null
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event nothing",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "admin",
+   "body": {},
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event link live issue",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "engineer",
+   "body": {
+    "issue_id": 86002
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event close linked issue",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "engineer",
+   "body": {
+    "close_issue": true,
+    "event_type": "repair"
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: issue R3 resolved by patch",
+   "method": "GET",
+   "path": "/api/growatt/issues/86002",
+   "auth": "admin",
+   "ignore": [
+    "ack_at",
+    "closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event unlink",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "engineer",
+   "body": {
+    "issue_id": null
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event close without issue 422",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "admin",
+   "body": {
+    "close_issue": true
+   }
+  },
+  {
+   "name": "rules/events: patch event engineer unlink shadow (kept)",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/86103",
+   "auth": "engineer",
+   "body": {
+    "issue_id": null,
+    "note": "seen"
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: event shadow link still there (admin)",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/events?type=inverter_service",
+   "auth": "admin",
+   "ignore": [
+    "events.*.created_at",
+    "events.*.updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event engineer close shadow 422",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/86103",
+   "auth": "engineer",
+   "body": {
+    "close_issue": true
+   }
+  },
+  {
+   "name": "rules/events: patch event admin unlink shadow",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev4}",
+   "auth": "admin",
+   "body": {
+    "issue_id": null
+   },
+   "ignore": [
+    "created_at",
+    "updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: patch event future 422",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "admin",
+   "body": {
+    "day": "2099-01-01"
+   }
+  },
+  {
+   "name": "rules/events: patch event other plant's event 404",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/86110",
+   "auth": "admin",
+   "body": {
+    "note": "x"
+   }
+  },
+  {
+   "name": "rules/events: patch event unknown 404",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/86199",
+   "auth": "admin",
+   "body": {
+    "note": "x"
+   }
+  },
+  {
+   "name": "rules/events: patch event engineer unassigned 404",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8601/events/86110",
+   "auth": "engineer",
+   "body": {
+    "note": "x"
+   }
+  },
+  {
+   "name": "rules/events: patch event bad string 422 (validation)",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "admin",
+   "body": {
+    "string_no": 99
+   },
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: patch event bad id 422",
+   "method": "PATCH",
+   "path": "/api/growatt/plants/8602/events/abc",
+   "auth": "admin",
+   "body": {},
+   "keys_ignored": true
+  },
+  {
+   "name": "rules/events: delete engineer admin's event 403",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/8602/events/${re_ev2}",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: delete engineer own event",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: delete again 404",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/8602/events/${re_ev1}",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: delete engineer unassigned 404",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/8601/events/86110",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: delete admin other plant's event 404",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/8602/events/86110",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: delete engineer event without recorder 403",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/8602/events/86105",
+   "auth": "engineer"
+  },
+  {
+   "name": "rules/events: delete admin engineer's event",
+   "method": "DELETE",
+   "path": "/api/growatt/plants/8602/events/86101",
+   "auth": "admin"
+  },
+  {
+   "name": "rules/events: events after writes admin",
+   "method": "GET",
+   "path": "/api/growatt/events?plant_id=8602",
+   "auth": "admin",
+   "ignore": [
+    "events.*.created_at",
+    "events.*.updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: events after writes engineer",
+   "method": "GET",
+   "path": "/api/growatt/plants/8602/events",
+   "auth": "engineer",
+   "ignore": [
+    "events.*.created_at",
+    "events.*.updated_at"
+   ]
+  },
+  {
+   "name": "rules/events: issues after writes admin",
+   "method": "GET",
+   "path": "/api/growatt/issues?status=all&include_shadow=true&plant_id=8602",
+   "auth": "admin",
+   "ignore": [
+    "issues.*.ack_at",
+    "issues.*.closed_at"
+   ]
+  },
+  {
+   "name": "rules/events: teardown restore engineer plants",
+   "method": "PUT",
+   "path": "/api/users/${eng_id}/plants",
+   "auth": "admin",
+   "body": {
+    "plant_ids": "${re_eng_plants}"
+   }
+  }
+ ]
+}
