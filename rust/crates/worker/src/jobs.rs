@@ -45,12 +45,12 @@ pub fn job(name: &str) -> Option<Job> {
         "publish_today" => NotPorted { phase: "4.3" },
         "publish_yesterday" => NotPorted { phase: "4.3" },
         "retention" => Ported(|ctx| Box::pin(job_retention(ctx))),
-        "google_weather" => NotPorted { phase: "4.3" },
+        "google_weather" => Ported(|ctx| Box::pin(job_google_weather(ctx))),
         "alarms" => Ported(|ctx| Box::pin(job_alarms(ctx))),
         "alarms_yesterday" => Ported(|ctx| Box::pin(job_alarms_yesterday(ctx))),
         "push_test" => NotPorted { phase: "4.3" },
         "faults_push" => NotPorted { phase: "4.3" },
-        "pwa_sheet" => NotPorted { phase: "4.3" },
+        "pwa_sheet" => Ported(|ctx| Box::pin(job_pwa_sheet(ctx))),
         "rules_today" => NotPorted { phase: "5" },
         "rules_yesterday" => NotPorted { phase: "5" },
         "rules_backfill" => NotPorted { phase: "5" },
@@ -427,6 +427,53 @@ async fn alarm_push_unsent(ctx: &Ctx) -> Result<Value, JobError> {
     Ok(Value::Object(out))
 }
 
+// --------------------------------------------------------------------------- Google Weather / PWA sheet (4.3)
+
+/// Python `jobs.job_google_weather`: today's daytime hours of Google Maps Weather (hourly,
+/// modelled) for every plant grid cell (`google_weather.run_history_job`); when hours were stored,
+/// yesterday's daily docs are re-published (yesterday's 18:00–23:00 hours only arrive now).
+pub async fn job_google_weather(ctx: Ctx) -> JobResult {
+    use tcroof_services::google_weather_history::{self as gh, HistoryConfig, HistoryError};
+    let s = &ctx.settings;
+    let cfg = HistoryConfig {
+        api_key: s.google_weather_api_key.clone(),
+        base_url: s.google_weather_base_url.clone(),
+        monthly_budget: s.google_weather_monthly_budget,
+        // Python `settings.google_weather_history_hours_per_day` (4000)
+        history_hours_per_day: std::env::var("GOOGLE_WEATHER_HISTORY_HOURS_PER_DAY")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(4000),
+        cells: s.google_cells(),
+    };
+    let (status, mut detail) = gh::run_history_job(&ctx.pool, &cfg, plant_now().naive_local()).await.map_err(|e| match e {
+        HistoryError::AllFailed(_) => JobError::new("RuntimeError", e.to_string()),
+        HistoryError::Db(e) => JobError::from(e),
+    })?;
+    if detail.get("hours_stored").and_then(Value::as_u64).unwrap_or(0) > 0 {
+        // TODO(4.3 publish): Python re-publishes yesterday here: `_publish(db, today - 1 day)`,
+        // `detail["republished_yesterday"] = {written, unchanged, over_budget}` of its report, and
+        // the run becomes `partial` when that publish is not `ok`. Wire in
+        // `tcroof_services::publish::publish_day(...)` at merge; until then the re-publish is
+        // recorded as not available.
+        detail["republished_yesterday"] = json!({"available": false, "reason": "publish is not ported to Rust yet (4.3)"});
+    }
+    Ok((status, detail))
+}
+
+/// Python `jobs.job_pwa_sheet`: today's tab of the PWA Report Google Sheet (created if missing)
+/// with the checks published so far; `ok` + skipped without PWA_SHEET_ID, `failed` on an error
+/// (the error in the detail, as Python's `_pwa_sheet`).
+pub async fn job_pwa_sheet(ctx: Ctx) -> JobResult {
+    use tcroof_services::pwa_sheet::{run_for_now_safe, PwaSheetConfig};
+    let mut cfg = PwaSheetConfig::from_env();
+    cfg.check_offset_min = ctx.worker.check_offset_min;
+    Ok(match run_for_now_safe(&ctx.pool, &cfg, plant_now().naive_local()).await {
+        None => ("ok".into(), json!({"skipped": "PWA_SHEET_ID not set"})),
+        Some(sheet) => ((if sheet.get("error").is_some() { "failed" } else { "ok" }).into(), sheet),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,7 +486,7 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "growatt_energy", "energy_backfill", "retention", "alarms", "alarms_yesterday"]);
+        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "growatt_energy", "energy_backfill", "retention", "google_weather", "alarms", "alarms_yesterday", "pwa_sheet"]);
     }
 
     #[test]

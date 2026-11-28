@@ -165,12 +165,15 @@ async fn main() -> anyhow::Result<()> {
             0
         }
     };
-    // Python's atexit flush: one last flush, even inside the pause after a failure
+    // Python's atexit flush: one last flush, even inside the pause after a failure. It runs before
+    // the background flusher is stopped: a flush it started (an ERROR wakes it) has already taken
+    // its records from the buffer, and aborting it mid-insert lost them; the final flush waits for
+    // it (flush lock), then writes the rest.
+    if let Some(l) = &logs {
+        l.flush(true).await;
+    }
     if let Some(f) = flusher {
         f.abort();
-    }
-    if let Some(l) = logs {
-        l.flush(true).await;
     }
     std::process::exit(code);
 }
