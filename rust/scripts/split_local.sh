@@ -47,4 +47,9 @@ done
 curl -fsS "http://127.0.0.1:$PY_PORT/health" >/dev/null || { echo "split_local: Python API did not start (see $LOGS/python.log)" >&2; exit 1; }
 curl -fsS "http://127.0.0.1:$RUST_PORT/health" >/dev/null || { echo "split_local: Rust API did not start (see $LOGS/rust.log)" >&2; exit 1; }
 echo "split_local: Python :$PY_PORT, Rust :$RUST_PORT (logs in $LOGS); split on :$PORT"
-python3 -I rust/scripts/split_api.py --port "$PORT" --python "http://127.0.0.1:$PY_PORT" --rust "http://127.0.0.1:$RUST_PORT" | tee "$LOGS/split.log"
+# in the background + wait, so a TERM / Ctrl-C reaches the trap at once (bash defers traps
+# while a foreground command runs)
+python3 -I rust/scripts/split_api.py --port "$PORT" --python "http://127.0.0.1:$PY_PORT" --rust "http://127.0.0.1:$RUST_PORT" \
+  > >(tee "$LOGS/split.log") 2>&1 &
+PIDS+=($!)
+wait
