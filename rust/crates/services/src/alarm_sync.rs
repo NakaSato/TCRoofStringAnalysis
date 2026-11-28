@@ -323,7 +323,7 @@ pub async fn sync_alarms(
                         if limited >= MAX_RATE_LIMITED {
                             let left = order.len() - idx;
                             failed.push(failed_entry("rate limited", format!("{left} inverters left for the next run")));
-                            tracing::warn!("alarm_data rate limited; {left} inverters wait for the next run");
+                            tracing::warn!(target: "growatt_alarms", "alarm_data rate limited; {left} inverters wait for the next run");
                             break;
                         }
                     }
@@ -340,8 +340,9 @@ pub async fn sync_alarms(
                 read += 1;
             }
             Err(e) => {
-                tracing::error!("{} alarms {day} store failed: {e}", inv.device_sn);
-                failed.push(failed_entry(inv.device_sn.clone(), format!("store: {e}")));
+                let msg = e.py_str();
+                tracing::error!(target: "growatt_alarms", "{} alarms {day} store failed: {msg}", inv.device_sn);
+                failed.push(failed_entry(inv.device_sn.clone(), format!("store: {msg}")));
             }
         }
         opts.sleep(pause_s).await;

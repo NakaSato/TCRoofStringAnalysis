@@ -39,10 +39,12 @@ pub async fn sync_meters(
             let m = m.as_object().cloned().unwrap_or_default();
             let Some(addr) = int_of_str(py::get(&m, "address")) else { continue };
             if let Some(i) = keys.iter().position(|k| *k == (dl.clone(), addr)) {
+                let first = names[i].as_deref().unwrap_or("None");
                 tracing::warn!(target: "growatt_sync",
-                    "plant {plant_id}: meter_list names {dl} address {addr} twice ({:?} / {}); keeping the first",
-                    names[i],
-                    py::str_of(py::get(&m, "device_name"))
+                    "plant {plant_id}: meter_list names {dl} address {addr} twice ({} / {}); keeping {}",
+                    first,
+                    py::str_of(py::get(&m, "device_name")),
+                    first
                 );
                 continue;
             }

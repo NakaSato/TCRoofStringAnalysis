@@ -138,6 +138,82 @@ impl SyncError {
     pub fn is_rate_limited(&self) -> bool {
         matches!(self, SyncError::Growatt(g) if g.is_rate_limited())
     }
+
+    /// Python `str(exc)`: the message without the exception name that `Parse` carries
+    /// (`AttributeError: 'str' object …` → `'str' object …`).
+    pub fn py_str(&self) -> String {
+        match self {
+            SyncError::Parse(m) => strip_exc_name(m).to_owned(),
+            e => e.to_string(),
+        }
+    }
+}
+
+/// `"XxxError: msg"` → `"msg"` (Python's `str(exc)` of a `type(exc).__name__: str(exc)` text).
+pub fn strip_exc_name(m: &str) -> &str {
+    match m.split_once(": ") {
+        Some((name, rest)) if name.ends_with("Error") && name.chars().all(|c| c.is_ascii_alphanumeric()) => rest,
+        _ => m,
+    }
+}
+
+/// A Python dict of counts keyed by text, in insertion order: `d[k] = d.get(k, 0) + 1`, and
+/// `repr(d)` for log lines (`{'18': 3, '5': 1}`). Serializes as a JSON object.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PyCounts(pub Vec<(String, u64)>);
+
+impl PyCounts {
+    pub fn bump(&mut self, key: String) {
+        match self.0.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, n)) => *n += 1,
+            None => self.0.push((key, 1)),
+        }
+    }
+
+    /// Python `repr(dict)` (`str()` of a dict is its repr)
+    pub fn repr(&self) -> String {
+        let items: Vec<String> = self.0.iter().map(|(k, n)| format!("{}: {n}", py::repr_str(k))).collect();
+        format!("{{{}}}", items.join(", "))
+    }
+}
+
+impl serde::Serialize for PyCounts {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut m = s.serialize_map(Some(self.0.len()))?;
+        for (k, n) in &self.0 {
+            m.serialize_entry(k, n)?;
+        }
+        m.end()
+    }
+}
+
+/// Python `str(x)` of an optional float (`None`, `100.0`)
+pub fn py_opt_float(v: Option<f64>) -> String {
+    v.map_or_else(|| "None".to_owned(), py::repr_float)
+}
+
+#[cfg(test)]
+mod py_text_tests {
+    use super::*;
+
+    #[test]
+    fn counts_keep_insertion_order_and_repr_like_python() {
+        let mut c = PyCounts::default();
+        for k in ["18", "5", "18", "0", "18"] {
+            c.bump(k.into());
+        }
+        assert_eq!(c.repr(), "{'18': 3, '5': 1, '0': 1}");
+        assert_eq!(PyCounts::default().repr(), "{}");
+    }
+
+    #[test]
+    fn str_of_exception_drops_the_name() {
+        assert_eq!(strip_exc_name("AttributeError: 'str' object has no attribute 'get'"), "'str' object has no attribute 'get'");
+        assert_eq!(strip_exc_name("plant 4: no rows"), "plant 4: no rows");
+        assert_eq!(py_opt_float(Some(100.0)), "100.0");
+        assert_eq!(py_opt_float(None), "None");
+    }
 }
 
 pub type SyncResult<T> = std::result::Result<T, SyncError>;

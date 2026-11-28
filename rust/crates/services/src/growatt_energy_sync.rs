@@ -9,7 +9,7 @@
 //! Only days before today (plant-local) are written: today's figures are realtime. These are
 //! Growatt's numbers, kept next to (never instead of) what is integrated from stored records.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 
 use chrono::{NaiveDate, NaiveDateTime, Utc};
@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use tcroof_clients::growatt::{py, GrowattClient, GrowattError};
 
-use crate::growatt_sync::{midnight, phase_text, upsert, SyncOptions, SyncResult, B, BATCH, RATE_LIMIT_CODE};
+use crate::growatt_sync::{midnight, PyCounts, phase_text, upsert, SyncOptions, SyncResult, B, BATCH, RATE_LIMIT_CODE};
 
 /// Python `ENERGY_LOOKBACK_DAYS`: `plant/energy` re-read window (finished days)
 pub const ENERGY_LOOKBACK_DAYS: i64 = 7;
@@ -41,12 +41,12 @@ struct Caller<'a> {
     max_rate_limited: usize,
     asked: usize,
     in_a_row: usize,
-    errors: BTreeMap<String, u64>,
+    errors: PyCounts,
 }
 
 impl<'a> Caller<'a> {
     fn new(opts: &'a SyncOptions, pause_s: f64, max_rate_limited: usize) -> Self {
-        Caller { opts, pause_s, max_rate_limited, asked: 0, in_a_row: 0, errors: BTreeMap::new() }
+        Caller { opts, pause_s, max_rate_limited, asked: 0, in_a_row: 0, errors: PyCounts::default() }
     }
 
     /// `(ok, value)`, or `RateLimited` when the account should stop.
@@ -65,7 +65,7 @@ impl<'a> Caller<'a> {
             }
             Err(GrowattError::Api(a)) => {
                 let key = a.error_code.as_ref().map_or_else(|| "error".to_owned(), py::str_of);
-                *self.errors.entry(key).or_default() += 1;
+                self.errors.bump(key);
                 if a.code() == Some(RATE_LIMIT_CODE) {
                     self.in_a_row += 1;
                     if self.in_a_row >= self.max_rate_limited {
@@ -74,13 +74,13 @@ impl<'a> Caller<'a> {
                 } else {
                     self.in_a_row = 0;
                 }
-                tracing::debug!("{label} failed: {}", a.message);
+                tracing::debug!(target: "growatt_energy", "{label} failed: {}", a.message);
                 Ok(None)
             }
             Err(e) => {
                 self.in_a_row = 0;
-                *self.errors.entry("error".into()).or_default() += 1;
-                tracing::warn!("{label} failed: {e}");
+                self.errors.bump("error".into());
+                tracing::warn!(target: "growatt_energy", "{label} failed: {e}");
                 Ok(None)
             }
         }
@@ -251,18 +251,18 @@ pub async fn sync_growatt_energy(
         Ok(Err(e)) => return Err(e),
         Ok(Ok(())) => {}
         Err(RateLimited(label)) => {
-            tracing::warn!(
+            tracing::warn!(target: "growatt_energy", 
                 "phase {}: rate limited {max_rate_limited} times in a row at {label}; the rest wait for the next run",
                 phase_text(phase)
             );
             failed.push(json!(format!("phase {}: rate limited at {label}", phase_text(phase))));
         }
     }
-    tracing::info!(
-        "phase {} Growatt energy: {energy_days} plant days, {power_days} curves ({power_points} points), {inv_days} inverter days, {} calls, errors {:?}",
+    tracing::info!(target: "growatt_energy", 
+        "phase {} Growatt energy: {energy_days} plant days, {power_days} curves ({power_points} points), {inv_days} inverter days, {} calls, errors {}",
         phase_text(phase),
         call.asked,
-        call.errors
+        call.errors.repr()
     );
     Ok(json!({
         "plants": pids.len(),
@@ -337,15 +337,15 @@ pub async fn backfill_plant_energy(
         Ok(Err(e)) => return Err(e),
         Ok(Ok(())) => {}
         Err(RateLimited(label)) => {
-            tracing::warn!("phase {}: plant/energy backfill rate limited at {label}", phase_text(phase));
+            tracing::warn!(target: "growatt_energy", "phase {}: plant/energy backfill rate limited at {label}", phase_text(phase));
             failed.push(json!(format!("phase {}: rate limited at {label}", phase_text(phase))));
         }
     }
-    tracing::info!(
-        "phase {} plant/energy backfill: {energy_days} days, {} calls, errors {:?}",
+    tracing::info!(target: "growatt_energy", 
+        "phase {} plant/energy backfill: {energy_days} days, {} calls, errors {}",
         phase_text(phase),
         call.asked,
-        call.errors
+        call.errors.repr()
     );
     Ok(json!({
         "plants": pids.len(),

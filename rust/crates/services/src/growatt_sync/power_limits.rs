@@ -1,7 +1,6 @@
 //! Port of `backend/app/services/growatt_sync/power_limits.py`: each inverter's active power
 //! limit read from the inverter itself (`new-api/readPower`, the `power_limits` job).
 
-use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
@@ -41,7 +40,7 @@ pub async fn sync_power_limits(
     .await?;
     let (mut read, mut limited, mut unreadable) = (0u64, 0u64, 0u64);
     let mut failed: Vec<Value> = Vec::new();
-    let mut errors: BTreeMap<String, u64> = BTreeMap::new();
+    let mut errors = super::PyCounts::default();
     let mut in_a_row = 0usize;
     let mut asked = 0usize;
     for inv in &invs {
@@ -67,21 +66,21 @@ pub async fn sync_power_limits(
                 in_a_row = 0;
                 unreadable += 1;
                 let key = a.error_code.as_ref().map_or_else(|| "None".to_owned(), py::str_of);
-                *errors.entry(key).or_default() += 1;
+                errors.bump(key);
                 tracing::debug!(target: "growatt_sync", "inverter {} readPower refused: {}", inv.device_sn, a.message);
                 continue;
             }
             Err(e) => {
                 in_a_row = 0;
                 unreadable += 1;
-                *errors.entry("error".into()).or_default() += 1;
+                errors.bump("error".into());
                 tracing::warn!(target: "growatt_sync", "inverter {} readPower failed: {e}", inv.device_sn);
                 continue;
             }
         };
         in_a_row = 0;
         if inv.power_limit_pct.is_some_and(|old| old != pct) {
-            tracing::info!(target: "growatt_sync", "inverter {} power limit {:?} -> {pct} %", inv.device_sn, inv.power_limit_pct);
+            tracing::info!(target: "growatt_sync", "inverter {} power limit {} -> {} %", inv.device_sn, super::py_opt_float(inv.power_limit_pct), py::repr_float(pct));
         }
         sqlx::query("UPDATE growatt_inverters SET power_limit_pct = $1, power_limit_read_at = $2, synced_at = now() WHERE device_sn = $3")
             .bind(pct)
@@ -95,8 +94,9 @@ pub async fn sync_power_limits(
         }
     }
     tracing::info!(target: "growatt_sync",
-        "phase {} readPower: {read} read ({limited} below 100 %), {unreadable} refused {errors:?}",
-        phase_text(phase)
+        "phase {} readPower: {read} read ({limited} below 100 %), {unreadable} refused {}",
+        phase_text(phase),
+        errors.repr()
     );
     Ok(json!({
         "power_limits_read": read,
