@@ -16,6 +16,7 @@ pub mod meter;
 pub mod curtailment;
 pub mod sensors;
 pub mod alarms;
+pub mod alarm_sync;
 pub mod devices;
 pub mod device_checks;
 pub mod fleet_settings;
@@ -36,4 +37,3 @@ pub mod retention;
 // Phase 4 (worker): Growatt history / registry sync (no live values: Growatt record times only)
 pub mod growatt_sync;
 pub mod growatt_energy_sync;
-pub mod alarm_sync;

@@ -178,5 +178,53 @@
     "log_ignore": [
       "^phase \\d+ done in "
     ]
+  },
+  "alarms": {
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_alarms": {
+        "order": [
+          "id"
+        ]
+      },
+      "growatt_alarm_syncs": {
+        "order": [
+          "device_sn",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
+  },
+  "alarms_yesterday": {
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_alarms": {
+        "order": [
+          "id"
+        ]
+      },
+      "growatt_alarm_syncs": {
+        "order": [
+          "device_sn",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
   }
 }

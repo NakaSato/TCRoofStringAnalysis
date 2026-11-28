@@ -2,7 +2,7 @@
 //! backend/app/services/growatt_alarms.py: `alarm_day`, `next_run_at`, and `jobs.last_started`).
 //!
 //! DB only: never calls Growatt. The worker side (`sync_alarms`, `inverter_tiers`,
-//! `store_inverter_day`, `prune_alarms`) is Phase 4 (crates/worker).
+//! `store_inverter_day`) is [`crate::alarm_sync`]; `prune_alarms` is in [`crate::retention`].
 
 #![allow(clippy::type_complexity)] // sqlx row tuples
 

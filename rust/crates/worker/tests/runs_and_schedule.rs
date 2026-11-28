@@ -126,11 +126,11 @@ async fn queued_runs_are_claimed_oldest_first_one_per_job() {
 #[tokio::test]
 async fn a_job_not_ported_fails_its_run_and_names_the_phase() {
     let Some(db) = Db::new().await else { return };
-    let run = runs::run_job(&db.ctx, "history", "cli").await.unwrap();
+    let run = runs::run_job(&db.ctx, "publish_today", "cli").await.unwrap();
     assert_eq!(run.status, "failed");
     let err = run.error.unwrap();
-    assert!(err.starts_with("NotImplementedError: job history is not ported to Rust yet (Phase 4.2"), "{err}");
-    assert_eq!(run.detail_json.unwrap()["phase"], "4.2");
+    assert!(err.starts_with("NotImplementedError: job publish_today is not ported to Rust yet (Phase 4.3"), "{err}");
+    assert_eq!(run.detail_json.unwrap()["phase"], "4.3");
     assert!(run.finished_at.is_some());
     db.finish().await;
 }
