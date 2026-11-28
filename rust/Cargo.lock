@@ -2025,6 +2025,7 @@ name = "tcroof-clients"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "jsonwebtoken",
  "reqwest",
  "serde",
  "serde_json",

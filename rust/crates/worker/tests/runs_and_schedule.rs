@@ -4,7 +4,6 @@
 //! test_jobs.py.
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, Utc};
@@ -51,7 +50,7 @@ impl Db {
         let db_url = format!("{prefix}/{name}");
         let pool = PgPoolOptions::new().max_connections(4).connect(&db_url).await.unwrap();
         let settings = Settings { database_url: db_url, ..Settings::default() };
-        let ctx = Ctx { pool: pool.clone(), settings: Arc::new(settings), worker: Arc::new(WorkerSettings::default()) };
+        let ctx = Ctx::new(pool.clone(), settings, WorkerSettings::default());
         Some(Db { name, admin_url, pool, ctx })
     }
 

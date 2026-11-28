@@ -34,6 +34,8 @@ pub mod longdo;
 pub mod rainviewer;
 // Phase 4 (worker): the deletes of the `retention` job
 pub mod retention;
+pub mod push;
+pub mod fault_push;
 // Phase 4 (worker): Growatt history / registry sync (no live values: Growatt record times only)
 pub mod growatt_sync;
 pub mod growatt_energy_sync;

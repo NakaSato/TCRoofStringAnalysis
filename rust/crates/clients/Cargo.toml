@@ -8,11 +8,12 @@ description = "External HTTP APIs ported from backend/solar_core: Growatt OpenAP
 
 [dependencies]
 chrono.workspace = true
+jsonwebtoken.workspace = true  # google_auth: RS256 service-account assertion
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["time"] }
 tracing.workspace = true
 
 [dev-dependencies]

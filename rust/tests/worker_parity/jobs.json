@@ -226,5 +226,35 @@
     "log_ignore": [
       "^phase \\d+ done in "
     ]
+  },
+  "_doc_push": "push_test / faults_push / alarms_push: seed.d/60_push.sql, stub fcm (fcm_stub.py: FCM HTTP v1 + OAuth token server, a throwaway key; the messages each side sent are compared as a multiset). alarms_push = the alarms job with a phase-3 account (growatt_stub.py push_alarms, serials AL6…) and a sender.",
+  "push_test": {
+    "stubs": ["fcm"],
+    "tables": {
+      "push_tokens": {"order": ["id"]},
+      "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
+      "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
+    }
+  },
+  "faults_push": {
+    "stubs": ["fcm"],
+    "tables": {
+      "push_tokens": {"order": ["id"]},
+      "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
+      "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
+    }
+  },
+  "alarms_push": {
+    "job": "alarms",
+    "env": {"GROWATT_TOKEN_PHASE3": "parity-stub-token-3", "WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt", "fcm"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_alarms": {"order": ["id"]},
+      "growatt_alarm_syncs": {"order": ["device_sn", "day"], "ignore": ["synced_at"]},
+      "push_tokens": {"order": ["id"]},
+      "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
+      "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
+    }
   }
 }

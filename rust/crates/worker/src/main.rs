@@ -95,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
     tcroof_services::growatt_sync::remove_blocked_plants(&pool, &settings.blocked_plant_ids())
         .await
         .map_err(|e| anyhow::anyhow!("{}", tcroof_worker::JobError::from(e)))?;
-    let ctx = Ctx { pool: pool.clone(), settings: Arc::new(settings.clone()), worker: Arc::new(worker.clone()) };
+    let ctx = Ctx::new(pool.clone(), settings.clone(), worker.clone());
     let schedule = default_schedule(&worker);
 
     let code = match mode {

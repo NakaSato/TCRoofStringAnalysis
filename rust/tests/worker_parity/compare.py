@@ -19,6 +19,7 @@ import argparse
 import datetime as dt
 import decimal
 import json
+import os
 import re
 import sys
 from typing import Any, Dict, List, Tuple
@@ -91,6 +92,8 @@ def main() -> int:
     ap.add_argument("--spec", required=True)
     ap.add_argument("--seed-runs", type=int, required=True, help="max(sync_runs.id) of the seeded template")
     ap.add_argument("--seed-logs", type=int, required=True, help="max(app_logs.id) of the seeded template")
+    ap.add_argument("--fcm-py", help="messages the stub FCM received from Python (fcm_stub.py, JSON lines)")
+    ap.add_argument("--fcm-rs", help="the same for Rust")
     args = ap.parse_args()
     spec = json.load(open(args.spec, encoding="utf-8"))[args.job]
     problems: List[str] = []
@@ -101,8 +104,17 @@ def main() -> int:
             sql = f"SELECT * FROM {table} ORDER BY {order}"
             ign = set(t.get("ignore", []))
             present = t.get("present", [])
-            a = [mark(drop(r, ign), present) for r in rows(py, sql)]
-            b = [mark(drop(r, ign), present) for r in rows(rs, sql)]
+            # later = {column: reference}: compared only as "column > reference" (a now() stamp
+            # the job may move, e.g. updated_at against created_at)
+            later = t.get("later", {})
+
+            def shape(r: Dict[str, Any]) -> Dict[str, Any]:
+                for col, ref in later.items():
+                    r[col] = r[col] is not None and r[ref] is not None and r[col] > r[ref]
+                return mark(drop(r, ign), present)
+
+            a = [shape(r) for r in rows(py, sql)]
+            b = [shape(r) for r in rows(rs, sql)]
             d = diff_lists(table, a, b)
             problems += d
             checked += len(a)
@@ -142,6 +154,15 @@ def main() -> int:
         d += diff_lists("app_logs (this run)", *logs)
         problems += d
         print(f"{'ok  ' if not d else 'DIFF'} app_logs ({len(logs[0])} new record(s))")
+
+    if args.fcm_py or args.fcm_rs:
+        # FCM messages: as a multiset (firebase_admin sends a batch from a thread pool)
+        sent = [sorted(json.dumps(json.loads(line), ensure_ascii=False, sort_keys=True)
+                       for line in (open(f, encoding="utf-8") if os.path.exists(f) else []) if line.strip())
+                for f in (args.fcm_py, args.fcm_rs)]
+        d = diff_lists("fcm messages", [json.loads(x) for x in sent[0]], [json.loads(x) for x in sent[1]])
+        problems += d
+        print(f"{'ok  ' if not d else 'DIFF'} fcm messages ({len(sent[0])} received)")
 
     for p in problems:
         print("  " + p)

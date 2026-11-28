@@ -11,8 +11,11 @@
 # Each job runs as `python -m app.worker --once JOB` and `tcroof-worker --once JOB`, one after the
 # other (never at the same time: the stubs keep per-token rate-limit state like Growatt). A job
 # with `"stubs": ["growatt"]` / `["weather"]` in jobs.json gets the stub servers of the API parity
-# harness (rust/tests/parity/growatt_stub.py, weather_stub.py) and their keys; every other external
-# service is blanked for BOTH workers below.
+# harness (rust/tests/parity/growatt_stub.py, weather_stub.py) and their keys; `"fcm"` gets the
+# stub FCM + OAuth token server (fcm_stub.py), a throwaway RSA key in a test key file whose
+# token_uri is the stub, and FCM_BASE_URL per side (Python through py_worker.py, which refuses to
+# run unless both are local; the stub records each side's messages, compared by compare.py). Every
+# other external service is blanked for BOTH workers below.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
@@ -26,10 +29,12 @@ mkdir -p "$LOGS"  # a PARITY_LOG_DIR that does not exist yet would otherwise run
 DATA="$(mktemp -d "${TMPDIR:-/tmp}/tcroof-worker-parity-data.XXXXXX")"
 STUB_PID=""
 WX_PID=""
+FCM_PID=""
 
 cleanup() {
   [[ -n "$STUB_PID" ]] && kill "$STUB_PID" 2>/dev/null || true
   [[ -n "$WX_PID" ]] && kill "$WX_PID" 2>/dev/null || true
+  [[ -n "$FCM_PID" ]] && kill "$FCM_PID" 2>/dev/null || true
   [[ -n "${SYNC_STUB_PID:-}" ]] && kill "$SYNC_STUB_PID" 2>/dev/null || true
   wait 2>/dev/null || true
   docker rm -f "$NAME" >/dev/null 2>&1 || true
@@ -68,7 +73,7 @@ export APP_ENV=dev SEED_DEMO_DATA=false
 export PUBLISH_SINK=json FIREBASE_CREDENTIALS_FILE= FIREBASE_PROJECT_ID= \
   FIREBASE_WEB_API_KEY= FIREBASE_WEB_APP_ID= FIREBASE_MESSAGING_SENDER_ID= FIREBASE_VAPID_KEY= \
   PWA_SHEET_ID= PWA_SHEET_CREDENTIALS_FILE= KB_ASSETS_BUCKET= KB_FILES_DIR="$DATA/kb_files" \
-  GOOGLE_APPLICATION_CREDENTIALS=
+  GOOGLE_APPLICATION_CREDENTIALS= FCM_BASE_URL=http://127.0.0.1:9
 export GROWATT_API_TOKEN= GROWATT_TOKEN_PHASE1= GROWATT_TOKEN_PHASE2= GROWATT_TOKEN_PHASE3= GROWATT_TOKEN_PHASE4= \
   GROWATT_BASE_URL=http://127.0.0.1:9/v1/ GROWATT_BLOCKED_PLANT_IDS= REDIS_URL=
 export GOOGLE_WEATHER_API_KEY= LONGDO_API_KEY= RAINVIEWER_ENABLED=false GEOAPIFY_API_KEY= AI_API_KEY= REPORT_API_KEY= \
@@ -133,7 +138,26 @@ for k, v in json.load(open(sys.argv[1]))[sys.argv[2]].get("env", {}).items():
     SYNC_STUB_PID=$!
     for _ in $(seq 1 40); do curl -sS "http://127.0.0.1:$SYNC_STUB_PORT/v1/ping" >/dev/null 2>&1 && break; sleep 0.25; done
   fi
+  if [[ " $stubs " == *" fcm "* && -z "$FCM_PID" ]]; then
+    FCM_PORT="$(free_port "${FCM_STUB_PORT:-8193}")"
+    python3 -I "$HERE/fcm_stub.py" "$FCM_PORT" "$LOGS/fcm" >"$LOGS/fcm_stub.log" 2>&1 &
+    FCM_PID=$!
+    for _ in $(seq 1 40); do curl -sS "http://127.0.0.1:$FCM_PORT/ping" >/dev/null 2>&1 && break; sleep 0.25; done
+    # a throwaway key, never the one in secrets/: the token request goes to the stub
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$DATA/fcm-test-key.pem" 2>/dev/null
+    python3 - "$DATA/fcm-test-key.pem" "http://127.0.0.1:$FCM_PORT/token" "$DATA/fcm-test-key.json" <<'PY'
+import json, sys
+pem, uri, out = sys.argv[1:]
+json.dump({"type": "service_account", "project_id": "parity-stub-project", "private_key_id": "parity-stub-key",
+           "private_key": open(pem).read(), "client_email": "parity-stub@parity-stub-project.iam.gserviceaccount.com",
+           "client_id": "1", "token_uri": uri}, open(out, "w"))
+PY
+  fi
   stubenv=()
+  if [[ " $stubs " == *" fcm "* ]]; then
+    stubenv+=("FIREBASE_CREDENTIALS_FILE=$DATA/fcm-test-key.json" "FIREBASE_PROJECT_ID=parity-stub-project")
+    rm -f "$LOGS/fcm/py_$job.jsonl" "$LOGS/fcm/rs_$job.jsonl"
+  fi
   if [[ " $stubs " == *" growatt "* ]]; then
     stubenv+=("GROWATT_BASE_URL=http://127.0.0.1:$STUB_PORT/v1/" "GROWATT_TOKEN_PHASE1=parity-stub-token")
   fi
@@ -149,10 +173,14 @@ for k, v in json.load(open(sys.argv[1]))[sys.argv[2]].get("env", {}).items():
     psql_ -c "CREATE DATABASE ${side}_${job} TEMPLATE worker_seed" >/dev/null
   done
   set +e
-  env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} DATABASE_URL="$(url "py_$job")" PYTHONPATH=backend \
-    uv run --quiet --with "psycopg[binary]>=3.2" python -m app.worker --once "$run_job" >"$LOGS/$job.python.out" 2>"$LOGS/$job.python.err"
+  fcm_py=() fcm_rs=()
+  if [[ " $stubs " == *" fcm "* ]]; then
+    fcm_py=("FCM_BASE_URL=http://127.0.0.1:$FCM_PORT/py_$job") fcm_rs=("FCM_BASE_URL=http://127.0.0.1:$FCM_PORT/rs_$job")
+  fi
+  env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} ${fcm_py[@]+"${fcm_py[@]}"} DATABASE_URL="$(url "py_$job")" PYTHONPATH=backend \
+    uv run --quiet --with "psycopg[binary]>=3.2" python "$HERE/py_worker.py" --once "$run_job" >"$LOGS/$job.python.out" 2>"$LOGS/$job.python.err"
   py_code=$?
-  (cd rust && exec env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} DATABASE_URL="$(url "rs_$job")" \
+  (cd rust && exec env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} ${fcm_rs[@]+"${fcm_rs[@]}"} DATABASE_URL="$(url "rs_$job")" \
     ./target/debug/tcroof-worker --once "$run_job") >"$LOGS/$job.rust.out" 2>"$LOGS/$job.rust.err"
   rs_code=$?
   set -e
@@ -163,6 +191,7 @@ for k, v in json.load(open(sys.argv[1]))[sys.argv[2]].get("env", {}).items():
   uv run --quiet --with "psycopg[binary]>=3.2" python "$HERE/compare.py" --job "$job" --spec "$HERE/jobs.json" \
     --py "postgresql://postgres:${PW}@127.0.0.1:${PG_PORT}/py_$job" \
     --rs "postgresql://postgres:${PW}@127.0.0.1:${PG_PORT}/rs_$job" \
-    --seed-runs "$SEED_RUNS" --seed-logs "$SEED_LOGS" || FAILED=1
+    --seed-runs "$SEED_RUNS" --seed-logs "$SEED_LOGS" \
+    ${fcm_py[@]+--fcm-py "$LOGS/fcm/py_$job.jsonl" --fcm-rs "$LOGS/fcm/rs_$job.jsonl"} || FAILED=1
 done
 exit $FAILED

@@ -103,6 +103,14 @@ fn alarm_rows(records: &[Value]) -> SyncResult<Vec<AlarmRow>> {
         .collect()
 }
 
+/// `"AttributeError: msg"` → `"msg"` (`py::PyError` texts carry the Python exception class)
+fn strip_exc_class(m: &str) -> &str {
+    match m.split_once(": ") {
+        Some((cls, rest)) if cls.ends_with("Error") && cls.chars().all(|c| c.is_ascii_alphanumeric()) => rest,
+        _ => m,
+    }
+}
+
 /// Python `store_inverter_day`: replace one inverter-day's alarms with a complete read and stamp it
 /// synced (one transaction). Returns the rows written.
 pub async fn store_inverter_day(
@@ -323,7 +331,7 @@ pub async fn sync_alarms(
                         if limited >= MAX_RATE_LIMITED {
                             let left = order.len() - idx;
                             failed.push(failed_entry("rate limited", format!("{left} inverters left for the next run")));
-                            tracing::warn!("alarm_data rate limited; {left} inverters wait for the next run");
+                            tracing::warn!(target: "growatt_alarms", "alarm_data rate limited; {left} inverters wait for the next run");
                             break;
                         }
                     }
@@ -340,8 +348,13 @@ pub async fn sync_alarms(
                 read += 1;
             }
             Err(e) => {
-                tracing::error!("{} alarms {day} store failed: {e}", inv.device_sn);
-                failed.push(failed_entry(inv.device_sn.clone(), format!("store: {e}")));
+                // Python `str(exc)`: the message without the exception class a parser error names
+                let text = match &e {
+                    crate::growatt_sync::SyncError::Parse(m) => strip_exc_class(m).to_owned(),
+                    other => other.to_string(),
+                };
+                tracing::error!(target: "growatt_alarms", "{} alarms {day} store failed: {text}", inv.device_sn);
+                failed.push(failed_entry(inv.device_sn.clone(), format!("store: {text}")));
             }
         }
         opts.sleep(pause_s).await;
