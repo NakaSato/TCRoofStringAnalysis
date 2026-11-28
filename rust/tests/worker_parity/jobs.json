@@ -283,5 +283,71 @@
       "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
       "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
     }
+  },
+  "_doc_google_weather": "google_weather / google_weather_quota / google_weather_off: seed = extra SQL files of seed.job/ applied to this entry's two copies only. The weather stub answers history/hours (rust/tests/parity/weather_stub.py). Python then re-publishes yesterday (JSON sink, into the run's temp folder via pyshim/sitecustomize.py); publish is not ported in this wave (Rust records republished_yesterday as not available), so republished_yesterday and the publish's log lines are not compared.",
+  "google_weather": {
+    "seed": ["google_weather.sql"],
+    "stubs": ["weather"],
+    "detail_ignore": ["republished_yesterday"],
+    "log_ignore": ["^published ", "^publish "],
+    "tables": {
+      "google_weather_hourly": {"order": ["cell_key", "hour"], "ignore": ["fetched_at"]},
+      "external_api_call_counts": {"order": ["api", "day"]}
+    }
+  },
+  "google_weather_quota": {
+    "job": "google_weather",
+    "seed": ["google_weather_quota.sql"],
+    "stubs": ["weather"],
+    "tables": {
+      "google_weather_hourly": {"order": ["cell_key", "hour"], "ignore": ["fetched_at"]},
+      "external_api_call_counts": {"order": ["api", "day"]}
+    }
+  },
+  "google_weather_off": {
+    "job": "google_weather",
+    "stubs": [],
+    "tables": {"external_api_call_counts": {"order": ["api", "day"]}}
+  },
+  "_doc_pwa_sheet": "pwa_sheet*: stub google (google_stub.py: OAuth token, Sheets API, Firestore REST reads; a throwaway service-account key). compare_sheets = the spreadsheets each worker left in the stub are compared cell by cell too. CHECK_OFFSET_MIN 1440 = every check's snapshot time has passed (hours 9, 13, 17); -1440 = none yet (the 06:05 run: the tab is only created). log_ignore: urllib3 retry warnings of google-auth's background regional-access-boundary lookup (iamcredentials.googleapis.com), which the dead HTTPS proxy refuses: Python only.",
+  "pwa_sheet": {
+    "env": {"PWA_SHEET_ID": "pwa-create", "CHECK_OFFSET_MIN": "1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_existing": {
+    "job": "pwa_sheet",
+    "env": {"PWA_SHEET_ID": "pwa-existing", "CHECK_OFFSET_MIN": "1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_early": {
+    "job": "pwa_sheet",
+    "env": {"PWA_SHEET_ID": "pwa-create", "CHECK_OFFSET_MIN": "-1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_notemplate": {
+    "job": "pwa_sheet",
+    "env": {"PWA_SHEET_ID": "pwa-notemplate", "CHECK_OFFSET_MIN": "1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_off": {
+    "job": "pwa_sheet",
+    "stubs": [],
+    "tables": {}
   }
 }

@@ -232,3 +232,90 @@ async fn tick_runs_queued_first_then_due_jobs_once() {
     assert!(tick(&db.ctx, &schedule, now + Duration::minutes(1)).await.unwrap().is_empty());
     db.finish().await;
 }
+
+// --------------------------------------------------------------------------- google_weather / pwa_sheet (4.3)
+
+/// A one-route Google Weather stand-in on 127.0.0.1 (a thread): `history/hours:lookup` answers
+/// HTTP 429 for latitude 17.x, else `hours` rows of 2026-11-27 from 06:00 on. Never the real API.
+fn weather_mock() -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for s in listener.incoming() {
+            let Ok(mut s) = s else { return };
+            let mut buf = vec![0u8; 8192];
+            let n = s.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let line = req.lines().next().unwrap_or("").to_owned();
+            let q = |k: &str| line.split(['?', '&', ' ']).find_map(|p| p.strip_prefix(&format!("{k}="))).unwrap_or("").to_owned();
+            let (status, body) = if q("location.latitude").starts_with("17.") {
+                ("429 Too Many Requests", serde_json::json!({"error": {"code": 429, "message": "Quota exceeded"}}))
+            } else {
+                let n: u32 = q("hours").parse().unwrap_or(1);
+                let rows: Vec<Value> = (0..n)
+                    .map(|i| {
+                        serde_json::json!({
+                            "displayDateTime": {"year": 2026, "month": 11, "day": 27 + (6 + i) / 24, "hours": (6 + i) % 24},
+                            "weatherCondition": {"type": "CLEAR"}, "temperature": {"degrees": 30.0 + f64::from(i)},
+                            "precipitation": {"qpf": {"quantity": 0.5}}
+                        })
+                    })
+                    .collect();
+                ("200 OK", serde_json::json!({"historyHours": rows}))
+            };
+            let b = body.to_string();
+            let resp = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}", b.len());
+            let _ = s.write_all(resp.as_bytes());
+        }
+    });
+    format!("http://{addr}/v1/")
+}
+
+#[tokio::test]
+async fn google_weather_and_pwa_sheet_are_skipped_when_not_configured() {
+    let Some(db) = Db::new().await else { return };
+    // Settings::default() has no GOOGLE_WEATHER_API_KEY
+    let run = runs::run_job(&db.ctx, "google_weather", "cli").await.unwrap();
+    assert_eq!(run.status, "ok");
+    assert_eq!(run.detail_json.unwrap()["skipped"], "GOOGLE_WEATHER_API_KEY not set");
+    let cfg = tcroof_services::pwa_sheet::PwaSheetConfig::default(); // no PWA_SHEET_ID
+    assert_eq!(tcroof_services::pwa_sheet::run_for_now(&db.pool, &cfg, plant_now().naive_local()).await.unwrap(), None);
+    db.finish().await;
+}
+
+#[tokio::test]
+async fn google_weather_history_stores_daytime_hours_and_stops_at_a_429() {
+    use tcroof_clients::google_weather::GoogleWeatherClient;
+    use tcroof_services::google_weather_history::{sync_history, HistoryConfig, HistoryError};
+    let Some(db) = Db::new().await else { return };
+    let p = &db.pool;
+    let base = weather_mock();
+    let cfg = HistoryConfig { api_key: "test-key".into(), base_url: base.clone(), monthly_budget: 30000, history_hours_per_day: 4000, cells: Default::default() };
+    let now = chrono::NaiveDate::from_ymd_opt(2026, 11, 28).unwrap().and_hms_opt(18, 15, 0).unwrap(); // 13 h back
+    let client = || Arc::new(GoogleWeatherClient::new("test-key", &base, 5.0).unwrap());
+    let cells = |v: &[(&str, f64)]| Some(v.iter().map(|(k, lat)| ((*k).to_owned(), (*lat, 100.0))).collect());
+    let billed = || async {
+        let n: i64 = sqlx::query_scalar("SELECT COALESCE(sum(calls), 0)::bigint FROM external_api_call_counts WHERE api = 'google_weather_history'")
+            .fetch_one(p)
+            .await
+            .unwrap();
+        n
+    };
+
+    // one good cell: 13 hours asked, the 06–17 ones stored (18:00 is outside the daytime window)
+    let (status, d) = sync_history(p, client(), &cfg, cells(&[("13.00,100.00", 13.0)]), 8, now).await.unwrap();
+    assert_eq!(status, "ok");
+    assert_eq!((d["lookback_hours"].as_u64(), d["hours_returned"].as_u64(), d["hours_stored"].as_u64()), (Some(13), Some(13), Some(12)));
+    assert_eq!(d["calls"], 1);
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM google_weather_hourly WHERE cell_key = '13.00,100.00'").fetch_one(p).await.unwrap();
+    assert_eq!(n, 12);
+    assert_eq!(billed().await, 1);
+
+    // the quota cell goes first (nothing stored yet), one worker: its 429 stops the next call, and
+    // the refused call is not billed
+    let err = sync_history(p, client(), &cfg, cells(&[("17.00,100.00", 17.0), ("13.00,100.00", 13.0)]), 1, now).await.unwrap_err();
+    assert!(matches!(err, HistoryError::AllFailed(ref m) if m.contains("HTTP 429")), "{err}");
+    assert_eq!(billed().await, 1);
+    db.finish().await;
+}

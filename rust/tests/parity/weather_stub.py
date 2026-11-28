@@ -107,6 +107,8 @@ class Handler(BaseHTTPRequestHandler):
     def _google(self, path: str, p: dict) -> None:
         if p.get("key") != GOOD_KEY:
             return self._send({"error": {"code": 403, "message": "API key not valid"}}, 403)
+        if path == "history/hours:lookup":
+            return self._google_history(p)
         if path != "currentConditions:lookup":
             return self._send({"error": {"code": 404, "message": f"stub has no {path}"}}, 404)
         lat = float(p.get("location.latitude", "0"))
@@ -137,6 +139,44 @@ class Handler(BaseHTTPRequestHandler):
                                          "minTemperature": {"degrees": 24.5, "unit": "CELSIUS"},
                                          "qpf": {"quantity": 3.5, "unit": "MILLIMETERS"}},
         })
+
+
+    def _google_history(self, p: dict) -> None:
+        """`history/hours:lookup` for the worker parity (`google_weather` job): `hours` rows of a
+        fixed day (2026-11-27 06:00 + i, Bangkok), values by the hour and the latitude, oldest
+        last (the client sorts). Latitude 15.x answers HTTP 500, 17.x HTTP 429 (Google's daily
+        quota); answers never depend on the call count."""
+        lat = float(p.get("location.latitude", "0"))
+        if 15 <= lat < 16:
+            return self._send({"error": {"code": 500, "message": "Internal error encountered."}}, 500)
+        if 17 <= lat < 18:
+            return self._send({"error": {"code": 429, "message": "Quota exceeded for History Hours Usage per day."}}, 429)
+        n = int(p.get("hours", "24"))
+        rows = []
+        for i in reversed(range(n)):
+            h = 6 + i
+            day, hour = 27 + h // 24, h % 24
+            wet = (h + int(lat)) % 5 == 0
+            rows.append({
+                "interval": {"startTime": f"2026-11-{day:02d}T{(hour - 7) % 24:02d}:00:00Z"},
+                "displayDateTime": {"year": 2026, "month": 11, "day": day, "hours": hour, "utcOffset": "25200s"},
+                "isDaytime": 6 <= hour < 18,
+                "weatherCondition": {"type": "RAIN" if wet else ("MOSTLY_CLEAR" if i % 2 else "PARTLY_CLOUDY")},
+                "temperature": {"degrees": 24.5 + i * 0.7 + lat / 100, "unit": "CELSIUS"},
+                "feelsLikeTemperature": {"degrees": 80 + i, "unit": "FAHRENHEIT"},
+                "dewPoint": {"degrees": 21.3, "unit": "CELSIUS"},
+                "relativeHumidity": 60 + i,
+                "uvIndex": i % 9,
+                "precipitation": {"probability": {"percent": 70 if wet else 10, "type": "RAIN"},
+                                  "qpf": {"quantity": 1.37 if wet else 0, "unit": "MILLIMETERS"}},
+                "thunderstormProbability": 20 if wet else 0,
+                "airPressure": {"meanSeaLevelMillibars": 1010.2},
+                "wind": {"direction": {"degrees": 45 * (i % 8)}, "speed": {"value": 7 + i, "unit": "KILOMETERS_PER_HOUR"},
+                         "gust": {"value": 15 + i, "unit": "KILOMETERS_PER_HOUR"}},
+                "visibility": {"distance": 10, "unit": "KILOMETERS"},
+                "cloudCover": (13 * i + int(lat)) % 100,
+            })
+        return self._send({"historyHours": rows})
 
 
 def main() -> None:

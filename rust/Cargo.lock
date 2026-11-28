@@ -2051,6 +2051,7 @@ dependencies = [
  "chrono",
  "redis",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "sha1",
