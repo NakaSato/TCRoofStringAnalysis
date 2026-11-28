@@ -393,7 +393,7 @@ pub async fn epi_factor_info(pool: &PgPool, plant_id: i64) -> Result<Value> {
 
 /// Python `growatt_rules.DEFAULT_RULES` r16_* thresholds, overridden by `app_settings`
 /// `decision_rules` (Python `rule_settings`; only the keys the R16 verdict reads).
-async fn r16_settings(pool: &PgPool) -> Result<(f64, f64, f64, f64)> {
+pub async fn r16_settings(pool: &PgPool) -> Result<(f64, f64, f64, f64)> {
     let row: Option<Value> =
         sqlx::query_scalar("SELECT value FROM app_settings WHERE key = 'decision_rules'").fetch_optional(pool).await?;
     let get = |k: &str, d: f64| match &row {
