@@ -126,12 +126,45 @@ async fn queued_runs_are_claimed_oldest_first_one_per_job() {
 #[tokio::test]
 async fn a_job_not_ported_fails_its_run_and_names_the_phase() {
     let Some(db) = Db::new().await else { return };
-    let run = runs::run_job(&db.ctx, "publish_today", "cli").await.unwrap();
+    let run = runs::run_job(&db.ctx, "kb_ocr", "cli").await.unwrap();
     assert_eq!(run.status, "failed");
     let err = run.error.unwrap();
-    assert!(err.starts_with("NotImplementedError: job publish_today is not ported to Rust yet (Phase 4.3"), "{err}");
-    assert_eq!(run.detail_json.unwrap()["phase"], "4.3");
+    assert!(err.starts_with("NotImplementedError: job kb_ocr is not ported to Rust yet (Phase 7"), "{err}");
+    assert_eq!(run.detail_json.unwrap()["phase"], "7");
     assert!(run.finished_at.is_some());
+    db.finish().await;
+}
+
+#[tokio::test]
+async fn publish_yesterday_writes_the_json_sink_and_counts_writes() {
+    let Some(db) = Db::new().await else { return };
+    // the JSON sink in a temp folder, never data/firestore_export, never Firestore
+    let dir = std::env::temp_dir().join(format!("tcroof-worker-publish-{}", std::process::id()));
+    let mut settings = (*db.ctx.settings).clone();
+    settings.publish_sink = "json".into();
+    settings.publish_json_dir = dir.to_string_lossy().into_owned();
+    let ctx = Ctx { settings: Arc::new(settings), ..db.ctx.clone() };
+    sqlx::query("INSERT INTO growatt_plants (plant_id, name, synced_at) VALUES (77, 'p', now())").execute(&db.pool).await.unwrap();
+    let run = runs::run_job(&ctx, "publish_yesterday", "cli").await.unwrap();
+    assert_eq!(run.status, "ok", "{:?}", run.error);
+    let d = run.detail_json.unwrap();
+    let day = (plant_now().date_naive() - Duration::days(1)).to_string();
+    assert_eq!(d["day"], day.as_str());
+    assert_eq!(d["sink"], "json");
+    // plants/77, config/fleet_module, config/tariff, daily/{day}/plants/77 (no data, but its checks
+    // are built: every plant has a doc then), daily/{day}
+    assert_eq!(d["written"], 5);
+    let fleet: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(format!("daily/{day}.json"))).unwrap()).unwrap();
+    assert_eq!(fleet["plant_count"], 1);
+    assert_eq!(fleet["checks_ready"], serde_json::json!(["09", "13", "17"]));
+    assert!(fleet["published_at"].is_string());
+    // every check of yesterday frozen for the plant, even without inverters
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM pwa_check_slots WHERE plant_id = 77").fetch_one(&db.pool).await.unwrap();
+    assert_eq!(n, 3);
+    // a second run writes nothing: every document unchanged
+    let again = runs::run_job(&ctx, "publish_yesterday", "cli").await.unwrap();
+    assert_eq!(again.detail_json.unwrap()["unchanged"], 5);
+    let _ = std::fs::remove_dir_all(&dir);
     db.finish().await;
 }
 

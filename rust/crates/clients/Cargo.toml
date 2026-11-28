@@ -8,6 +8,7 @@ description = "External HTTP APIs ported from backend/solar_core: Growatt OpenAP
 
 [dependencies]
 chrono.workspace = true
+jsonwebtoken.workspace = true  # google_auth: RS256 service-account assertion
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -16,6 +17,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+jsonwebtoken.workspace = true
 # Correctly rounded float parsing, as Python's json, so the fixtures' floats are read exactly.
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 tokio.workspace = true

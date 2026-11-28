@@ -5,9 +5,13 @@
 //! - [`google_weather`]: Google Maps Weather (`solar_core/google_weather.py`).
 //! - [`longdo_weather`]: Longdo weather radar (`solar_core/longdo_weather.py`).
 //! - [`rainviewer`]: RainViewer radar snapshot list (`solar_core/rainviewer.py`).
+//! - [`google_auth`]: service-account OAuth access tokens (key file → JWT → bearer token).
+//! - [`firestore`]: Firestore REST commit (the summary sink, `daily_summary.FirestoreSink`).
 
 #![forbid(unsafe_code)]
 
+pub mod firestore;
+pub mod google_auth;
 pub mod google_weather;
 pub mod growatt;
 pub mod longdo_weather;

@@ -345,6 +345,30 @@ pub async fn build_day(pool: &PgPool, cfg: &GoogleWeatherConfig, plant: &Plant, 
     Ok(base)
 }
 
+/// Python `day_summary`: compact daily fields for the Firestore daily plant doc (modelled); None
+/// without coordinates or stored hours.
+pub async fn day_summary(pool: &PgPool, cfg: &GoogleWeatherConfig, plant: &Plant, day: NaiveDate) -> Result<Value> {
+    let Some((key, _, _)) = plant_cell(plant, cfg) else { return Ok(Value::Null) };
+    let rows: Vec<Value> = day_hours(pool, cfg, &key, day, day).await?.get(&day).map(|v| v.iter().map(row_out).collect()).unwrap_or_default();
+    if rows.is_empty() {
+        return Ok(Value::Null);
+    }
+    let k = day_kpis(&rows, cfg);
+    Ok(json!({
+        "modelled": true,
+        "hours": k["hours"],
+        "rain_mm": k["rain_mm"],
+        "cloud_cover_daytime_pct": k["cloud_cover_daytime_pct"],
+        "temp_max_c": k["temp_max_c"],
+        "temp_min_c": k["temp_min_c"],
+        "uv_max": k["uv_max"],
+        "condition": k["condition"],
+        "rained": k["rained"],
+        "days_since_rain": days_since_rain(pool, cfg, &key, day).await?["days_since_rain"],
+        "slots": Value::Object(slots(&rows)),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

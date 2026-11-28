@@ -42,8 +42,8 @@ pub fn job(name: &str) -> Option<Job> {
         "power_limits" => Ported(|ctx| Box::pin(job_power_limits(ctx))),
         "growatt_energy" => Ported(|ctx| Box::pin(job_growatt_energy(ctx))),
         "energy_backfill" => Ported(|ctx| Box::pin(job_energy_backfill(ctx))),
-        "publish_today" => NotPorted { phase: "4.3" },
-        "publish_yesterday" => NotPorted { phase: "4.3" },
+        "publish_today" => Ported(|ctx| Box::pin(job_publish_today(ctx))),
+        "publish_yesterday" => Ported(|ctx| Box::pin(job_publish_yesterday(ctx))),
         "retention" => Ported(|ctx| Box::pin(job_retention(ctx))),
         "google_weather" => NotPorted { phase: "4.3" },
         "alarms" => Ported(|ctx| Box::pin(job_alarms(ctx))),
@@ -95,6 +95,73 @@ pub async fn job_retention(ctx: Ctx) -> JobResult {
     );
     detail.insert("sync_runs".into(), json!(r::prune_runs(pool, Utc::now(), keep).await?));
     Ok(("ok".into(), Value::Object(detail)))
+}
+
+// --------------------------------------------------------------------------- publish (4.3)
+
+/// The settings a publish reads (Python `settings.publish_*`, `firebase_*`, the PWA checks and
+/// Google Weather).
+pub fn publish_config(ctx: &Ctx) -> tcroof_services::daily_summary::PublishConfig {
+    use tcroof_services::check_slots::{parse_warn_codes, CheckConfig};
+    let (st, w) = (&ctx.settings, &ctx.worker);
+    tcroof_services::daily_summary::PublishConfig {
+        sink: st.sink_config(),
+        budget: st.publish_daily_write_budget,
+        checks: CheckConfig {
+            offset_min: w.check_offset_min,
+            history_lead_min: w.pwa_history_lead_min,
+            fault_lookback_min: w.pwa_fault_lookback_min,
+            ignored_warn_codes: parse_warn_codes(&w.pwa_ignore_warn_codes),
+            google: st.google_cells(),
+            google_api_key: st.google_weather_api_key.clone(),
+            google_base_url: st.google_weather_base_url.clone(),
+            google_monthly_budget: st.google_weather_monthly_budget,
+        },
+    }
+}
+
+impl From<tcroof_services::daily_summary::PublishError> for JobError {
+    fn from(e: tcroof_services::daily_summary::PublishError) -> Self {
+        JobError::new(&e.kind, e.message)
+    }
+}
+
+/// Python `jobs._publish`: the registry and `day`'s daily docs to the sink `PUBLISH_SINK`
+/// names; `partial` when documents were deferred (write budget) or too large.
+pub async fn publish(ctx: &Ctx, day: chrono::NaiveDate) -> JobResult {
+    Ok(tcroof_services::daily_summary::publish_day(&ctx.pool, &publish_config(ctx), day).await?)
+}
+
+/// Python `jobs._pwa_sheet`: today's tab of the PWA Report Google Sheet; None when PWA_SHEET_ID is
+/// not set (Python `pwa_sheet.run_for_now`). Errors go into the detail, never fail a publish.
+///
+/// TODO(Phase 4.3, pwa_sheet port): call the ported `pwa_sheet::run_for_now(pool, now)` here.
+/// Until then a configured sheet answers `{"error": "NotImplementedError: …"}` (the run is
+/// `partial`), as Python reports a failing sheet fill.
+pub async fn pwa_sheet(ctx: &Ctx, _now: chrono::DateTime<chrono::FixedOffset>) -> Option<Value> {
+    if ctx.worker.pwa_sheet_id.is_empty() {
+        return None;
+    }
+    tracing::error!(target: "jobs", "PWA sheet fill failed");
+    Some(json!({"error": "NotImplementedError: the PWA Report sheet fill (services/pwa_sheet.py) is not ported to Rust yet (Phase 4.3)"}))
+}
+
+/// Python `job_publish_today`: today's docs (08:50 / 12:50 / 16:50 freeze the PWA checks, 19:30
+/// after sunset), then the PWA Report sheet's tab.
+pub async fn job_publish_today(ctx: Ctx) -> JobResult {
+    let (mut status, mut detail) = publish(&ctx, today()).await?;
+    if let Some(sheet) = pwa_sheet(&ctx, plant_now()).await {
+        if sheet.get("error").is_some() {
+            status = "partial".into();
+        }
+        detail["pwa_sheet"] = sheet;
+    }
+    Ok((status, detail))
+}
+
+/// Python `job_publish_yesterday` (06:00): yesterday's docs once more, so late uploads land.
+pub async fn job_publish_yesterday(ctx: Ctx) -> JobResult {
+    publish(&ctx, today() - Duration::days(1)).await
 }
 
 // --------------------------------------------------------------------------- Growatt history (4.2)
@@ -439,7 +506,7 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "growatt_energy", "energy_backfill", "retention", "alarms", "alarms_yesterday"]);
+        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "growatt_energy", "energy_backfill", "publish_today", "publish_yesterday", "retention", "alarms", "alarms_yesterday"]);
     }
 
     #[test]

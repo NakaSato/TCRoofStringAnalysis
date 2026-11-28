@@ -46,6 +46,8 @@ pub struct Settings {
     pub publish_daily_write_budget: i64,
     pub firebase_credentials_file: String,
     pub firebase_project_id: String,
+    /// `PUBLISH_JSON_DIR`: the JSON sink's folder (empty = `data_dir/firestore_export`)
+    pub publish_json_dir: String,
     /// Rust only, not an environment variable: Python's `config.DATA_DIR` (the JSON sink writes
     /// `firestore_export/` under it); tests point it at a temporary folder
     pub data_dir: std::path::PathBuf,
@@ -134,6 +136,7 @@ impl Default for Settings {
             publish_daily_write_budget: 15000,
             firebase_credentials_file: String::new(),
             firebase_project_id: String::new(),
+            publish_json_dir: String::new(),
             data_dir: tcroof_services::publish::default_data_dir(),
             google_weather_cell_deg: 0.01,
             google_weather_day_start_h: 6,
@@ -270,6 +273,7 @@ impl Settings {
             publish_daily_write_budget: int("PUBLISH_DAILY_WRITE_BUDGET")?.unwrap_or(d.publish_daily_write_budget),
             firebase_credentials_file: get("FIREBASE_CREDENTIALS_FILE").unwrap_or_default(),
             firebase_project_id: get("FIREBASE_PROJECT_ID").unwrap_or_default(),
+            publish_json_dir: get("PUBLISH_JSON_DIR").unwrap_or_default(),
             data_dir: d.data_dir,
             google_weather_cell_deg: num("GOOGLE_WEATHER_CELL_DEG")?.unwrap_or(d.google_weather_cell_deg),
             google_weather_day_start_h: int("GOOGLE_WEATHER_DAY_START_H")?.unwrap_or(d.google_weather_day_start_h),
@@ -331,6 +335,17 @@ impl Settings {
 /// The live weather / rain services' settings (Python `get_google_live`, `get_longdo_live`,
 /// `get_rainviewer_live` read them from `settings`).
 impl Settings {
+    /// Python `daily_summary.make_sink(settings.publish_sink)`'s settings
+    pub fn sink_config(&self) -> tcroof_services::publish::SinkConfig {
+        tcroof_services::publish::SinkConfig {
+            kind: self.publish_sink.clone(),
+            credentials_file: self.firebase_credentials_file.clone(),
+            project_id: self.firebase_project_id.clone(),
+            json_dir: self.publish_json_dir.clone(),
+            data_dir: self.data_dir.clone(),
+        }
+    }
+
     /// Python `google_weather.window()` and the cell size (shared with the stored day)
     pub fn google_cells(&self) -> tcroof_services::google_weather_stored::GoogleWeatherConfig {
         tcroof_services::google_weather_stored::GoogleWeatherConfig {

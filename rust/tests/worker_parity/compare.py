@@ -6,7 +6,10 @@ Compared:
 - `sync_runs`: the seeded rows in full, and the run the job made (job, trigger, status,
   detail_json, error, finished or not; its id is the same on both sides, copies share sequences);
 - `app_logs`: the seeded rows in full, and the records the worker logged during the run, in id
-  order (level, logger, message, run id, job, host, whether a traceback was stored).
+  order (level, logger, message, run id, job, host, whether a traceback was stored);
+- the JSON publish sink's files (`--py-json` / `--rs-json`, each side's PUBLISH_JSON_DIR): the
+  same paths, each document equal as parsed JSON (key order is not compared: Python writes
+  insertion order, Rust sorted keys), `published_at` only as present.
 
     python compare.py --job retention --py URL --rs URL --spec jobs.json --seed-runs N --seed-logs N
 
@@ -19,6 +22,7 @@ import argparse
 import datetime as dt
 import decimal
 import json
+import os
 import re
 import sys
 from typing import Any, Dict, List, Tuple
@@ -83,6 +87,21 @@ def diff_lists(name: str, a: List[Any], b: List[Any]) -> List[str]:
     return out
 
 
+def json_docs(root: str | None) -> Dict[str, Any]:
+    """{relative path: document} of a JSON sink folder; `published_at` only as present."""
+    out: Dict[str, Any] = {}
+    if not root or not os.path.isdir(root):
+        return out
+    for dirpath, _dirs, files in os.walk(root):
+        for f in files:
+            full = os.path.join(dirpath, f)
+            doc = json.load(open(full, encoding="utf-8"))
+            if isinstance(doc, dict) and "published_at" in doc:
+                doc["published_at"] = doc["published_at"] is not None
+            out[os.path.relpath(full, root)] = doc
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--job", required=True)
@@ -91,6 +110,8 @@ def main() -> int:
     ap.add_argument("--spec", required=True)
     ap.add_argument("--seed-runs", type=int, required=True, help="max(sync_runs.id) of the seeded template")
     ap.add_argument("--seed-logs", type=int, required=True, help="max(app_logs.id) of the seeded template")
+    ap.add_argument("--py-json", help="Python's JSON publish sink folder")
+    ap.add_argument("--rs-json", help="Rust's JSON publish sink folder")
     args = ap.parse_args()
     spec = json.load(open(args.spec, encoding="utf-8"))[args.job]
     problems: List[str] = []
@@ -142,6 +163,19 @@ def main() -> int:
         d += diff_lists("app_logs (this run)", *logs)
         problems += d
         print(f"{'ok  ' if not d else 'DIFF'} app_logs ({len(logs[0])} new record(s))")
+
+    if args.py_json or args.rs_json:
+        a, b = json_docs(args.py_json), json_docs(args.rs_json)
+        d = []
+        for path in sorted(set(a) | set(b)):
+            if path not in b:
+                d.append(f"json sink: only in python: {path}")
+            elif path not in a:
+                d.append(f"json sink: only in rust: {path}")
+            elif a[path] != b[path]:
+                d.append(f"json sink {path}:\n    python {json.dumps(a[path], ensure_ascii=False, sort_keys=True)}\n    rust   {json.dumps(b[path], ensure_ascii=False, sort_keys=True)}")
+        problems += d[: MAX_SHOWN * 4]
+        print(f"{'ok  ' if not d else 'DIFF'} json sink ({len(a)} file(s))")
 
     for p in problems:
         print("  " + p)

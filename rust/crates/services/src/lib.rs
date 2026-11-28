@@ -37,3 +37,6 @@ pub mod retention;
 // Phase 4 (worker): Growatt history / registry sync (no live values: Growatt record times only)
 pub mod growatt_sync;
 pub mod growatt_energy_sync;
+// Phase 4.3 (worker): publish_today / publish_yesterday (daily summary docs, PWA check slots)
+pub mod check_slots;
+pub mod daily_summary;

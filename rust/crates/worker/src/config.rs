@@ -31,6 +31,11 @@ pub struct WorkerSettings {
     pub log_max_rows: i64,
     pub check_offset_min: i64,
     pub pwa_history_lead_min: i64,
+    pub pwa_fault_lookback_min: i64,
+    /// `PWA_IGNORE_WARN_CODES` as written ("1"); parsed by `check_slots::parse_warn_codes`
+    pub pwa_ignore_warn_codes: String,
+    /// `PWA_SHEET_ID` (empty = no PWA Report sheet fill)
+    pub pwa_sheet_id: String,
 }
 
 impl Default for WorkerSettings {
@@ -59,6 +64,9 @@ impl Default for WorkerSettings {
             log_max_rows: 500_000,
             check_offset_min: 10,
             pwa_history_lead_min: 3,
+            pwa_fault_lookback_min: 60,
+            pwa_ignore_warn_codes: "1".into(),
+            pwa_sheet_id: String::new(),
         }
     }
 }
@@ -96,6 +104,10 @@ impl WorkerSettings {
             log_max_rows: int("LOG_MAX_ROWS", d.log_max_rows)?,
             check_offset_min: int("CHECK_OFFSET_MIN", d.check_offset_min)?,
             pwa_history_lead_min: int("PWA_HISTORY_LEAD_MIN", d.pwa_history_lead_min)?,
+            pwa_fault_lookback_min: int("PWA_FAULT_LOOKBACK_MIN", d.pwa_fault_lookback_min)?,
+            // Python reads an empty value as "" (no code ignored), not as the default
+            pwa_ignore_warn_codes: env::var("PWA_IGNORE_WARN_CODES").unwrap_or(d.pwa_ignore_warn_codes),
+            pwa_sheet_id: get("PWA_SHEET_ID").unwrap_or_default(),
         })
     }
 }

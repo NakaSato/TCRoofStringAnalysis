@@ -11,6 +11,7 @@ tcroof-clients = { path = "../clients" }
 tcroof-solar-core = { path = "../solar-core" }
 chrono.workspace = true
 redis.workspace = true
+regex = "1"  # check_slots: inverter names (daily_checks._INV_NO, REPLACED)
 sha1 = "0.10"
 serde.workspace = true
 serde_json.workspace = true
