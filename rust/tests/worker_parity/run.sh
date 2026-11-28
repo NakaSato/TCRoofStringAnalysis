@@ -61,14 +61,17 @@ for j in "${JOBS[@]}"; do
 done
 
 # ---------------------------------------------------------------- never reach anything real
+# PUBLISH_SINK=json for every job (set below, never firestore); each side's JSON sink folder is
+# PUBLISH_JSON_DIR under the run's temp folder, never data/firestore_export.
 # The repo .env may hold real Growatt tokens, Firebase / Sheets credentials, a Redis URL and API
 # keys, and the Rust worker's .env lookup can climb out of a worktree to the main checkout's .env:
 # every one of these is SET (empty or local) here, for both workers, so no .env value fills it in.
 export APP_ENV=dev SEED_DEMO_DATA=false
-export PUBLISH_SINK=json FIREBASE_CREDENTIALS_FILE= FIREBASE_PROJECT_ID= \
+# PUBLISH_DAILY_WRITE_BUDGET: the default, so a .env value cannot reach only the Rust worker
+export PUBLISH_SINK=json PUBLISH_DAILY_WRITE_BUDGET=15000 FIREBASE_CREDENTIALS_FILE= FIREBASE_PROJECT_ID= \
   FIREBASE_WEB_API_KEY= FIREBASE_WEB_APP_ID= FIREBASE_MESSAGING_SENDER_ID= FIREBASE_VAPID_KEY= \
   PWA_SHEET_ID= PWA_SHEET_CREDENTIALS_FILE= KB_ASSETS_BUCKET= KB_FILES_DIR="$DATA/kb_files" \
-  GOOGLE_APPLICATION_CREDENTIALS=
+  GOOGLE_APPLICATION_CREDENTIALS= FIRESTORE_EMULATOR_HOST= PUBLISH_JSON_DIR="$DATA/json/unset"
 export GROWATT_API_TOKEN= GROWATT_TOKEN_PHASE1= GROWATT_TOKEN_PHASE2= GROWATT_TOKEN_PHASE3= GROWATT_TOKEN_PHASE4= \
   GROWATT_BASE_URL=http://127.0.0.1:9/v1/ GROWATT_BLOCKED_PLANT_IDS= REDIS_URL=
 export GOOGLE_WEATHER_API_KEY= LONGDO_API_KEY= RAINVIEWER_ENABLED=false GEOAPIFY_API_KEY= AI_API_KEY= REPORT_API_KEY= \
@@ -149,10 +152,13 @@ for k, v in json.load(open(sys.argv[1]))[sys.argv[2]].get("env", {}).items():
     psql_ -c "CREATE DATABASE ${side}_${job} TEMPLATE worker_seed" >/dev/null
   done
   set +e
+  # the JSON publish sink of each side writes into its own folder (compared by compare.py)
   env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} DATABASE_URL="$(url "py_$job")" PYTHONPATH=backend \
+    PUBLISH_JSON_DIR="$DATA/json/py_$job" \
     uv run --quiet --with "psycopg[binary]>=3.2" python -m app.worker --once "$run_job" >"$LOGS/$job.python.out" 2>"$LOGS/$job.python.err"
   py_code=$?
   (cd rust && exec env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} DATABASE_URL="$(url "rs_$job")" \
+    PUBLISH_JSON_DIR="$DATA/json/rs_$job" \
     ./target/debug/tcroof-worker --once "$run_job") >"$LOGS/$job.rust.out" 2>"$LOGS/$job.rust.err"
   rs_code=$?
   set -e
@@ -163,6 +169,11 @@ for k, v in json.load(open(sys.argv[1]))[sys.argv[2]].get("env", {}).items():
   uv run --quiet --with "psycopg[binary]>=3.2" python "$HERE/compare.py" --job "$job" --spec "$HERE/jobs.json" \
     --py "postgresql://postgres:${PW}@127.0.0.1:${PG_PORT}/py_$job" \
     --rs "postgresql://postgres:${PW}@127.0.0.1:${PG_PORT}/rs_$job" \
+    --py-json "$DATA/json/py_$job" --rs-json "$DATA/json/rs_$job" \
     --seed-runs "$SEED_RUNS" --seed-logs "$SEED_LOGS" || FAILED=1
+  # keep each side's JSON sink output with the logs
+  for side in py rs; do
+    [[ -d "$DATA/json/${side}_$job" ]] && cp -R "$DATA/json/${side}_$job" "$LOGS/$job.$side.json"
+  done
 done
 exit $FAILED

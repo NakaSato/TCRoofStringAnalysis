@@ -226,5 +226,32 @@
     "log_ignore": [
       "^phase \\d+ done in "
     ]
+  },
+  "_doc_publish": "publish_today / publish_yesterday: seed.d/60_publish.sql (plants 9701-9703) plus every other seeded plant. The JSON sink of each side (PUBLISH_JSON_DIR) is compared file by file (compare.py --py-json / --rs-json). publish_yesterday_budget: PUBLISH_DAILY_WRITE_BUDGET 40, so part of the docs are deferred (run partial).",
+  "publish_today": {
+    "stubs": [],
+    "tables": {
+      "pwa_check_slots": {"order": ["day", "plant_id", "hour"], "present": ["built_at"]},
+      "published_docs": {"order": ["sink", "path"], "present": ["written_at"]},
+      "publish_write_counts": {"order": ["sink", "quota_day"]}
+    }
+  },
+  "publish_yesterday": {
+    "stubs": [],
+    "tables": {
+      "pwa_check_slots": {"order": ["day", "plant_id", "hour"], "present": ["built_at"]},
+      "published_docs": {"order": ["sink", "path"], "present": ["written_at"]},
+      "publish_write_counts": {"order": ["sink", "quota_day"]}
+    }
+  },
+  "publish_yesterday_budget": {
+    "job": "publish_yesterday",
+    "env": {"PUBLISH_DAILY_WRITE_BUDGET": "40"},
+    "stubs": [],
+    "tables": {
+      "pwa_check_slots": {"order": ["day", "plant_id", "hour"], "present": ["built_at"]},
+      "published_docs": {"order": ["sink", "path"], "present": ["written_at"]},
+      "publish_write_counts": {"order": ["sink", "quota_day"]}
+    }
   }
 }

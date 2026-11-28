@@ -70,12 +70,7 @@ fn unprocessable(field: &str, msg: impl std::fmt::Display) -> ApiError {
 
 /// The settings' publisher (Python `make_sink(settings.publish_sink)` + the write budget)
 fn publisher(st: &AppState) -> SinkPublisher {
-    SinkPublisher {
-        sink_kind: st.settings.publish_sink.clone(),
-        credentials_file: st.settings.firebase_credentials_file.clone(),
-        budget: st.settings.publish_daily_write_budget,
-        data_dir: st.settings.data_dir.clone(),
-    }
+    SinkPublisher { sink: st.settings.sink_config(), budget: st.settings.publish_daily_write_budget }
 }
 
 /// `{**a, key: value}`
