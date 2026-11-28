@@ -45,3 +45,7 @@ pub mod growatt_energy_sync;
 // Phase 4.3 (worker): publish_today / publish_yesterday (daily summary docs, PWA check slots)
 pub mod check_slots;
 pub mod daily_summary;
+// Phase 5 (API on stored data): the Issues queue (reading / acting), the Site log, the daily rule / KPI rows
+pub mod issues;
+pub mod site_events;
+pub mod rule_daily;

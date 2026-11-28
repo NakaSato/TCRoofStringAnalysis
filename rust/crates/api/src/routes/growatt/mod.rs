@@ -9,8 +9,10 @@ use axum::Router;
 use crate::AppState;
 
 pub mod devices;
+pub mod events;
 pub mod fleet_config;
 pub mod history;
+pub mod issues;
 pub mod live;
 pub mod live_weather;
 pub mod plants;
@@ -26,4 +28,6 @@ pub fn router() -> Router<AppState> {
         .merge(stored_weather::router())
         .merge(fleet_config::router())
         .merge(devices::router())
+        .merge(issues::router())
+        .merge(events::router())
 }
