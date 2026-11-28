@@ -531,9 +531,7 @@ def publish(
 def make_sink(kind: str, out_dir: Optional[pathlib.Path] = None) -> DocSink:
     if kind == "firestore":
         return FirestoreSink(settings.firebase_credentials_file, settings.firebase_project_id)
-    if out_dir is None:
-        out_dir = pathlib.Path(settings.publish_json_dir) if settings.publish_json_dir else DATA_DIR / "firestore_export"
-    return JsonFileSink(out_dir)
+    return JsonFileSink(out_dir or DATA_DIR / "firestore_export")
 
 
 def run(

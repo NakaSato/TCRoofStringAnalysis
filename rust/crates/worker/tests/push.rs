@@ -130,7 +130,7 @@ async fn faults_push_skips_the_raiser_and_marks_once() {
     assert_eq!(to("fault-9201"), ["ptok-admin-a", "ptok-admin-gone"]);
     // a plant nobody is assigned: admins only; the title names the plant id
     assert_eq!(to("fault-9202"), ["ptok-admin-a", "ptok-admin-gone"]);
-    assert!(msgs.iter().any(|m| get(m, "title") == "S1 safety fault · plant 9799"));
+    assert!(msgs.iter().any(|m| get(m, "title") == "S1 safety fault · plant 9999"));
     // the assigned engineer and the admins
     assert_eq!(to("fault-9207"), ["ptok-admin-a", "ptok-admin-gone", "ptok-eng-a", "ptok-eng-bad", "ptok-eng-mismatch"]);
     let marked: Vec<i32> = sqlx::query_scalar("SELECT id FROM field_faults WHERE s1_pushed_at IS NOT NULL ORDER BY id")
@@ -170,11 +170,11 @@ async fn new_alarm_events_go_to_who_may_see_the_plant() {
         "CREATE TEMP TABLE t AS SELECT (now() AT TIME ZONE 'Asia/Bangkok')::date AS d, date_trunc('minute', now() AT TIME ZONE 'Asia/Bangkok') AS n;
          INSERT INTO growatt_alarms (device_sn, plant_id, day, start_time, alarm_code, alarm_message, fault_type)
          SELECT sn, pid, t.d, t.n - m * interval '1 minute', code, msg, ft FROM t, (VALUES
-           ('AL6A1', 9701, 30, '117', 'Fan fault', 'Fault'), ('AL6A1', 9701, 25, '117', NULL, NULL), ('AL6A1', 9701, 20, '117', NULL, NULL),
-           ('AL6A1', 9701, 15, '305', 'Grid voltage high', 'Warning'),
-           ('AL6B1', 9702, 10, '117', 'already pushed', 'Fault'), ('AL6B3', 9702, 8, '119', 'repeat due', 'Fault'),
-           ('AL6C1', 9703, 6, '501', 'c', 'Fault'), ('AL6C2', 9704, 7, '502', 'c', 'Fault'), ('AL6C3', 9705, 8, '503', 'c', 'Fault'),
-           ('AL6C4', 9706, 9, '504', 'c', 'Fault'), ('AL6C5', 9707, 10, '505', 'c', 'Fault'), ('AL6C6', 9708, 11, '506', 'c', 'Fault'))
+           ('AL6A1', 9901, 30, '117', 'Fan fault', 'Fault'), ('AL6A1', 9901, 25, '117', NULL, NULL), ('AL6A1', 9901, 20, '117', NULL, NULL),
+           ('AL6A1', 9901, 15, '305', 'Grid voltage high', 'Warning'),
+           ('AL6B1', 9902, 10, '117', 'already pushed', 'Fault'), ('AL6B3', 9902, 8, '119', 'repeat due', 'Fault'),
+           ('AL6C1', 9903, 6, '501', 'c', 'Fault'), ('AL6C2', 9904, 7, '502', 'c', 'Fault'), ('AL6C3', 9905, 8, '503', 'c', 'Fault'),
+           ('AL6C4', 9906, 9, '504', 'c', 'Fault'), ('AL6C5', 9907, 10, '505', 'c', 'Fault'), ('AL6C6', 9908, 11, '506', 'c', 'Fault'))
            x(sn, pid, m, code, msg, ft);
          INSERT INTO growatt_alarm_syncs (device_sn, day, plant_id, synced_at, alarm_count)
          SELECT DISTINCT device_sn, day, plant_id, now(), 1 FROM growatt_alarms WHERE device_sn LIKE 'AL6%';",
@@ -194,13 +194,13 @@ async fn new_alarm_events_go_to_who_may_see_the_plant() {
     let admin: Vec<&push::Msg> = msgs.iter().filter(|m| m.token == "ptok-admin-a").collect();
     assert_eq!(admin.len(), 1);
     assert_eq!(get(admin[0], "title"), "New alarms at 8 plants");
-    assert_eq!(get(admin[0], "body"), "Plant 9708, Push C1, Push C2 +5 more");
-    // the engineer of 9701 / 9702: one message per plant and device
+    assert_eq!(get(admin[0], "body"), "Plant 9908, Push C1, Push C2 +5 more");
+    // the engineer of 9901 / 9902: one message per plant and device
     let eng: Vec<&push::Msg> = msgs.iter().filter(|m| m.token == "ptok-eng-a").collect();
     assert_eq!(eng.len(), 2);
-    let a = eng.iter().find(|m| get(m, "tag") == "plant-9701").unwrap();
+    let a = eng.iter().find(|m| get(m, "tag") == "plant-9901").unwrap();
     assert!(get(a, "body").starts_with("INV2 Fault: 117 Fan fault ("), "{}", get(a, "body"));
-    let b = eng.iter().find(|m| get(m, "tag") == "plant-9702").unwrap();
+    let b = eng.iter().find(|m| get(m, "tag") == "plant-9902").unwrap();
     assert!(get(b, "body").starts_with("INV3 Fault: 119 repeat due ("), "{}", get(b, "body"));
     // nobody else: the unassigned engineer and the inactive admin
     assert!(msgs.iter().all(|m| m.token != "ptok-eng2" && m.token != "ptok-off"));

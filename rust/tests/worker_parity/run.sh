@@ -73,7 +73,8 @@ done
 
 # ---------------------------------------------------------------- never reach anything real
 # PUBLISH_SINK=json for every job (set below, never firestore); each side's JSON sink folder is
-# PUBLISH_JSON_DIR under the run's temp folder, never data/firestore_export.
+# under the run's temp folder, never data/firestore_export: Rust's PUBLISH_JSON_DIR (a Rust-only
+# test setting), Python's via pyshim/sitecustomize.py (daily_summary.DATA_DIR = PARITY_DATA_DIR).
 # The repo .env may hold real Growatt tokens, Firebase / Sheets credentials, a Redis URL and API
 # keys, and the Rust worker's .env lookup can climb out of a worktree to the main checkout's .env:
 # every one of these is SET (empty or local) here, for both workers, so no .env value fills it in.
@@ -219,7 +220,7 @@ print("\n".join(json.load(open(sys.argv[1]))[sys.argv[2]].get("seed", [])))' "$H
   # its fixed endpoints (Sheets URL, Firestore reads) at the stubs and blocks every HTTPS request.
   # The JSON publish sink of each side writes into its own folder (compared by compare.py).
   env ${jobenv[@]+"${jobenv[@]}"} ${stubenv[@]+"${stubenv[@]}"} ${fcm_py[@]+"${fcm_py[@]}"} DATABASE_URL="$(url "py_$job")" PYTHONPATH="backend:$HERE/pyshim" \
-    PARITY_PY_SHIM=1 PARITY_DATA_DIR="$DATA/py_export_$job" PUBLISH_JSON_DIR="$DATA/json/py_$job" \
+    PARITY_PY_SHIM=1 PARITY_DATA_DIR="$DATA/py_export_$job" \
     uv run --quiet --with "psycopg[binary]>=3.2" python "$HERE/py_worker.py" --once "$run_job" >"$LOGS/$job.python.out" 2>"$LOGS/$job.python.err"
   py_code=$?
   # Rust: every HTTPS request goes to a dead proxy too (the stubs are plain HTTP on 127.0.0.1)
@@ -266,12 +267,11 @@ PY
   uv run --quiet --with "psycopg[binary]>=3.2" python "$HERE/compare.py" --job "$job" --spec "$HERE/jobs.json" \
     --py "postgresql://postgres:${PW}@127.0.0.1:${PG_PORT}/py_$job" \
     --rs "postgresql://postgres:${PW}@127.0.0.1:${PG_PORT}/rs_$job" \
-    --py-json "$DATA/json/py_$job" --rs-json "$DATA/json/rs_$job" \
+    --py-json "$DATA/py_export_$job/firestore_export" --rs-json "$DATA/json/rs_$job" \
     --seed-runs "$SEED_RUNS" --seed-logs "$SEED_LOGS" \
     ${fcm_py[@]+--fcm-py "$LOGS/fcm/py_$job.jsonl" --fcm-rs "$LOGS/fcm/rs_$job.jsonl"} || FAILED=1
   # keep each side's JSON sink output with the logs
-  for side in py rs; do
-    [[ -d "$DATA/json/${side}_$job" ]] && cp -R "$DATA/json/${side}_$job" "$LOGS/$job.$side.json"
-  done
+  [[ -d "$DATA/py_export_$job/firestore_export" ]] && cp -R "$DATA/py_export_$job/firestore_export" "$LOGS/$job.py.json"
+  [[ -d "$DATA/json/rs_$job" ]] && cp -R "$DATA/json/rs_$job" "$LOGS/$job.rs.json"
 done
 exit $FAILED
