@@ -116,5 +116,67 @@
     "tables": {
       "growatt_inverters": {"order": ["device_sn"], "present": ["synced_at", "info_synced_at", "param_synced_at", "power_limit_read_at", "not_installed_at"]}
     }
+  },
+  "growatt_energy": {
+    "env": {
+      "GROWATT_TOKEN_PHASE2": "parity-stub-token-2",
+      "WORKER_PARALLEL_ACCOUNTS": "false"
+    },
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_plant_energy_days": {
+        "order": [
+          "plant_id",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      },
+      "growatt_inverter_energy_days": {
+        "order": [
+          "device_sn",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      },
+      "growatt_plant_power": {
+        "order": [
+          "plant_id",
+          "timestamp"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
+  },
+  "energy_backfill": {
+    "env": {
+      "GROWATT_TOKEN_PHASE2": "parity-stub-token-2",
+      "WORKER_PARALLEL_ACCOUNTS": "false",
+      "HISTORY_RETENTION_DAYS": "40"
+    },
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_plant_energy_days": {
+        "order": [
+          "plant_id",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
   }
 }

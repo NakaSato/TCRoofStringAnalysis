@@ -40,8 +40,8 @@ pub fn job(name: &str) -> Option<Job> {
         "backfill" => Ported(|ctx| Box::pin(job_backfill(ctx))),
         "fleet" => Ported(|ctx| Box::pin(job_fleet(ctx))),
         "power_limits" => Ported(|ctx| Box::pin(job_power_limits(ctx))),
-        "growatt_energy" => NotPorted { phase: "4.2" },
-        "energy_backfill" => NotPorted { phase: "4.2" },
+        "growatt_energy" => Ported(|ctx| Box::pin(job_growatt_energy(ctx))),
+        "energy_backfill" => Ported(|ctx| Box::pin(job_energy_backfill(ctx))),
         "publish_today" => NotPorted { phase: "4.3" },
         "publish_yesterday" => NotPorted { phase: "4.3" },
         "retention" => Ported(|ctx| Box::pin(job_retention(ctx))),
@@ -227,6 +227,62 @@ pub async fn job_power_limits(ctx: Ctx) -> JobResult {
     .await
 }
 
+/// Python `job_growatt_energy`: Growatt's own figures for finished days: each plant's daily kWh
+/// (`plant/energy`, last 7 days), its 5-minute curve (`plant/power`) and each inverter's kWh
+/// (`day_energy`) for the days not stored yet. Never today (realtime).
+pub async fn job_growatt_energy(ctx: Ctx) -> JobResult {
+    use tcroof_services::growatt_energy_sync as ge;
+    let day = today();
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let v = ge::sync_growatt_energy(
+            &pc.pool,
+            &pc.client,
+            &opts,
+            day,
+            Some(pc.phase),
+            pc.include_untagged,
+            ge::ENERGY_LOOKBACK_DAYS,
+            ge::CURVE_DAYS,
+            ge::ENERGY_PAUSE_S,
+            ge::MAX_RATE_LIMITED,
+        )
+        .await?;
+        let mut d = Map::new();
+        merge(&mut d, v);
+        Ok(d)
+    })
+    .await
+}
+
+/// Python `job_energy_backfill`: Growatt's daily kWh (`plant/energy`) for the last
+/// HISTORY_RETENTION_DAYS finished days of every plant missing some (not scheduled: queue once
+/// after deploy).
+pub async fn job_energy_backfill(ctx: Ctx) -> JobResult {
+    use tcroof_services::growatt_energy_sync as ge;
+    let day = today();
+    let days = ctx.worker.history_retention_days;
+    per_phase(&ctx, move |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let v = ge::backfill_plant_energy(
+            &pc.pool,
+            &pc.client,
+            &opts,
+            day,
+            days,
+            Some(pc.phase),
+            pc.include_untagged,
+            ge::ENERGY_PAUSE_S,
+            ge::MAX_RATE_LIMITED,
+        )
+        .await?;
+        let mut d = Map::new();
+        merge(&mut d, v);
+        Ok(d)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,7 +295,7 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "retention"]);
+        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "growatt_energy", "energy_backfill", "retention"]);
     }
 
     #[test]
