@@ -7,7 +7,7 @@ Compared:
   detail_json, error, finished or not; its id is the same on both sides, copies share sequences);
 - `app_logs`: the seeded rows in full, and the records the worker logged during the run, in id
   order (level, logger, message, run id, job, host, whether a traceback was stored);
-- the JSON publish sink's files (`--py-json` / `--rs-json`, each side's PUBLISH_JSON_DIR): the
+- the JSON publish sink's files (`--py-json` / `--rs-json`, Rust's PUBLISH_JSON_DIR, Python's PARITY_DATA_DIR/firestore_export via pyshim): the
   same paths, each document equal as parsed JSON (key order is not compared: Python writes
   insertion order, Rust sorted keys), `published_at` only as present.
 

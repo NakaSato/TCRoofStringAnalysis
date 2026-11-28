@@ -78,8 +78,6 @@ class Settings(BaseSettings):
     firebase_project_id: str = ""
     publish_daily_write_budget: int = 15000  # stop before the Spark plan's 20k writes/day
     publish_sink: str = "json"  # json (data/firestore_export) | firestore
-    # JSON sink folder; empty = data/firestore_export (the worker parity harness points it at a temp dir)
-    publish_json_dir: str = ""
     worker_history_interval_min: int = 10
     # `history`: read today's records of this many inverters per call
     # (`new-api/queryDevicesHistoricalData`) instead of one `max_data` call each. 0 = off. An

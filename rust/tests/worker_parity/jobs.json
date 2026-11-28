@@ -227,7 +227,7 @@
       "^phase \\d+ done in "
     ]
   },
-  "_doc_publish": "publish_today / publish_yesterday: seed.d/60_publish.sql (plants 9701-9703) plus every other seeded plant. The JSON sink of each side (PUBLISH_JSON_DIR) is compared file by file (compare.py --py-json / --rs-json). publish_yesterday_budget: PUBLISH_DAILY_WRITE_BUDGET 40, so part of the docs are deferred (run partial).",
+  "_doc_publish": "publish_today / publish_yesterday: seed.d/60_publish.sql (plants 9701-9703) plus every other seeded plant. The JSON sink of each side (Rust PUBLISH_JSON_DIR, Python via pyshim) is compared file by file (compare.py --py-json / --rs-json). publish_yesterday_budget: PUBLISH_DAILY_WRITE_BUDGET 40, so part of the docs are deferred (run partial).",
   "publish_today": {
     "stubs": [],
     "tables": {
@@ -254,9 +254,10 @@
       "publish_write_counts": {"order": ["sink", "quota_day"]}
     }
   },
-  "_doc_push": "push_test / faults_push / alarms_push: seed.d/60_push.sql, stub fcm (fcm_stub.py: FCM HTTP v1 + OAuth token server, a throwaway key; the messages each side sent are compared as a multiset). alarms_push = the alarms job with a phase-3 account (growatt_stub.py push_alarms, serials AL6…) and a sender.",
+  "_doc_push": "push_test / faults_push / alarms_push: seed.d/60_push.sql (plants 9901-9908, 9999), stub fcm (fcm_stub.py: FCM HTTP v1 + OAuth token server, a throwaway key; the messages each side sent are compared as a multiset). log_ignore: urllib3 retry warnings of google-auth's background regional-access-boundary lookup, refused by the dead HTTPS proxy (Python only). alarms_push = the alarms job with a phase-3 account (growatt_stub.py push_alarms, serials AL6…) and a sender.",
   "push_test": {
     "stubs": ["fcm"],
+    "log_ignore": ["^Retrying \\(Retry\\("],
     "tables": {
       "push_tokens": {"order": ["id"]},
       "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
@@ -265,6 +266,7 @@
   },
   "faults_push": {
     "stubs": ["fcm"],
+    "log_ignore": ["^Retrying \\(Retry\\("],
     "tables": {
       "push_tokens": {"order": ["id"]},
       "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
@@ -275,7 +277,7 @@
     "job": "alarms",
     "env": {"GROWATT_TOKEN_PHASE3": "parity-stub-token-3", "WORKER_PARALLEL_ACCOUNTS": "false"},
     "stubs": ["growatt", "fcm"],
-    "log_ignore": ["^phase \\d+ done in "],
+    "log_ignore": ["^Retrying \\(Retry\\(", "^phase \\d+ done in "],
     "tables": {
       "growatt_alarms": {"order": ["id"]},
       "growatt_alarm_syncs": {"order": ["device_sn", "day"], "ignore": ["synced_at"]},
@@ -284,15 +286,15 @@
       "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
     }
   },
-  "_doc_google_weather": "google_weather / google_weather_quota / google_weather_off: seed = extra SQL files of seed.job/ applied to this entry's two copies only. The weather stub answers history/hours (rust/tests/parity/weather_stub.py). Python then re-publishes yesterday (JSON sink, into the run's temp folder via pyshim/sitecustomize.py); publish is not ported in this wave (Rust records republished_yesterday as not available), so republished_yesterday and the publish's log lines are not compared.",
+  "_doc_google_weather": "google_weather / google_weather_quota / google_weather_off: seed = extra SQL files of seed.job/ applied to this entry's two copies only. The weather stub answers history/hours (rust/tests/parity/weather_stub.py). Both then re-publish yesterday (JSON sink, each side's own folder, compared file by file). publish_today_sheet: publish_today with PWA_SHEET_ID set, so the sheet fill runs after the publish (stub google).",
   "google_weather": {
     "seed": ["google_weather.sql"],
     "stubs": ["weather"],
-    "detail_ignore": ["republished_yesterday"],
-    "log_ignore": ["^published ", "^publish "],
     "tables": {
       "google_weather_hourly": {"order": ["cell_key", "hour"], "ignore": ["fetched_at"]},
-      "external_api_call_counts": {"order": ["api", "day"]}
+      "external_api_call_counts": {"order": ["api", "day"]},
+      "published_docs": {"order": ["sink", "path"], "present": ["written_at"]},
+      "publish_write_counts": {"order": ["sink", "quota_day"]}
     }
   },
   "google_weather_quota": {
@@ -349,5 +351,6 @@
     "job": "pwa_sheet",
     "stubs": [],
     "tables": {}
-  }
+  },
+  "publish_today_sheet": {"job": "publish_today", "env": {"PWA_SHEET_ID": "pwa-create", "CHECK_OFFSET_MIN": "1440"}, "seed": ["pwa_sheet.sql"], "stubs": ["google"], "compare_sheets": true, "log_ignore": ["^Retrying \\(Retry\\("], "tables": {"pwa_check_slots": {"order": ["day", "plant_id", "hour"], "present": ["built_at"]}, "published_docs": {"order": ["sink", "path"], "present": ["written_at"]}, "publish_write_counts": {"order": ["sink", "quota_day"]}}}
 }

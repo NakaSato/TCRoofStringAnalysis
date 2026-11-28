@@ -139,7 +139,7 @@ async fn refused_assertion_is_an_error_without_the_key() {
     let (base, _) = serve(vec![("400 Bad Request", r#"{"error":"invalid_grant","error_description":"Invalid JWT Signature."}"#.into())]);
     let file = key_file(&private, &format!("{base}/token"), "refused");
     let e = google_auth::access_token(&reqwest::Client::new(), file.to_str().unwrap(), &["s"]).await.unwrap_err().to_string();
-    assert!(e.contains("HTTP 400: Invalid JWT Signature."), "{e}");
+    assert!(e.contains("(400)") && e.contains("Invalid JWT Signature."), "{e}");
     assert!(!e.contains("PRIVATE KEY"), "{e}");
     let _ = std::fs::remove_file(file);
 }
@@ -147,7 +147,8 @@ async fn refused_assertion_is_an_error_without_the_key() {
 #[tokio::test]
 async fn missing_key_file_is_an_error() {
     let e = google_auth::access_token(&reqwest::Client::new(), "/nonexistent/key.json", &["s"]).await.unwrap_err();
-    assert!(e.to_string().starts_with("service account key /nonexistent/key.json:"), "{e}");
+    assert!(e.to_string().contains("/nonexistent/key.json"), "{e}");
+    assert_eq!(e.py_kind(), "FileNotFoundError");
     assert!(google_auth::read_key("").is_err());
 }
 

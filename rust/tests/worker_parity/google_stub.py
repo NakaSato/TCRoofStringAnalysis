@@ -96,7 +96,7 @@ FLEET_DOC = {"checks_ready": ["09", "13"]}
 SLOT = {"at": "08:50", "inverters": 2, "offline": [], "fault": [], "alarms": [], "errors": [], "issues": []}
 PLANT_DOCS = {
     # check slots in the doc (the publish's own): 09 from Firestore, 13 too
-    "9701": {
+    "9721": {
         "yield_kwh": 321.456,
         "weather": {"has_sensor": True},
         "checks": {
@@ -109,14 +109,14 @@ PLANT_DOCS = {
         },
     },
     # an older doc: hourly curve and the weather / Google slots
-    "9703": {
+    "9723": {
         "hourly_kw": [0, 0, 0, 0, 0, 0, 1.2, 8.5, 20.25, 31.75, 40, 44, 46, 45.5, 40, 30, 18, 6.25, 0],
         "yield_kwh": 250,
         "weather": {"has_sensor": True, "slots": {"09": {"irradiance_wm2": 700}, "13": None}},
         "google_weather": {"slots": {"09": {"raining": True, "condition": "LIGHT_RAIN"}, "13": None}},
     },
     # every inverter offline at 09
-    "9705": {
+    "9725": {
         "yield_kwh": None,
         "weather": {"has_sensor": False},
         "checks": {"09": {**SLOT, "kw": None, "irradiance_wm2": None, "offline": ["INV1"], "inverters": 1,

@@ -132,18 +132,18 @@ pub async fn publish(ctx: &Ctx, day: chrono::NaiveDate) -> JobResult {
     Ok(tcroof_services::daily_summary::publish_day(&ctx.pool, &publish_config(ctx), day).await?)
 }
 
-/// Python `jobs._pwa_sheet`: today's tab of the PWA Report Google Sheet; None when PWA_SHEET_ID is
-/// not set (Python `pwa_sheet.run_for_now`). Errors go into the detail, never fail a publish.
-///
-/// TODO(Phase 4.3, pwa_sheet port): call the ported `pwa_sheet::run_for_now(pool, now)` here.
-/// Until then a configured sheet answers `{"error": "NotImplementedError: …"}` (the run is
-/// `partial`), as Python reports a failing sheet fill.
-pub async fn pwa_sheet(ctx: &Ctx, _now: chrono::DateTime<chrono::FixedOffset>) -> Option<Value> {
-    if ctx.worker.pwa_sheet_id.is_empty() {
-        return None;
-    }
-    tracing::error!(target: "jobs", "PWA sheet fill failed");
-    Some(json!({"error": "NotImplementedError: the PWA Report sheet fill (services/pwa_sheet.py) is not ported to Rust yet (Phase 4.3)"}))
+/// Python `jobs._pwa_sheet`: today's tab of the PWA Report Google Sheet, checks published so far;
+/// None when PWA_SHEET_ID is not set. Errors go into the detail, never fail a publish.
+pub async fn pwa_sheet(ctx: &Ctx, now: chrono::DateTime<chrono::FixedOffset>) -> Option<Value> {
+    tcroof_services::pwa_sheet::run_for_now_safe(&ctx.pool, &pwa_sheet_config(ctx), now.naive_local()).await
+}
+
+/// The PWA sheet settings (`PWA_SHEET_*`, the Firestore the day docs are read from) with the
+/// worker's `CHECK_OFFSET_MIN`.
+fn pwa_sheet_config(ctx: &Ctx) -> tcroof_services::pwa_sheet::PwaSheetConfig {
+    let mut cfg = tcroof_services::pwa_sheet::PwaSheetConfig::from_env();
+    cfg.check_offset_min = ctx.worker.check_offset_min;
+    cfg
 }
 
 /// Python `job_publish_today`: today's docs (08:50 / 12:50 / 16:50 freeze the PWA checks, 19:30
@@ -488,17 +488,19 @@ pub async fn job_google_weather(ctx: Ctx) -> JobResult {
             .unwrap_or(4000),
         cells: s.google_cells(),
     };
-    let (status, mut detail) = gh::run_history_job(&ctx.pool, &cfg, plant_now().naive_local()).await.map_err(|e| match e {
+    let (mut status, mut detail) = gh::run_history_job(&ctx.pool, &cfg, plant_now().naive_local()).await.map_err(|e| match e {
         HistoryError::AllFailed(_) => JobError::new("RuntimeError", e.to_string()),
         HistoryError::Db(e) => JobError::from(e),
     })?;
     if detail.get("hours_stored").and_then(Value::as_u64).unwrap_or(0) > 0 {
-        // TODO(4.3 publish): Python re-publishes yesterday here: `_publish(db, today - 1 day)`,
-        // `detail["republished_yesterday"] = {written, unchanged, over_budget}` of its report, and
-        // the run becomes `partial` when that publish is not `ok`. Wire in
-        // `tcroof_services::publish::publish_day(...)` at merge; until then the re-publish is
-        // recorded as not available.
-        detail["republished_yesterday"] = json!({"available": false, "reason": "publish is not ported to Rust yet (4.3)"});
+        // Yesterday's 18:00–23:00 hours only arrive now: re-publish its daily docs (only docs
+        // whose content changed are written). Today's slots go out with publish_today (19:30).
+        let (pub_status, pub_detail) = publish(&ctx, today() - Duration::days(1)).await?;
+        let pick = |k: &str| pub_detail.get(k).cloned().unwrap_or(Value::Null);
+        detail["republished_yesterday"] = json!({"written": pick("written"), "unchanged": pick("unchanged"), "over_budget": pick("over_budget")});
+        if pub_status != "ok" {
+            status = "partial".into();
+        }
     }
     Ok((status, detail))
 }
@@ -507,9 +509,8 @@ pub async fn job_google_weather(ctx: Ctx) -> JobResult {
 /// with the checks published so far; `ok` + skipped without PWA_SHEET_ID, `failed` on an error
 /// (the error in the detail, as Python's `_pwa_sheet`).
 pub async fn job_pwa_sheet(ctx: Ctx) -> JobResult {
-    use tcroof_services::pwa_sheet::{run_for_now_safe, PwaSheetConfig};
-    let mut cfg = PwaSheetConfig::from_env();
-    cfg.check_offset_min = ctx.worker.check_offset_min;
+    use tcroof_services::pwa_sheet::run_for_now_safe;
+    let cfg = pwa_sheet_config(&ctx);
     Ok(match run_for_now_safe(&ctx.pool, &cfg, plant_now().naive_local()).await {
         None => ("ok".into(), json!({"skipped": "PWA_SHEET_ID not set"})),
         Some(sheet) => ((if sheet.get("error").is_some() { "failed" } else { "ok" }).into(), sheet),
