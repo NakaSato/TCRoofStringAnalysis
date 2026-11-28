@@ -51,6 +51,11 @@ def drop(d: Dict[str, Any], keys) -> Dict[str, Any]:
     return {k: v for k, v in d.items() if k not in keys}
 
 
+def mark(d: Dict[str, Any], keys) -> Dict[str, Any]:
+    """`present` columns: only whether they are set (now() stamps differ between the runs)."""
+    return {k: ((v is not None) if k in keys else v) for k, v in d.items()}
+
+
 def drop_path(d: Any, path: str) -> None:
     head, _, rest = path.partition(".")
     if not isinstance(d, dict) or head not in d:
@@ -95,8 +100,9 @@ def main() -> int:
             order = ", ".join(t["order"])
             sql = f"SELECT * FROM {table} ORDER BY {order}"
             ign = set(t.get("ignore", []))
-            a = [drop(r, ign) for r in rows(py, sql)]
-            b = [drop(r, ign) for r in rows(rs, sql)]
+            present = t.get("present", [])
+            a = [mark(drop(r, ign), present) for r in rows(py, sql)]
+            b = [mark(drop(r, ign), present) for r in rows(rs, sql)]
             d = diff_lists(table, a, b)
             problems += d
             checked += len(a)

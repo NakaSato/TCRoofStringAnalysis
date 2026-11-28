@@ -38,8 +38,8 @@ pub fn job(name: &str) -> Option<Job> {
         "env_history" => Ported(|ctx| Box::pin(job_env_history(ctx))),
         "inverter_latest" => Ported(|ctx| Box::pin(job_inverter_latest(ctx))),
         "backfill" => Ported(|ctx| Box::pin(job_backfill(ctx))),
-        "fleet" => NotPorted { phase: "4.2" },
-        "power_limits" => NotPorted { phase: "4.2" },
+        "fleet" => Ported(|ctx| Box::pin(job_fleet(ctx))),
+        "power_limits" => Ported(|ctx| Box::pin(job_power_limits(ctx))),
         "growatt_energy" => NotPorted { phase: "4.2" },
         "energy_backfill" => NotPorted { phase: "4.2" },
         "publish_today" => NotPorted { phase: "4.3" },
@@ -196,6 +196,37 @@ pub async fn job_backfill(ctx: Ctx) -> JobResult {
     .await
 }
 
+/// Python `registry.sync_fleet` default `pause_s`
+const FLEET_PAUSE_S: f64 = 0.5;
+
+/// Python `job_fleet`: take the blocked plants out of the registry, then per account
+/// `sync_fleet` (plants tagged with the account's phase); detail `{"inverters": n}` per phase.
+pub async fn job_fleet(ctx: Ctx) -> JobResult {
+    gs::remove_blocked_plants(&ctx.pool, &ctx.settings.blocked_plant_ids()).await?;
+    per_phase(&ctx, |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let invs = gs::sync_fleet(&pc.pool, &pc.client, &opts, FLEET_PAUSE_S, Some(pc.phase)).await?;
+        let mut m = Map::new();
+        m.insert("inverters".into(), json!(invs.len()));
+        Ok(m)
+    })
+    .await
+}
+
+/// Python `job_power_limits`: each inverter's active power limit (`readPower`) per account, once a
+/// day in daylight (the read goes through the datalogger to the inverter).
+pub async fn job_power_limits(ctx: Ctx) -> JobResult {
+    per_phase(&ctx, |pc: PhaseCtx| async move {
+        let opts = SyncOptions::from_env();
+        let v = gs::sync_power_limits(&pc.pool, &pc.client, &opts, Some(pc.phase), pc.include_untagged, None, gs::POWER_LIMIT_PAUSE_S, 3)
+            .await?;
+        let mut d = Map::new();
+        merge(&mut d, v);
+        Ok(d)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,7 +239,7 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "retention"]);
+        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "retention"]);
     }
 
     #[test]
