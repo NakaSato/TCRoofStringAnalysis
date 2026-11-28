@@ -45,6 +45,24 @@ pub struct Ctx {
     pub pool: PgPool,
     pub settings: Arc<Settings>,
     pub worker: Arc<WorkerSettings>,
+    /// The push sender (tests: a `RecordingSender`); `None` = FCM from the settings (push.py
+    /// `_sender`: FCM when FIREBASE_CREDENTIALS_FILE is set, else none)
+    pub push_sender: Option<Arc<dyn tcroof_services::push::Sender>>,
+}
+
+impl Ctx {
+    pub fn new(pool: PgPool, settings: Settings, worker: WorkerSettings) -> Ctx {
+        Ctx { pool, settings: Arc::new(settings), worker: Arc::new(worker), push_sender: None }
+    }
+
+    /// push.py `_sender(sender)`
+    pub fn push_source(&self) -> tcroof_services::push::SenderSource {
+        use tcroof_services::push::SenderSource;
+        match &self.push_sender {
+            Some(s) => SenderSource::Given(s.clone()),
+            None => SenderSource::fcm(&self.worker.fcm_base_url, &self.settings.firebase_project_id, &self.settings.firebase_credentials_file),
+        }
+    }
 }
 
 /// A job's failure as Python records it in `sync_runs.error`: `"{exception class}: {message}"`.
@@ -82,6 +100,19 @@ impl From<tcroof_services::common::ServiceError> for JobError {
             S::NotFound(m) => JobError::new("LookupError", m),
             S::Invalid(m) => JobError::new("ValueError", m),
             S::Db(e) => e.into(),
+        }
+    }
+}
+
+impl From<tcroof_services::growatt_sync::SyncError> for JobError {
+    /// Python's exception class names: `GrowattAPIError` (solar_core.growatt), the parsers'
+    /// `ValueError`, a database error as `DatabaseError` (as above).
+    fn from(e: tcroof_services::growatt_sync::SyncError) -> Self {
+        use tcroof_services::growatt_sync::SyncError as S;
+        match e {
+            S::Growatt(_) => JobError::new("GrowattAPIError", e.to_string()),
+            S::Db(e) => e.into(),
+            S::Parse(m) => JobError::new("ValueError", m),
         }
     }
 }

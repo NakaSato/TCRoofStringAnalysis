@@ -3,14 +3,15 @@
 //! (`publish_config`, `publish_plant_inverters`) and the machinery under them (`publish`, the
 //! `published_docs` change check, the per-quota-day write counter, the JSON file sink).
 //!
-//! Firestore itself is Phase 4 of the port: with `PUBLISH_SINK=firestore` the sink answers an
-//! error (as Python's does without credentials), which the routes report in `published.error`
-//! without undoing the save, exactly like Python's `_publish_safely`. With `PUBLISH_SINK=json`
-//! (Python's default) everything Python does is done here: changed documents are written to
-//! `data/firestore_export/<path>.json`, their hashes to `published_docs` and the count to
-//! `publish_write_counts`, so both backends agree on which documents are unchanged.
+//! Sinks: `PUBLISH_SINK=json` (Python's default) writes changed documents to
+//! `PUBLISH_JSON_DIR` (default `data/firestore_export`)`/<path>.json`; `PUBLISH_SINK=firestore`
+//! commits them through the Firestore REST API with the service account of
+//! `FIREBASE_CREDENTIALS_FILE` (Phase 4.3). Either way their hashes go to `published_docs` and the
+//! count to `publish_write_counts`, so both backends agree on which documents are unchanged. A
+//! sink failure is reported by the routes in `published.error` without undoing the save, exactly
+//! like Python's `_publish_safely`. The daily summary documents are in `daily_summary.rs`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
 use serde_json::{json, Map, Value};
@@ -19,6 +20,7 @@ use sqlx::PgPool;
 
 use crate::common::{isoformat_utc, Inverter, INVERTER_COLS};
 use crate::inverter_models::model_spec;
+use tcroof_clients::firestore::FirestoreClient;
 
 /// Python `Doc`: (path, document)
 pub type Doc = (String, Value);
@@ -193,13 +195,18 @@ pub fn quota_day(now: DateTime<Utc>) -> String {
 
 // --------------------------------------------------------------------------- sinks
 
+/// A sink's write: `Err` = nothing may be recorded as published.
+pub type SinkFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>;
+
 /// Python `daily_summary.DocSink`
 pub trait DocSink: Send + Sync {
     fn name(&self) -> &str;
-    fn write(&self, docs: &[Doc]) -> Result<(), String>;
+    fn write<'a>(&'a self, docs: &'a [Doc]) -> SinkFuture<'a>;
 }
 
-/// Python `daily_summary.JsonFileSink`: each document to `<root>/<path>.json` (indent 1).
+/// Python `daily_summary.JsonFileSink`: each document to `<root>/<path>.json` (indent 1). Keys
+/// are written sorted (serde_json maps), where Python keeps insertion order: the same document,
+/// other key order in the file (the content hash, over sorted keys, is the same).
 pub struct JsonFileSink {
     pub root: PathBuf,
 }
@@ -209,23 +216,29 @@ impl DocSink for JsonFileSink {
         "json"
     }
 
-    fn write(&self, docs: &[Doc]) -> Result<(), String> {
-        for (path, doc) in docs {
-            let f = self.root.join(format!("{path}.json"));
-            if let Some(dir) = f.parent() {
-                std::fs::create_dir_all(dir).map_err(|e| format!("{e}: {}", dir.display()))?;
+    fn write<'a>(&'a self, docs: &'a [Doc]) -> SinkFuture<'a> {
+        Box::pin(async move {
+            for (path, doc) in docs {
+                let f = self.root.join(format!("{path}.json"));
+                if let Some(dir) = f.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| format!("{e}: {}", dir.display()))?;
+                }
+                std::fs::write(&f, pretty(doc)).map_err(|e| format!("{e}: {}", f.display()))?;
             }
-            std::fs::write(&f, pretty(doc)).map_err(|e| format!("{e}: {}", f.display()))?;
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
 
-/// Python `daily_summary.FirestoreSink`. Not ported yet (Phase 4 of the port): it fails like
-/// Python's does without `FIREBASE_CREDENTIALS_FILE`, and otherwise with a "not ported" message,
-/// so a route reports `published.error` and keeps the save (Python's `_publish_safely`).
+/// Python `daily_summary.FirestoreSink`: the Firestore REST API with the service account of
+/// `FIREBASE_CREDENTIALS_FILE` (tcroof_clients::firestore), `BATCH` documents per commit.
 pub struct FirestoreSink {
-    pub credentials_file: String,
+    pub client: FirestoreClient,
+}
+
+impl FirestoreSink {
+    /// Python `FirestoreSink.BATCH` (Firestore allows 500 operations per batch)
+    pub const BATCH: usize = 400;
 }
 
 impl DocSink for FirestoreSink {
@@ -233,8 +246,13 @@ impl DocSink for FirestoreSink {
         "firestore"
     }
 
-    fn write(&self, _docs: &[Doc]) -> Result<(), String> {
-        Err("Firestore publishing is not ported to the Rust API yet (Phase 4); the next publish job retries".into())
+    fn write<'a>(&'a self, docs: &'a [Doc]) -> SinkFuture<'a> {
+        Box::pin(async move {
+            for chunk in docs.chunks(Self::BATCH) {
+                self.client.commit_set(chunk).await.map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -251,15 +269,39 @@ pub fn default_data_dir() -> PathBuf {
     PathBuf::from("data")
 }
 
-/// Python `daily_summary.make_sink` (the constructor errors of `FirestoreSink` included)
-pub fn make_sink(kind: &str, credentials_file: &str, data_dir: &Path) -> Result<Box<dyn DocSink>, String> {
-    if kind == "firestore" {
-        if credentials_file.is_empty() {
-            return Err("Set FIREBASE_CREDENTIALS_FILE in .env to publish to Firestore.".into());
+/// What `make_sink` reads from the settings.
+#[derive(Debug, Clone, Default)]
+pub struct SinkConfig {
+    /// `PUBLISH_SINK` (`json` | `firestore`)
+    pub kind: String,
+    /// `FIREBASE_CREDENTIALS_FILE`
+    pub credentials_file: String,
+    /// `FIREBASE_PROJECT_ID` (empty = the key file's `project_id`)
+    pub project_id: String,
+    /// `PUBLISH_JSON_DIR` (empty = `<data_dir>/firestore_export`)
+    pub json_dir: String,
+    /// Python `config.DATA_DIR`
+    pub data_dir: PathBuf,
+}
+
+impl SinkConfig {
+    /// The JSON sink's folder
+    pub fn json_root(&self) -> PathBuf {
+        if self.json_dir.is_empty() {
+            self.data_dir.join("firestore_export")
+        } else {
+            PathBuf::from(&self.json_dir)
         }
-        return Ok(Box::new(FirestoreSink { credentials_file: credentials_file.to_owned() }));
     }
-    Ok(Box::new(JsonFileSink { root: data_dir.join("firestore_export") }))
+}
+
+/// Python `daily_summary.make_sink` (the constructor errors of `FirestoreSink` included)
+pub fn make_sink(cfg: &SinkConfig) -> Result<Box<dyn DocSink>, String> {
+    if cfg.kind == "firestore" {
+        let client = FirestoreClient::from_settings(&cfg.credentials_file, &cfg.project_id).map_err(|e| e.to_string())?;
+        return Ok(Box::new(FirestoreSink { client }));
+    }
+    Ok(Box::new(JsonFileSink { root: cfg.json_root() }))
 }
 
 // --------------------------------------------------------------------------- publish
@@ -346,7 +388,7 @@ pub async fn publish(
             ((*path).clone(), Value::Object(d))
         })
         .collect();
-    sink.write(&stamped)?;
+    sink.write(&stamped).await?;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     for (path, _doc, digest, size) in &pending {
         sqlx::query(
@@ -491,15 +533,13 @@ pub trait Publisher {
 /// `make_sink(settings.publish_sink)` + `publish(...)` do.
 #[derive(Debug, Clone)]
 pub struct SinkPublisher {
-    pub sink_kind: String,
-    pub credentials_file: String,
+    pub sink: SinkConfig,
     pub budget: i64,
-    pub data_dir: PathBuf,
 }
 
 impl SinkPublisher {
     async fn run(&self, pool: &PgPool, docs: Vec<Doc>) -> Result<PublishReport, String> {
-        let sink = make_sink(&self.sink_kind, &self.credentials_file, &self.data_dir)?;
+        let sink = make_sink(&self.sink)?;
         publish(pool, sink.as_ref(), &docs, self.budget, false, None).await
     }
 }

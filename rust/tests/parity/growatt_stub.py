@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -59,6 +59,168 @@ def max_record(sn: str, mins: int, open4: bool) -> dict:
     }
 
 
+# ---------------------------------------------------------------- worker `fleet` / `power_limits`
+# (rust/tests/worker_parity/seed.d/30_fleet_power_limits.sql). The fleet world (plants 3001-3009)
+# is the account whose token starts "fleet-"; readPower and an empty device/list answer any token.
+FLEET_PLANTS = [
+    {"plant_id": 3001, "name": "Fleet A", "city": "Bangkok", "country": "Thailand", "latitude": "13.75",
+     "longitude": "100.5", "peak_power": "100.5", "create_date": "2024-01-02", "current_power": "5"},
+    {"plant_id": "3002", "name": "", "latitude": 100.6, "longitude": 13.8, "peak_power": ""},  # swapped coords
+    {"plant_id": 3003.0, "name": "Fleet C", "latitude": "x", "longitude": "100", "peak_power": True},
+    {"plant_id": 3009, "name": "Blocked"},  # GROWATT_BLOCKED_PLANT_IDS: the client drops it
+]
+FLEET_DEVICES = {
+    "3001": [
+        {"type": 1, "device_sn": "INVF3001A", "datalogger_sn": "DLF3001", "model": "MAX 80KTL3 LV", "status": 1},
+        {"type": 4, "device_sn": "INVF3001A", "datalogger_sn": "DLF3001", "model": "MAX 80KTL3 LV", "status": 1},
+        {"type": 1, "device_sn": "INVF3001B", "datalogger_sn": "DLF3001", "model": "", "status": 0, "lost": True},
+        {"type": 3, "device_sn": "env", "datalogger_sn": "DLF3001"},
+        {"type": 3.0, "device_sn": "Meter", "datalogger_sn": "DLF3001M"},
+        {"type": 3, "device_sn": "env", "datalogger_sn": ""},
+    ],
+    "3002": [
+        {"type": 1, "device_sn": "INVF3002A", "datalogger_sn": "", "model": "MAX"},
+        {"type": 1, "device_sn": "INVF3002N", "datalogger_sn": "DLF3002"},
+    ],
+    "3003": [
+        {"type": 4, "device_sn": "INVF3003A", "datalogger_sn": "DLF3003", "model": None},
+        {"type": 3, "device_sn": "ENV", "datalogger_sn": "DLF3003"},
+    ],
+}
+READ_POWER = {"INVF3001A": 80.5, "INVF3001B": "100", "INVF3003A": ""}
+
+
+def fleet_route(path: str, p: dict, token: str):
+    """The fleet / power_limits answers, or None for the routes above."""
+    def new(data):
+        return {"code": 0, "message": "", "data": data}
+
+    if path == "new-api/readPower":
+        sn = p.get("deviceSn", "")
+        if sn.startswith("INVF3004"):
+            return {"code": 10012, "message": "error_frequently_access"}
+        if sn == "INVF3002A":
+            return {"code": 5, "message": "DEVICE_OFFLINE"}
+        if sn in READ_POWER:
+            return new(READ_POWER[sn])
+        return {"code": 18, "message": "READ_DEVICE_PARAM_FAIL"}
+    fleet = token.startswith("fleet-")
+    if path == "device/list":
+        devs = FLEET_DEVICES.get(p.get("plant_id", ""), []) if fleet else []
+        return ok({"count": len(devs), "devices": devs})
+    if not fleet:
+        return None
+    if path == "plant/list":
+        return ok({"count": len(FLEET_PLANTS), "plants": FLEET_PLANTS})
+    if path == "device/env/env_list" and p.get("datalog_sn") == "DLF3003":
+        return {"error_code": 10001, "error_msg": "no such datalogger"}  # _retry: 5 + 10 + 15 s, then the plant's error line
+    if path == "device/ammeter/meter_list":
+        meters = [
+            {"address": "1", "device_name": "CHNT_THREE", "device_type": 71},
+            {"address": 1, "device_name": "CHNT_ONE", "device_type": 70},
+            {"address": "2", "device_name": None, "device_type": ""},
+            {"address": "x"},
+        ]
+        return ok({"count": len(meters), "meters": meters})
+    if path == "device/max/max_data_info":
+        sn = p.get("device_sn", "")
+        if sn == "INVF3001B":
+            return ok({"max": {"alias": " INVERTER 2 ", "normalPower": 80000, "fwVersion": "TL1.0", "innerVersion": "",
+                               "activeRate": 100, "reactiveRate": 0, "pf": 1, "pfModel": 0, "onOff": 1}})
+        return LIMITED  # the sweep goes on with queryDeviceInfo
+    if path == "new-api/queryDeviceInfo":
+        if p.get("deviceSn") == "INVF3002A":
+            return new({"max": [{"alias": "INV 3002A", "normalPower": "50000", "activeRate": 0, "pf": 0, "onOff": "0"}]})
+        return new({"max": []})  # answered without data
+    if path == "plant/details":
+        if p.get("plant_id") == "3002":
+            return ok({"timezone": "GMT+7", "address1": "1 Road", "address2": "",
+                       "maxs": [{"max_num": 2}], "dataloggers": [{"datalogger_num": "1"}]})
+        if p.get("plant_id") == "3003":
+            return ok({"timezone": "", "maxs": []})
+        return {"error_code": 10001, "error_msg": "no details"}
+    if path == "new-api/queryDeviceInfoParam":
+        sn = p.get("deviceSn", "")
+        if sn == "INVF3002A":
+            return {"code": 10012, "message": "error_frequently_access"}
+        if sn == "INVF3001B":
+            return new({"deviceModel": "MAX 80KTL3 LV", "dataloggerModel": "ShineMaster", "norminalPower": 80000})
+        if sn == "INVF3001A":
+            return new({"deviceModel": "MAX 80KTL3 LV X", "dataloggerModel": ""})
+        return new({"deviceModel": "", "norminalPower": 0})
+    if path == "device/all/create_date":
+        return ok({"INVF3001B": {"createTime": "2024-03-01 10:00:00"}, "INVF3002A": {"createTime": "bad"}})
+    if path == "new-api/queryDeviceList":
+        return new({"data": [{"deviceSn": "INVF3003A", "createDate": "2024-05-06 07:08:09.0"},
+                             {"deviceSn": "INVF3003B", "createDate": ""}], "pages": 1})
+    if path == "device/sn_datalog":
+        return ok({"datalogSN": "DLF3002"} if p.get("device_sn") == "INVF3002A" else {"datalogSN": ""})
+    return None
+
+
+def worker_alarms(sn: str, day: str, page: int) -> dict:
+    """`alarm_data` of the worker parity's alarm inverters (rust/tests/worker_parity/seed.d/
+    50_alarms.sql, serials AL5…): AL5RL0 is always refused (10012), AL5RL1-4 only for a day other
+    than the stub's today (the `alarms_yesterday` sweep ends there), AL5CLD* have no alarms,
+    AL5ODD1 sends odd values, AL5BAD1 a record that is not an object, AL5PAGE 150 records over
+    two pages; every other AL5 serial one closed and one open alarm."""
+    if sn == "AL5RL0" or (sn in {"AL5RL1", "AL5RL2", "AL5RL3", "AL5RL4"} and day != T0.date().isoformat()):
+        return LIMITED
+    if sn.startswith("AL5CLD"):
+        return ok({"count": 0, "alarms": []})
+    if sn == "AL5BAD1":
+        return ok({"count": 1, "alarms": ["x"]})
+    if sn == "AL5ODD1":
+        return ok({"count": 4, "alarms": [
+            {"start_time": f"{day}T08:00:00", "end_time": f"{day} 8:5:7.250", "alarm_code": 2.5,
+             "alarm_message": "ข้อความ" * 50, "fault_type": "Fault-" + "x" * 40, "status": " 7 "},
+            {"start_time": f"{day} 25:00:00", "end_time": 0, "alarm_code": "", "alarm_message": 0,
+             "fault_type": None, "status": "1.5"},
+            {"start_time": f"{day}  10:00:00", "alarm_code": True, "alarm_message": ["a"], "status": 4.9},
+            {},
+        ]})
+    if sn == "AL5PAGE":
+        recs = [{"start_time": f"{day} {6 + i // 60:02d}:{i % 60:02d}:00", "end_time": f"{day} {6 + i // 60:02d}:{i % 60:02d}:30",
+                 "alarm_code": 100 + i, "alarm_message": f"page alarm {i}", "fault_type": "Warning", "status": 0}
+                for i in range(150)]
+        return ok({"count": 150, "alarms": recs[(page - 1) * 100: page * 100]})
+    if sn.startswith("AL6"):
+        return ok(push_alarms(sn))
+    return ok({"count": 2, "alarms": [
+        {"start_time": f"{day} 07:15:00", "end_time": f"{day} 07:20:00", "alarm_code": "305",
+         "alarm_message": "Grid voltage high", "fault_type": "Warning", "status": 0},
+        {"start_time": f"{day} 11:45:00", "end_time": None, "alarm_code": 117, "alarm_message": "Fan fault",
+         "fault_type": "Fault", "status": 1},
+    ]})
+
+
+def push_alarms(sn: str) -> dict:
+    """`alarm_data` of the alarm push inverters (rust/tests/worker_parity/seed.d/60_push.sql,
+    serials AL6…), minutes before the stub's start so they are fresh for `PUSH_ALARM_MAX_AGE_MIN`
+    (the run must start at least 3.5 h after plant-local midnight: the oldest record is T0 - 200 min)."""
+
+    def rec(m: int, code, ft, msg, end: bool = False) -> dict:
+        return {"start_time": fmt(T0 - timedelta(minutes=m)), "end_time": fmt(T0 - timedelta(minutes=m - 1)) if end else None,
+                "alarm_code": code, "alarm_message": msg, "fault_type": ft, "status": 1}
+
+    recs = {
+        # one event of three reports, a warning (not pushed by default), a code-less error
+        "AL6A1": [rec(30, 117, "Fault", "Fan fault", True), rec(25, 117, "Fault", "", True), rec(20, 117, None, None),
+                  rec(15, "305", "Warning", "Grid voltage high"), rec(12, "", "PV Error", None)],
+        # fresh fault, one too old, two events of one code (15 min apart: the newer counts)
+        "AL6A2": [rec(15, 400, "Fault", "Isolation fault"), rec(200, 401, "Fault", "old"),
+                  rec(55, 402, "Inverter fail", "first"), rec(40, 402, "Inverter fail", "second")],
+        "AL6B1": [rec(10, 117, "Fault", "already pushed")],   # mark of this event (or newer)
+        "AL6B2": [rec(12, 118, "Fault", "pushed recently")],  # older event pushed 30 min ago
+        "AL6B3": [rec(8, 119, "Fault", "repeat due")],        # older event pushed 3 h ago
+    }.get(sn)
+    if recs is None and sn.startswith("AL6C"):  # AL6C1-AL6C6: one fault each, one plant each
+        i = int(sn[4:])
+        recs = [rec(5 + i, 500 + i, "Fault", f"plant fault {i}")]
+    recs = recs or []
+    return {"count": len(recs), "alarms": recs}
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # quiet
         pass
@@ -88,6 +250,9 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self) -> None:
         path = urlparse(self.path).path.removeprefix("/v1/")
         p = self._params()
+        fleet = fleet_route(path, p, self.headers.get("token", ""))
+        if fleet is not None:
+            return self._send(fleet)
         if path == "plant/list":
             return self._send(ok({"count": 3, "plants": [
                 {"plant_id": 7001, "name": "Live A", "current_power": "12.5", "total_energy": "1000", "peak_power": 100, "status": 1},
@@ -100,6 +265,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(LIMITED)
             upd = T0 - (timedelta(days=1) if pid == "7002" else timedelta(minutes=3))
             return self._send(ok({"today_energy": "123.4", "current_power": 5.0, "last_update_time": fmt(upd)}))
+        # Growatt's own energy (worker jobs growatt_energy / energy_backfill, worker_parity
+        # seed.d/40_growatt_energy.sql): plants 4003 / 4004 and INV4003A refuse with 10012,
+        # INV4002A with another error; plant 4002 has no curve.
+        if path in ("plant/energy", "plant/power", "device/inverter/day_energy"):
+            return self._energy(path, p)
         if path == "device/datalogger/list":
             return self._send(ok({"count": 3, "dataloggers": [
                 {"sn": "DL2", "model": "ShineMaster", "lost": "false", "last_update_time": {"time": 1763002800000}},
@@ -133,6 +303,8 @@ class Handler(BaseHTTPRequestHandler):
             sn, day = p.get("max_sn", ""), p.get("date", "")
             if sn in REFUSE_ALARMS:
                 return self._send(LIMITED)
+            if sn.startswith(("AL5", "AL6")):
+                return self._send(worker_alarms(sn, day, int(p.get("page") or 1)))
             return self._send(ok({"count": 2, "alarms": [
                 {"start_time": f"{day} 09:00:00", "end_time": f"{day} 09:10:00", "alarm_code": 202,
                  "alarm_message": "PV isolation low", "fault_type": "", "status": 0},
@@ -188,6 +360,41 @@ class Handler(BaseHTTPRequestHandler):
                 "reverActivePower": 0, "reverseActiveTodayEnergy": 3.25, "lost": "0",
             }))
         return self._send({"error_code": 10001, "error_msg": f"stub has no {path}"})
+
+    def _energy(self, path: str, p: dict) -> None:
+        if path == "plant/energy":
+            pid = p.get("plant_id", "")
+            if pid in ("4003", "4004"):
+                return self._send(LIMITED)
+            lo, hi = date.fromisoformat(p["start_date"]), date.fromisoformat(p["end_date"])
+            days = [lo + timedelta(days=k) for k in range((hi - lo).days + 2)]  # one past the range: dropped
+            rows = [{"date": d.isoformat(), "energy": f"{100 + d.day + int(pid or 0) % 10}.5"} for d in days]
+            if pid == "4002":
+                rows[0]["energy"] = None
+            rows.insert(1, {"date": "not a date", "energy": 1})
+            page, size = int(p.get("page", 1)), 20  # pages of 20, whatever perpage asks
+            return self._send(ok({"count": len(rows) - 1, "energys": rows[(page - 1) * size: page * size]}))
+        if path == "plant/power":
+            pid, day = p.get("plant_id", ""), p.get("date", "")
+            if pid == "4003":
+                return self._send(LIMITED)
+            if pid == "4002":
+                return self._send(ok({"powers": []}))
+            d0 = datetime.fromisoformat(day)
+            pts = [{"time": (d0 + timedelta(minutes=5 * k)).strftime("%Y-%m-%d %H:%M"), "power": 1000.0 * (k % 7)}
+                   for k in range(72, 217)]
+            pts[3]["power"] = None
+            pts.insert(0, {"time": "bad", "power": 5})
+            pts.append({"time": (d0 + timedelta(days=1)).strftime("%Y-%m-%d %H:%M"), "power": 9.0})
+            return self._send(ok({"powers": list(reversed(pts))}))
+        sn = p.get("device_sn", "")
+        if sn == "INV4003A":
+            return self._send(LIMITED)
+        if sn == "INV4002A":
+            return self._send({"error_code": 10002, "error_msg": "device not found"})
+        if sn == "INV4001B":
+            return self._send(ok(None))
+        return self._send(ok(f"{len(sn)}.25"))
 
 
 def main() -> None:

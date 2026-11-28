@@ -90,15 +90,12 @@ async fn main() -> anyhow::Result<()> {
     init_tracing_stderr(logs.clone());
     let flusher = logs.as_ref().map(|l| l.spawn_flusher(Duration::from_secs_f64(settings.log_flush_interval_s.max(0.1))));
 
-    // Python: `remove_blocked_plants` here, so a newly blocked plant leaves the registry now. It is
-    // part of growatt_sync.registry (Phase 4.2); until it is ported, say so instead of skipping quietly.
-    if !settings.blocked_plant_ids().is_empty() {
-        tracing::warn!(
-            target: "worker",
-            "GROWATT_BLOCKED_PLANT_IDS is set but remove_blocked_plants is not ported to Rust yet (Phase 4.2): blocked plants stay in the registry"
-        );
-    }
-    let ctx = Ctx { pool: pool.clone(), settings: Arc::new(settings.clone()), worker: Arc::new(worker.clone()) };
+    // Python `main`: `remove_blocked_plants` here, so a newly blocked plant leaves the registry
+    // now, not at the next `fleet` run
+    tcroof_services::growatt_sync::remove_blocked_plants(&pool, &settings.blocked_plant_ids())
+        .await
+        .map_err(|e| anyhow::anyhow!("{}", tcroof_worker::JobError::from(e)))?;
+    let ctx = Ctx::new(pool.clone(), settings.clone(), worker.clone());
     let schedule = default_schedule(&worker);
 
     let code = match mode {
@@ -168,12 +165,15 @@ async fn main() -> anyhow::Result<()> {
             0
         }
     };
-    // Python's atexit flush: one last flush, even inside the pause after a failure
+    // Python's atexit flush: one last flush, even inside the pause after a failure. It runs before
+    // the background flusher is stopped: a flush it started (an ERROR wakes it) has already taken
+    // its records from the buffer, and aborting it mid-insert lost them; the final flush waits for
+    // it (flush lock), then writes the rest.
+    if let Some(l) = &logs {
+        l.flush(true).await;
+    }
     if let Some(f) = flusher {
         f.abort();
-    }
-    if let Some(l) = logs {
-        l.flush(true).await;
     }
     std::process::exit(code);
 }

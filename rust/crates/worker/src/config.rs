@@ -31,6 +31,16 @@ pub struct WorkerSettings {
     pub log_max_rows: i64,
     pub check_offset_min: i64,
     pub pwa_history_lead_min: i64,
+    pub pwa_fault_lookback_min: i64,
+    /// `PWA_IGNORE_WARN_CODES` as written ("1"); parsed by `check_slots::parse_warn_codes`
+    pub pwa_ignore_warn_codes: String,
+    /// `PWA_SHEET_ID` (empty = no PWA Report sheet fill)
+    pub pwa_sheet_id: String,
+    /// PUSH_ALARM_LEVELS, PUSH_ALARM_MAX_AGE_MIN, PUSH_ALARM_REPEAT_MIN, PUSH_MAX_PLANTS_PER_USER
+    pub push: tcroof_services::push::PushSettings,
+    /// Rust-only `FCM_BASE_URL` (default https://fcm.googleapis.com): where FCM HTTP v1 is sent,
+    /// so tests and the worker parity harness can point it at a local stub
+    pub fcm_base_url: String,
 }
 
 impl Default for WorkerSettings {
@@ -59,6 +69,11 @@ impl Default for WorkerSettings {
             log_max_rows: 500_000,
             check_offset_min: 10,
             pwa_history_lead_min: 3,
+            pwa_fault_lookback_min: 60,
+            pwa_ignore_warn_codes: "1".into(),
+            pwa_sheet_id: String::new(),
+            push: tcroof_services::push::PushSettings::default(),
+            fcm_base_url: tcroof_clients::fcm::DEFAULT_BASE_URL.into(),
         }
     }
 }
@@ -96,6 +111,17 @@ impl WorkerSettings {
             log_max_rows: int("LOG_MAX_ROWS", d.log_max_rows)?,
             check_offset_min: int("CHECK_OFFSET_MIN", d.check_offset_min)?,
             pwa_history_lead_min: int("PWA_HISTORY_LEAD_MIN", d.pwa_history_lead_min)?,
+            pwa_fault_lookback_min: int("PWA_FAULT_LOOKBACK_MIN", d.pwa_fault_lookback_min)?,
+            // Python reads an empty value as "" (no code ignored), not as the default
+            pwa_ignore_warn_codes: env::var("PWA_IGNORE_WARN_CODES").unwrap_or(d.pwa_ignore_warn_codes),
+            pwa_sheet_id: get("PWA_SHEET_ID").unwrap_or_default(),
+            push: tcroof_services::push::PushSettings {
+                alarm_levels: get("PUSH_ALARM_LEVELS").unwrap_or(d.push.alarm_levels),
+                alarm_max_age_min: int("PUSH_ALARM_MAX_AGE_MIN", d.push.alarm_max_age_min)?,
+                alarm_repeat_min: int("PUSH_ALARM_REPEAT_MIN", d.push.alarm_repeat_min)?,
+                max_plants_per_user: int("PUSH_MAX_PLANTS_PER_USER", d.push.max_plants_per_user)?,
+            },
+            fcm_base_url: get("FCM_BASE_URL").map(|v| v.trim().to_owned()).unwrap_or(d.fcm_base_url),
         })
     }
 }

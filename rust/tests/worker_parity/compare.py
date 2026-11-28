@@ -6,7 +6,10 @@ Compared:
 - `sync_runs`: the seeded rows in full, and the run the job made (job, trigger, status,
   detail_json, error, finished or not; its id is the same on both sides, copies share sequences);
 - `app_logs`: the seeded rows in full, and the records the worker logged during the run, in id
-  order (level, logger, message, run id, job, host, whether a traceback was stored).
+  order (level, logger, message, run id, job, host, whether a traceback was stored);
+- the JSON publish sink's files (`--py-json` / `--rs-json`, each side's PUBLISH_JSON_DIR): the
+  same paths, each document equal as parsed JSON (key order is not compared: Python writes
+  insertion order, Rust sorted keys), `published_at` only as present.
 
     python compare.py --job retention --py URL --rs URL --spec jobs.json --seed-runs N --seed-logs N
 
@@ -19,6 +22,7 @@ import argparse
 import datetime as dt
 import decimal
 import json
+import os
 import re
 import sys
 from typing import Any, Dict, List, Tuple
@@ -51,6 +55,11 @@ def drop(d: Dict[str, Any], keys) -> Dict[str, Any]:
     return {k: v for k, v in d.items() if k not in keys}
 
 
+def mark(d: Dict[str, Any], keys) -> Dict[str, Any]:
+    """`present` columns: only whether they are set (now() stamps differ between the runs)."""
+    return {k: ((v is not None) if k in keys else v) for k, v in d.items()}
+
+
 def drop_path(d: Any, path: str) -> None:
     head, _, rest = path.partition(".")
     if not isinstance(d, dict) or head not in d:
@@ -78,6 +87,21 @@ def diff_lists(name: str, a: List[Any], b: List[Any]) -> List[str]:
     return out
 
 
+def json_docs(root: str | None) -> Dict[str, Any]:
+    """{relative path: document} of a JSON sink folder; `published_at` only as present."""
+    out: Dict[str, Any] = {}
+    if not root or not os.path.isdir(root):
+        return out
+    for dirpath, _dirs, files in os.walk(root):
+        for f in files:
+            full = os.path.join(dirpath, f)
+            doc = json.load(open(full, encoding="utf-8"))
+            if isinstance(doc, dict) and "published_at" in doc:
+                doc["published_at"] = doc["published_at"] is not None
+            out[os.path.relpath(full, root)] = doc
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--job", required=True)
@@ -86,6 +110,10 @@ def main() -> int:
     ap.add_argument("--spec", required=True)
     ap.add_argument("--seed-runs", type=int, required=True, help="max(sync_runs.id) of the seeded template")
     ap.add_argument("--seed-logs", type=int, required=True, help="max(app_logs.id) of the seeded template")
+    ap.add_argument("--py-json", help="Python's JSON publish sink folder")
+    ap.add_argument("--rs-json", help="Rust's JSON publish sink folder")
+    ap.add_argument("--fcm-py", help="messages the stub FCM received from Python (fcm_stub.py, JSON lines)")
+    ap.add_argument("--fcm-rs", help="the same for Rust")
     args = ap.parse_args()
     spec = json.load(open(args.spec, encoding="utf-8"))[args.job]
     problems: List[str] = []
@@ -95,8 +123,18 @@ def main() -> int:
             order = ", ".join(t["order"])
             sql = f"SELECT * FROM {table} ORDER BY {order}"
             ign = set(t.get("ignore", []))
-            a = [drop(r, ign) for r in rows(py, sql)]
-            b = [drop(r, ign) for r in rows(rs, sql)]
+            present = t.get("present", [])
+            # later = {column: reference}: compared only as "column > reference" (a now() stamp
+            # the job may move, e.g. updated_at against created_at)
+            later = t.get("later", {})
+
+            def shape(r: Dict[str, Any]) -> Dict[str, Any]:
+                for col, ref in later.items():
+                    r[col] = r[col] is not None and r[ref] is not None and r[col] > r[ref]
+                return mark(drop(r, ign), present)
+
+            a = [shape(r) for r in rows(py, sql)]
+            b = [shape(r) for r in rows(rs, sql)]
             d = diff_lists(table, a, b)
             problems += d
             checked += len(a)
@@ -104,7 +142,14 @@ def main() -> int:
 
         # sync_runs: seeded rows in full, the job's own run(s) by outcome
         seeded = "SELECT * FROM sync_runs WHERE id <= %s ORDER BY id"
-        d = diff_lists("sync_runs (seeded)", rows(py, seeded, (args.seed_runs,)), rows(rs, seeded, (args.seed_runs,)))
+        # seeded_runs_ignore: columns of the seeded runs not compared (a stale `running` run of the
+        # job is failed as abandoned at the claim, finished_at = now() on each side)
+        sr_ign = set(spec.get("seeded_runs_ignore", []))
+        d = diff_lists(
+            "sync_runs (seeded)",
+            [drop(r, sr_ign) for r in rows(py, seeded, (args.seed_runs,))],
+            [drop(r, sr_ign) for r in rows(rs, seeded, (args.seed_runs,))],
+        )
         new_sql = "SELECT id, job, trigger, status, detail_json, error, finished_at IS NOT NULL AS finished FROM sync_runs WHERE id > %s ORDER BY id"
         new = []
         for conn in (py, rs):
@@ -129,6 +174,28 @@ def main() -> int:
         d += diff_lists("app_logs (this run)", *logs)
         problems += d
         print(f"{'ok  ' if not d else 'DIFF'} app_logs ({len(logs[0])} new record(s))")
+
+    if args.py_json or args.rs_json:
+        a, b = json_docs(args.py_json), json_docs(args.rs_json)
+        d = []
+        for path in sorted(set(a) | set(b)):
+            if path not in b:
+                d.append(f"json sink: only in python: {path}")
+            elif path not in a:
+                d.append(f"json sink: only in rust: {path}")
+            elif a[path] != b[path]:
+                d.append(f"json sink {path}:\n    python {json.dumps(a[path], ensure_ascii=False, sort_keys=True)}\n    rust   {json.dumps(b[path], ensure_ascii=False, sort_keys=True)}")
+        problems += d[: MAX_SHOWN * 4]
+        print(f"{'ok  ' if not d else 'DIFF'} json sink ({len(a)} file(s))")
+
+    if args.fcm_py or args.fcm_rs:
+        # FCM messages: as a multiset (firebase_admin sends a batch from a thread pool)
+        sent = [sorted(json.dumps(json.loads(line), ensure_ascii=False, sort_keys=True)
+                       for line in (open(f, encoding="utf-8") if os.path.exists(f) else []) if line.strip())
+                for f in (args.fcm_py, args.fcm_rs)]
+        d = diff_lists("fcm messages", [json.loads(x) for x in sent[0]], [json.loads(x) for x in sent[1]])
+        problems += d
+        print(f"{'ok  ' if not d else 'DIFF'} fcm messages ({len(sent[0])} received)")
 
     for p in problems:
         print("  " + p)

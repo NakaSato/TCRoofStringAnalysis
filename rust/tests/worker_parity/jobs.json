@@ -17,5 +17,337 @@
       "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"]},
       "om_push_marks": {"order": ["user_id", "kind", "day"]}
     }
+  },
+  "_doc_history": "history / history_batch / backfill / env_history / inverter_latest: seed.d/20_history.sql, stub growatt_sync (rust/tests/growatt_sync_golden/sync_stub.py, tokens tok-p1 / tok-p2). job = the worker job a variant entry runs (default: the entry's own name). log_ignore = regexes of app_logs messages not compared (the phase timing line); seeded_runs_ignore = columns of the seeded sync_runs not compared (a stale running run of the job is failed as abandoned at the claim, at now()). Accounts one after the other, so the log order is fixed.",
+  "history": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_meter_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]}
+    }
+  },
+  "history_batch": {
+    "job": "history",
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false", "WORKER_HISTORY_BATCH_SIZE": "1", "HISTORY_STORE_RAW": "true", "METER_HISTORY_ENABLED": "false"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_meter_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]}
+    }
+  },
+  "backfill": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false"},
+    "seeded_runs_ignore": ["finished_at"],
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_meter_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]}
+    }
+  },
+  "env_history": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_env_readings": {"order": ["datalogger_sn", "address", "timestamp"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "ignore": ["synced_at"]},
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]}
+    }
+  },
+  "inverter_latest": {
+    "env": {"WORKER_PARALLEL_ACCOUNTS": "false", "HISTORY_STORE_RAW": "true", "WORKER_LATEST_INTERVAL_MIN": "5"},
+    "stubs": ["growatt_sync"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_string_records": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverter_raw": {"order": ["device_sn", "timestamp"]},
+      "growatt_inverters": {"order": ["device_sn"], "ignore": ["synced_at"]}
+    }
+  },
+  "fleet": {
+    "_doc": "present = columns compared only as set / NULL (now() stamps). Phase 2 = the stub's fleet world (plants 3001-3009, seed.d/30_fleet_power_limits.sql); 3009 is blocked.",
+    "env": {"GROWATT_TOKEN_PHASE2": "fleet-stub-phase2", "GROWATT_BLOCKED_PLANT_IDS": "3009", "WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_plants": {"order": ["plant_id"], "present": ["synced_at", "details_synced_at"]},
+      "growatt_inverters": {"order": ["device_sn"], "present": ["synced_at", "info_synced_at", "param_synced_at", "power_limit_read_at", "not_installed_at"]},
+      "growatt_env_sensors": {"order": ["datalogger_sn", "address"], "present": ["synced_at"]},
+      "growatt_meters": {"order": ["datalogger_sn", "address"], "present": ["synced_at"]},
+      "growatt_inverter_readings": {"order": ["device_sn", "timestamp"]},
+      "growatt_issues": {"order": ["id"], "present": ["created_at", "updated_at"]},
+      "om_tasks": {"order": ["id"], "present": ["created_at", "updated_at"]},
+      "om_task_assignees": {"order": ["task_id", "user_id"]},
+      "om_cleaning_suggestion_marks": {"order": ["plant_id", "reset_day"], "present": ["at"]},
+      "om_plan_plants": {"order": ["plan_id", "plant_id"]},
+      "om_plant_settings": {"order": ["plant_id"], "present": ["updated_at"]},
+      "plant_documents": {"order": ["id"], "present": ["created_at", "updated_at"]},
+      "site_register": {"order": ["site_code"], "present": ["imported_at"]},
+      "site_devices": {"order": ["id"]}
+    }
+  },
+  "power_limits": {
+    "env": {"GROWATT_TOKEN_PHASE2": "fleet-stub-phase2", "WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_inverters": {"order": ["device_sn"], "present": ["synced_at", "info_synced_at", "param_synced_at", "power_limit_read_at", "not_installed_at"]}
+    }
+  },
+  "growatt_energy": {
+    "env": {
+      "GROWATT_TOKEN_PHASE2": "parity-stub-token-2",
+      "WORKER_PARALLEL_ACCOUNTS": "false"
+    },
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_plant_energy_days": {
+        "order": [
+          "plant_id",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      },
+      "growatt_inverter_energy_days": {
+        "order": [
+          "device_sn",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      },
+      "growatt_plant_power": {
+        "order": [
+          "plant_id",
+          "timestamp"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
+  },
+  "energy_backfill": {
+    "env": {
+      "GROWATT_TOKEN_PHASE2": "parity-stub-token-2",
+      "WORKER_PARALLEL_ACCOUNTS": "false",
+      "HISTORY_RETENTION_DAYS": "40"
+    },
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_plant_energy_days": {
+        "order": [
+          "plant_id",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
+  },
+  "alarms": {
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_alarms": {
+        "order": [
+          "id"
+        ]
+      },
+      "growatt_alarm_syncs": {
+        "order": [
+          "device_sn",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
+  },
+  "alarms_yesterday": {
+    "stubs": [
+      "growatt"
+    ],
+    "tables": {
+      "growatt_alarms": {
+        "order": [
+          "id"
+        ]
+      },
+      "growatt_alarm_syncs": {
+        "order": [
+          "device_sn",
+          "day"
+        ],
+        "ignore": [
+          "synced_at"
+        ]
+      }
+    },
+    "log_ignore": [
+      "^phase \\d+ done in "
+    ]
+  },
+  "_doc_publish": "publish_today / publish_yesterday: seed.d/60_publish.sql (plants 9701-9703) plus every other seeded plant. The JSON sink of each side (PUBLISH_JSON_DIR) is compared file by file (compare.py --py-json / --rs-json). publish_yesterday_budget: PUBLISH_DAILY_WRITE_BUDGET 40, so part of the docs are deferred (run partial).",
+  "publish_today": {
+    "stubs": [],
+    "tables": {
+      "pwa_check_slots": {"order": ["day", "plant_id", "hour"], "present": ["built_at"]},
+      "published_docs": {"order": ["sink", "path"], "present": ["written_at"]},
+      "publish_write_counts": {"order": ["sink", "quota_day"]}
+    }
+  },
+  "publish_yesterday": {
+    "stubs": [],
+    "tables": {
+      "pwa_check_slots": {"order": ["day", "plant_id", "hour"], "present": ["built_at"]},
+      "published_docs": {"order": ["sink", "path"], "present": ["written_at"]},
+      "publish_write_counts": {"order": ["sink", "quota_day"]}
+    }
+  },
+  "publish_yesterday_budget": {
+    "job": "publish_yesterday",
+    "env": {"PUBLISH_DAILY_WRITE_BUDGET": "40"},
+    "stubs": [],
+    "tables": {
+      "pwa_check_slots": {"order": ["day", "plant_id", "hour"], "present": ["built_at"]},
+      "published_docs": {"order": ["sink", "path"], "present": ["written_at"]},
+      "publish_write_counts": {"order": ["sink", "quota_day"]}
+    }
+  },
+  "_doc_push": "push_test / faults_push / alarms_push: seed.d/60_push.sql, stub fcm (fcm_stub.py: FCM HTTP v1 + OAuth token server, a throwaway key; the messages each side sent are compared as a multiset). alarms_push = the alarms job with a phase-3 account (growatt_stub.py push_alarms, serials AL6…) and a sender.",
+  "push_test": {
+    "stubs": ["fcm"],
+    "tables": {
+      "push_tokens": {"order": ["id"]},
+      "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
+      "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
+    }
+  },
+  "faults_push": {
+    "stubs": ["fcm"],
+    "tables": {
+      "push_tokens": {"order": ["id"]},
+      "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
+      "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
+    }
+  },
+  "alarms_push": {
+    "job": "alarms",
+    "env": {"GROWATT_TOKEN_PHASE3": "parity-stub-token-3", "WORKER_PARALLEL_ACCOUNTS": "false"},
+    "stubs": ["growatt", "fcm"],
+    "log_ignore": ["^phase \\d+ done in "],
+    "tables": {
+      "growatt_alarms": {"order": ["id"]},
+      "growatt_alarm_syncs": {"order": ["device_sn", "day"], "ignore": ["synced_at"]},
+      "push_tokens": {"order": ["id"]},
+      "alarm_push_marks": {"order": ["device_sn", "alarm_code", "day"], "present": ["pushed_at"]},
+      "field_faults": {"order": ["id"], "present": ["s1_pushed_at"], "later": {"updated_at": "created_at"}}
+    }
+  },
+  "_doc_google_weather": "google_weather / google_weather_quota / google_weather_off: seed = extra SQL files of seed.job/ applied to this entry's two copies only. The weather stub answers history/hours (rust/tests/parity/weather_stub.py). Python then re-publishes yesterday (JSON sink, into the run's temp folder via pyshim/sitecustomize.py); publish is not ported in this wave (Rust records republished_yesterday as not available), so republished_yesterday and the publish's log lines are not compared.",
+  "google_weather": {
+    "seed": ["google_weather.sql"],
+    "stubs": ["weather"],
+    "detail_ignore": ["republished_yesterday"],
+    "log_ignore": ["^published ", "^publish "],
+    "tables": {
+      "google_weather_hourly": {"order": ["cell_key", "hour"], "ignore": ["fetched_at"]},
+      "external_api_call_counts": {"order": ["api", "day"]}
+    }
+  },
+  "google_weather_quota": {
+    "job": "google_weather",
+    "seed": ["google_weather_quota.sql"],
+    "stubs": ["weather"],
+    "tables": {
+      "google_weather_hourly": {"order": ["cell_key", "hour"], "ignore": ["fetched_at"]},
+      "external_api_call_counts": {"order": ["api", "day"]}
+    }
+  },
+  "google_weather_off": {
+    "job": "google_weather",
+    "stubs": [],
+    "tables": {"external_api_call_counts": {"order": ["api", "day"]}}
+  },
+  "_doc_pwa_sheet": "pwa_sheet*: stub google (google_stub.py: OAuth token, Sheets API, Firestore REST reads; a throwaway service-account key). compare_sheets = the spreadsheets each worker left in the stub are compared cell by cell too. CHECK_OFFSET_MIN 1440 = every check's snapshot time has passed (hours 9, 13, 17); -1440 = none yet (the 06:05 run: the tab is only created). log_ignore: urllib3 retry warnings of google-auth's background regional-access-boundary lookup (iamcredentials.googleapis.com), which the dead HTTPS proxy refuses: Python only.",
+  "pwa_sheet": {
+    "env": {"PWA_SHEET_ID": "pwa-create", "CHECK_OFFSET_MIN": "1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_existing": {
+    "job": "pwa_sheet",
+    "env": {"PWA_SHEET_ID": "pwa-existing", "CHECK_OFFSET_MIN": "1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_early": {
+    "job": "pwa_sheet",
+    "env": {"PWA_SHEET_ID": "pwa-create", "CHECK_OFFSET_MIN": "-1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_notemplate": {
+    "job": "pwa_sheet",
+    "env": {"PWA_SHEET_ID": "pwa-notemplate", "CHECK_OFFSET_MIN": "1440"},
+    "seed": ["pwa_sheet.sql"],
+    "stubs": ["google"],
+    "compare_sheets": true,
+    "log_ignore": ["^Retrying \\(Retry\\("],
+    "tables": {}
+  },
+  "pwa_sheet_off": {
+    "job": "pwa_sheet",
+    "stubs": [],
+    "tables": {}
   }
 }
