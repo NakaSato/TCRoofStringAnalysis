@@ -48,8 +48,8 @@ pub fn job(name: &str) -> Option<Job> {
         "google_weather" => NotPorted { phase: "4.3" },
         "alarms" => Ported(|ctx| Box::pin(job_alarms(ctx))),
         "alarms_yesterday" => Ported(|ctx| Box::pin(job_alarms_yesterday(ctx))),
-        "push_test" => NotPorted { phase: "4.3" },
-        "faults_push" => NotPorted { phase: "4.3" },
+        "push_test" => Ported(|ctx| Box::pin(job_push_test(ctx))),
+        "faults_push" => Ported(|ctx| Box::pin(job_faults_push(ctx))),
         "pwa_sheet" => NotPorted { phase: "4.3" },
         "rules_today" => NotPorted { phase: "5" },
         "rules_yesterday" => NotPorted { phase: "5" },
@@ -404,25 +404,22 @@ pub async fn job_alarms_yesterday(ctx: Ctx) -> JobResult {
     alarms_day(&ctx, today() - chrono::Duration::days(1), false).await
 }
 
-/// Python `push.TEST_MAX_AGE` (minutes) and `fault_push.S1_MAX_AGE` (hours)
-const PUSH_TEST_MAX_AGE_MIN: i64 = 10;
-const S1_MAX_AGE_H: i64 = 6;
-/// Python `faults.ACTIVE`
-const FAULT_ACTIVE: [&str; 5] = ["open", "diagnosed", "waiting", "scheduled", "monitor"];
-const PUSH_SKIPPED: &str = "FIREBASE_CREDENTIALS_FILE is not set";
+// --------------------------------------------------------------------------- push (4.3)
 
-/// Python `job_alarms`'s `detail["push"] = _push(db, lambda push: {**push.notify_new_alarms(db,
-/// today, started), **push.send_tests(db), **_fault_s1(db)})`.
-///
-/// TODO(Phase 4.3): the FCM push itself (services/push.py `notify_new_alarms`, `send_tests`,
-/// fault_push.py `notify_s1`) is not ported; replace this hook with it. Ported here are only the
-/// paths that send nothing: no device / test request / S1 fault, or no sender
-/// (FIREBASE_CREDENTIALS_FILE empty), with Python's detail. When a sender is configured and
-/// something would be sent, the detail is `{"error": "NotImplementedError: …"}` and nothing is
-/// written. As in Python, push trouble never changes the run's status.
-async fn alarm_push(ctx: &Ctx, _since: chrono::DateTime<Utc>) -> Value {
-    match alarm_push_unsent(ctx).await {
-        Ok(v) => v,
+impl From<tcroof_services::push::PushError> for JobError {
+    fn from(e: tcroof_services::push::PushError) -> Self {
+        JobError::new(&e.kind, e.message)
+    }
+}
+
+/// Python `jobs._push`: push trouble is reported in the run detail (`{"error": "{class}: {msg}"}`,
+/// logged with its traceback) and never fails the job it follows.
+async fn guarded<F>(fut: F) -> Value
+where
+    F: Future<Output = Result<Map<String, Value>, tcroof_services::push::PushError>>,
+{
+    match fut.await {
+        Ok(m) => Value::Object(m),
         Err(e) => {
             tracing::error!(target: "jobs", exc_text = %e, "push notifications failed");
             json!({"error": e.to_string()})
@@ -430,68 +427,46 @@ async fn alarm_push(ctx: &Ctx, _since: chrono::DateTime<Utc>) -> Value {
     }
 }
 
-async fn alarm_push_unsent(ctx: &Ctx) -> Result<Value, JobError> {
-    use chrono::{DateTime, Duration};
-    let pool = &ctx.pool;
-    let no_sender = ctx.settings.firebase_credentials_file.is_empty();
-    let not_ported = || {
-        Err(JobError::new(
-            "NotImplementedError",
-            "alarm push is not ported to Rust yet (Phase 4.3 of docs/plans/rust-port-master-plan.md)",
-        ))
-    };
-    let now = Utc::now();
-    let mut out = Map::new();
-    // push.notify_new_alarms
-    let devices: i64 = sqlx::query_scalar("SELECT count(*) FROM push_tokens").fetch_one(pool).await?;
-    out.insert("devices".into(), json!(devices));
-    if devices > 0 {
-        if !no_sender {
-            return not_ported();
-        }
-        out.insert("skipped".into(), json!(PUSH_SKIPPED));
-    }
-    // push.send_tests: the requests are cleared even without a sender, as in Python
-    let asked: Vec<DateTime<Utc>> = sqlx::query_scalar(
-        "SELECT t.test_requested_at FROM push_tokens t JOIN users u ON u.id = t.user_id \
-         WHERE t.test_requested_at IS NOT NULL AND u.is_active",
-    )
-    .fetch_all(pool)
-    .await?;
-    if asked.is_empty() {
-        out.insert("tests".into(), json!(0));
-    } else {
-        if !no_sender {
-            return not_ported();
-        }
-        let due = asked.iter().filter(|a| now - **a <= Duration::minutes(PUSH_TEST_MAX_AGE_MIN)).count();
-        sqlx::query(
-            "UPDATE push_tokens t SET test_requested_at = NULL FROM users u \
-             WHERE u.id = t.user_id AND t.test_requested_at IS NOT NULL AND u.is_active",
-        )
-        .execute(pool)
-        .await?;
-        out.insert("tests".into(), json!(due));
-        out.insert("skipped".into(), json!(PUSH_SKIPPED));
-    }
-    // fault_push.notify_s1
-    let s1: Vec<DateTime<Utc>> = sqlx::query_scalar(
-        "SELECT s1_at FROM field_faults WHERE severity = 'S1' AND s1_pushed_at IS NULL \
-         AND s1_at IS NOT NULL AND status = ANY($1)",
-    )
-    .bind(&FAULT_ACTIVE[..])
-    .fetch_all(pool)
-    .await?;
-    let n_s1 = s1.iter().filter(|at| now - **at <= Duration::hours(S1_MAX_AGE_H)).count();
-    let faults = if n_s1 == 0 {
-        json!({"s1_faults": 0})
-    } else if no_sender {
-        json!({"s1_faults": n_s1, "skipped": PUSH_SKIPPED})
-    } else {
-        return not_ported();
-    };
-    out.insert("faults".into(), faults);
-    Ok(Value::Object(out))
+/// Python `jobs._fault_s1`: `{"faults": fault_push.notify_s1(db)}`
+async fn fault_s1(ctx: &Ctx) -> Result<Value, tcroof_services::push::PushError> {
+    let src = ctx.push_source();
+    Ok(Value::Object(tcroof_services::fault_push::notify_s1(&ctx.pool, &src, Utc::now()).await?))
+}
+
+/// Python `job_alarms`'s `detail["push"] = _push(db, lambda push: {**push.notify_new_alarms(db,
+/// today, started), **push.send_tests(db), **_fault_s1(db)})`: later keys win, a key keeps its
+/// first place. The three run in turn; what one wrote stays when a later one fails.
+async fn alarm_push(ctx: &Ctx, since: chrono::DateTime<Utc>) -> Value {
+    use tcroof_services::push;
+    let src = ctx.push_source();
+    guarded(async {
+        let mut out = push::notify_new_alarms(&ctx.pool, &ctx.worker.push, today(), since, &src, Utc::now()).await?;
+        out.extend(push::send_tests(&ctx.pool, &src, Utc::now()).await?);
+        out.insert("faults".into(), fault_s1(ctx).await?);
+        Ok(out)
+    })
+    .await
+}
+
+/// Python `job_push_test` / `job_faults_push`: `partial` when the push failed or a message did
+fn push_status(detail: &Value) -> String {
+    let failed = detail.get("failed").is_some_and(|v| v.as_i64().unwrap_or(0) != 0);
+    if detail.get("error").is_some() || failed { "partial" } else { "ok" }.into()
+}
+
+/// Python `jobs.job_push_test`: test notifications asked for from the UI (POST /push/test queues this).
+pub async fn job_push_test(ctx: Ctx) -> JobResult {
+    let src = ctx.push_source();
+    let detail = guarded(tcroof_services::push::send_tests(&ctx.pool, &src, Utc::now())).await;
+    Ok((push_status(&detail), detail))
+}
+
+/// Python `jobs.job_faults_push`: field faults recorded as S1 or raised to it, pushed to whoever may
+/// see the plant (queued by the API; every `alarms` run flushes them too; services/fault_push.py).
+pub async fn job_faults_push(ctx: Ctx) -> JobResult {
+    let src = ctx.push_source();
+    let detail = guarded(tcroof_services::fault_push::notify_s1(&ctx.pool, &src, Utc::now())).await;
+    Ok((push_status(&detail), detail))
 }
 
 #[cfg(test)]
@@ -506,7 +481,7 @@ mod tests {
         }
         assert!(job("nope").is_none());
         let ported: Vec<&str> = JOBS.iter().copied().filter(|n| matches!(job(n), Some(Job::Ported(_)))).collect();
-        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "growatt_energy", "energy_backfill", "publish_today", "publish_yesterday", "retention", "alarms", "alarms_yesterday"]);
+        assert_eq!(ported, ["history", "env_history", "inverter_latest", "backfill", "fleet", "power_limits", "growatt_energy", "energy_backfill", "publish_today", "publish_yesterday", "retention", "alarms", "alarms_yesterday", "push_test", "faults_push"]);
     }
 
     #[test]

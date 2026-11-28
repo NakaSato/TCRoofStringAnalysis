@@ -184,12 +184,41 @@ def worker_alarms(sn: str, day: str, page: int) -> dict:
                  "alarm_code": 100 + i, "alarm_message": f"page alarm {i}", "fault_type": "Warning", "status": 0}
                 for i in range(150)]
         return ok({"count": 150, "alarms": recs[(page - 1) * 100: page * 100]})
+    if sn.startswith("AL6"):
+        return ok(push_alarms(sn))
     return ok({"count": 2, "alarms": [
         {"start_time": f"{day} 07:15:00", "end_time": f"{day} 07:20:00", "alarm_code": "305",
          "alarm_message": "Grid voltage high", "fault_type": "Warning", "status": 0},
         {"start_time": f"{day} 11:45:00", "end_time": None, "alarm_code": 117, "alarm_message": "Fan fault",
          "fault_type": "Fault", "status": 1},
     ]})
+
+
+def push_alarms(sn: str) -> dict:
+    """`alarm_data` of the alarm push inverters (rust/tests/worker_parity/seed.d/60_push.sql,
+    serials AL6…), minutes before the stub's start so they are fresh for `PUSH_ALARM_MAX_AGE_MIN`
+    (the run must start at least 3.5 h after plant-local midnight: the oldest record is T0 - 200 min)."""
+
+    def rec(m: int, code, ft, msg, end: bool = False) -> dict:
+        return {"start_time": fmt(T0 - timedelta(minutes=m)), "end_time": fmt(T0 - timedelta(minutes=m - 1)) if end else None,
+                "alarm_code": code, "alarm_message": msg, "fault_type": ft, "status": 1}
+
+    recs = {
+        # one event of three reports, a warning (not pushed by default), a code-less error
+        "AL6A1": [rec(30, 117, "Fault", "Fan fault", True), rec(25, 117, "Fault", "", True), rec(20, 117, None, None),
+                  rec(15, "305", "Warning", "Grid voltage high"), rec(12, "", "PV Error", None)],
+        # fresh fault, one too old, two events of one code (15 min apart: the newer counts)
+        "AL6A2": [rec(15, 400, "Fault", "Isolation fault"), rec(200, 401, "Fault", "old"),
+                  rec(55, 402, "Inverter fail", "first"), rec(40, 402, "Inverter fail", "second")],
+        "AL6B1": [rec(10, 117, "Fault", "already pushed")],   # mark of this event (or newer)
+        "AL6B2": [rec(12, 118, "Fault", "pushed recently")],  # older event pushed 30 min ago
+        "AL6B3": [rec(8, 119, "Fault", "repeat due")],        # older event pushed 3 h ago
+    }.get(sn)
+    if recs is None and sn.startswith("AL6C"):  # AL6C1-AL6C6: one fault each, one plant each
+        i = int(sn[4:])
+        recs = [rec(5 + i, 500 + i, "Fault", f"plant fault {i}")]
+    recs = recs or []
+    return {"count": len(recs), "alarms": recs}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -274,7 +303,7 @@ class Handler(BaseHTTPRequestHandler):
             sn, day = p.get("max_sn", ""), p.get("date", "")
             if sn in REFUSE_ALARMS:
                 return self._send(LIMITED)
-            if sn.startswith("AL5"):
+            if sn.startswith(("AL5", "AL6")):
                 return self._send(worker_alarms(sn, day, int(p.get("page") or 1)))
             return self._send(ok({"count": 2, "alarms": [
                 {"start_time": f"{day} 09:00:00", "end_time": f"{day} 09:10:00", "alarm_code": 202,

@@ -5,11 +5,13 @@
 //! - [`google_weather`]: Google Maps Weather (`solar_core/google_weather.py`).
 //! - [`longdo_weather`]: Longdo weather radar (`solar_core/longdo_weather.py`).
 //! - [`rainviewer`]: RainViewer radar snapshot list (`solar_core/rainviewer.py`).
-//! - [`google_auth`]: service-account OAuth access tokens (key file → JWT → bearer token).
+//! - [`google_auth`]: service-account OAuth access tokens (key file → JWT → bearer token, cached).
 //! - [`firestore`]: Firestore REST commit (the summary sink, `daily_summary.FirestoreSink`).
+//! - [`fcm`]: Firebase Cloud Messaging HTTP v1 (firebase_admin `messaging.send_each`).
 
 #![forbid(unsafe_code)]
 
+pub mod fcm;
 pub mod firestore;
 pub mod google_auth;
 pub mod google_weather;

@@ -1,75 +1,75 @@
-//! Google service-account OAuth access tokens (the part of `google-auth` / `firebase_admin`'s
-//! `credentials.Certificate` the backend relies on): a key file's private key signs a JWT
-//! assertion (RS256), exchanged at the key file's `token_uri` for a bearer token.
+//! OAuth 2.0 access tokens for a Google service account (the JWT-bearer grant), as google-auth's
+//! `service_account.Credentials.refresh` does for the Python backend (firebase_admin, Firestore).
 //!
-//! Shared by the Firestore sink (services/publish.rs), FCM push and the PWA Google Sheet. Tokens
-//! are cached per (key file, scopes) in this process until [`REFRESH_MARGIN_S`] before they
-//! expire; nothing is stored anywhere else and a token is never logged (errors name the key
-//! file's path and the token endpoint's answer, never the key or the token).
-//!
-//! The token endpoint is the key file's `token_uri` (Google's default when missing), so a test
-//! points a throwaway key file at a local stub; never run tests with the real key in `secrets/`.
+//! The key file is the service-account JSON (`FIREBASE_CREDENTIALS_FILE`); the token is asked from
+//! the file's own `token_uri`, so a test key file can point it at a local stub. Tokens are cached
+//! per (key file, scopes) until [`REFRESH_MARGIN_S`] before they expire. Neither the key nor a
+//! token is ever logged.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-/// `google.oauth2.service_account` default token endpoint
-pub const DEFAULT_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
-/// Lifetime asked for in the assertion (Google's maximum, as `google-auth`)
-pub const ASSERTION_LIFETIME_S: u64 = 3600;
-/// A cached token is renewed this long before its expiry (`google-auth` refreshes ~3-4 min early)
+/// google-auth refreshes a token this close to its expiry (`_helpers.REFRESH_THRESHOLD`, 3 min
+/// 45 s); a little earlier here
 pub const REFRESH_MARGIN_S: u64 = 300;
+/// lifetime asked for in the assertion (google-auth `_DEFAULT_TOKEN_LIFETIME_SECS`)
+const ASSERTION_LIFETIME_S: u64 = 3600;
+const GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
 #[derive(Debug, thiserror::Error)]
 pub enum GoogleAuthError {
-    /// The key file is missing, unreadable or not a service-account key.
-    #[error("service account key {path}: {reason}")]
-    KeyFile { path: String, reason: String },
-    /// Signing the assertion failed (a malformed private key).
-    #[error("service account key {path}: cannot sign: {reason}")]
-    Sign { path: String, reason: String },
-    /// The token endpoint could not be reached or refused the assertion.
-    #[error("token request to {uri} failed: {reason}")]
-    Token { uri: String, reason: String },
+    #[error("cannot read the service-account key file {path}: {source}")]
+    Read { path: String, source: std::io::Error },
+    #[error("not a service-account key file ({0})")]
+    Key(String),
+    #[error("token request failed: {0}")]
+    Http(String),
+    #[error("token request refused ({status}): {body}")]
+    Refused { status: u16, body: String },
 }
 
-/// The fields of a service-account key file this module reads.
+impl GoogleAuthError {
+    /// The Python exception class the same failure raises (FileNotFoundError for a missing key
+    /// file, ValueError for a bad one, google-auth's RefreshError for the token request).
+    pub fn py_kind(&self) -> &'static str {
+        match self {
+            GoogleAuthError::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound => "FileNotFoundError",
+            GoogleAuthError::Read { .. } => "OSError",
+            GoogleAuthError::Key(_) => "ValueError",
+            GoogleAuthError::Http(_) | GoogleAuthError::Refused { .. } => "RefreshError",
+        }
+    }
+}
+
+/// The fields of a service-account key file this module uses.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServiceAccountKey {
-    #[serde(default, rename = "type")]
-    pub kind: Option<String>,
-    pub client_email: String,
-    pub private_key: String,
-    #[serde(default)]
-    pub private_key_id: Option<String>,
+    #[serde(rename = "type", default)]
+    pub kind: String,
     #[serde(default)]
     pub project_id: Option<String>,
     #[serde(default)]
-    pub token_uri: Option<String>,
+    pub private_key_id: Option<String>,
+    pub private_key: String,
+    pub client_email: String,
+    pub token_uri: String,
 }
 
-impl ServiceAccountKey {
-    /// The token endpoint: the key file's `token_uri`, else Google's.
-    pub fn token_uri(&self) -> &str {
-        self.token_uri.as_deref().filter(|u| !u.is_empty()).unwrap_or(DEFAULT_TOKEN_URI)
-    }
-}
-
-/// Read and check a service-account key file.
+/// Read and check a key file (firebase_admin `credentials.Certificate`: `type` must be
+/// `service_account`, and the private key must parse).
 pub fn read_key(creds_file: &str) -> Result<ServiceAccountKey, GoogleAuthError> {
-    let err = |reason: String| GoogleAuthError::KeyFile { path: creds_file.to_owned(), reason };
-    if creds_file.is_empty() {
-        return Err(err("no key file configured".into()));
+    let raw = std::fs::read_to_string(creds_file).map_err(|source| GoogleAuthError::Read { path: creds_file.to_owned(), source })?;
+    let key: ServiceAccountKey = serde_json::from_str(&raw).map_err(|e| GoogleAuthError::Key(e.to_string()))?;
+    if key.kind != "service_account" {
+        return Err(GoogleAuthError::Key(format!(
+            "Invalid service account certificate. Certificate must contain a \"type\" field set to \"service_account\"; got {:?}",
+            key.kind
+        )));
     }
-    let text = std::fs::read_to_string(creds_file).map_err(|e| err(e.to_string()))?;
-    let key: ServiceAccountKey = serde_json::from_str(&text).map_err(|e| err(format!("not a service account key ({e})")))?;
-    if key.kind.as_deref().is_some_and(|k| k != "service_account") {
-        return Err(err(format!("type is {:?}, expected \"service_account\"", key.kind.as_deref().unwrap_or(""))));
-    }
+    jsonwebtoken::EncodingKey::from_rsa_pem(key.private_key.as_bytes()).map_err(|e| GoogleAuthError::Key(format!("private_key: {e}")))?;
     Ok(key)
 }
 
@@ -82,69 +82,73 @@ struct Claims<'a> {
     exp: u64,
 }
 
-/// The signed JWT assertion (RS256) for `scopes`, issued at `iat` (Unix seconds).
-pub fn assertion(key: &ServiceAccountKey, creds_file: &str, scopes: &[&str], iat: u64) -> Result<String, GoogleAuthError> {
-    let sign_err = |reason: String| GoogleAuthError::Sign { path: creds_file.to_owned(), reason };
-    let enc = jsonwebtoken::EncodingKey::from_rsa_pem(key.private_key.as_bytes()).map_err(|e| sign_err(e.to_string()))?;
-    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
-    header.kid = key.private_key_id.clone();
-    let claims = Claims { iss: &key.client_email, scope: scopes.join(" "), aud: key.token_uri(), iat, exp: iat + ASSERTION_LIFETIME_S };
-    jsonwebtoken::encode(&header, &claims, &enc).map_err(|e| sign_err(e.to_string()))
+#[derive(Deserialize)]
+struct TokenResponse {
+    access_token: String,
+    #[serde(default)]
+    expires_in: Option<u64>,
 }
 
-struct Cached {
-    token: String,
-    renew_at: Instant,
-}
+type CacheKey = (String, String);
 
-fn cache() -> &'static Mutex<HashMap<(String, String), Cached>> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<(String, String), Cached>>> = std::sync::OnceLock::new();
+fn cache() -> &'static Mutex<HashMap<CacheKey, (String, Instant)>> {
+    static CACHE: OnceLock<Mutex<HashMap<CacheKey, (String, Instant)>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Drop every cached token (tests; a rotated key file is picked up at the next expiry anyway).
-pub fn clear_cache() {
-    cache().lock().unwrap_or_else(|p| p.into_inner()).clear();
-}
-
-/// A bearer access token for `scopes` from the service-account key file `creds_file`, cached in
-/// this process until [`REFRESH_MARGIN_S`] before it expires.
+/// An access token for the service account in `creds_file` with `scopes`, from the cache while it
+/// has more than [`REFRESH_MARGIN_S`] left, else from the key file's `token_uri`.
 pub async fn access_token(http: &reqwest::Client, creds_file: &str, scopes: &[&str]) -> Result<String, GoogleAuthError> {
-    let ck = (creds_file.to_owned(), scopes.join(" "));
-    if let Some(c) = cache().lock().unwrap_or_else(|p| p.into_inner()).get(&ck) {
-        if Instant::now() < c.renew_at {
-            return Ok(c.token.clone());
+    let scope = scopes.join(" ");
+    let ck = (creds_file.to_owned(), scope.clone());
+    if let Some((tok, until)) = cache().lock().expect("token cache").get(&ck) {
+        if Instant::now() + Duration::from_secs(REFRESH_MARGIN_S) < *until {
+            return Ok(tok.clone());
         }
     }
     let key = read_key(creds_file)?;
-    let uri = key.token_uri().to_owned();
-    let tok_err = |reason: String| GoogleAuthError::Token { uri: uri.clone(), reason };
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let jwt = assertion(&key, creds_file, scopes, now)?;
+    let iat = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let claims = Claims { iss: &key.client_email, scope, aud: &key.token_uri, iat, exp: iat + ASSERTION_LIFETIME_S };
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+    header.kid = key.private_key_id.clone().filter(|k| !k.is_empty());
+    let enc = jsonwebtoken::EncodingKey::from_rsa_pem(key.private_key.as_bytes()).map_err(|e| GoogleAuthError::Key(format!("private_key: {e}")))?;
+    let assertion = jsonwebtoken::encode(&header, &claims, &enc).map_err(|e| GoogleAuthError::Key(e.to_string()))?;
+    let asked = Instant::now();
     let resp = http
-        .post(&uri)
-        .form(&[("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"), ("assertion", jwt.as_str())])
+        .post(&key.token_uri)
+        .form(&[("grant_type", GRANT_TYPE), ("assertion", assertion.as_str())])
         .send()
         .await
-        .map_err(|e| tok_err(e.without_url().to_string()))?;
+        .map_err(|e| GoogleAuthError::Http(e.to_string()))?;
     let status = resp.status();
-    let body: Value = resp.json().await.unwrap_or(Value::Null);
+    let body = resp.text().await.map_err(|e| GoogleAuthError::Http(e.to_string()))?;
     if !status.is_success() {
-        let why = body
-            .get("error_description")
-            .or_else(|| body.get("error"))
-            .and_then(Value::as_str)
-            .unwrap_or("no reason given");
-        return Err(tok_err(format!("HTTP {}: {why}", status.as_u16())));
+        return Err(GoogleAuthError::Refused { status: status.as_u16(), body: body.chars().take(500).collect() });
     }
-    let token = body
-        .get("access_token")
-        .and_then(Value::as_str)
-        .filter(|t| !t.is_empty())
-        .ok_or_else(|| tok_err("answer has no access_token".into()))?
-        .to_owned();
-    let lifetime = body.get("expires_in").and_then(Value::as_u64).unwrap_or(ASSERTION_LIFETIME_S);
-    let renew_at = Instant::now() + Duration::from_secs(lifetime.saturating_sub(REFRESH_MARGIN_S));
-    cache().lock().unwrap_or_else(|p| p.into_inner()).insert(ck, Cached { token: token.clone(), renew_at });
-    Ok(token)
+    let t: TokenResponse = serde_json::from_str(&body).map_err(|e| GoogleAuthError::Http(format!("not a token answer: {e}")))?;
+    let until = asked + Duration::from_secs(t.expires_in.unwrap_or(ASSERTION_LIFETIME_S));
+    cache().lock().expect("token cache").insert(ck, (t.access_token.clone(), until));
+    Ok(t.access_token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_key_file_is_file_not_found() {
+        let e = read_key("/nonexistent/key.json").unwrap_err();
+        assert_eq!(e.py_kind(), "FileNotFoundError");
+    }
+
+    #[test]
+    fn a_key_file_of_another_type_is_refused() {
+        let dir = std::env::temp_dir().join(format!("google-auth-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("k.json");
+        std::fs::write(&p, r#"{"type":"authorized_user","private_key":"x","client_email":"a@b","token_uri":"http://127.0.0.1:9/token"}"#).unwrap();
+        let e = read_key(p.to_str().unwrap()).unwrap_err();
+        assert_eq!(e.py_kind(), "ValueError");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
